@@ -683,6 +683,7 @@ const ENGINE_FEATURE: Partial<Record<Engine, FeatureId>> = {
 export function VideoStudioPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const detachFailedGuidedStoryboard = useDiscardVideoStoryboard();
   const { data: me } = useGetMe();
   const requestUpgrade = useBillingRequestUpgrade();
 
@@ -6640,6 +6641,7 @@ export function VideoStudioPage() {
                       type="button"
                       variant="outline"
                       className="mt-3"
+                      disabled={detachFailedGuidedStoryboard.isPending}
                       onClick={() => {
                         if (!activeJob.guidedStoryDraftId) {
                           toast({
@@ -6650,18 +6652,40 @@ export function VideoStudioPage() {
                           });
                           return;
                         }
-                        setGuidedStoryEditRequest((current) => ({
-                          key: (current?.key ?? 0) + 1,
-                          draftId: activeJob.guidedStoryDraftId!,
-                        }));
-                        setEngine("guided_story");
-                        setActiveJobId(null);
-                        setBoardOpen(false);
-                        window.scrollTo({ top: 0, behavior: "smooth" });
+                        const draftId = activeJob.guidedStoryDraftId;
+                        detachFailedGuidedStoryboard.mutate(
+                          { jobId: activeJob.id },
+                          {
+                            onSuccess: async () => {
+                              await queryClient.invalidateQueries({
+                                queryKey: getGetGuidedStoryDraftQueryKey(draftId),
+                              });
+                              setGuidedStoryEditRequest((current) => ({
+                                key: (current?.key ?? 0) + 1,
+                                draftId,
+                              }));
+                              setEngine("guided_story");
+                              setActiveJobId(null);
+                              setBoardOpen(false);
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            },
+                            onError: (error) =>
+                              toast({
+                                title: "Could not reopen this story",
+                                description: apiErrorMessage(
+                                  error,
+                                  "Detach the failed storyboard and try again.",
+                                ),
+                                variant: "destructive",
+                              }),
+                          },
+                        );
                       }}
                       data-testid="button-edit-failed-guided-story"
                     >
-                      Edit story and rebuild storyboard
+                      {detachFailedGuidedStoryboard.isPending
+                        ? "Reopening story…"
+                        : "Edit story and rebuild storyboard"}
                     </Button>
                   </div>
                 )}

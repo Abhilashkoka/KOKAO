@@ -1303,6 +1303,7 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
     id: row.id,
     revision: row.revision,
     ...row.state,
+    visualChoices: row.state.visualChoices ?? emptyGuidedVisualChoices(),
     castOperations: undefined,
     referenceOperations: Object.values(row.state.referenceOperations ?? {}).map(
       ({
@@ -1319,6 +1320,14 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
     }),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function emptyGuidedVisualChoices(): NonNullable<GuidedStoryDraftState["visualChoices"]> {
+  return {
+    version: 1,
+    logo: { path: null, sceneIds: [] },
+    location: { mode: "none", imagePath: null, description: null },
   };
 }
 
@@ -2181,11 +2190,7 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     sceneInsertionGeneration: null,
     castOperations: {},
     referenceOperations: {},
-    visualChoices: {
-      version: 1,
-      logo: { path: null, sceneIds: [] },
-      location: { mode: "none", imagePath: null, description: null },
-    },
+    visualChoices: emptyGuidedVisualChoices(),
     storyboardJobId: null,
   };
   const row = (
@@ -2297,7 +2302,7 @@ router.patch(
     }
     const visualChoices = parsed.data.visualChoices
       ? validateGuidedVisualChoices(parsed.data.visualChoices, script, req.tenantId)
-      : row.state.visualChoices;
+      : row.state.visualChoices ?? emptyGuidedVisualChoices();
     if (!visualChoices) {
       res.status(400).json({
         error:
@@ -9830,6 +9835,55 @@ router.post(
 router.post(
   "/ai/video-jobs/:jobId/storyboard/discard",
   async (req: Request, res: Response) => {
+    const existing = await loadJob(req);
+    if (!existing) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const failedGuidedDraftId =
+      existing.status === "failed"
+        ? existing.options?.guidedStory?.draftId
+        : null;
+    if (failedGuidedDraftId) {
+      const draft = await loadGuidedDraft(req.tenantId, failedGuidedDraftId);
+      if (!draft) {
+        res.status(404).json({ error: "Guided Story draft not found." });
+        return;
+      }
+      if (draft.state.storyboardJobId === null) {
+        // A prior click may have completed the detach before navigation was
+        // interrupted. Treat that retry as success so the editor can reopen.
+        res.json(serializeVideoJob(existing));
+        return;
+      }
+      if (draft.state.storyboardJobId !== existing.id) {
+        res.status(400).json({
+          error: "This failed storyboard is no longer linked to its Guided Story draft.",
+        });
+        return;
+      }
+      const detached = await saveGuidedState(draft, draft.revision, {
+        ...draft.state,
+        visualChoices:
+          draft.state.visualChoices ?? emptyGuidedVisualChoices(),
+        cast: draft.state.cast.map((member) => ({
+          ...member,
+          consentGranted: false,
+        })),
+        storyboardJobId: null,
+      });
+      if (!detached) {
+        res.status(409).json({
+          error: "This story draft changed. Reload it and try again.",
+        });
+        return;
+      }
+      // The failed job is immutable history: detaching only releases the draft
+      // for a new attempt and does not refund or rewrite the old attempt.
+      res.json(serializeVideoJob(existing));
+      return;
+    }
+
     const loaded = await loadPausedJob(req, res);
     if (!loaded) return;
 
@@ -9896,6 +9950,8 @@ router.post(
             ...member,
             consentGranted: false,
           })),
+          visualChoices:
+            draft.state.visualChoices ?? emptyGuidedVisualChoices(),
           storyboardJobId: null,
         });
       }

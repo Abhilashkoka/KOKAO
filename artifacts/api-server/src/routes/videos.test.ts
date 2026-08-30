@@ -3382,6 +3382,35 @@ describe("guided story route fail-closed regressions", () => {
     expect(response.body.cast).toEqual([]);
   });
 
+  it("normalizes missing legacy visual choices while saving a script edit", async () => {
+    const tenant = await newTenant("pro");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const { visualChoices: _legacyMissing, ...legacyState } = draft.state;
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ state: legacyState })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    const script = structuredClone(draft.state.script!);
+    script.title = "A recovered legacy story";
+
+    const response = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({ revision: draft.revision, script });
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body.script.title).toBe("A recovered legacy story");
+    expect(response.body.visualChoices).toEqual({
+      version: 1,
+      logo: { path: null, sceneIds: [] },
+      location: { mode: "none", imagePath: null, description: null },
+    });
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.state.visualChoices).toEqual(response.body.visualChoices);
+  });
+
   async function guidedVoiceKit(tenant: TestTenant): Promise<number> {
     const kit = await createKit({
       tenantId: tenant.tenantId,
@@ -7959,6 +7988,101 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/approve", () => {
 });
 
 describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
+  it.each([
+    ["with saved visual choices", true],
+    ["without legacy visual choices", false],
+  ])("detaches a failed Guided Story %s and resets attempt consent", async (_label, withVisualChoices) => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const defaultVisualChoices: NonNullable<GuidedStoryDraftState["visualChoices"]> = {
+      version: 1,
+      logo: { path: null, sceneIds: [] },
+      location: { mode: "none", imagePath: null, description: null },
+    };
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: null,
+      script: null,
+      scriptApprovedAt: "2026-01-01T00:00:00.000Z",
+      userRoleId: null,
+      castStrategy: "saved",
+      cast: [{
+        roleId: "hero",
+        source: "saved",
+        characterId: 1,
+        outfitId: 1,
+        brandKitId: null,
+        voiceId: "stock:alloy",
+        character: {
+          name: "Test performer",
+          description: "A saved test character",
+          referenceImagePath: null,
+        },
+        outfit: null,
+        voice: {
+          id: "stock:alloy",
+          label: "Alloy",
+          provider: "stock",
+          providerVoiceId: null,
+        },
+        isUserRole: false,
+        consentGranted: true,
+      }],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      visualChoices: withVisualChoices ? defaultVisualChoices : undefined,
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId: tenant.tenantId, state })
+      .returning();
+    const [failedJob] = await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId: tenant.tenantId,
+        engine: "guided_story",
+        status: "failed",
+        error: "Storyboard provider failed.",
+        storyboard: storyboardFixture(tenant.tenantId),
+        options: {
+          guidedStory: {
+            draftId: draft!.id,
+            draftRevision: draft!.revision,
+          },
+        } as any,
+      })
+      .returning();
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...state,
+          storyboardJobId: failedJob!.id,
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${failedJob!.id}/storyboard/discard`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("failed");
+    expect(response.body.error).toBe("Storyboard provider failed.");
+    const restored = await request(app)
+      .get(`/api/ai/guided-story/drafts/${draft!.id}`);
+    expect(restored.body.storyboardJobId).toBeNull();
+    expect(restored.body.cast[0].consentGranted).toBe(false);
+    expect(restored.body.visualChoices).toEqual(defaultVisualChoices);
+    const historical = await readJob(failedJob!.id);
+    expect(historical.status).toBe("failed");
+    expect(historical.error).toBe("Storyboard provider failed.");
+    const retry = await request(app)
+      .post(`/api/ai/video-jobs/${failedJob!.id}/storyboard/discard`);
+    expect(retry.status).toBe(200);
+  });
+
   it("fails the job and gives credit funding back exactly once", async () => {
     const tenant = await newTenant("payg");
     await grantCredits({

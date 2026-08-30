@@ -6979,16 +6979,16 @@ paths:
     post:
       operationId: discardVideoStoryboard
       tags: [ai]
-      summary: Abandon a paused storyboard and refund its reservation
+      summary: Abandon a paused storyboard or detach a failed Guided Story attempt
       responses:
         "200":
-          description: The failed job, with its reservation returned
+          description: The historical job; paused attempts are failed and refunded, while failed Guided Story attempts are detached without rewriting history
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/VideoJob"
         "400":
-          description: Not awaiting review
+          description: Not awaiting review or not a linked failed Guided Story attempt
           content:
             application/json:
               schema:

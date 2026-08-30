@@ -18270,7 +18270,7 @@ export const getDiscardVideoStoryboardUrl = (jobId: number,) => {
 }
 
 /**
- * @summary Abandon a paused storyboard and refund its reservation
+ * @summary Abandon a paused storyboard or detach a failed Guided Story attempt
  */
 export const discardVideoStoryboard = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
 
@@ -18318,7 +18318,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DiscardVideoStoryboardMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Abandon a paused storyboard and refund its reservation
+ * @summary Abandon a paused storyboard or detach a failed Guided Story attempt
  */
 export const useDiscardVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof discardVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}

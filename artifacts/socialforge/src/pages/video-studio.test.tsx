@@ -67,6 +67,7 @@ const mockState: {
   featureFlags: Record<string, boolean> | undefined;
   retriedJobIds: number[];
   freshRestartedJobIds: number[];
+  discardedStoryboardJobIds: number[];
   repairedJobs: Array<{ jobId: number; reason: string }>;
   repairError: unknown;
   lastOutfitVars: any;
@@ -126,6 +127,7 @@ const mockState: {
   featureFlags: undefined,
   retriedJobIds: [],
   freshRestartedJobIds: [],
+  discardedStoryboardJobIds: [],
   repairedJobs: [],
   repairError: null,
   lastOutfitVars: null,
@@ -342,6 +344,23 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useListVideoJobs: () => ({ data: mockState.jobs }),
+    useDiscardVideoStoryboard: () => ({
+      isPending: false,
+      mutate: (vars: { jobId: number }, opts: any) => {
+        mockState.discardedStoryboardJobIds.push(vars.jobId);
+        if (mockState.guidedDraft) {
+          mockState.guidedDraft = {
+            ...mockState.guidedDraft,
+            storyboardJobId: null,
+            cast: (mockState.guidedDraft.cast ?? []).map((member: any) => ({
+              ...member,
+              consentGranted: false,
+            })),
+          };
+        }
+        opts?.onSuccess?.(mockState.activeJob);
+      },
+    }),
     useListVideoModels: () => ({ data: mockState.videoModels }),
     useGetGoogleDriveStatus: () => ({
       data: { connected: false, configured: true, redirectUri: "x", expired: false },
@@ -4953,6 +4972,8 @@ describe("Video Studio voice notes", () => {
     fireEvent.click(screen.getByTestId("job-card-11"));
     await userEvent.click(await screen.findByTestId("button-edit-failed-guided-story"));
 
+    expect(mockState.discardedStoryboardJobIds).toContain(11);
+    expect(mockState.guidedDraft.storyboardJobId).toBeNull();
     expect(await screen.findByTestId("guided-readable-script")).toBeTruthy();
     expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value)
       .toBe("The exact failed story");
