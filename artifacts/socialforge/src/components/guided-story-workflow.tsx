@@ -580,6 +580,8 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
   );
   const [file, setFile] = useState<File | null>(null);
   const [enlarged, setEnlarged] = useState(false);
+  const [customizing, setCustomizing] = useState(false);
+  const [customizationPrompt, setCustomizationPrompt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const reference = visuals?.backdropReference;
   const hasUnsavedBackdropEdits = !!file ||
@@ -590,9 +592,10 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
   const refresh = (next: GuidedStoryDraft) => {
     queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
   };
-  const prepareCandidate = async (regenerate = false) => {
+  const prepareCandidate = async (regenerate = false, promptOverride?: string) => {
     setError(null);
     try {
+      const approvedPrompt = (promptOverride ?? prompt).trim();
       let imagePath =
         visuals.location.mode === "image"
           ? visuals.location.imagePath
@@ -617,7 +620,7 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
         const generated = await generateImage.mutateAsync({
           data: {
             prompt: [
-              prompt.trim(),
+              approvedPrompt,
               "Create a clean shared location reference plate with no people, characters, text, logos, or scene-specific action.",
               "Keep the architecture, layout, materials, colors, landmarks, and environmental details clear so this exact location can remain consistent across every scene.",
             ].join("\n"),
@@ -631,7 +634,7 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
         draftId: draft.id,
         data: {
           revision: draft.revision,
-          prompt: prompt.trim(),
+          prompt: approvedPrompt,
           imagePath,
           sceneIds: draft.script?.scenes.map((scene) => scene.id) ?? [],
         },
@@ -656,12 +659,30 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" disabled={prepare.isPending || generateImage.isPending || prompt.trim().length < 3} onClick={() => void prepareCandidate()} data-testid="button-prepare-guided-backdrop">{prepare.isPending || generateImage.isPending ? (generateImage.isPending ? "Generating backdrop…" : "Preparing review…") : reference ? "Save backdrop review changes" : file || visuals.location.mode === "image" ? "Prepare backdrop review" : "Generate backdrop for review"}</Button>
-        {reference && <Button type="button" variant="outline" disabled={prepare.isPending || generateImage.isPending || prompt.trim().length < 3} onClick={() => void prepareCandidate(true)} data-testid="button-regenerate-guided-backdrop">Customize &amp; regenerate</Button>}
+        {reference && <Button type="button" variant="outline" disabled={prepare.isPending || generateImage.isPending} onClick={() => { setCustomizationPrompt(prompt); setCustomizing(true); }} data-testid="button-regenerate-guided-backdrop">Customize &amp; regenerate</Button>}
         <Button type="button" disabled={!reference || !!reference.approvedAt || approve.isPending || hasUnsavedBackdropEdits} onClick={() => reference && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: reference.fingerprint } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not approve this backdrop.")) })} data-testid="button-approve-guided-backdrop">{reference?.approvedAt ? "Backdrop approved" : approve.isPending ? "Approving…" : "Approve for all scenes"}</Button>
       </div>
       {hasUnsavedBackdropEdits && <p className="text-sm text-amber-700" role="status" data-testid="status-guided-backdrop-unsaved">Save backdrop review changes before approval.</p>}
       {!reference?.approvedAt && <p className="text-sm font-medium text-amber-700" role="status">Scene preview generation stays locked until this backdrop and the cast are approved.</p>}
       <Dialog open={enlarged} onOpenChange={setEnlarged}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>Shared backdrop reference</DialogTitle><DialogDescription>Inspect the exact frozen location plate before approving it.</DialogDescription></DialogHeader>{reference && <img src={`/api/storage${reference.imagePath}`} alt="Enlarged shared backdrop" className="mx-auto max-h-[70vh] max-w-full object-contain" data-testid="image-enlarged-guided-backdrop" />}</DialogContent></Dialog>
+      <Dialog open={customizing} onOpenChange={setCustomizing}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Customize this backdrop</DialogTitle>
+            <DialogDescription>Describe exactly what should change. The current image will remain the visual reference, and regeneration will not start until you confirm below.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="guided-backdrop-customization">Requested customization</Label>
+              <Textarea id="guided-backdrop-customization" value={customizationPrompt} onChange={(event) => setCustomizationPrompt(event.target.value)} placeholder="For example: Keep the room layout, change the walls to dark walnut, and use warm evening lighting." data-testid="input-guided-backdrop-customization" />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setCustomizing(false)}>Cancel</Button>
+              <Button type="button" disabled={customizationPrompt.trim().length < 3 || prepare.isPending || generateImage.isPending} onClick={() => { const approved = customizationPrompt.trim(); setPrompt(approved); setCustomizing(false); void prepareCandidate(true, approved); }} data-testid="button-confirm-guided-backdrop-regeneration">Generate customized backdrop</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </CardContent>
   </Card>;
 }

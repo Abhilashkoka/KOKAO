@@ -12,7 +12,7 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   requestedDraftIds: [],
   existingJob: null,
@@ -24,6 +24,7 @@ const state: { draft: any; requestedDraftIds: number[]; existingJob: any; create
   castApprovalRoles: {},
   updated: null,
   uploadError: null,
+  generatedImageRequest: null,
   enqueued: null,
   sceneRequest: null,
   sceneError: null,
@@ -167,6 +168,13 @@ vi.mock("@workspace/api-client-react", async () => {
         return { uploadURL: "http://upload", objectPath: "/objects/99/uploads/visual.png" };
       },
     }),
+    useGenerateImage: () => ({
+      isPending: false,
+      mutateAsync: async (vars: any) => {
+        state.generatedImageRequest = vars.data;
+        return { imagePath: "/objects/99/generated/custom-backdrop.png" };
+      },
+    }),
     useGenerateGuidedStoryDraftScene: () => ({
       isPending: false,
       reset: vi.fn(),
@@ -232,7 +240,7 @@ function renderWorkflow(options: {
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.uploadError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
@@ -881,6 +889,41 @@ describe("GuidedStoryWorkflow", () => {
     await waitFor(() => expect(
       (screen.getByTestId("button-approve-guided-backdrop") as HTMLButtonElement).disabled,
     ).toBe(false));
+  });
+
+  it("asks for customization approval before regenerating a backdrop", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: {
+        version: 1,
+        logo: { path: null, sceneIds: [] },
+        location: { mode: "image", imagePath: "/objects/99/uploads/visual.png", description: null },
+        backdropReference: {
+          version: 1,
+          prompt: "Warm desk scene",
+          imagePath: "/objects/99/uploads/visual.png",
+          sceneIds: ["s1"],
+          fingerprint: "b".repeat(64),
+          approvedAt: null,
+        },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(screen.getByTestId("button-regenerate-guided-backdrop"));
+    expect(screen.getByText("Customize this backdrop")).toBeTruthy();
+    expect(state.generatedImageRequest).toBeNull();
+
+    const customization = screen.getByTestId("input-guided-backdrop-customization");
+    await userEvent.clear(customization);
+    await userEvent.type(customization, "Keep the layout and add dark walnut walls.");
+    await userEvent.click(screen.getByTestId("button-confirm-guided-backdrop-regeneration"));
+
+    await waitFor(() => expect(state.generatedImageRequest).toMatchObject({
+      referenceImagePath: "/objects/99/uploads/visual.png",
+    }));
+    expect(state.generatedImageRequest.prompt).toContain("dark walnut walls");
   });
 
   it("saves text and uploaded image location choices and blocks enqueue until each change is saved", async () => {
