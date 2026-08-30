@@ -119,6 +119,13 @@ const storageState = vi.hoisted(() => ({
   failNext: false,
 }));
 const protectedRegion = { x: 0.2, y: 0.04, width: 0.6, height: 0.38 };
+
+async function persistReviewedRegion(characterId: number) {
+  await db
+    .update(charactersTable)
+    .set({ protectedRegion })
+    .where(eq(charactersTable.id, characterId));
+}
 vi.mock("../lib/characters", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/characters")>();
   const {
@@ -528,6 +535,39 @@ describe("POST /api/characters", () => {
 });
 
 describe("outfits", () => {
+  it("rejects outfit generation without a stored reviewed protected region", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "No region",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/no-region.png`,
+    });
+    const response = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Coat", description: "navy coat", protectedRegion });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/reviewed protected face region/i);
+    expect(genState.variantCalls).toHaveLength(0);
+  });
+
+  it("rejects a client protected region that differs from the stored reviewed region", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Reviewed",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/reviewed.png`,
+    });
+    await request(app).patch(`/api/characters/${created.body.id}`).send({ protectedRegion });
+    const response = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({
+        name: "Coat",
+        description: "navy coat",
+        protectedRegion: { ...protectedRegion, x: protectedRegion.x + 0.01 },
+      });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/exactly match/i);
+    expect(genState.variantCalls).toHaveLength(0);
+  });
+
   it("adds a costume variant and returns the updated character", async () => {
     const tenant = await newTenant();
     const created = await request(app)
@@ -536,6 +576,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     const res = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
       .send({ name: "Gym wear", description: "black leggings, teal top", protectedRegion });
@@ -597,6 +638,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     const generated = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
       .send({
@@ -635,6 +677,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
     billingState.settleFails = true;
 
@@ -666,6 +709,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
     genState.failPreservationAfterProvider = true;
 
@@ -696,6 +740,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
     billingState.successPersistenceFails = true;
 
@@ -717,6 +762,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
     storageState.failNext = true;
 
@@ -739,6 +785,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
     billingState.settleFails = true;
     const realInsert = db.insert.bind(db);
@@ -775,6 +822,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
     billingState.recordFails = true;
 
@@ -796,6 +844,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     await grantCredits({
       tenantId: tenant.tenantId,
       captionCredits: 0,
@@ -839,6 +888,7 @@ describe("outfits", () => {
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
       });
+    await persistReviewedRegion(created.body.id);
     const withOutfit = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
       .send({ name: "Gym wear", description: "black leggings", protectedRegion });

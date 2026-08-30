@@ -5964,6 +5964,105 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/guided-references/{roleId}/finalize:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: roleId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: finalizeGuidedStoryReference
+      tags: [ai]
+      summary: Finalize one approved character and outfit reference across a Guided Story
+      description: >-
+        Revision-checks and atomically replaces the role in the tenant-owned
+        draft and immutable job snapshot. Every scene is rebuilt from that new
+        snapshot; previews whose reference fingerprint changed are invalidated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryReferenceFinalizationInput"
+      responses:
+        "200":
+          description: Updated job with all scenes rebuilt from the finalized references
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Reference is unapproved, incomplete, or replacement was not confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Tenant-owned job, draft, character, outfit, or role not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale revision, active reference/preview work, or storyboard no longer reviewable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/guided-references/{roleId}/operations:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: roleId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: startGuidedStoryReferenceOperation
+      tags: [ai]
+      summary: Start a durable Guided Story reference operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuidedStoryReferenceOperationStartInput" }
+      responses:
+        "200":
+          description: Durable operation was claimed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoJob" }
+        "409":
+          description: Stale revision or an operation is already active
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      operationId: completeGuidedStoryReferenceOperation
+      tags: [ai]
+      summary: Record a Guided Story reference operation transition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuidedStoryReferenceOperationCompleteInput" }
+      responses:
+        "200":
+          description: Durable operation result was saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoJob" }
+        "409":
+          description: Stale revision or operation key mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /ai/script-intake:
     post:
       operationId: analyzeScriptIntake
@@ -16745,6 +16844,41 @@ components:
           maxItems: 4
           items:
             $ref: "#/components/schemas/GuidedStoryCastAssignmentInput"
+    GuidedStoryReferenceFinalizationInput:
+      type: object
+      additionalProperties: false
+      required: [revision, characterId, outfitId, replaceCharacterConfirmed]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        characterId: { type: integer, minimum: 1 }
+        outfitId: { type: integer, minimum: 1 }
+        replaceCharacterConfirmed:
+          type: boolean
+          description: >-
+            Must be true when characterId differs from the finalized role.
+            This prevents an uploaded identity from being silently replaced.
+    GuidedStoryReferenceOperationStartInput:
+      type: object
+      additionalProperties: false
+      required: [revision, kind]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        kind: { type: string, enum: [character, outfit] }
+    GuidedStoryReferenceOperationCompleteInput:
+      type: object
+      additionalProperties: false
+      required: [revision, operationKey, state]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        operationKey: { type: string, minLength: 1, maxLength: 200 }
+        state: { type: string, enum: [running, ready_to_review, failed, outcome_unknown] }
+        manualReconciliation:
+          type: boolean
+          default: false
+          description: Explicit recovery after receipt inspection; running work is time-gated.
+        characterId: { type: ["integer", "null"], minimum: 1 }
+        outfitId: { type: ["integer", "null"], minimum: 1 }
+        error: { type: ["string", "null"], maxLength: 500 }
     GuidedStoryCastSnapshot:
       type: object
       required: [roleId, source, characterId, outfitId, brandKitId, voiceId, character, outfit, voice, isUserRole, consentGranted]
@@ -17806,7 +17940,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedReferenceContext, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -17833,6 +17967,27 @@ components:
             type: string
         aspectRatio:
           type: string
+        guidedReferenceContext:
+          type: ["object", "null"]
+          description: Revision identity for inline Guided Story reference finalization.
+          required: [draftId, revision]
+          properties:
+            draftId: { type: integer }
+            revision: { type: integer }
+            operations:
+              type: object
+              additionalProperties:
+                type: object
+                required: [revision, operationKey, kind, state, updatedAt]
+                properties:
+                  revision: { type: integer }
+                  operationKey: { type: string }
+                  kind: { type: string, enum: [character, outfit] }
+                  state: { type: string, enum: [queued, running, ready_to_review, failed, outcome_unknown] }
+                  characterId: { type: ["integer", "null"] }
+                  outfitId: { type: ["integer", "null"] }
+                  error: { type: ["string", "null"] }
+                  updatedAt: { type: string, format: date-time }
         modelId:
           type: ["string", "null"]
           description: >-

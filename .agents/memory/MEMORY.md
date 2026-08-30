@@ -132,7 +132,7 @@
 - [Privacy-safe video recovery](privacy-safe-video-recovery.md) — exact policy-code handling; generated scenes may recover once with funded replacement, identity inputs always fail closed.
 - [Preset character identities](preset-character-identities.md) — global identities are revisioned; outfit derivatives are tenant-owned; every job freezes identity, outfit, voice, and language.
 - [Job error identifiers](job-error-identifiers.md) — user-facing generation errors should include the relevant job number whenever one exists.
-- [Guided cast checkpoints](guided-cast-checkpoints.md) — generated cast assets use fail-closed per-role checkpoints; uncertain provider outcomes never refund/retry, successful work resumes.
+- [Guided cast checkpoints](guided-cast-checkpoints.md) — persist running before provider dispatch; recover only after timeout/receipt checks; derived outfits use server-owned identity regions.
 - [AI draft finalization claims](ai-draft-finalization-claims.md) — wall-clock expiry is unsafe after provider success; recover only from terminal funding state with a stored usable result.
 - [Dynamic voice catalogs](dynamic-voice-catalogs.md) — provider voice lists must bypass browser caches and refetch on mount; an empty outage response must not persist.
 - [Guided preview fingerprints](guided-preview-fingerprints.md) — jsonb key reordering breaks old order-sensitive hashes; compare immutable inputs structurally and preserve stored fingerprints.

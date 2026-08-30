@@ -26,7 +26,11 @@ import {
   useCreateCharacter,
   useDeleteCharacter,
   useCreateCharacterOutfit,
+  useUpdateCharacterOutfit,
   useDeleteCharacterOutfit,
+  useFinalizeGuidedStoryReference,
+  useStartGuidedStoryReferenceOperation,
+  useCompleteGuidedStoryReferenceOperation,
   useSearchMusicLibrary,
   useImportLibraryMusic,
   useGenerateHooks,
@@ -8487,7 +8491,7 @@ function StoryboardReview({
                           : "Story"}
                   </Badge>
                 )}
-                {scene.guidedStory && <GuidedStorySceneDetails scene={scene} />}
+                {scene.guidedStory && <GuidedStorySceneDetails scene={scene} job={job} />}
                 {characterDialogue || guidedStoryboard ? (
                   <div
                     className="rounded-md border border-border bg-background px-3 py-2"
@@ -8770,7 +8774,7 @@ function StoryboardReview({
           >
             {correctionSceneId && (() => {
               const scene = storyboard.scenes.find((item) => item.id === correctionSceneId);
-              return scene?.guidedStory ? <GuidedStorySceneDetails scene={scene} /> : null;
+              return scene?.guidedStory ? <GuidedStorySceneDetails scene={scene} job={job} /> : null;
             })()}
             <div className="space-y-3">
               <div className="space-y-1.5">
@@ -9103,14 +9107,285 @@ function StoryboardReview({
   );
 }
 
-function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
+function GuidedStorySceneDetails({
+  scene,
+  job,
+}: {
+  scene: VideoStoryboardScene;
+  job: VideoJob;
+}) {
   const guided = scene.guidedStory;
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: characters } = useListCharacters();
+  const createCharacter = useCreateCharacter();
+  const createOutfit = useCreateCharacterOutfit();
+  const updateOutfit = useUpdateCharacterOutfit();
+  const finalizeReference = useFinalizeGuidedStoryReference();
+  const startReferenceOperation = useStartGuidedStoryReferenceOperation();
+  const completeReferenceOperation = useCompleteGuidedStoryReferenceOperation();
+  const requestUploadUrl = useRequestUploadUrl();
+  const [editing, setEditing] = useState<{ roleId: string; kind: "character" | "outfit" } | null>(null);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
+  const [selectedOutfitId, setSelectedOutfitId] = useState<number | null>(null);
+  const [description, setDescription] = useState("");
+  const [name, setName] = useState("");
+  const [replacementConfirmed, setReplacementConfirmed] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [referenceState, setReferenceState] = useState<
+    "finalized" | "queued" | "running" | "ready" | "failed" | "uncertain"
+  >("finalized");
+  const [referenceError, setReferenceError] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
   const [enlargedReference, setEnlargedReference] = useState<{
     src: string;
     alt: string;
     title: string;
   } | null>(null);
   if (!guided) return null;
+  const editableCharacters = (characters ?? []).filter(
+    (character): character is Character & { id: number } =>
+      typeof character.id === "number",
+  );
+  const selectedCharacter = editableCharacters.find(
+    (character) => character.id === selectedCharacterId,
+  );
+  const selectedOutfit = selectedCharacter?.outfits.find(
+    (outfit) => outfit.id === selectedOutfitId,
+  );
+  const durableOperation = editing
+    ? job.guidedReferenceContext?.operations?.[editing.roleId]
+    : undefined;
+  const runningReconciliationAvailable =
+    durableOperation?.state === "running" &&
+    Date.now() - new Date(durableOperation.updatedAt).getTime() >= 15 * 60 * 1000;
+  const refreshJobs = (updated: VideoJob) => {
+    queryClient.setQueryData(getGetVideoJobQueryKey(updated.id), updated);
+    queryClient.setQueryData<VideoJob[]>(getListVideoJobsQueryKey(), (old) =>
+      old?.map((item) => (item.id === updated.id ? updated : item)),
+    );
+  };
+  const openEditor = (
+    roleId: string,
+    kind: "character" | "outfit",
+    characterId: number | null,
+    outfitId: number | null,
+  ) => {
+    setEditing({ roleId, kind });
+    setSelectedCharacterId(characterId);
+    setSelectedOutfitId(outfitId);
+    setName("");
+    setDescription("");
+    setReplacementConfirmed(false);
+    const operation = job.guidedReferenceContext?.operations?.[roleId];
+    setReferenceState(
+      operation?.state === "ready_to_review"
+        ? "ready"
+        : operation?.state === "outcome_unknown"
+          ? "uncertain"
+          : operation?.state === "failed"
+            ? "failed"
+            : operation?.state === "running"
+              ? "running"
+              : operation?.state === "queued"
+                ? "queued"
+              : "finalized",
+    );
+    setReferenceError(operation?.error ?? null);
+  };
+  const createInlineCharacter = (sourceImagePath: string | null = null) => {
+    if (!editing || !job.guidedReferenceContext) return;
+    setReferenceState("queued");
+    setReferenceError(null);
+    startReferenceOperation.mutate({
+      jobId: job.id,
+      roleId: editing.roleId,
+      data: { revision: job.guidedReferenceContext.revision, kind: "character" },
+    }, {
+      onSuccess: (operationJob) => {
+        refreshJobs(operationJob);
+        const operation = operationJob.guidedReferenceContext?.operations?.[editing.roleId];
+        if (!operation) return;
+        completeReferenceOperation.mutate({
+          jobId: job.id,
+          roleId: editing.roleId,
+          data: {
+            revision: operationJob.guidedReferenceContext!.revision,
+            operationKey: operation.operationKey,
+            state: "running",
+            characterId: null,
+            outfitId: null,
+            error: null,
+            manualReconciliation: false,
+          },
+        }, {
+          onSuccess: (runningJob) => {
+            refreshJobs(runningJob);
+        createCharacter.mutate(
+      {
+        data: {
+          name: name.trim(),
+          description: description.trim() || null,
+          sourceImagePath,
+        },
+      },
+      {
+        onSuccess: (created) => {
+          void queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
+          setSelectedCharacterId(Number(created.id));
+          setSelectedOutfitId(created.outfits.find((outfit) => outfit.isDefault)?.id ?? null);
+          setReplacementConfirmed(false);
+          setReferenceState("ready");
+          completeReferenceOperation.mutate({
+            jobId: job.id, roleId: editing.roleId,
+            data: { revision: operationJob.guidedReferenceContext!.revision, operationKey: operation.operationKey, state: "ready_to_review", characterId: Number(created.id), outfitId: created.outfits.find((outfit) => outfit.isDefault)?.id ?? null, error: null },
+          }, { onSuccess: refreshJobs });
+          toast({
+            title: sourceImagePath ? "Photo ready to review" : "Character preview ready",
+            description: "It is not used by any scene until you finalize it.",
+          });
+        },
+        onError: (error: any) => {
+          const uncertain = Number(error?.status) >= 500;
+          setReferenceState(uncertain ? "uncertain" : "failed");
+          setReferenceError(
+            uncertain
+              ? "The provider outcome may be uncertain. Funding remains protected; do not retry until the operation is reconciled."
+              : error?.message ?? "Generation failed. Review the input and retry explicitly.",
+          );
+          completeReferenceOperation.mutate({
+            jobId: job.id, roleId: editing.roleId,
+            data: { revision: operationJob.guidedReferenceContext!.revision, operationKey: operation.operationKey, state: uncertain ? "outcome_unknown" : "failed", characterId: null, outfitId: null, error: error?.message ?? "Character generation failed." },
+          }, { onSuccess: refreshJobs });
+          toast({
+            title: "Could not create the character preview",
+            description: error?.message ?? "Please try again.",
+            variant: "destructive",
+          });
+        },
+      },
+        );
+          },
+          onError: (error: any) => {
+            setReferenceState("failed");
+            setReferenceError(error?.message ?? "Provider work was not started because the running checkpoint could not be saved.");
+          },
+        });
+      },
+      onError: (error: any) => {
+        setReferenceState("failed");
+        setReferenceError(error?.message ?? "Could not reserve durable reference work.");
+      },
+    });
+  };
+  const uploadReplacement = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!replacementConfirmed) {
+      toast({
+        title: "Confirm replacement first",
+        description: "The current uploaded photo remains canonical until you explicitly confirm.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!IMAGE_TYPES.includes(file.type) || file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "Unsupported photo",
+        description: "Use a PNG, JPEG, or WebP image under 10 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const target = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const response = await fetch(target.uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!response.ok) throw new Error(`Upload failed (${response.status})`);
+      createInlineCharacter(target.objectPath);
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      if (uploadRef.current) uploadRef.current.value = "";
+    }
+  };
+  const createInlineOutfit = () => {
+    if (!editing || !job.guidedReferenceContext || !selectedCharacter || selectedCharacterId == null) return;
+    setReferenceState("queued");
+    setReferenceError(null);
+    startReferenceOperation.mutate({
+      jobId: job.id, roleId: editing.roleId,
+      data: { revision: job.guidedReferenceContext.revision, kind: "outfit" },
+    }, {
+      onSuccess: (operationJob) => {
+        refreshJobs(operationJob);
+        const operation = operationJob.guidedReferenceContext?.operations?.[editing.roleId];
+        if (!operation) return;
+        completeReferenceOperation.mutate({
+          jobId: job.id,
+          roleId: editing.roleId,
+          data: {
+            revision: operationJob.guidedReferenceContext!.revision,
+            operationKey: operation.operationKey,
+            state: "running",
+            characterId: selectedCharacterId,
+            outfitId: null,
+            error: null,
+            manualReconciliation: false,
+          },
+        }, {
+          onSuccess: (runningJob) => {
+            refreshJobs(runningJob);
+        createOutfit.mutate({
+          characterId: selectedCharacterId,
+          data: { name: name.trim(), description: description.trim(), protectedRegion: selectedCharacter.protectedRegion! },
+        }, {
+          onSuccess: (updated) => {
+            const preview = [...updated.outfits].reverse().find(
+              (item) => !item.isDefault && item.name === name.trim(),
+            );
+            setSelectedOutfitId(preview?.id ?? null);
+            setReferenceState("ready");
+            void queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
+            completeReferenceOperation.mutate({
+              jobId: job.id, roleId: editing.roleId,
+              data: { revision: operationJob.guidedReferenceContext!.revision, operationKey: operation.operationKey, state: "ready_to_review", characterId: selectedCharacterId, outfitId: preview?.id ?? null, error: null },
+            }, { onSuccess: refreshJobs });
+          },
+          onError: (error: any) => {
+            const uncertain = Number(error?.status) >= 500;
+            setReferenceState(uncertain ? "uncertain" : "failed");
+            setReferenceError(uncertain ? "The provider outcome is uncertain. Do not retry until funding and the provider receipt are reconciled." : error?.message ?? "Costume generation failed. Retry explicitly.");
+            completeReferenceOperation.mutate({
+              jobId: job.id, roleId: editing.roleId,
+              data: { revision: operationJob.guidedReferenceContext!.revision, operationKey: operation.operationKey, state: uncertain ? "outcome_unknown" : "failed", characterId: selectedCharacterId, outfitId: null, error: error?.message ?? "Costume generation failed." },
+            }, { onSuccess: refreshJobs });
+          },
+        });
+          },
+          onError: (error: any) => {
+            setReferenceState("failed");
+            setReferenceError(error?.message ?? "Provider work was not started because the running checkpoint could not be saved.");
+          },
+        });
+      },
+      onError: (error: any) => {
+        setReferenceState("failed");
+        setReferenceError(error?.message ?? "Could not reserve durable costume work.");
+      },
+    });
+  };
   const visuals = guided.visuals ?? {
     logoPath: null,
     locationMode: "none" as const,
@@ -9187,6 +9462,451 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
                 </button>
               )}
             </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  openEditor(
+                    member.roleId,
+                    "character",
+                    member.characterId,
+                    member.outfitId,
+                  )
+                }
+                data-testid={`button-redefine-guided-character-${scene.id}-${member.roleId}`}
+              >
+                Redefine character
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  openEditor(
+                    member.roleId,
+                    "outfit",
+                    member.characterId,
+                    member.outfitId,
+                  )
+                }
+                data-testid={`button-redefine-guided-outfit-${scene.id}-${member.roleId}`}
+              >
+                Redefine costume
+              </Button>
+            </div>
+            {editing?.roleId === member.roleId && (
+              <div
+                className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-3"
+                data-testid={`guided-reference-editor-${scene.id}-${member.roleId}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium">
+                    {editing.kind === "character" ? "Character reference" : "Costume reference"}
+                  </p>
+                  <Badge variant="outline" data-testid={`status-guided-reference-${scene.id}-${member.roleId}`}>
+                    {finalizeReference.isPending
+                      ? "Finalizing"
+                      : createCharacter.isPending || createOutfit.isPending
+                        ? "Generating"
+                        : referenceState === "queued"
+                          ? "Queued"
+                          : referenceState === "running"
+                            ? "Running"
+                          : referenceState === "failed"
+                            ? "Failed"
+                            : referenceState === "uncertain"
+                              ? "Uncertain"
+                              : referenceState === "ready"
+                                ? "Ready to review"
+                        : selectedCharacter
+                          ? selectedOutfit?.status === "preview"
+                            ? "Ready to review"
+                            : "Ready to finalize"
+                          : "Finalized"}
+                  </Badge>
+                </div>
+                {referenceError && (
+                  <p
+                    className="text-destructive"
+                    role="alert"
+                    data-testid={`status-guided-reference-error-${scene.id}-${member.roleId}`}
+                  >
+                    {referenceError}
+                  </p>
+                )}
+                {durableOperation &&
+                  (["queued", "outcome_unknown"].includes(durableOperation.state) ||
+                    runningReconciliationAvailable) && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const receiptInspectionRequired =
+                            durableOperation.state === "outcome_unknown" ||
+                            durableOperation.state === "running";
+                          completeReferenceOperation.mutate({
+                            jobId: job.id,
+                            roleId: member.roleId,
+                            data: {
+                              revision: job.guidedReferenceContext!.revision,
+                              operationKey: durableOperation.operationKey,
+                              state: "failed",
+                              characterId: durableOperation.characterId ?? null,
+                              outfitId: durableOperation.outfitId ?? null,
+                              error: receiptInspectionRequired
+                                ? "Manually reconciled after an uncertain provider outcome."
+                                : "Interrupted before a provider result was recorded; safe to retry.",
+                              manualReconciliation: true,
+                            },
+                          }, {
+                            onSuccess: (updated) => {
+                              refreshJobs(updated);
+                              setReferenceState("failed");
+                              setReferenceError(
+                                receiptInspectionRequired
+                                  ? "Reconciled as terminal. Check Character Library before an explicit retry."
+                                  : "Interrupted operation recovered. You may explicitly retry now.",
+                              );
+                            },
+                          });
+                        }}
+                        data-testid={`button-reconcile-guided-reference-${scene.id}-${member.roleId}`}
+                      >
+                        {durableOperation.state === "outcome_unknown" ||
+                        durableOperation.state === "running"
+                          ? "Reconcile uncertain outcome"
+                          : "Resume safely"}
+                      </Button>
+                      <p className="text-muted-foreground">
+                        {durableOperation.state === "outcome_unknown" ||
+                        durableOperation.state === "running"
+                          ? "This never retries a provider call automatically; check the Character Library receipt first."
+                          : "The interrupted claim is terminally recovered before any explicit retry."}
+                      </p>
+                    </div>
+                  )}
+                {durableOperation?.state === "running" && (
+                  <p className="text-muted-foreground" role="status">
+                    Provider work is running. Recovery is locked to prevent a second billable call.
+                    Manual reconciliation becomes available only after the conservative server timeout
+                    and Character Library receipt inspection.
+                  </p>
+                )}
+                <p className="text-muted-foreground">
+                  The current reference stays locked across every scene until you explicitly
+                  finalize an approved replacement.
+                </p>
+                <div className="space-y-1">
+                  <Label htmlFor={`guided-character-${scene.id}-${member.roleId}`}>
+                    Approved character
+                  </Label>
+                  <Select
+                    value={selectedCharacterId == null ? undefined : String(selectedCharacterId)}
+                    onValueChange={(value) => {
+                      const character = editableCharacters.find(
+                        (item) => item.id === Number(value),
+                      );
+                      setSelectedCharacterId(Number(value));
+                      setSelectedOutfitId(
+                        character?.outfits.find((outfit) => outfit.isDefault)?.id ?? null,
+                      );
+                      setReplacementConfirmed(false);
+                    }}
+                  >
+                    <SelectTrigger
+                      id={`guided-character-${scene.id}-${member.roleId}`}
+                      data-testid={`select-guided-character-${scene.id}-${member.roleId}`}
+                    >
+                      <SelectValue placeholder="Choose from Character Library" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {editableCharacters.map((character) => (
+                        <SelectItem key={character.id} value={String(character.id)}>
+                          {character.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {selectedCharacter && (
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEnlargedReference({
+                          src: servedCharacterImage(selectedCharacter.referenceImagePath) ?? "",
+                          alt: `${selectedCharacter.name} proposed character reference`,
+                          title: `${selectedCharacter.name} proposed character`,
+                        })
+                      }
+                      data-testid={`button-enlarge-guided-proposed-character-${scene.id}-${member.roleId}`}
+                    >
+                      <img
+                        src={servedCharacterImage(selectedCharacter.referenceImagePath)}
+                        alt={`${selectedCharacter.name} proposed character reference`}
+                        className="h-36 w-24 rounded-md border border-border object-cover"
+                      />
+                    </button>
+                    <div className="min-w-[12rem] flex-1 space-y-1">
+                      <Label htmlFor={`guided-outfit-${scene.id}-${member.roleId}`}>
+                        Approved outfit
+                      </Label>
+                      <Select
+                        value={selectedOutfitId == null ? undefined : String(selectedOutfitId)}
+                        onValueChange={(value) => setSelectedOutfitId(Number(value))}
+                      >
+                        <SelectTrigger
+                          id={`guided-outfit-${scene.id}-${member.roleId}`}
+                          data-testid={`select-guided-outfit-${scene.id}-${member.roleId}`}
+                        >
+                          <SelectValue placeholder="Choose an outfit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {selectedCharacter.outfits
+                            .filter(
+                              (outfit) =>
+                                outfit.isDefault ||
+                                (outfit.status === "approved" &&
+                                  outfit.identityVerified === true),
+                            )
+                            .map((outfit) => (
+                              <SelectItem key={outfit.id} value={String(outfit.id)}>
+                                {outfit.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedOutfit && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEnlargedReference({
+                              src: servedCharacterImage(selectedOutfit.referenceImagePath) ?? "",
+                              alt: `${selectedCharacter.name} proposed outfit reference`,
+                              title: `${selectedCharacter.name} proposed outfit`,
+                            })
+                          }
+                          data-testid={`button-enlarge-guided-proposed-outfit-${scene.id}-${member.roleId}`}
+                        >
+                          <img
+                            src={servedCharacterImage(selectedOutfit.referenceImagePath)}
+                            alt={`${selectedCharacter.name} proposed outfit reference`}
+                            className="mt-2 h-36 w-24 rounded-md border border-border object-cover"
+                          />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input
+                    value={name}
+                    maxLength={80}
+                    placeholder={editing.kind === "character" ? "Reference name" : "Outfit name"}
+                    onChange={(event) => setName(event.target.value)}
+                    data-testid={`input-guided-reference-name-${scene.id}-${member.roleId}`}
+                  />
+                  <Input
+                    value={description}
+                    maxLength={1000}
+                    placeholder={
+                      editing.kind === "character"
+                        ? "Describe a wholly fictional character"
+                        : "Describe the new costume"
+                    }
+                    onChange={(event) => setDescription(event.target.value)}
+                    data-testid={`input-guided-reference-description-${scene.id}-${member.roleId}`}
+                  />
+                </div>
+                {editing.kind === "character" ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={
+                          name.trim().length === 0 ||
+                          description.trim().length < 3 ||
+                          createCharacter.isPending
+                        }
+                        onClick={() => createInlineCharacter()}
+                        data-testid={`button-generate-guided-character-${scene.id}-${member.roleId}`}
+                      >
+                        Generate fictional preview
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={!replacementConfirmed || uploading}
+                        onClick={() => uploadRef.current?.click()}
+                        data-testid={`button-upload-guided-character-${scene.id}-${member.roleId}`}
+                      >
+                        Upload replacement
+                      </Button>
+                    </div>
+                    <label className="flex items-center gap-2">
+                      <Checkbox
+                        checked={replacementConfirmed}
+                        onCheckedChange={(checked) =>
+                          setReplacementConfirmed(checked === true)
+                        }
+                        data-testid={`checkbox-confirm-guided-character-replacement-${scene.id}-${member.roleId}`}
+                      />
+                      I explicitly want to replace the current canonical character photo.
+                    </label>
+                    <input
+                      ref={uploadRef}
+                      className="hidden"
+                      type="file"
+                      accept={IMAGE_TYPES.join(",")}
+                      onChange={(event) => void uploadReplacement(event.target.files)}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={
+                        selectedCharacterId == null ||
+                        !selectedCharacter?.protectedRegion ||
+                        name.trim().length === 0 ||
+                        description.trim().length < 3 ||
+                        createOutfit.isPending
+                      }
+                      onClick={createInlineOutfit}
+                      data-testid={`button-generate-guided-outfit-${scene.id}-${member.roleId}`}
+                    >
+                      Generate face-preserving preview
+                    </Button>
+                    {selectedCharacter && !selectedCharacter.protectedRegion && (
+                      <p className="text-destructive">
+                        A reviewed protected face region is required before a costume can be generated.
+                      </p>
+                    )}
+                    {selectedOutfit?.status === "preview" && (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            if (selectedCharacterId == null) return;
+                            updateOutfit.mutate(
+                              {
+                                characterId: selectedCharacterId,
+                                outfitId: selectedOutfit.id,
+                                data: { status: "approved" },
+                              },
+                              {
+                                onSuccess: () =>
+                                  void queryClient.invalidateQueries({
+                                    queryKey: getListCharactersQueryKey(),
+                                  }),
+                              },
+                            );
+                          }}
+                          data-testid={`button-approve-guided-outfit-${scene.id}-${member.roleId}`}
+                        >
+                          Approve preview
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            if (selectedCharacterId == null) return;
+                            updateOutfit.mutate(
+                              {
+                                characterId: selectedCharacterId,
+                                outfitId: selectedOutfit.id,
+                                data: { status: "rejected" },
+                              },
+                              {
+                                onSuccess: () => {
+                                  setSelectedOutfitId(null);
+                                  void queryClient.invalidateQueries({
+                                    queryKey: getListCharactersQueryKey(),
+                                  });
+                                },
+                              },
+                            );
+                          }}
+                          data-testid={`button-reject-guided-outfit-${scene.id}-${member.roleId}`}
+                        >
+                          Reject preview
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    disabled={
+                      !job.guidedReferenceContext ||
+                      selectedCharacterId == null ||
+                      selectedOutfitId == null ||
+                      selectedOutfit?.status === "preview" ||
+                      finalizeReference.isPending ||
+                      (selectedCharacterId !== member.characterId && !replacementConfirmed)
+                    }
+                    onClick={() => {
+                      if (
+                        !job.guidedReferenceContext ||
+                        selectedCharacterId == null ||
+                        selectedOutfitId == null
+                      ) return;
+                      finalizeReference.mutate(
+                        {
+                          jobId: job.id,
+                          roleId: member.roleId,
+                          data: {
+                            revision: job.guidedReferenceContext.revision,
+                            characterId: selectedCharacterId,
+                            outfitId: selectedOutfitId,
+                            replaceCharacterConfirmed: replacementConfirmed,
+                          },
+                        },
+                        {
+                          onSuccess: (updated) => {
+                            refreshJobs(updated);
+                            setEditing(null);
+                            setReferenceState("finalized");
+                            toast({
+                              title: "References finalized across the story",
+                              description:
+                                "Affected previews were invalidated and must be regenerated from the new immutable snapshot.",
+                            });
+                          },
+                          onError: (error: any) =>
+                            toast({
+                              title: "Could not finalize references",
+                              description: error?.message ?? "Reload the draft and try again.",
+                              variant: "destructive",
+                            }),
+                        },
+                      );
+                    }}
+                    data-testid={`button-finalize-guided-reference-${scene.id}-${member.roleId}`}
+                  >
+                    Finalize across every scene
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setEditing(null)}
+                    data-testid={`button-cancel-guided-reference-${scene.id}-${member.roleId}`}
+                  >
+                    Keep current references
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

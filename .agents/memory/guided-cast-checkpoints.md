@@ -18,3 +18,15 @@ A Guided Story draft may detach and re-approve a linked attempt only when the jo
 **Why:** Provider failure before storyboard creation leaves no paid visual checkpoint to preserve, but treating that dead link as an active review strands the durable script.
 
 **How to apply:** Verify the linked job belongs to the same tenant, is failed, and has a null storyboard before clearing the link during approval; fail closed for missing jobs, active jobs, review jobs, or failed jobs that retained a storyboard.
+
+Inline cast-reference work must persist `queued` before any provider dispatch and then persist `running` successfully before the provider call begins. A queued claim is therefore safe to cancel after reload; a running claim is not reconcilable until a guard comfortably longer than the provider timeout has elapsed, and uncertain outcomes require explicit receipt inspection before retry.
+
+**Why:** If “queued” can overlap live provider work, a recovery click can mark it failed while the original request is still billable, enabling duplicate work and charges.
+
+**How to apply:** Keep finalization and storyboard approval blocked for queued, running, or outcome-unknown operations. Rebuild every affected scene from finalized references and invalidate previews whose structural fingerprint changes.
+
+Protected-region and canonical-reference equality are mandatory for generated outfit derivatives, using only the character’s stored reviewed region. Immutable default outfits are exempt because they are the character’s original approved reference rather than a masked derivative.
+
+**Why:** Trusting caller-supplied face rectangles lets clients self-attest identity preservation, while requiring derivative metadata on default outfits breaks ordinary saved-character selection.
+
+**How to apply:** Reject derived outfit generation when the stored reviewed region is absent or differs from the request; recheck the stored region and canonical source during Guided finalization, but allow valid default outfits without derivative metadata.

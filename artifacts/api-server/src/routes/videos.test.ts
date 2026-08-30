@@ -3794,6 +3794,247 @@ describe("guided story route fail-closed regressions", () => {
     expect(runnerState.resumed).not.toContain(job!.id);
   });
 
+  it("atomically finalizes a tenant reference across the immutable draft and every affected scene", async () => {
+    const tenant = await newTenant("pro");
+    const script = routeScript();
+    const cast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved" as const,
+      characterId: index + 100,
+      outfitId: index + 200,
+      brandKitId: null,
+      voiceId: `voice-${index}`,
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/original-${index}.png`,
+      },
+      outfit: {
+        name: "Original",
+        description: "Original wardrobe",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/original-outfit-${index}.png`,
+      },
+      voice: {
+        id: `voice-${index}`,
+        label: `Voice ${index}`,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: index === 0,
+      consentGranted: true,
+    }));
+    const approvedAt = "2025-01-01T00:00:00.000Z";
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: null,
+      script,
+      scriptApprovedAt: approvedAt,
+      userRoleId: script.roles[0]!.id,
+      castStrategy: "saved",
+      cast,
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    const [draft] = await db.insert(guidedStoryDraftsTable).values({
+      tenantId: tenant.tenantId,
+      revision: 3,
+      state,
+    }).returning();
+    const snapshot = {
+      version: 1 as const,
+      draftId: draft!.id,
+      draftRevision: 3,
+      scriptApprovedAt: approvedAt,
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+      },
+      script,
+      cast,
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes.forEach((scene, index) => {
+      scene.previewPath = `/objects/${tenant.tenantId}/uploads/old-preview-${index}.png`;
+      scene.previewCheckpoint = {
+        targetPath: scene.previewPath,
+        status: "complete",
+      };
+    });
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "topic_to_video",
+      status: "awaiting_review",
+      funding: "quota",
+      options: { aspectRatio: "9:16", guidedStory: snapshot },
+      storyboard,
+    }).returning();
+    await db.update(guidedStoryDraftsTable).set({
+      state: { ...state, storyboardJobId: job!.id },
+    }).where(eq(guidedStoryDraftsTable.id, draft!.id));
+    const [character] = await db.insert(charactersTable).values({
+      tenantId: tenant.tenantId,
+      name: "Final Mina",
+      description: "Canonical replacement",
+      referenceImagePath: `/objects/${tenant.tenantId}/uploads/final-mina.png`,
+      protectedRegion: { x: 0.2, y: 0.05, width: 0.6, height: 0.35 },
+    }).returning();
+    const [outfit] = await db.insert(characterOutfitsTable).values({
+      tenantId: tenant.tenantId,
+      characterId: character!.id,
+      name: "Final jacket",
+      description: "Blue field jacket",
+      referenceImagePath: `/objects/${tenant.tenantId}/uploads/final-jacket.png`,
+      isDefault: true,
+      status: "approved",
+      identityVerified: true,
+    }).returning();
+
+    const started = await request(app)
+      .put(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+      .send({ revision: 3, kind: "outfit" });
+    expect(started.status).toBe(200);
+    const operation = started.body.guidedReferenceContext.operations[script.roles[0]!.id];
+    expect(operation).toMatchObject({ revision: 3, kind: "outfit", state: "queued" });
+    // The returned job context is what a reload uses to recover the gate.
+    const reloaded = await request(app).get(`/api/ai/video-jobs/${job!.id}`);
+    expect(reloaded.body.guidedReferenceContext.operations[script.roles[0]!.id]).toMatchObject({
+      operationKey: operation.operationKey,
+      state: "queued",
+    });
+    const blockedApproval = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`).send({});
+    expect(blockedApproval.status).toBe(409);
+    const running = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+      .send({
+        revision: 3,
+        operationKey: operation.operationKey,
+        state: "running",
+        characterId: character!.id,
+        outfitId: null,
+        error: null,
+      });
+    expect(running.status).toBe(200);
+    const unsafeRunningRecovery = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+      .send({
+        revision: 3,
+        operationKey: operation.operationKey,
+        state: "failed",
+        manualReconciliation: true,
+        characterId: null,
+        outfitId: null,
+        error: "browser reloaded",
+      });
+    expect(unsafeRunningRecovery.status).toBe(409);
+    expect(unsafeRunningRecovery.body.error).toMatch(/after 15 minutes/i);
+    const completed = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+      .send({
+        revision: 3,
+        operationKey: operation.operationKey,
+        state: "ready_to_review",
+        characterId: character!.id,
+        outfitId: outfit!.id,
+        error: null,
+      });
+    expect(completed.status).toBe(200);
+    const stale = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+      .send({
+        revision: 2,
+        operationKey: operation.operationKey,
+        state: "outcome_unknown",
+        characterId: null,
+        outfitId: null,
+        error: "late response",
+      });
+    expect(stale.status).toBe(409);
+
+    const unconfirmed = await request(app)
+      .put(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/finalize`)
+      .send({
+        revision: 3,
+        characterId: character!.id,
+        outfitId: outfit!.id,
+        replaceCharacterConfirmed: false,
+      });
+    expect(unconfirmed.status).toBe(400);
+
+    const response = await request(app)
+      .put(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/finalize`)
+      .send({
+        revision: 3,
+        characterId: character!.id,
+        outfitId: outfit!.id,
+        replaceCharacterConfirmed: true,
+      });
+    expect(response.status).toBe(200);
+    expect(response.body.guidedReferenceContext).toMatchObject({
+      draftId: draft!.id,
+      revision: 4,
+    });
+    const saved = await readJob(job!.id);
+    expect(saved.options!.guidedStory!.draftRevision).toBe(4);
+    const affected = saved.storyboard!.scenes.filter((scene) =>
+      scene.guidedStory!.roleIds.includes(script.roles[0]!.id));
+    expect(affected.length).toBeGreaterThan(0);
+    expect(affected.every((scene) => scene.previewPath === null)).toBe(true);
+    expect(
+      affected.every((scene) =>
+        scene.guidedStory!.cast.some(
+          (member) =>
+            member.roleId === script.roles[0]!.id &&
+            member.referenceImagePath === character!.referenceImagePath &&
+            member.outfitReferenceImagePath === outfit!.referenceImagePath,
+        ),
+      ),
+    ).toBe(true);
+    const [savedDraft] = await db.select().from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+    expect(savedDraft!.revision).toBe(4);
+    expect(savedDraft!.state.cast[0]!.characterId).toBe(character!.id);
+
+    const unknownStart = await request(app)
+      .put(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+      .send({ revision: 4, kind: "character" });
+    const unknownOperation = unknownStart.body.guidedReferenceContext.operations[script.roles[0]!.id];
+    expect(
+      await request(app)
+        .post(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+        .send({
+          revision: 4,
+          operationKey: unknownOperation.operationKey,
+          state: "running",
+          characterId: null,
+          outfitId: null,
+          error: null,
+        }),
+    ).toMatchObject({ status: 200 });
+    expect(
+      await request(app)
+        .post(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
+        .send({
+          revision: 4,
+          operationKey: unknownOperation.operationKey,
+          state: "outcome_unknown",
+          characterId: null,
+          outfitId: null,
+          error: "provider receipt pending",
+        }),
+    ).toMatchObject({ status: 200 });
+    const unknownBlocked = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`).send({});
+    expect(unknownBlocked.status).toBe(409);
+    expect(unknownBlocked.body.error).toMatch(/outcome unknown/i);
+  });
+
   it("atomically queues one tenant-scoped missing-preview operation and keeps review paused", async () => {
     const tenant = await newTenant("pro");
     const script = routeScript();

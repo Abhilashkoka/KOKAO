@@ -4644,6 +4644,69 @@ export interface GuidedStoryCastInput {
   assignments: GuidedStoryCastAssignmentInput[];
 }
 
+export interface GuidedStoryReferenceFinalizationInput {
+  /** @minimum 1 */
+  revision: number;
+  /** @minimum 1 */
+  characterId: number;
+  /** @minimum 1 */
+  outfitId: number;
+  /** Must be true when characterId differs from the finalized role. This prevents an uploaded identity from being silently replaced. */
+  replaceCharacterConfirmed: boolean;
+}
+
+export type GuidedStoryReferenceOperationStartInputKind = typeof GuidedStoryReferenceOperationStartInputKind[keyof typeof GuidedStoryReferenceOperationStartInputKind];
+
+
+export const GuidedStoryReferenceOperationStartInputKind = {
+  character: 'character',
+  outfit: 'outfit',
+} as const;
+
+export interface GuidedStoryReferenceOperationStartInput {
+  /** @minimum 1 */
+  revision: number;
+  kind: GuidedStoryReferenceOperationStartInputKind;
+}
+
+export type GuidedStoryReferenceOperationCompleteInputState = typeof GuidedStoryReferenceOperationCompleteInputState[keyof typeof GuidedStoryReferenceOperationCompleteInputState];
+
+
+export const GuidedStoryReferenceOperationCompleteInputState = {
+  running: 'running',
+  ready_to_review: 'ready_to_review',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export interface GuidedStoryReferenceOperationCompleteInput {
+  /** @minimum 1 */
+  revision: number;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  operationKey: string;
+  state: GuidedStoryReferenceOperationCompleteInputState;
+  /** Explicit recovery after receipt inspection; running work is time-gated. */
+  manualReconciliation?: boolean;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  characterId?: number | null;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  outfitId?: number | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  error?: string | null;
+}
+
 export type GuidedStoryCastSnapshotSource = typeof GuidedStoryCastSnapshotSource[keyof typeof GuidedStoryCastSnapshotSource];
 
 
@@ -5824,6 +5887,49 @@ export const VideoJobStatus = {
   cancelled: 'cancelled',
 } as const;
 
+export type VideoJobGuidedReferenceContextOperationsKind = typeof VideoJobGuidedReferenceContextOperationsKind[keyof typeof VideoJobGuidedReferenceContextOperationsKind];
+
+
+export const VideoJobGuidedReferenceContextOperationsKind = {
+  character: 'character',
+  outfit: 'outfit',
+} as const;
+
+export type VideoJobGuidedReferenceContextOperationsState = typeof VideoJobGuidedReferenceContextOperationsState[keyof typeof VideoJobGuidedReferenceContextOperationsState];
+
+
+export const VideoJobGuidedReferenceContextOperationsState = {
+  queued: 'queued',
+  running: 'running',
+  ready_to_review: 'ready_to_review',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export type VideoJobGuidedReferenceContextOperations = {[key: string]: {
+  revision: number;
+  operationKey: string;
+  kind: VideoJobGuidedReferenceContextOperationsKind;
+  state: VideoJobGuidedReferenceContextOperationsState;
+  /** @nullable */
+  characterId?: number | null;
+  /** @nullable */
+  outfitId?: number | null;
+  /** @nullable */
+  error?: string | null;
+  updatedAt: string;
+}};
+
+/**
+ * Revision identity for inline Guided Story reference finalization.
+ * @nullable
+ */
+export type VideoJobGuidedReferenceContext = {
+  draftId: number;
+  revision: number;
+  operations?: VideoJobGuidedReferenceContextOperations;
+} | null;
+
 export type VideoJobErrorHistoryItemScope = typeof VideoJobErrorHistoryItemScope[keyof typeof VideoJobErrorHistoryItemScope];
 
 
@@ -6329,6 +6435,11 @@ export interface VideoJob {
   aiPrompt?: string | null;
   sourceImagePaths: string[];
   aspectRatio: string;
+  /**
+     * Revision identity for inline Guided Story reference finalization.
+     * @nullable
+     */
+  guidedReferenceContext: VideoJobGuidedReferenceContext;
   /**
      * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
      * @nullable

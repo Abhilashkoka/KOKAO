@@ -197,6 +197,9 @@ import type {
   GuidedStoryDraft,
   GuidedStoryDraftUpdate,
   GuidedStoryPlatformContract,
+  GuidedStoryReferenceFinalizationInput,
+  GuidedStoryReferenceOperationCompleteInput,
+  GuidedStoryReferenceOperationStartInput,
   GuidedStoryRevisionInput,
   GuidedStorySceneInsertionInput,
   GuidedStorySceneInsertionResult,
@@ -16334,6 +16337,226 @@ export const useEnqueueGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getEnqueueGuidedStoryDraftMutationOptions(options));
+    }
+
+export const getFinalizeGuidedStoryReferenceUrl = (jobId: number,
+    roleId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/guided-references/${roleId}/finalize`
+}
+
+/**
+ * Revision-checks and atomically replaces the role in the tenant-owned draft and immutable job snapshot. Every scene is rebuilt from that new snapshot; previews whose reference fingerprint changed are invalidated.
+ * @summary Finalize one approved character and outfit reference across a Guided Story
+ */
+export const finalizeGuidedStoryReference = async (jobId: number,
+    roleId: string,
+    guidedStoryReferenceFinalizationInput: GuidedStoryReferenceFinalizationInput, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getFinalizeGuidedStoryReferenceUrl(jobId,roleId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryReferenceFinalizationInput)
+  }
+);}
+
+
+
+
+export const getFinalizeGuidedStoryReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext> => {
+
+const mutationKey = ['finalizeGuidedStoryReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}> = (props) => {
+          const {jobId,roleId,data} = props ?? {};
+
+          return  finalizeGuidedStoryReference(jobId,roleId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FinalizeGuidedStoryReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>>
+    export type FinalizeGuidedStoryReferenceMutationBody = BodyType<GuidedStoryReferenceFinalizationInput>
+    export type FinalizeGuidedStoryReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Finalize one approved character and outfit reference across a Guided Story
+ */
+export const useFinalizeGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof finalizeGuidedStoryReference>>,
+        TError,
+        {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>},
+        TContext
+      > => {
+      return useMutation(getFinalizeGuidedStoryReferenceMutationOptions(options));
+    }
+
+export const getStartGuidedStoryReferenceOperationUrl = (jobId: number,
+    roleId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/guided-references/${roleId}/operations`
+}
+
+/**
+ * @summary Start a durable Guided Story reference operation
+ */
+export const startGuidedStoryReferenceOperation = async (jobId: number,
+    roleId: string,
+    guidedStoryReferenceOperationStartInput: GuidedStoryReferenceOperationStartInput, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getStartGuidedStoryReferenceOperationUrl(jobId,roleId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryReferenceOperationStartInput)
+  }
+);}
+
+
+
+
+export const getStartGuidedStoryReferenceOperationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startGuidedStoryReferenceOperation>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationStartInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startGuidedStoryReferenceOperation>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationStartInput>}, TContext> => {
+
+const mutationKey = ['startGuidedStoryReferenceOperation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startGuidedStoryReferenceOperation>>, {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationStartInput>}> = (props) => {
+          const {jobId,roleId,data} = props ?? {};
+
+          return  startGuidedStoryReferenceOperation(jobId,roleId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartGuidedStoryReferenceOperationMutationResult = NonNullable<Awaited<ReturnType<typeof startGuidedStoryReferenceOperation>>>
+    export type StartGuidedStoryReferenceOperationMutationBody = BodyType<GuidedStoryReferenceOperationStartInput>
+    export type StartGuidedStoryReferenceOperationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Start a durable Guided Story reference operation
+ */
+export const useStartGuidedStoryReferenceOperation = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startGuidedStoryReferenceOperation>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationStartInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startGuidedStoryReferenceOperation>>,
+        TError,
+        {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationStartInput>},
+        TContext
+      > => {
+      return useMutation(getStartGuidedStoryReferenceOperationMutationOptions(options));
+    }
+
+export const getCompleteGuidedStoryReferenceOperationUrl = (jobId: number,
+    roleId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/guided-references/${roleId}/operations`
+}
+
+/**
+ * @summary Record a Guided Story reference operation transition
+ */
+export const completeGuidedStoryReferenceOperation = async (jobId: number,
+    roleId: string,
+    guidedStoryReferenceOperationCompleteInput: GuidedStoryReferenceOperationCompleteInput, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getCompleteGuidedStoryReferenceOperationUrl(jobId,roleId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryReferenceOperationCompleteInput)
+  }
+);}
+
+
+
+
+export const getCompleteGuidedStoryReferenceOperationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeGuidedStoryReferenceOperation>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationCompleteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeGuidedStoryReferenceOperation>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationCompleteInput>}, TContext> => {
+
+const mutationKey = ['completeGuidedStoryReferenceOperation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeGuidedStoryReferenceOperation>>, {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationCompleteInput>}> = (props) => {
+          const {jobId,roleId,data} = props ?? {};
+
+          return  completeGuidedStoryReferenceOperation(jobId,roleId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteGuidedStoryReferenceOperationMutationResult = NonNullable<Awaited<ReturnType<typeof completeGuidedStoryReferenceOperation>>>
+    export type CompleteGuidedStoryReferenceOperationMutationBody = BodyType<GuidedStoryReferenceOperationCompleteInput>
+    export type CompleteGuidedStoryReferenceOperationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Record a Guided Story reference operation transition
+ */
+export const useCompleteGuidedStoryReferenceOperation = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeGuidedStoryReferenceOperation>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationCompleteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeGuidedStoryReferenceOperation>>,
+        TError,
+        {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceOperationCompleteInput>},
+        TContext
+      > => {
+      return useMutation(getCompleteGuidedStoryReferenceOperationMutationOptions(options));
     }
 
 export const getAnalyzeScriptIntakeUrl = () => {

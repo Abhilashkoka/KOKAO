@@ -898,9 +898,22 @@ router.post(
     }
     const name = parsed.data.name.trim();
     const description = parsed.data.description.trim();
-    const protectedRegion = parsed.data.protectedRegion;
+    const requestedRegion = parsed.data.protectedRegion;
+    const protectedRegion = character.protectedRegion;
     if (!name || !description) {
       res.status(400).json({ error: "An outfit needs a name and a description." });
+      return;
+    }
+    if (!protectedRegion) {
+      res.status(409).json({
+        error: "A reviewed protected face region is required before generating an outfit.",
+      });
+      return;
+    }
+    if (JSON.stringify(requestedRegion) !== JSON.stringify(protectedRegion)) {
+      res.status(400).json({
+        error: "The protected region must exactly match the character's reviewed region.",
+      });
       return;
     }
     if (

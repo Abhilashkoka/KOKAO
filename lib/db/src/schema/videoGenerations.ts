@@ -63,6 +63,17 @@ export interface VideoTemplateRuntimeSettings {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Non-immutable, draft-revision-bound reference work shown in review UI. */
+  guidedReferenceOperations?: Record<string, {
+    revision: number;
+    operationKey: string;
+    kind: "character" | "outfit";
+    state: "queued" | "running" | "ready_to_review" | "failed" | "outcome_unknown";
+    characterId?: number | null;
+    outfitId?: number | null;
+    error?: string | null;
+    updatedAt: string;
+  }> | null;
   /**
    * User-requested materialization of missing Guided Story review frames.
    * This is deliberately independent of the job status: the job remains in

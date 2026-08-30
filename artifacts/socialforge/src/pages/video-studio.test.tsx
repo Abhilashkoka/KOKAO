@@ -67,6 +67,7 @@ const mockState: {
   repairError: unknown;
   lastOutfitVars: any;
   createdOutfitCharacter: any;
+  finalizedGuidedReferences: any[];
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -122,6 +123,7 @@ const mockState: {
   repairError: null,
   lastOutfitVars: null,
   createdOutfitCharacter: null,
+  finalizedGuidedReferences: [],
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -383,6 +385,19 @@ vi.mock("@workspace/api-client-react", async () => {
         opts?.onSuccess?.(mockState.activeJob);
       },
     }),
+    useFinalizeGuidedStoryReference: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.finalizedGuidedReferences.push(vars);
+        opts?.onSuccess?.({
+          ...mockState.activeJob,
+          guidedReferenceContext: {
+            ...mockState.activeJob.guidedReferenceContext,
+            revision: mockState.activeJob.guidedReferenceContext.revision + 1,
+          },
+        });
+      },
+    }),
     useApproveVideoStoryboard: () => ({
       isPending: false,
       mutate: (vars: any, opts: any) => {
@@ -408,6 +423,28 @@ vi.mock("@workspace/api-client-react", async () => {
         mockState.lastOutfitVars = vars;
         opts?.onSuccess?.(mockState.createdOutfitCharacter);
       },
+    }),
+    useStartGuidedStoryReferenceOperation: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => opts?.onSuccess?.({
+        ...mockState.activeJob,
+        guidedReferenceContext: {
+          ...mockState.activeJob.guidedReferenceContext,
+          operations: {
+            [vars.roleId]: {
+              revision: mockState.activeJob.guidedReferenceContext?.revision ?? 1,
+              operationKey: "durable-reference-operation",
+              kind: vars.data.kind,
+              state: "queued",
+              updatedAt: "2026-01-01T00:00:00Z",
+            },
+          },
+        },
+      }),
+    }),
+    useCompleteGuidedStoryReferenceOperation: () => ({
+      isPending: false,
+      mutate: (_vars: any, opts: any) => opts?.onSuccess?.(mockState.activeJob),
     }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useGetBrandKit: () => ({ data: (mockState as any).brandKitDetail }),
@@ -681,6 +718,7 @@ beforeEach(() => {
   mockState.repairError = null;
   mockState.lastOutfitVars = null;
   mockState.createdOutfitCharacter = null;
+  mockState.finalizedGuidedReferences = [];
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   localStorage.clear();
@@ -3923,6 +3961,100 @@ describe("Video Studio", () => {
     expect(mockState.guidedPreviewRenders).toEqual([11]);
     expect(screen.getByTestId("status-guided-storyboard-blocked")).toBeTruthy();
     expect(screen.queryByText("private-provider-id")).toBeNull();
+  });
+
+  it("requires explicit identity replacement and finalizes references for the whole Guided job", async () => {
+    const board = clipBoard("slide");
+    board.scenes = [board.scenes[0]!];
+    (board.scenes as any[])[0] = {
+      ...board.scenes[0]!,
+      previewCheckpoint: {
+        status: "complete" as const,
+        targetPath: board.scenes[0]!.previewPath!,
+      },
+      guidedStory: {
+        scriptSceneId: "script-1",
+        startMs: 0,
+        endMs: 4_000,
+        roleIds: ["hero"],
+        lineOwnership: [],
+        cast: [{
+          roleId: "hero",
+          characterName: "Uploaded Ari",
+          source: "saved" as const,
+          characterId: 12,
+          outfitId: 34,
+          referenceImagePath: "/objects/1/uploads/ari.png",
+          outfitReferenceImagePath: "/objects/1/uploads/ari-default.png",
+          voiceProvider: "stock",
+          providerVoiceId: null,
+        }],
+        inconsistencyFlags: [],
+        inputFingerprint: "before-reference-change",
+        visuals: {
+          logoPath: null,
+          locationMode: "none" as const,
+          locationImagePath: null,
+          locationDescription: null,
+        },
+      },
+    };
+    mockState.characters = [{
+      id: 13,
+      name: "Mina",
+      description: "A fictional explorer",
+      referenceImagePath: "/objects/1/uploads/mina.png",
+      protectedRegion: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      outfits: [{
+        id: 35,
+        name: "Default",
+        description: "Blue field jacket",
+        referenceImagePath: "/objects/1/uploads/mina-default.png",
+        isDefault: true,
+        status: "approved",
+        identityVerified: true,
+        canonicalReferenceImagePath: "/objects/1/uploads/mina.png",
+        protectedRegion: null,
+      }],
+    }];
+    mockState.activeJob = {
+      ...pausedJob(board),
+      guidedReferenceContext: { draftId: 5, revision: 8 },
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    fireEvent.click(
+      await screen.findByTestId("button-redefine-guided-character-s1-hero"),
+    );
+    fireEvent.click(screen.getByTestId("select-guided-character-s1-hero"));
+    fireEvent.click(await screen.findByText("Mina"));
+
+    const finalize = screen.getByTestId("button-finalize-guided-reference-s1-hero");
+    expect((finalize as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(
+      screen.getByTestId("checkbox-confirm-guided-character-replacement-s1-hero"),
+    );
+    expect((finalize as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(finalize);
+
+    expect(mockState.finalizedGuidedReferences).toEqual([{
+      jobId: 11,
+      roleId: "hero",
+      data: {
+        revision: 8,
+        characterId: 13,
+        outfitId: 35,
+        replaceCharacterConfirmed: true,
+      },
+    }]);
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "References finalized across the story",
+      }),
+    );
   });
 
   it("confirms a single Guided scene correction with locked references and shows its cost history", async () => {

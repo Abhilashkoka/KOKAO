@@ -177,6 +177,20 @@ export interface GuidedStoryDraftState {
     path?: string;
     settledAt?: string;
   }>;
+  /** Durable, revision-bound UI operation state for inline reference work.
+   * Billing and provider receipts remain owned by Character Library; this
+   * record prevents a review job from racing that work or losing recovery
+   * guidance on reload. */
+  inlineReferenceOperations?: Record<string, {
+    revision: number;
+    operationKey: string;
+    kind: "character" | "outfit";
+    state: "queued" | "running" | "ready_to_review" | "failed" | "outcome_unknown";
+    characterId?: number | null;
+    outfitId?: number | null;
+    error?: string | null;
+    updatedAt: string;
+  }>;
   /**
    * Revisioned draft input. Enqueue copies this byte-for-byte into its immutable
    * attempt snapshot; it is never inferred from a brand kit or mutable asset.

@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   db,
   aiModelPricesTable,
@@ -38,6 +38,9 @@ import {
   GenerateGuidedStoryDraftSceneBody,
   ApproveGuidedStoryDraftScriptBody,
   CastGuidedStoryDraftBody,
+  FinalizeGuidedStoryReferenceBody,
+  StartGuidedStoryReferenceOperationBody,
+  CompleteGuidedStoryReferenceOperationBody,
   EnqueueGuidedStoryDraftBody,
   CorrectGuidedStorySceneBody,
 } from "@workspace/api-zod";
@@ -696,6 +699,13 @@ function serializeVideoJob(
       job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
     sourceImagePaths: job.sourceImagePaths ?? [],
     aspectRatio: job.options?.aspectRatio ?? "9:16",
+    guidedReferenceContext: job.options?.guidedStory
+      ? {
+          draftId: job.options.guidedStory.draftId,
+          revision: job.options.guidedStory.draftRevision,
+          operations: job.options.guidedReferenceOperations ?? {},
+        }
+      : null,
     modelId: job.options?.modelId ?? null,
     resolution: job.options?.resolution ?? null,
     motionPreset: job.options?.motionPreset ?? null,
@@ -3640,6 +3650,383 @@ router.put(
       if (cleared) saved = cleared;
     }
     res.json(serializeGuidedDraft(saved));
+  },
+);
+
+router.put(
+  "/ai/video-jobs/:jobId/guided-references/:roleId/operations",
+  async (req: Request, res: Response) => {
+    const parsed = StartGuidedStoryReferenceOperationBody.safeParse(req.body);
+    const jobId = Number(req.params.jobId);
+    const roleId = String(req.params.roleId);
+    if (!parsed.success || !Number.isSafeInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "Invalid reference operation." });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [job] = await tx.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, jobId), eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      const snapshot = job?.options?.guidedStory;
+      if (!job || job.status !== "awaiting_review" || !snapshot) return null;
+      const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, snapshot.draftId), eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!draft || draft.revision !== parsed.data.revision || snapshot.draftRevision !== parsed.data.revision) {
+        return "stale" as const;
+      }
+      if (!draft.state.script?.roles.some((role) => role.id === roleId)) return "role" as const;
+      const existing = draft.state.inlineReferenceOperations?.[roleId];
+      if (existing && ["queued", "running", "outcome_unknown"].includes(existing.state)) {
+        return "busy" as const;
+      }
+      const now = new Date().toISOString();
+      const operation = {
+        revision: draft.revision,
+        operationKey: `guided-reference:${draft.id}:${draft.revision}:${roleId}:${randomUUID()}`,
+        kind: parsed.data.kind,
+        state: "queued" as const,
+        updatedAt: now,
+      };
+      const operations = { ...(draft.state.inlineReferenceOperations ?? {}), [roleId]: operation };
+      await tx.update(guidedStoryDraftsTable).set({
+        state: { ...draft.state, inlineReferenceOperations: operations },
+        updatedAt: new Date(),
+      }).where(eq(guidedStoryDraftsTable.id, draft.id));
+      const [saved] = await tx.update(videoGenerationsTable).set({
+        options: { ...job.options, aspectRatio: job.options?.aspectRatio ?? snapshot.platform.aspectRatio, guidedReferenceOperations: operations },
+        updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, job.id)).returning();
+      return saved!;
+    });
+    if (!result) { res.status(404).json({ error: "Reviewable Guided Story not found." }); return; }
+    if (typeof result === "string") {
+      res.status(result === "role" ? 404 : 409).json({ error: result === "busy" ? "Reference work is still active or outcome unknown." : "Guided Story changed; reload before retrying." });
+      return;
+    }
+    res.json(serializeVideoJob(result));
+  },
+);
+
+router.post(
+  "/ai/video-jobs/:jobId/guided-references/:roleId/operations",
+  async (req: Request, res: Response) => {
+    const parsed = CompleteGuidedStoryReferenceOperationBody.safeParse(req.body);
+    const jobId = Number(req.params.jobId);
+    const roleId = String(req.params.roleId);
+    if (!parsed.success || !Number.isSafeInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "Invalid reference operation result." }); return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [job] = await tx.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, jobId), eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      const snapshot = job?.options?.guidedStory;
+      if (!job || !snapshot) return null;
+      const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, snapshot.draftId), eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      const existing = draft?.state.inlineReferenceOperations?.[roleId];
+      if (!draft || draft.revision !== parsed.data.revision || snapshot.draftRevision !== parsed.data.revision ||
+        !existing || existing.operationKey !== parsed.data.operationKey || existing.revision !== parsed.data.revision) {
+        return "stale" as const;
+      }
+      const manual = parsed.data.manualReconciliation === true;
+      const runningReconciliationReady =
+        existing.state === "running" &&
+        Date.now() - new Date(existing.updatedAt).getTime() >= 15 * 60 * 1000;
+      const validTransition = manual
+        ? parsed.data.state === "failed" &&
+          (existing.state === "queued" ||
+            existing.state === "outcome_unknown" ||
+            runningReconciliationReady)
+        : (existing.state === "queued" && parsed.data.state === "running") ||
+          (existing.state === "running" &&
+            ["ready_to_review", "failed", "outcome_unknown"].includes(parsed.data.state));
+      if (!validTransition) return "transition" as const;
+      const operation = {
+        ...existing,
+        state: parsed.data.state,
+        characterId: parsed.data.characterId,
+        outfitId: parsed.data.outfitId,
+        error: parsed.data.error,
+        updatedAt: new Date().toISOString(),
+      };
+      const operations = { ...(draft.state.inlineReferenceOperations ?? {}), [roleId]: operation };
+      await tx.update(guidedStoryDraftsTable).set({
+        state: { ...draft.state, inlineReferenceOperations: operations }, updatedAt: new Date(),
+      }).where(eq(guidedStoryDraftsTable.id, draft.id));
+      const [saved] = await tx.update(videoGenerationsTable).set({
+        options: { ...job.options, aspectRatio: job.options?.aspectRatio ?? snapshot.platform.aspectRatio, guidedReferenceOperations: operations }, updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, job.id)).returning();
+      return saved!;
+    });
+    if (!result) { res.status(404).json({ error: "Guided Story not found." }); return; }
+    if (result === "stale" || result === "transition") {
+      res.status(409).json({
+        error:
+          result === "transition"
+            ? "That recovery transition is unsafe. Running provider work can only be manually reconciled after 15 minutes and Character Library receipt inspection."
+            : "Reference operation changed; reload before retrying.",
+      });
+      return;
+    }
+    res.json(serializeVideoJob(result));
+  },
+);
+
+router.put(
+  "/ai/video-jobs/:jobId/guided-references/:roleId/finalize",
+  async (req: Request, res: Response) => {
+    const parsed = FinalizeGuidedStoryReferenceBody.safeParse(req.body);
+    const jobId = Number(req.params.jobId);
+    const roleId = String(req.params.roleId);
+    if (!parsed.success || !Number.isSafeInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "Choose an approved character and outfit." });
+      return;
+    }
+    const detail = await getCharacterDetail(req.tenantId, parsed.data.characterId);
+    const outfit = detail ? resolveOutfit(detail, parsed.data.outfitId) : null;
+    if (!detail || !outfit) {
+      res.status(404).json({
+        error: "The tenant-owned approved character or outfit was not found.",
+      });
+      return;
+    }
+    if (!isOutfitSelectable(outfit)) {
+      res.status(400).json({
+        error: "Approve and identity-verify the outfit preview before finalizing it.",
+      });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [job] = await tx
+        .select()
+        .from(videoGenerationsTable)
+        .where(
+          and(
+            eq(videoGenerationsTable.id, jobId),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      const snapshot = job?.options?.guidedStory;
+      if (
+        !job ||
+        job.status !== "awaiting_review" ||
+        job.storyboard?.mode !== "guided_story" ||
+        !snapshot
+      ) {
+        return { kind: "not_reviewable" as const };
+      }
+      const [draft] = await tx
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(
+          and(
+            eq(guidedStoryDraftsTable.id, snapshot.draftId),
+            eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (
+        !draft ||
+        draft.revision !== parsed.data.revision ||
+        snapshot.draftRevision !== parsed.data.revision
+      ) {
+        return { kind: "stale" as const };
+      }
+      if (
+        Object.keys(draft.state.castOperations ?? {}).length > 0 ||
+        Object.values(draft.state.inlineReferenceOperations ?? {}).some(
+          (operation) =>
+            operation.revision === draft.revision &&
+            ["queued", "running", "outcome_unknown"].includes(operation.state),
+        ) ||
+        job.options?.guidedPreviewRender?.state === "queued" ||
+        job.options?.guidedPreviewRender?.state === "running" ||
+        job.storyboard.scenes.some((scene) => {
+          const latest = scene.guidedStory?.corrections?.attempts.at(-1);
+          return (
+            latest != null &&
+            ["queued", "running", "provider_started", "provider_succeeded", "outcome_unknown"].includes(
+              latest.state,
+            )
+          );
+        })
+      ) {
+        return { kind: "busy" as const };
+      }
+      const [lockedCharacter] = await tx
+        .select()
+        .from(charactersTable)
+        .where(
+          and(
+            eq(charactersTable.id, parsed.data.characterId),
+            eq(charactersTable.tenantId, req.tenantId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      const [lockedOutfit] = await tx
+        .select()
+        .from(characterOutfitsTable)
+        .where(
+          and(
+            eq(characterOutfitsTable.id, parsed.data.outfitId),
+            eq(characterOutfitsTable.characterId, parsed.data.characterId),
+            eq(characterOutfitsTable.tenantId, req.tenantId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (
+        !lockedCharacter ||
+        !lockedOutfit ||
+        !isOutfitSelectable(lockedOutfit) ||
+        (!lockedOutfit.isDefault &&
+          (!lockedCharacter.protectedRegion ||
+            JSON.stringify(lockedOutfit.protectedRegion) !==
+              JSON.stringify(lockedCharacter.protectedRegion) ||
+            lockedOutfit.canonicalReferenceImagePath !==
+              lockedCharacter.referenceImagePath))
+      ) {
+        return { kind: "missing_reference" as const };
+      }
+      const current = draft.state.cast.find((member) => member.roleId === roleId);
+      if (!current || !draft.state.script?.roles.some((role) => role.id === roleId)) {
+        return { kind: "missing_role" as const };
+      }
+      if (
+        current.characterId === lockedCharacter.id &&
+        current.outfitId === lockedOutfit.id
+      ) {
+        return { kind: "duplicate" as const };
+      }
+      if (
+        current.characterId !== lockedCharacter.id &&
+        parsed.data.replaceCharacterConfirmed !== true
+      ) {
+        return { kind: "confirmation" as const };
+      }
+      const nextMember: GuidedStoryCastSnapshot = {
+        ...current,
+        source: "saved",
+        characterId: lockedCharacter.id,
+        outfitId: lockedOutfit.id,
+        character: {
+          name: lockedCharacter.name,
+          description: lockedCharacter.description,
+          referenceImagePath: lockedCharacter.referenceImagePath,
+        },
+        outfit: {
+          name: lockedOutfit.name,
+          description: lockedOutfit.description,
+          referenceImagePath: lockedOutfit.referenceImagePath,
+        },
+        consentGranted: true,
+        generatedAsset: null,
+      };
+      const cast = draft.state.cast.map((member) =>
+        member.roleId === roleId ? nextMember : member,
+      );
+      const revision = draft.revision + 1;
+      const nextSnapshot = {
+        ...snapshot,
+        draftRevision: revision,
+        cast,
+      };
+      const rebuilt = guidedStoryStoryboard(nextSnapshot, job.storyboard);
+      // Reference changes do not alter speech. Preserve the exact immutable
+      // narration while every affected visual preview is invalidated.
+      rebuilt.narration = job.storyboard.narration;
+      const now = new Date();
+      const [savedDraft] = await tx
+        .update(guidedStoryDraftsTable)
+        .set({
+          revision,
+          state: {
+            ...draft.state,
+            cast,
+            userRoleId: cast.find((member) => member.isUserRole)?.roleId ?? null,
+            castStrategy: "saved",
+            duplicateAssignmentConfirmed: guidedCastHasDuplicates(cast),
+            castOperations: {},
+            inlineReferenceOperations: {},
+          },
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(guidedStoryDraftsTable.id, draft.id),
+            eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+            eq(guidedStoryDraftsTable.revision, draft.revision),
+          ),
+        )
+        .returning({ id: guidedStoryDraftsTable.id });
+      if (!savedDraft) return { kind: "stale" as const };
+      const [savedJob] = await tx
+        .update(videoGenerationsTable)
+        .set({
+          options: {
+            ...job.options,
+            aspectRatio: job.options?.aspectRatio ?? snapshot.platform.aspectRatio,
+            guidedStory: nextSnapshot,
+            guidedPreviewRender: null,
+            guidedReferenceOperations: null,
+          },
+          storyboard: rebuilt,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            eq(videoGenerationsTable.status, "awaiting_review"),
+          ),
+        )
+        .returning();
+      if (!savedJob) throw new Error("Guided reference job CAS failed.");
+      return { kind: "saved" as const, job: savedJob };
+    });
+    if (result.kind === "saved") {
+      res.json(serializeVideoJob(result.job));
+      return;
+    }
+    if (
+      result.kind === "not_reviewable" ||
+      result.kind === "missing_role" ||
+      result.kind === "missing_reference"
+    ) {
+      res.status(404).json({
+        error:
+          result.kind === "missing_role"
+            ? "The role was not found in this Guided Story."
+            : result.kind === "missing_reference"
+              ? "The approved tenant-owned character or outfit is no longer available."
+            : "A reviewable tenant-owned Guided Story was not found.",
+      });
+      return;
+    }
+    if (result.kind === "confirmation") {
+      res.status(400).json({
+        error:
+          "Explicitly confirm replacement of the current character reference. Uploaded photos are retained by default.",
+      });
+      return;
+    }
+    if (result.kind === "duplicate") {
+      res.status(409).json({ error: "Those references are already finalized." });
+      return;
+    }
+    res.status(409).json({
+      error:
+        result.kind === "busy"
+          ? "Reference, preview, or correction work is active or unresolved."
+          : "This Guided Story changed. Reload it and try again.",
+    });
   },
 );
 
@@ -8142,10 +8529,18 @@ router.post(
       const draft = draftId
         ? await loadGuidedDraft(req.tenantId, draftId)
         : null;
-      if (!draft || Object.keys(draft.state.castOperations ?? {}).length > 0) {
+      if (
+        !draft ||
+        Object.keys(draft.state.castOperations ?? {}).length > 0 ||
+        Object.values(draft.state.inlineReferenceOperations ?? {}).some(
+          (operation) =>
+            operation.revision === draft.revision &&
+            ["queued", "running", "outcome_unknown"].includes(operation.state),
+        )
+      ) {
         res.status(409).json({
           error:
-            "Guided Story casting is still being committed. Retry approval after it finishes.",
+            "Guided Story reference work is still active or outcome unknown. Reconcile it before approval.",
         });
         return;
       }
@@ -8219,6 +8614,11 @@ router.post(
             )[0];
             if (
               !draft ||
+              Object.values(draft.state.inlineReferenceOperations ?? {}).some(
+                (operation) =>
+                  operation.revision === draft.revision &&
+                  ["queued", "running", "outcome_unknown"].includes(operation.state),
+              ) ||
               !guidedStoryApprovalSnapshotMatches({
                 draftId: draft.id,
                 draftRevision: draft.revision,

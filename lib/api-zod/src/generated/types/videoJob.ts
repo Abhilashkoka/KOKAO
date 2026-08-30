@@ -12,6 +12,7 @@ import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobErrorHistoryItem } from './videoJobErrorHistoryItem';
 import type { VideoJobFreshRestart } from './videoJobFreshRestart';
 import type { VideoJobGuidedPreviewRender } from './videoJobGuidedPreviewRender';
+import type { VideoJobGuidedReferenceContext } from './videoJobGuidedReferenceContext';
 import type { VideoJobPrivacyRecoveryCapability } from './videoJobPrivacyRecoveryCapability';
 import type { VideoJobRecovery } from './videoJobRecovery';
 import type { VideoJobRepair } from './videoJobRepair';
@@ -32,6 +33,11 @@ export interface VideoJob {
   aiPrompt?: string | null;
   sourceImagePaths: string[];
   aspectRatio: string;
+  /**
+     * Revision identity for inline Guided Story reference finalization.
+     * @nullable
+     */
+  guidedReferenceContext: VideoJobGuidedReferenceContext;
   /**
      * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
      * @nullable
