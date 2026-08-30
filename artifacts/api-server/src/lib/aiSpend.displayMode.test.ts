@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { db, pool, usageEventsTable, type AiSpendSettings } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   getAiSpendConfig,
   setAiSpendConfig,
@@ -103,6 +103,28 @@ describe("settings persistence", () => {
 });
 
 describe("recordUsage display snapshots", () => {
+  it("records a stable operation key exactly once across concurrent settlement retries", async () => {
+    const idempotencyKey = `guided-reference:test:${tenant.tenantId}`;
+    await Promise.all([
+      recordUsage(tenant.tenantId, "image", {
+        funding: "quota",
+        idempotencyKey,
+      }),
+      recordUsage(tenant.tenantId, "image", {
+        funding: "quota",
+        idempotencyKey,
+      }),
+    ]);
+    const rows = await db.select({ id: usageEventsTable.id })
+      .from(usageEventsTable)
+      .where(and(
+        eq(usageEventsTable.tenantId, tenant.tenantId),
+        eq(usageEventsTable.kind, "image"),
+        eq(usageEventsTable.idempotencyKey, idempotencyKey),
+      ));
+    expect(rows).toHaveLength(1);
+  });
+
   it("flat mode snapshots the per-kind rate regardless of cost", async () => {
     await setAiSpendConfig({ ...FLAT, displayMode: "flat", marginPercent: 0 });
     await recordUsage(tenant.tenantId, "video", { costPaise: 137000 });

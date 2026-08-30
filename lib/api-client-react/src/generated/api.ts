@@ -198,6 +198,8 @@ import type {
   GuidedStoryDraftUpdate,
   GuidedStoryPlatformContract,
   GuidedStoryReferenceFinalizationInput,
+  GuidedStoryReferenceInput,
+  GuidedStoryReferenceOperation,
   GuidedStoryReferenceOperationCompleteInput,
   GuidedStoryReferenceOperationStartInput,
   GuidedStoryRevisionInput,
@@ -16268,6 +16270,224 @@ export const useCastGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getCastGuidedStoryDraftMutationOptions(options));
     }
 
+export const getCreateGuidedStoryReferenceUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/cast/references`
+}
+
+/**
+ * Selection, upload, and generation create a review candidate only. The canonical cast and storyboard are unchanged until explicit finalization.
+ * @summary Create a revision-bound inline character or outfit candidate
+ */
+export const createGuidedStoryReference = async (draftId: number,
+    guidedStoryReferenceInput: GuidedStoryReferenceInput, options?: RequestInit): Promise<GuidedStoryReferenceOperation> => {
+
+  return customFetch<GuidedStoryReferenceOperation>(getCreateGuidedStoryReferenceUrl(draftId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryReferenceInput)
+  }
+);}
+
+
+
+
+export const getCreateGuidedStoryReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGuidedStoryReference>>, TError,{draftId: number;data: BodyType<GuidedStoryReferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createGuidedStoryReference>>, TError,{draftId: number;data: BodyType<GuidedStoryReferenceInput>}, TContext> => {
+
+const mutationKey = ['createGuidedStoryReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createGuidedStoryReference>>, {draftId: number;data: BodyType<GuidedStoryReferenceInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  createGuidedStoryReference(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateGuidedStoryReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof createGuidedStoryReference>>>
+    export type CreateGuidedStoryReferenceMutationBody = BodyType<GuidedStoryReferenceInput>
+    export type CreateGuidedStoryReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a revision-bound inline character or outfit candidate
+ */
+export const useCreateGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGuidedStoryReference>>, TError,{draftId: number;data: BodyType<GuidedStoryReferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createGuidedStoryReference>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryReferenceInput>},
+        TContext
+      > => {
+      return useMutation(getCreateGuidedStoryReferenceMutationOptions(options));
+    }
+
+export const getFinalizeGuidedStoryReferenceUrl = (draftId: number,
+    operationId: string,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/cast/references/${operationId}/finalize`
+}
+
+/**
+ * @summary Atomically finalize a whole-role reference and rebuild previews
+ */
+export const finalizeGuidedStoryReference = async (draftId: number,
+    operationId: string,
+    guidedStoryRevisionInput: GuidedStoryRevisionInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getFinalizeGuidedStoryReferenceUrl(draftId,operationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryRevisionInput)
+  }
+);}
+
+
+
+
+export const getFinalizeGuidedStoryReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext> => {
+
+const mutationKey = ['finalizeGuidedStoryReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, {draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}> = (props) => {
+          const {draftId,operationId,data} = props ?? {};
+
+          return  finalizeGuidedStoryReference(draftId,operationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FinalizeGuidedStoryReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>>
+    export type FinalizeGuidedStoryReferenceMutationBody = BodyType<GuidedStoryRevisionInput>
+    export type FinalizeGuidedStoryReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Atomically finalize a whole-role reference and rebuild previews
+ */
+export const useFinalizeGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof finalizeGuidedStoryReference>>,
+        TError,
+        {draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getFinalizeGuidedStoryReferenceMutationOptions(options));
+    }
+
+export const getRejectGuidedStoryReferenceUrl = (draftId: number,
+    operationId: string,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/cast/references/${operationId}/reject`
+}
+
+/**
+ * @summary Reject a reviewable Guided Story reference candidate
+ */
+export const rejectGuidedStoryReference = async (draftId: number,
+    operationId: string,
+    guidedStoryRevisionInput: GuidedStoryRevisionInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getRejectGuidedStoryReferenceUrl(draftId,operationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryRevisionInput)
+  }
+);}
+
+
+
+
+export const getRejectGuidedStoryReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectGuidedStoryReference>>, TError,{draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectGuidedStoryReference>>, TError,{draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext> => {
+
+const mutationKey = ['rejectGuidedStoryReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectGuidedStoryReference>>, {draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}> = (props) => {
+          const {draftId,operationId,data} = props ?? {};
+
+          return  rejectGuidedStoryReference(draftId,operationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RejectGuidedStoryReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof rejectGuidedStoryReference>>>
+    export type RejectGuidedStoryReferenceMutationBody = BodyType<GuidedStoryRevisionInput>
+    export type RejectGuidedStoryReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Reject a reviewable Guided Story reference candidate
+ */
+export const useRejectGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectGuidedStoryReference>>, TError,{draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rejectGuidedStoryReference>>,
+        TError,
+        {draftId: number;operationId: string;data: BodyType<GuidedStoryRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getRejectGuidedStoryReferenceMutationOptions(options));
+    }
+
 export const getEnqueueGuidedStoryDraftUrl = (draftId: number,) => {
 
 
@@ -16339,7 +16559,78 @@ export const useEnqueueGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getEnqueueGuidedStoryDraftMutationOptions(options));
     }
 
-export const getFinalizeGuidedStoryReferenceUrl = (jobId: number,
+export const getAnalyzeScriptIntakeUrl = () => {
+
+
+
+
+  return `/api/ai/script-intake`
+}
+
+/**
+ * Cheap pre-pass over a free-text topic. Extracts the facts the topic actually asserts, guesses the video type, and reports which fields a human still needs to answer. Writes nothing and funds nothing; the result pre-fills the script request.
+ * @summary Parse a topic into structured script inputs
+ */
+export const analyzeScriptIntake = async (scriptIntakeRequest: ScriptIntakeRequest, options?: RequestInit): Promise<ScriptIntakeResult> => {
+
+  return customFetch<ScriptIntakeResult>(getAnalyzeScriptIntakeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(scriptIntakeRequest)
+  }
+);}
+
+
+
+
+export const getAnalyzeScriptIntakeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext> => {
+
+const mutationKey = ['analyzeScriptIntake'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeScriptIntake>>, {data: BodyType<ScriptIntakeRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  analyzeScriptIntake(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnalyzeScriptIntakeMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeScriptIntake>>>
+    export type AnalyzeScriptIntakeMutationBody = BodyType<ScriptIntakeRequest>
+    export type AnalyzeScriptIntakeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Parse a topic into structured script inputs
+ */
+export const useAnalyzeScriptIntake = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof analyzeScriptIntake>>,
+        TError,
+        {data: BodyType<ScriptIntakeRequest>},
+        TContext
+      > => {
+      return useMutation(getAnalyzeScriptIntakeMutationOptions(options));
+    }
+
+export const getFinalizeGuidedStoryJobReferenceUrl = (jobId: number,
     roleId: string,) => {
 
 
@@ -16352,11 +16643,11 @@ export const getFinalizeGuidedStoryReferenceUrl = (jobId: number,
  * Revision-checks and atomically replaces the role in the tenant-owned draft and immutable job snapshot. Every scene is rebuilt from that new snapshot; previews whose reference fingerprint changed are invalidated.
  * @summary Finalize one approved character and outfit reference across a Guided Story
  */
-export const finalizeGuidedStoryReference = async (jobId: number,
+export const finalizeGuidedStoryJobReference = async (jobId: number,
     roleId: string,
     guidedStoryReferenceFinalizationInput: GuidedStoryReferenceFinalizationInput, options?: RequestInit): Promise<VideoJob> => {
 
-  return customFetch<VideoJob>(getFinalizeGuidedStoryReferenceUrl(jobId,roleId),
+  return customFetch<VideoJob>(getFinalizeGuidedStoryJobReferenceUrl(jobId,roleId),
   {
     ...options,
     method: 'PUT',
@@ -16368,11 +16659,11 @@ export const finalizeGuidedStoryReference = async (jobId: number,
 
 
 
-export const getFinalizeGuidedStoryReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext> => {
+export const getFinalizeGuidedStoryJobReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryJobReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryJobReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext> => {
 
-const mutationKey = ['finalizeGuidedStoryReference'];
+const mutationKey = ['finalizeGuidedStoryJobReference'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -16382,10 +16673,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof finalizeGuidedStoryJobReference>>, {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}> = (props) => {
           const {jobId,roleId,data} = props ?? {};
 
-          return  finalizeGuidedStoryReference(jobId,roleId,data,requestOptions)
+          return  finalizeGuidedStoryJobReference(jobId,roleId,data,requestOptions)
         }
 
 
@@ -16395,22 +16686,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type FinalizeGuidedStoryReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>>
-    export type FinalizeGuidedStoryReferenceMutationBody = BodyType<GuidedStoryReferenceFinalizationInput>
-    export type FinalizeGuidedStoryReferenceMutationError = ErrorType<ErrorEnvelope>
+    export type FinalizeGuidedStoryJobReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof finalizeGuidedStoryJobReference>>>
+    export type FinalizeGuidedStoryJobReferenceMutationBody = BodyType<GuidedStoryReferenceFinalizationInput>
+    export type FinalizeGuidedStoryJobReferenceMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Finalize one approved character and outfit reference across a Guided Story
  */
-export const useFinalizeGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useFinalizeGuidedStoryJobReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeGuidedStoryJobReference>>, TError,{jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof finalizeGuidedStoryReference>>,
+        Awaited<ReturnType<typeof finalizeGuidedStoryJobReference>>,
         TError,
         {jobId: number;roleId: string;data: BodyType<GuidedStoryReferenceFinalizationInput>},
         TContext
       > => {
-      return useMutation(getFinalizeGuidedStoryReferenceMutationOptions(options));
+      return useMutation(getFinalizeGuidedStoryJobReferenceMutationOptions(options));
     }
 
 export const getStartGuidedStoryReferenceOperationUrl = (jobId: number,
@@ -16557,77 +16848,6 @@ export const useCompleteGuidedStoryReferenceOperation = <TError = ErrorType<Erro
         TContext
       > => {
       return useMutation(getCompleteGuidedStoryReferenceOperationMutationOptions(options));
-    }
-
-export const getAnalyzeScriptIntakeUrl = () => {
-
-
-
-
-  return `/api/ai/script-intake`
-}
-
-/**
- * Cheap pre-pass over a free-text topic. Extracts the facts the topic actually asserts, guesses the video type, and reports which fields a human still needs to answer. Writes nothing and funds nothing; the result pre-fills the script request.
- * @summary Parse a topic into structured script inputs
- */
-export const analyzeScriptIntake = async (scriptIntakeRequest: ScriptIntakeRequest, options?: RequestInit): Promise<ScriptIntakeResult> => {
-
-  return customFetch<ScriptIntakeResult>(getAnalyzeScriptIntakeUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(scriptIntakeRequest)
-  }
-);}
-
-
-
-
-export const getAnalyzeScriptIntakeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext> => {
-
-const mutationKey = ['analyzeScriptIntake'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeScriptIntake>>, {data: BodyType<ScriptIntakeRequest>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  analyzeScriptIntake(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AnalyzeScriptIntakeMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeScriptIntake>>>
-    export type AnalyzeScriptIntakeMutationBody = BodyType<ScriptIntakeRequest>
-    export type AnalyzeScriptIntakeMutationError = ErrorType<ErrorEnvelope>
-
-    /**
- * @summary Parse a topic into structured script inputs
- */
-export const useAnalyzeScriptIntake = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof analyzeScriptIntake>>,
-        TError,
-        {data: BodyType<ScriptIntakeRequest>},
-        TContext
-      > => {
-      return useMutation(getAnalyzeScriptIntakeMutationOptions(options));
     }
 
 export const getGetVideoCapabilitiesUrl = () => {

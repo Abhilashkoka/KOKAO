@@ -8,7 +8,7 @@
 import type { VideoJobGuidedReferenceContextOperations } from './videoJobGuidedReferenceContextOperations';
 
 /**
- * Revision identity for inline Guided Story reference finalization.
+ * Revision identity for the compatibility Guided Story reference API.
  * @nullable
  */
 export type VideoJobGuidedReferenceContext = {

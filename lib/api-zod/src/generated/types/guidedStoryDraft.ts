@@ -9,6 +9,7 @@ import type { GuidedStoryCastSnapshot } from './guidedStoryCastSnapshot';
 import type { GuidedStoryDraftCastStrategy } from './guidedStoryDraftCastStrategy';
 import type { GuidedStoryDraftEstimates } from './guidedStoryDraftEstimates';
 import type { GuidedStoryDraftScriptGeneration } from './guidedStoryDraftScriptGeneration';
+import type { GuidedStoryReferenceOperation } from './guidedStoryReferenceOperation';
 import type { GuidedStoryScript } from './guidedStoryScript';
 import type { GuidedStorySetup } from './guidedStorySetup';
 import type { GuidedStoryVisualChoices } from './guidedStoryVisualChoices';
@@ -32,6 +33,7 @@ export interface GuidedStoryDraft {
      * @nullable
      */
   scriptGeneration: GuidedStoryDraftScriptGeneration;
+  referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
   /** @nullable */
   storyboardJobId: number | null;

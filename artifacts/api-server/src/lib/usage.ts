@@ -46,6 +46,8 @@ export async function getUsage(tenantId: number): Promise<{
 
 /** Optional AI data-consumption metrics attached to a usage row. */
 export interface UsageMeta {
+  /** Stable operation key. Concurrent/retried inserts collapse to one row. */
+  idempotencyKey?: string;
   requestBytes?: number;
   responseBytes?: number;
   durationMs?: number;
@@ -318,7 +320,8 @@ export async function recordUsage(
     ttftMs: meta.ttftMs ?? null,
     fallbackStep: meta.fallbackStep ?? null,
     routingReason: meta.routingReason ?? null,
+    idempotencyKey: meta.idempotencyKey ?? null,
     displayPaise,
-  });
+  }).onConflictDoNothing();
   return displayPaise;
 }

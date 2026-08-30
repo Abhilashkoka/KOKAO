@@ -5929,6 +5929,140 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/cast/references:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      operationId: createGuidedStoryReference
+      tags: [ai]
+      summary: Create a revision-bound inline character or outfit candidate
+      description: >-
+        Selection, upload, and generation create a review candidate only. The
+        canonical cast and storyboard are unchanged until explicit finalization.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryReferenceInput"
+      responses:
+        "201":
+          description: Candidate is ready for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryReferenceOperation"
+        "400":
+          description: Invalid candidate or unapproved outfit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Generation funding unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Tenant-owned draft, character, or outfit not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale revision or unresolved operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Provider failed or its outcome is uncertain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/cast/references/{operationId}/finalize:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: operationId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: finalizeGuidedStoryReference
+      tags: [ai]
+      summary: Atomically finalize a whole-role reference and rebuild previews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryRevisionInput"
+      responses:
+        "200":
+          description: Updated draft with a new immutable job snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "404":
+          description: Draft or operation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale, duplicate, or unresolved finalization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/cast/references/{operationId}/reject:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: operationId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: rejectGuidedStoryReference
+      tags: [ai]
+      summary: Reject a reviewable Guided Story reference candidate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryRevisionInput"
+      responses:
+        "200":
+          description: Candidate rejected; canonical cast remains unchanged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "404":
+          description: Draft or candidate not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale revision or non-rejectable candidate state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/guided-story/drafts/{draftId}/enqueue:
     parameters:
       - name: draftId
@@ -5964,6 +6098,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/script-intake:
+    post:
+      operationId: analyzeScriptIntake
+      tags: [ai]
+      summary: Parse a topic into structured script inputs
+      description: >-
+        Cheap pre-pass over a free-text topic. Extracts the facts the topic
+        actually asserts, guesses the video type, and reports which fields a
+        human still needs to answer. Writes nothing and funds nothing; the
+        result pre-fills the script request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptIntakeRequest"
+      responses:
+        "200":
+          description: Structured intake
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScriptIntakeResult"
+        "400":
+          description: Invalid topic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Tenant session is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: The AI provider failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Text generation is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/guided-references/{roleId}/finalize:
     parameters:
       - name: jobId
@@ -5975,7 +6162,7 @@ paths:
         required: true
         schema: { type: string }
     put:
-      operationId: finalizeGuidedStoryReference
+      operationId: finalizeGuidedStoryJobReference
       tags: [ai]
       summary: Finalize one approved character and outfit reference across a Guided Story
       description: >-
@@ -6063,59 +6250,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
-  /ai/script-intake:
-    post:
-      operationId: analyzeScriptIntake
-      tags: [ai]
-      summary: Parse a topic into structured script inputs
-      description: >-
-        Cheap pre-pass over a free-text topic. Extracts the facts the topic
-        actually asserts, guesses the video type, and reports which fields a
-        human still needs to answer. Writes nothing and funds nothing; the
-        result pre-fills the script request.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScriptIntakeRequest"
-      responses:
-        "200":
-          description: Structured intake
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ScriptIntakeResult"
-        "400":
-          description: Invalid topic
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Tenant session is missing or invalid
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Feature disabled
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "502":
-          description: The AI provider failed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "503":
-          description: Text generation is not configured
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-capabilities:
     get:
       operationId: getVideoCapabilities
@@ -16879,6 +17013,46 @@ components:
         characterId: { type: ["integer", "null"], minimum: 1 }
         outfitId: { type: ["integer", "null"], minimum: 1 }
         error: { type: ["string", "null"], maxLength: 500 }
+    GuidedStoryReferenceInput:
+      type: object
+      additionalProperties: false
+      required: [revision, roleId, kind, source]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        roleId: { type: string, minLength: 2, maxLength: 64 }
+        kind: { type: string, enum: [character, outfit] }
+        source: { type: string, enum: [current, saved, upload, generated] }
+        characterId: { type: ["integer", "null"] }
+        outfitId: { type: ["integer", "null"] }
+        uploadPath:
+          type: ["string", "null"]
+          description: Canonical tenant-owned uploaded image path.
+        description: { type: ["string", "null"], minLength: 3, maxLength: 1000 }
+        confirmed:
+          type: boolean
+          description: Required when selecting or uploading a replacement identity.
+    GuidedStoryReferenceOperation:
+      type: object
+      required: [id, revision, roleId, kind, source, status, requestKey, candidate, description, error, createdAt, updatedAt, finalizedAt]
+      properties:
+        id: { type: string }
+        revision: { type: integer }
+        roleId: { type: string }
+        kind: { type: string, enum: [character, outfit] }
+        source: { type: string, enum: [current, saved, upload, generated] }
+        status:
+          type: string
+          enum: [queued, generating, ready_to_review, finalized, failed, outcome_unknown]
+        requestKey: { type: string }
+        candidate:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryCastSnapshot"
+            - type: "null"
+        description: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        finalizedAt: { type: ["string", "null"], format: date-time }
     GuidedStoryCastSnapshot:
       type: object
       required: [roleId, source, characterId, outfitId, brandKitId, voiceId, character, outfit, voice, isUserRole, consentGranted]
@@ -16940,7 +17114,7 @@ components:
             version: { type: integer, const: 1 }
     GuidedStoryDraft:
       type: object
-      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, duplicateAssignmentConfirmed, scriptGeneration, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
+      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, duplicateAssignmentConfirmed, scriptGeneration, referenceOperations, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
       properties:
         id: { type: integer }
         revision: { type: integer }
@@ -16968,6 +17142,10 @@ components:
           properties:
             revision: { type: integer }
             claimedAt: { type: string, format: date-time }
+        referenceOperations:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuidedStoryReferenceOperation"
         visualChoices:
           $ref: "#/components/schemas/GuidedStoryVisualChoices"
         storyboardJobId: { type: ["integer", "null"] }
@@ -17940,7 +18118,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedReferenceContext, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedReferenceContext, guidedStoryDraftId, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -17969,7 +18147,7 @@ components:
           type: string
         guidedReferenceContext:
           type: ["object", "null"]
-          description: Revision identity for inline Guided Story reference finalization.
+          description: Revision identity for the compatibility Guided Story reference API.
           required: [draftId, revision]
           properties:
             draftId: { type: integer }
@@ -18020,6 +18198,9 @@ components:
             Current downloadable output for this lineage. A successful repair
             child supersedes the source here without changing the source's
             immutable videoPath.
+        guidedStoryDraftId:
+          type: ["integer", "null"]
+          description: Tenant-scoped Guided Story draft backing this job, when applicable.
         savedContentItemId:
           type: ["integer", "null"]
           description: >-

@@ -3,11 +3,13 @@ name: Guided cast checkpoints
 description: Durable accounting and restart invariants for paid generated-character work in guided stories.
 ---
 
-Generated cast assets must use stable, revision-bound per-role operations with explicit pre-provider, uncertain-outcome, provider-success, upload-success, and settled checkpoints. Ambiguous provider outcomes remain blocked for reconciliation: never refund or automatically retry them. Known-success checkpoints may resume only upload, settlement, or final commit without repeating provider work.
+Generated cast assets must use stable, revision-bound per-role operations with explicit pre-provider, uncertain-outcome, provider-success, upload-success, and settled checkpoints. Checkpoints are monotonic: recovery must never downgrade provider-success or upload-success back to funded. Ambiguous provider outcomes remain blocked for reconciliation: never refund or automatically retry them. Known-success checkpoints must retain validated bytes plus their detected MIME type, and may resume only upload, settlement, or final commit without repeating provider work.
 
 **Why:** A process can stop or a request can become ambiguous at any provider/upload/settlement boundary. Treating uncertainty as failure can both refund and duplicate paid work; rejecting known-success checkpoints can strand paid assets.
 
 **How to apply:** Before resuming or committing wallet-funded cast work, lock and validate the durable provider operation and reserve/settlement ledger rows against tenant, stable operation key, purpose, units, amount, provider, model, and allowed state. Approval must also lock the current draft and reject revision, cast, or scene-fingerprint drift.
+
+Concurrent identical requests need a durable per-operation execution claim. Fence every checkpoint write, refund, and settlement with that claim; only stale pre-provider or known-success claims may be reclaimed, while provider-running claims remain fail-closed. Usage metering must have its own stable idempotency key because a provider/wallet receipt does not deduplicate quota telemetry.
 
 Narration voice is not an input to fictional cast image generation. A known-success visual checkpoint may adopt a changed voice without repeating or discarding paid image work; in-flight or uncertain provider checkpoints remain fail-closed. Durable image handoffs must preserve and validate the provider's actual supported format (PNG or JPEG), including the matching upload content type.
 

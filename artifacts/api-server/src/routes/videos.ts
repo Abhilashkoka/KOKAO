@@ -38,9 +38,12 @@ import {
   GenerateGuidedStoryDraftSceneBody,
   ApproveGuidedStoryDraftScriptBody,
   CastGuidedStoryDraftBody,
+  FinalizeGuidedStoryJobReferenceBody,
   FinalizeGuidedStoryReferenceBody,
   StartGuidedStoryReferenceOperationBody,
   CompleteGuidedStoryReferenceOperationBody,
+  CreateGuidedStoryReferenceBody,
+  RejectGuidedStoryReferenceBody,
   EnqueueGuidedStoryDraftBody,
   CorrectGuidedStorySceneBody,
 } from "@workspace/api-zod";
@@ -135,8 +138,11 @@ import {
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import {
   generateCharacterReference,
+  createOutfitMaskedEdit,
+  generateOutfitVariant,
   getCharacterDetail,
   isOutfitSelectable,
+  loadReferenceImage,
   resolveOutfit,
 } from "../lib/characters";
 import {
@@ -713,6 +719,9 @@ function serializeVideoJob(
     seed: job.options?.seed ?? null,
     resolvedCreativeBrief: job.options?.resolvedCreativeBrief ?? null,
     videoPath: job.videoPath ?? null,
+    // Public, narrow link for Guided Story review controls. Do not expose the
+    // internal options object or its immutable cast/provider details.
+    guidedStoryDraftId: job.options?.guidedStory?.draftId ?? null,
     currentVideoPath: lineage?.currentVideoPath ?? job.videoPath ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
     provider: job.provider ?? null,
@@ -1262,6 +1271,14 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
     revision: row.revision,
     ...row.state,
     castOperations: undefined,
+    referenceOperations: Object.values(row.state.referenceOperations ?? {}).map(
+      ({
+        executionClaimToken: _token,
+        executionClaimedAt: _claimedAt,
+        imageContentType: _imageContentType,
+        ...operation
+      }) => operation,
+    ),
     estimates: guidedStoryEstimates(row.state, {
       tenantId: row.tenantId,
       draftId: row.id,
@@ -1270,6 +1287,44 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function serializeGuidedReferenceOperation(
+  operation: NonNullable<GuidedStoryDraftState["referenceOperations"]>[string],
+) {
+  const {
+    executionClaimToken: _token,
+    executionClaimedAt: _claimedAt,
+    imageContentType: _imageContentType,
+    ...publicOperation
+  } = operation;
+  return publicOperation;
+}
+
+class UnsupportedGeneratedReferenceImageError extends Error {}
+
+function generatedReferenceImageContentType(
+  bytes: Buffer,
+): "image/png" | "image/jpeg" {
+  if (
+    bytes.length >= 8 &&
+    bytes.subarray(0, 8).equals(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+  throw new UnsupportedGeneratedReferenceImageError(
+    "Generated reference uses an unsupported image format; only PNG and JPEG are accepted.",
+  );
 }
 
 async function loadGuidedDraft(
@@ -2091,6 +2146,7 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     scriptGeneration: null,
     sceneInsertionGeneration: null,
     castOperations: {},
+    referenceOperations: {},
     visualChoices: {
       version: 1,
       logo: { path: null, sceneIds: [] },
@@ -2775,7 +2831,8 @@ router.put(
     const script = row.state.script;
     if (
       row.state.scriptGeneration ||
-      guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration)
+      guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration) ||
+      unresolvedGuidedReferenceOperation(row.state)
     ) {
       res
         .status(409)
@@ -3778,7 +3835,7 @@ router.post(
 router.put(
   "/ai/video-jobs/:jobId/guided-references/:roleId/finalize",
   async (req: Request, res: Response) => {
-    const parsed = FinalizeGuidedStoryReferenceBody.safeParse(req.body);
+    const parsed = FinalizeGuidedStoryJobReferenceBody.safeParse(req.body);
     const jobId = Number(req.params.jobId);
     const roleId = String(req.params.roleId);
     if (!parsed.success || !Number.isSafeInteger(jobId) || jobId <= 0) {
@@ -4030,6 +4087,922 @@ router.put(
   },
 );
 
+function unresolvedGuidedReferenceOperation(
+  state: GuidedStoryDraftState,
+): boolean {
+  return Object.values(state.referenceOperations ?? {}).some((operation) =>
+    ["queued", "generating", "ready_to_review", "outcome_unknown"].includes(
+      operation.status,
+    ),
+  );
+}
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/cast/references",
+  async (req: Request, res: Response) => {
+    const parsed = CreateGuidedStoryReferenceBody.safeParse(req.body);
+    let row = parsed.success
+      ? await loadGuidedDraft(req.tenantId, Number(req.params.draftId))
+      : null;
+    if (!parsed.success || !row) {
+      res.status(row ? 400 : 404).json({
+        error: row ? "Invalid reference request." : "Guided story draft not found.",
+      });
+      return;
+    }
+    const input = parsed.data;
+    const jobId = row.state.storyboardJobId;
+    let member = row.state.cast.find((item) => item.roleId === input.roleId);
+    const [job] = jobId && jobId > 0
+      ? await db.select().from(videoGenerationsTable).where(and(
+          eq(videoGenerationsTable.id, jobId),
+          eq(videoGenerationsTable.tenantId, req.tenantId),
+        )).limit(1)
+      : [];
+    if (
+      row.revision !== input.revision ||
+      !member ||
+      !job ||
+      job.status !== "awaiting_review" ||
+      job.storyboard?.mode !== "guided_story" ||
+      !job.options?.guidedStory ||
+      job.options.guidedStory.draftRevision !== row.revision
+    ) {
+      res.status(409).json({
+        error: "References can only be changed on the current awaiting-review revision.",
+      });
+      return;
+    }
+    if (
+      Object.values(row.state.referenceOperations ?? {}).some((operation) =>
+        operation.status === "outcome_unknown")
+    ) {
+      res.status(409).json({
+        error: "A reference operation is active or has an uncertain outcome and must be resolved first.",
+      });
+      return;
+    }
+    if (
+      job.options.guidedPreviewRender?.state === "queued" ||
+      job.options.guidedPreviewRender?.state === "running" ||
+      job.storyboard.scenes.some((scene) =>
+        (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
+          ["queued", "running", "provider_started", "provider_succeeded", "outcome_unknown"].includes(
+            attempt.state,
+          )))
+    ) {
+      res.status(409).json({
+        error: "Wait for preview or correction work to be resolved before changing references.",
+      });
+      return;
+    }
+    if (input.source === "upload" && input.kind === "outfit") {
+      res.status(400).json({
+        error: "Outfit uploads are not supported; generate an identity-preserving outfit from a saved character instead.",
+      });
+      return;
+    }
+    if (
+      (input.source === "upload" || (input.source === "saved" && input.kind === "character")) &&
+      (input.kind !== "character" || input.confirmed !== true)
+    ) {
+      res.status(400).json({
+        error: "Replacing a character identity requires explicit confirmation.",
+      });
+      return;
+    }
+    const now = new Date();
+    const executionClaimToken = randomUUID();
+    // Provider-running work is never reclaimed. For locally recoverable
+    // checkpoints, fifteen minutes is deliberately much longer than validation,
+    // upload, and settlement while still allowing a crashed process to unwind.
+    const executionClaimLeaseMs = 15 * 60 * 1000;
+    const requestKey = createHash("sha256").update(JSON.stringify({
+      revision: input.revision, roleId: input.roleId, kind: input.kind,
+      source: input.source, characterId: input.characterId ?? null,
+      outfitId: input.outfitId ?? null, uploadPath: input.uploadPath ?? null,
+      description: input.description?.trim() ?? null,
+    })).digest("hex");
+    let operationId = `guided-reference:${row.id}:${row.revision}:${input.roleId}:${now.getTime()}`;
+    const baseOperation: NonNullable<GuidedStoryDraftState["referenceOperations"]>[string] = {
+      id: operationId,
+      revision: row.revision,
+      roleId: input.roleId,
+      kind: input.kind,
+      source: input.source,
+      status: "queued",
+      requestKey,
+      executionClaimToken,
+      executionClaimedAt: now.toISOString(),
+      candidate: null,
+      description: input.description?.trim() || null,
+      error: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      finalizedAt: null,
+    };
+    let activeClaimConflict = false;
+    const claimed = await db.transaction(async (tx) => {
+      const [fresh] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, row!.id),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!fresh || fresh.revision !== input.revision) return null;
+      // All cross-row Guided Story mutations lock draft then job.  Recheck the
+      // immutable review attempt while both are locked: approval cannot slip
+      // through between the optimistic read above and this queued candidate.
+      const freshJobId = fresh.state.storyboardJobId;
+      const [freshJob] = freshJobId && freshJobId > 0
+        ? await tx.select().from(videoGenerationsTable).where(and(
+            eq(videoGenerationsTable.id, freshJobId),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          )).for("update").limit(1)
+        : [];
+      const freshMember = fresh.state.cast.find((item) => item.roleId === input.roleId);
+      if (
+        !freshMember ||
+        !freshJob ||
+        freshJob.status !== "awaiting_review" ||
+        freshJob.storyboard?.mode !== "guided_story" ||
+        !freshJob.options?.guidedStory ||
+        freshJob.options.guidedStory.draftId !== fresh.id ||
+        freshJob.options.guidedStory.draftRevision !== fresh.revision
+      ) return null;
+      const resumable = Object.values(fresh.state.referenceOperations ?? {}).find(
+        (operation) => operation.requestKey === requestKey &&
+          operation.revision === fresh.revision &&
+          (operation.status === "queued" ||
+            (operation.status === "generating" &&
+              (operation.checkpoint === "funded" ||
+                operation.checkpoint === "provider_succeeded" ||
+                operation.checkpoint === "upload_succeeded"))),
+      );
+      if (resumable) {
+        const claimedAt = resumable.executionClaimedAt
+          ? Date.parse(resumable.executionClaimedAt)
+          : Number.NaN;
+        const claimIsFresh =
+          Boolean(resumable.executionClaimToken) &&
+          Number.isFinite(claimedAt) &&
+          now.getTime() - claimedAt < executionClaimLeaseMs;
+        if (claimIsFresh) {
+          activeClaimConflict = true;
+          return null;
+        }
+        const [reclaimed] = await tx.update(guidedStoryDraftsTable).set({
+          state: {
+            ...fresh.state,
+            referenceOperations: {
+              ...fresh.state.referenceOperations,
+              [resumable.id]: {
+                ...resumable,
+                executionClaimToken,
+                executionClaimedAt: now.toISOString(),
+                updatedAt: now.toISOString(),
+              },
+            },
+          },
+          updatedAt: now,
+        }).where(and(
+          eq(guidedStoryDraftsTable.id, fresh.id),
+          eq(guidedStoryDraftsTable.revision, fresh.revision),
+        )).returning();
+        return reclaimed ?? null;
+      }
+      if (Object.values(fresh.state.referenceOperations ?? {}).some((operation) =>
+        ["queued", "generating", "outcome_unknown"].includes(operation.status))) return null;
+      const [saved] = await tx.update(guidedStoryDraftsTable).set({
+        state: {
+          ...fresh.state,
+          referenceOperations: {
+            ...(fresh.state.referenceOperations ?? {}),
+            [operationId]: baseOperation,
+          },
+        },
+        updatedAt: now,
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, fresh.id),
+        eq(guidedStoryDraftsTable.revision, fresh.revision),
+      )).returning();
+      return saved ?? null;
+    });
+    if (!claimed) {
+      res.status(409).json({
+        error: activeClaimConflict
+          ? "This identical reference request is already in progress."
+          : "This draft changed. Reload it and try again.",
+      });
+      return;
+    }
+    row = claimed;
+    member = row.state.cast.find((item) => item.roleId === input.roleId);
+    if (!member) {
+      res.status(409).json({ error: "The cast changed. Reload it and try again." });
+      return;
+    }
+    const recovered = Object.values(row.state.referenceOperations ?? {}).find(
+      (operation) => operation.requestKey === requestKey &&
+        operation.revision === input.revision &&
+        (operation.status === "queued" ||
+          (operation.status === "generating" &&
+            (operation.checkpoint === "funded" ||
+              operation.checkpoint === "provider_succeeded" ||
+              operation.checkpoint === "upload_succeeded"))),
+    );
+    if (recovered) operationId = recovered.id;
+    const recoveredSafeCheckpoint =
+      recovered?.status === "generating" &&
+      (recovered.checkpoint === "funded" ||
+        recovered.checkpoint === "provider_succeeded" ||
+        recovered.checkpoint === "upload_succeeded");
+    let claimSuperseded = false;
+    const persist = async (
+      patch: Partial<NonNullable<GuidedStoryDraftState["referenceOperations"]>[string]>,
+      releaseClaim = false,
+    ): Promise<GuidedStoryDraft | null> => db.transaction(async (tx) => {
+      const [fresh] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, row!.id),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        eq(guidedStoryDraftsTable.revision, input.revision),
+      )).for("update").limit(1);
+      const operation = fresh?.state.referenceOperations?.[operationId];
+      if (
+        !fresh ||
+        !operation ||
+        operation.executionClaimToken !== executionClaimToken ||
+        ["finalized", "failed", "outcome_unknown"].includes(operation.status)
+      ) {
+        if (operation && operation.executionClaimToken !== executionClaimToken) {
+          claimSuperseded = true;
+        }
+        return null;
+      }
+      const terminal =
+        patch.status === "ready_to_review" ||
+        patch.status === "failed" ||
+        patch.status === "outcome_unknown" ||
+        patch.status === "finalized";
+      const updatedOperation = {
+        ...operation,
+        ...patch,
+        executionClaimToken: terminal || releaseClaim ? null : executionClaimToken,
+        executionClaimedAt: terminal || releaseClaim ? null : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const [saved] = await tx.update(guidedStoryDraftsTable).set({
+        state: {
+          ...fresh.state,
+          referenceOperations: {
+            ...fresh.state.referenceOperations,
+            [operationId]: updatedOperation,
+          },
+        },
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, fresh.id),
+        eq(guidedStoryDraftsTable.revision, fresh.revision),
+      )).returning();
+      return saved ?? null;
+    });
+
+    let candidate: GuidedStoryCastSnapshot;
+    if (input.source === "current") {
+      candidate = structuredClone(member);
+    } else if (input.source === "saved") {
+      const characterId =
+        input.kind === "outfit" ? member.characterId : input.characterId;
+      const detail = characterId == null
+        ? null
+        : await getCharacterDetail(req.tenantId, characterId);
+      const outfit = detail ? resolveOutfit(detail, input.outfitId) : null;
+      if (!detail || !outfit || !isOutfitSelectable(outfit)) {
+        await persist({ status: "failed", error: "Tenant-owned character or approved outfit was not found." });
+        res.status(404).json({ error: "Tenant-owned character or approved outfit was not found." });
+        return;
+      }
+      candidate = input.kind === "character"
+        ? {
+            ...member,
+            source: "saved",
+            characterId: detail.character.id,
+            outfitId: outfit.id,
+            character: {
+              name: detail.character.name,
+              description: detail.character.description,
+              referenceImagePath: detail.character.referenceImagePath,
+            },
+            outfit: {
+              name: outfit.name,
+              description: outfit.description,
+              referenceImagePath: outfit.referenceImagePath,
+            },
+            generatedAsset: null,
+            consentGranted: true,
+          }
+        : {
+            ...member,
+            outfitId: outfit.id,
+            outfit: {
+              name: outfit.name,
+              description: outfit.description,
+              referenceImagePath: outfit.referenceImagePath,
+            },
+          };
+    } else if (input.source === "upload") {
+      if (
+        !input.uploadPath ||
+        !canonicalGuidedVisualObjectPath(input.uploadPath, req.tenantId)
+      ) {
+        await persist({ status: "failed", error: "The upload path is not tenant-owned." });
+        res.status(400).json({ error: "The upload path is not tenant-owned." });
+        return;
+      }
+      try {
+        await loadReferenceImage(input.uploadPath, req.tenantId);
+      } catch {
+        await persist({ status: "failed", error: "The uploaded character image is invalid." });
+        res.status(400).json({ error: "The uploaded character image is invalid." });
+        return;
+      }
+      candidate = {
+        ...member,
+        source: "generated",
+        characterId: null,
+        outfitId: null,
+        character: {
+          ...member.character,
+          referenceImagePath: input.uploadPath,
+        },
+        outfit: {
+          name: member.outfit?.name ?? "As uploaded",
+          description: member.outfit?.description ?? "As shown in the uploaded reference",
+          referenceImagePath: input.uploadPath,
+        },
+        generatedAsset: null,
+        consentGranted: true,
+      };
+    } else {
+      const description = input.description?.trim();
+      if (!description) {
+        await persist({ status: "failed", error: "Generation requires a description." });
+        res.status(400).json({ error: "Generation requires a description." });
+        return;
+      }
+      if (
+        input.kind === "outfit" &&
+        (member.characterId === null || !member.character.referenceImagePath)
+      ) {
+        await persist({
+          status: "failed",
+          error: "Generated outfits require a saved canonical character identity.",
+        });
+        res.status(400).json({
+          error: "Generated outfits require a saved canonical character identity.",
+        });
+        return;
+      }
+      const checkpoint = row.state.referenceOperations?.[operationId];
+      if (
+        checkpoint?.checkpoint === "provider_running" ||
+        checkpoint?.status === "outcome_unknown"
+      ) {
+        res.status(409).json({
+          error: "This provider operation may have completed and requires reconciliation; it will not be retried automatically.",
+        });
+        return;
+      }
+      const funding = checkpoint?.funding
+        ? {
+            source: checkpoint.funding,
+            ...(checkpoint.walletReservation
+              ? { reservation: checkpoint.walletReservation }
+              : {}),
+          }
+        : await reserveImageFunding(req);
+      if (!funding) {
+        await persist({ status: "failed", error: "One image unit is required." });
+        res.status(402).json({ error: "One image unit is required." });
+        return;
+      }
+      // A newly queued operation has no provider-safe boundary yet.  Do not
+      // confuse its truthy object with a recovered funded checkpoint.
+      const generating = recoveredSafeCheckpoint
+        ? row
+        : await persist({
+            status: "generating",
+            checkpoint: "funded",
+            funding: funding.source,
+            walletReservation: funding.reservation ?? null,
+          });
+      if (!generating) {
+        await releaseImageFunding(req, funding);
+        res.status(409).json({ error: "The reference operation changed before generation." });
+        return;
+      }
+      row = generating;
+      const startedAt = Date.now();
+      let providerStarted = false;
+      let durableCheckpoint: NonNullable<GuidedStoryDraftState["referenceOperations"]>[string]["checkpoint"] =
+        checkpoint?.checkpoint;
+      try {
+        const generate = async () => {
+          if (input.kind === "character") {
+            const boundary = await persist({
+              checkpoint: "provider_running",
+              providerStartedAt: new Date().toISOString(),
+            });
+            if (!boundary) throw new Error("Reference provider boundary checkpoint failed.");
+            durableCheckpoint = "provider_running";
+            providerStarted = true;
+            return generateCharacterReference(description);
+          }
+          if (member.characterId == null || !member.character.referenceImagePath) {
+            throw new Error("Outfits can only be generated for a saved canonical identity.");
+          }
+          const detail = await getCharacterDetail(req.tenantId, member.characterId);
+          if (!detail?.character.protectedRegion) {
+            throw new Error("The saved identity has no protected face region.");
+          }
+          const reference = await loadReferenceImage(
+            member.character.referenceImagePath,
+            req.tenantId,
+          );
+          const mask = await createOutfitMaskedEdit(
+            reference,
+            detail.character.protectedRegion,
+          );
+          const boundary = await persist({
+            checkpoint: "provider_running",
+            providerStartedAt: new Date().toISOString(),
+          });
+          if (!boundary) throw new Error("Reference provider boundary checkpoint failed.");
+            durableCheckpoint = "provider_running";
+          providerStarted = true;
+          return generateOutfitVariant(detail.character, description, reference, mask);
+        };
+        let generated: Awaited<ReturnType<typeof generateCharacterReference>>;
+        let providerOperationId: number | null = checkpoint?.providerOperationId ?? null;
+        let recoveredGeneratedBytes = false;
+        if (
+          (checkpoint?.checkpoint === "provider_succeeded" ||
+            checkpoint?.checkpoint === "upload_succeeded") &&
+          checkpoint.imageBase64 &&
+          checkpoint.provider &&
+          checkpoint.model
+        ) {
+          generated = {
+            buffer: Buffer.from(checkpoint.imageBase64, "base64"),
+            provider: checkpoint.provider,
+            model: checkpoint.model,
+          };
+          recoveredGeneratedBytes = true;
+        } else {
+        const executed =
+          funding.source === "wallet" && funding.reservation
+            ? await executeWalletProviderOperation(
+                {
+                  tenantId: req.tenantId,
+                  reservation: funding.reservation,
+                  operationKind: input.kind === "character"
+                    ? "character_reference"
+                    : "character_outfit",
+                  operationKey: operationId,
+                  settlement: {
+                    kind: "image",
+                    costPaise: null,
+                    refKind: "guidedStoryReference",
+                    refId: `${row.id}:${row.revision}:${input.roleId}`,
+                  },
+                },
+                generate,
+                (result) => ({ provider: result.provider, model: result.model }),
+                { isFailureConfirmed: isConfirmedImageFailure },
+              )
+            : null;
+        generated = executed?.value ?? await generate();
+        providerOperationId = executed?.operationId ?? null;
+        const imageContentType = generatedReferenceImageContentType(generated.buffer);
+        const providerSaved = await persist({
+          checkpoint: "provider_succeeded",
+          provider: generated.provider,
+          model: generated.model,
+          providerOperationId,
+          imageBase64: generated.buffer.toString("base64"),
+          imageByteLength: generated.buffer.length,
+          imageContentType,
+        });
+        if (!providerSaved) throw new Error("Reference provider-success checkpoint failed.");
+        row = providerSaved;
+        durableCheckpoint = "provider_succeeded";
+        }
+        const detectedContentType = generatedReferenceImageContentType(generated.buffer);
+        if (
+          checkpoint?.imageContentType &&
+          checkpoint.imageContentType !== detectedContentType
+        ) {
+          throw new Error("Durable reference bytes do not match their saved content type.");
+        }
+        if (recoveredGeneratedBytes && !checkpoint?.imageContentType) {
+          const contentTypeSaved = await persist({
+            imageContentType: detectedContentType,
+          });
+          if (!contentTypeSaved) {
+            throw new Error("Reference content-type checkpoint failed.");
+          }
+          row = contentTypeSaved;
+        }
+        const afterProvider = row.state.referenceOperations?.[operationId];
+        const path = afterProvider?.checkpoint === "upload_succeeded" && afterProvider.path
+          ? afterProvider.path
+          : await uploadBufferToStorage(
+              req.tenantId,
+              generated.buffer,
+              detectedContentType,
+            );
+        if (afterProvider?.checkpoint !== "upload_succeeded") {
+          const uploaded = await persist({
+            checkpoint: "upload_succeeded",
+            path,
+            // Keep the paid bytes until the final candidate commit. A crash
+            // after upload but before settlement can then resume without
+            // crossing the provider boundary again.
+          });
+          if (!uploaded) throw new Error("Reference upload checkpoint failed.");
+          row = uploaded;
+          durableCheckpoint = "upload_succeeded";
+        }
+        if (!row.state.referenceOperations?.[operationId]?.settledAt) {
+          // Fence settlement with the current lease immediately before the
+          // idempotent accounting call. A stale worker cannot settle after a
+          // newer claimant has replaced its token.
+          const settlementLease = await persist({});
+          if (!settlementLease) {
+            throw new Error("Reference execution claim was superseded before settlement.");
+          }
+          row = settlementLease;
+          await settleImageFunding(req, funding, {
+            durationMs: Date.now() - startedAt,
+            responseBytes: generated.buffer.length,
+            model: generated.model,
+            provider: generated.provider,
+        }, providerOperationId ?? undefined, operationId);
+          const settled = await persist({ settledAt: new Date().toISOString() });
+          if (!settled) throw new Error("Reference settlement checkpoint failed.");
+          row = settled;
+        }
+        candidate = input.kind === "character"
+          ? {
+              ...member,
+              source: "generated",
+              characterId: null,
+              outfitId: null,
+              character: {
+                name: member.character.name,
+                description,
+                referenceImagePath: path,
+              },
+              outfit: {
+                name: `${member.character.name} wardrobe`,
+                description: "As shown in the generated canonical reference",
+                referenceImagePath: path,
+              },
+              generatedAsset: {
+                path,
+                provider: generated.provider,
+                model: generated.model,
+                operationId: providerOperationId,
+              },
+              consentGranted: false,
+            }
+          : {
+              ...member,
+              outfitId: null,
+              outfit: {
+                name: `${member.character.name} custom wardrobe`,
+                description,
+                referenceImagePath: path,
+              },
+            };
+        const ready = await persist({
+          status: "ready_to_review",
+          candidate,
+          provider: generated.provider,
+          model: generated.model,
+          providerOperationId,
+          checkpoint: "uploaded",
+          path,
+          imageBase64: undefined,
+          settledAt: new Date().toISOString(),
+        });
+        if (!ready) {
+          res.status(409).json({ error: "Generated reference requires reconciliation." });
+          return;
+        }
+        res.status(201).json(
+          serializeGuidedReferenceOperation(ready.state.referenceOperations![operationId]),
+        );
+        return;
+      } catch (error) {
+        if (claimSuperseded) {
+          res.status(409).json({
+            error: "This reference execution was superseded by a stale-claim recovery.",
+          });
+          return;
+        }
+        if (error instanceof UnsupportedGeneratedReferenceImageError) {
+          const failed = await persist({
+            status: "failed",
+            error: error.message,
+          });
+          if (!failed && claimSuperseded) {
+            res.status(409).json({
+              error: "This reference execution was superseded by a stale-claim recovery.",
+            });
+            return;
+          }
+          res.status(422).json({ error: error.message });
+          return;
+        }
+        const durableSuccess = durableCheckpoint;
+        if (
+          durableSuccess === "provider_succeeded" ||
+          durableSuccess === "upload_succeeded"
+        ) {
+          // Exact paid bytes or the uploaded object are durable.  Leave this
+          // operation generating so an identical request can finish settlement
+          // and candidate commit without another provider call.
+          const released = await persist({}, true);
+          if (!released && claimSuperseded) {
+            res.status(409).json({
+              error: "This reference execution was superseded by a stale-claim recovery.",
+            });
+            return;
+          }
+          res.status(500).json({
+            error: "The paid reference was saved and can be resumed safely; retry the identical request.",
+          });
+          return;
+        }
+        const confirmed = !providerStarted || isConfirmedImageFailure(error);
+        const failureLease = await persist({});
+        if (!failureLease || claimSuperseded) {
+          res.status(409).json({
+            error: "This reference execution was superseded by a stale-claim recovery.",
+          });
+          return;
+        }
+        row = failureLease;
+        if (confirmed) await releaseImageFunding(req, funding);
+        await persist({
+          status: confirmed ? "failed" : "outcome_unknown",
+          error: confirmed
+            ? "Reference generation failed before completion."
+            : "The provider outcome is uncertain. Funding remains held and this operation cannot be retried automatically.",
+        });
+        res.status(502).json({
+          error: confirmed
+            ? "Reference generation failed."
+            : "The provider outcome is uncertain. Funding remains held pending reconciliation.",
+        });
+        return;
+      }
+    }
+    const ready = await persist({ status: "ready_to_review", candidate });
+    if (!ready) {
+      res.status(409).json({ error: "The reference operation changed." });
+      return;
+    }
+    res.status(201).json(
+      serializeGuidedReferenceOperation(ready.state.referenceOperations![operationId]),
+    );
+  },
+);
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/cast/references/:operationId/reject",
+  async (req: Request, res: Response) => {
+    const parsed = RejectGuidedStoryReferenceBody.safeParse(req.body);
+    const draftId = Number(req.params.draftId);
+    const operationId = String(req.params.operationId);
+    if (!parsed.success || !Number.isSafeInteger(draftId) || draftId <= 0) {
+      res.status(400).json({ error: "Invalid reference rejection request." });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, draftId),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!draft) return { kind: "missing" as const };
+      const operation = draft.state.referenceOperations?.[operationId];
+      if (
+        draft.revision !== parsed.data.revision ||
+        !operation ||
+        operation.revision !== draft.revision ||
+        !["ready_to_review", "failed"].includes(operation.status)
+      ) return { kind: "stale" as const };
+      const now = new Date().toISOString();
+      const [saved] = await tx.update(guidedStoryDraftsTable).set({
+        state: {
+          ...draft.state,
+          referenceOperations: {
+            ...draft.state.referenceOperations,
+            [operationId]: {
+              ...operation,
+              status: "failed",
+              executionClaimToken: null,
+              executionClaimedAt: null,
+              candidate: null,
+              error: "Reference candidate was rejected by the user.",
+              updatedAt: now,
+            },
+          },
+        },
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, draft.id),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        eq(guidedStoryDraftsTable.revision, draft.revision),
+      )).returning();
+      return saved ? { kind: "saved" as const, draft: saved } : { kind: "stale" as const };
+    });
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Guided story draft not found." });
+      return;
+    }
+    if (result.kind === "stale") {
+      res.status(409).json({
+        error: "Only a current ready or failed reference candidate can be rejected; active, uncertain, and finalized work is protected.",
+      });
+      return;
+    }
+    res.json(serializeGuidedDraft(result.draft));
+  },
+);
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/cast/references/:operationId/finalize",
+  async (req: Request, res: Response) => {
+    const parsed = FinalizeGuidedStoryReferenceBody.safeParse(req.body);
+    const draftId = Number(req.params.draftId);
+    const operationId = String(req.params.operationId);
+    if (!parsed.success || !Number.isSafeInteger(draftId) || draftId <= 0) {
+      res.status(400).json({ error: "Invalid finalization request." });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, draftId),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!draft) return { kind: "missing" as const };
+      const operation = draft.state.referenceOperations?.[operationId];
+      if (
+        draft.revision !== parsed.data.revision ||
+        !operation ||
+        operation.revision !== draft.revision ||
+        operation.status !== "ready_to_review" ||
+        !operation.candidate
+      ) return { kind: "stale" as const };
+      if (
+        operation.candidate.characterId !== null &&
+        operation.candidate.outfitId !== null
+      ) {
+        const [ownedCharacter] = await tx.select({ id: charactersTable.id })
+          .from(charactersTable).where(and(
+            eq(charactersTable.id, operation.candidate.characterId),
+            eq(charactersTable.tenantId, req.tenantId),
+          )).limit(1);
+        const [ownedOutfit] = await tx.select().from(characterOutfitsTable)
+          .where(and(
+            eq(characterOutfitsTable.id, operation.candidate.outfitId),
+            eq(characterOutfitsTable.characterId, operation.candidate.characterId),
+            eq(characterOutfitsTable.tenantId, req.tenantId),
+          )).limit(1);
+        if (!ownedCharacter || !ownedOutfit || !isOutfitSelectable(ownedOutfit)) {
+          return { kind: "stale" as const };
+        }
+      }
+      const jobId = draft.state.storyboardJobId;
+      const [job] = jobId && jobId > 0
+        ? await tx.select().from(videoGenerationsTable).where(and(
+            eq(videoGenerationsTable.id, jobId),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          )).for("update").limit(1)
+        : [];
+      if (
+        !job ||
+        job.status !== "awaiting_review" ||
+        job.storyboard?.mode !== "guided_story" ||
+        !job.options?.guidedStory ||
+        job.options.guidedStory.draftRevision !== draft.revision ||
+        job.options.guidedPreviewRender?.state === "queued" ||
+        job.options.guidedPreviewRender?.state === "running" ||
+        job.storyboard.scenes.some((scene) =>
+          (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
+            ["queued", "running", "provider_started", "provider_succeeded", "outcome_unknown"].includes(
+              attempt.state,
+            )))
+      ) return { kind: "stale" as const };
+      const roleIndex = draft.state.cast.findIndex(
+        (member) => member.roleId === operation.roleId,
+      );
+      if (roleIndex < 0) return { kind: "stale" as const };
+      const cast = [...draft.state.cast];
+      cast[roleIndex] = operation.candidate;
+      const nextRevision = draft.revision + 1;
+      const finalizedAt = new Date().toISOString();
+      const referenceOperations = Object.fromEntries(
+        Object.entries(draft.state.referenceOperations ?? {}).map(([id, item]) =>
+          id === operationId
+            ? [id, {
+                ...item,
+                status: "finalized" as const,
+                executionClaimToken: null,
+                executionClaimedAt: null,
+                finalizedAt,
+                updatedAt: finalizedAt,
+              }]
+            : [
+                id,
+                ["queued", "generating", "ready_to_review"].includes(item.status)
+                  ? {
+                      ...item,
+                      status: "failed" as const,
+                      executionClaimToken: null,
+                      executionClaimedAt: null,
+                      error: "Superseded by a newer finalized revision.",
+                      updatedAt: finalizedAt,
+                    }
+                  : item,
+              ]),
+      );
+      const nextState: GuidedStoryDraftState = {
+        ...draft.state,
+        cast,
+        referenceOperations,
+      };
+      const snapshot = {
+        ...job.options.guidedStory,
+        draftRevision: nextRevision,
+        cast,
+      };
+      const storyboard = guidedStoryStoryboard(snapshot, job.storyboard);
+      const missing = storyboard.scenes.filter((scene) => !scene.previewPath).length;
+      const previewOperation = {
+        version: 1 as const,
+        operationId: `guided-preview:${job.id}:${Date.now()}`,
+        state: "queued" as const,
+        total: storyboard.scenes.length,
+        completed: storyboard.scenes.length - missing,
+        error: null,
+        requestedAt: finalizedAt,
+        startedAt: null,
+        finishedAt: null,
+      };
+      const [savedDraft] = await tx.update(guidedStoryDraftsTable).set({
+        state: nextState,
+        revision: nextRevision,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, draft.id),
+        eq(guidedStoryDraftsTable.revision, draft.revision),
+      )).returning();
+      const [savedJob] = await tx.update(videoGenerationsTable).set({
+        options: {
+          ...job.options,
+          guidedStory: snapshot,
+          guidedPreviewRender: previewOperation,
+        },
+        storyboard,
+        error: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(videoGenerationsTable.id, job.id),
+        eq(videoGenerationsTable.status, "awaiting_review"),
+      )).returning();
+      return savedDraft && savedJob
+        ? { kind: "saved" as const, draft: savedDraft, jobId: savedJob.id }
+        : { kind: "stale" as const };
+    });
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Guided story draft not found." });
+      return;
+    }
+    if (result.kind === "stale") {
+      res.status(409).json({
+        error: "This candidate was already finalized, is unresolved, or belongs to a stale revision.",
+      });
+      return;
+    }
+    if (!enqueueBackgroundJob(() => runGuidedPreviewRenderJob(result.jobId))) {
+      // The queued marker is durable and startup recovery will resume it.
+      req.log.warn({ jobId: result.jobId }, "Guided reference previews remain queued for recovery");
+    }
+    res.json(serializeGuidedDraft(result.draft));
+  },
+);
+
 router.post(
   "/ai/guided-story/drafts/:draftId/enqueue",
   async (req: Request, res: Response) => {
@@ -4048,6 +5021,7 @@ router.post(
     if (
       parsed.data.revision !== row.revision ||
       guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration) ||
+      unresolvedGuidedReferenceOperation(row.state) ||
       !row.state.script ||
       !row.state.scriptApprovedAt ||
       row.state.cast.length !== row.state.script.roles.length ||
@@ -8375,6 +9349,20 @@ router.post(
       });
       return;
     }
+    const correctionDraftId = before.options?.guidedStory?.draftId;
+    const correctionDraft = correctionDraftId
+      ? await loadGuidedDraft(req.tenantId, correctionDraftId)
+      : null;
+    if (
+      !correctionDraft ||
+      correctionDraft.revision !== before.options?.guidedStory?.draftRevision ||
+      unresolvedGuidedReferenceOperation(correctionDraft.state)
+    ) {
+      res.status(409).json({
+        error: "Scene correction is blocked while cast reference work is active or unresolved.",
+      });
+      return;
+    }
     const existingActive = before.storyboard.scenes.flatMap((scene) =>
       scene.guidedStory?.corrections?.attempts ?? []).find((attempt) =>
         ["queued", "running", "provider_started", "provider_succeeded"].includes(attempt.state));
@@ -8536,7 +9524,8 @@ router.post(
           (operation) =>
             operation.revision === draft.revision &&
             ["queued", "running", "outcome_unknown"].includes(operation.state),
-        )
+        ) ||
+        unresolvedGuidedReferenceOperation(draft.state)
       ) {
         res.status(409).json({
           error:
@@ -8575,6 +9564,27 @@ router.post(
     const claimed =
       loaded.storyboard.mode === "guided_story"
         ? await db.transaction(async (tx) => {
+            // Guided Story cross-row mutations always lock draft then job. This
+            // serializes approval with reference creation/finalization and
+            // makes the unresolved-reference rejection authoritative.
+            const expectedDraftId = loaded.job.options?.guidedStory?.draftId;
+            if (!expectedDraftId) return null;
+            const draft = (
+              await tx
+                .select()
+                .from(guidedStoryDraftsTable)
+                .where(
+                  and(
+                    eq(guidedStoryDraftsTable.id, expectedDraftId),
+                    eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+                  ),
+                )
+                .for("update")
+                .limit(1)
+            )[0];
+            if (!draft || unresolvedGuidedReferenceOperation(draft.state)) {
+              return null;
+            }
             const job = (
               await tx
                 .select()
@@ -8599,19 +9609,6 @@ router.post(
               job.options?.guidedPreviewRender?.state === "running"
             )
               return null;
-            const draft = (
-              await tx
-                .select()
-                .from(guidedStoryDraftsTable)
-                .where(
-                  and(
-                    eq(guidedStoryDraftsTable.id, snapshot.draftId),
-                    eq(guidedStoryDraftsTable.tenantId, req.tenantId),
-                  ),
-                )
-                .for("update")
-                .limit(1)
-            )[0];
             if (
               !draft ||
               Object.values(draft.state.inlineReferenceOperations ?? {}).some(
@@ -8619,6 +9616,7 @@ router.post(
                   operation.revision === draft.revision &&
                   ["queued", "running", "outcome_unknown"].includes(operation.state),
               ) ||
+              snapshot.draftId !== draft.id ||
               !guidedStoryApprovalSnapshotMatches({
                 draftId: draft.id,
                 draftRevision: draft.revision,

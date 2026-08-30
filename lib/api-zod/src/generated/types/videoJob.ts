@@ -34,7 +34,7 @@ export interface VideoJob {
   sourceImagePaths: string[];
   aspectRatio: string;
   /**
-     * Revision identity for inline Guided Story reference finalization.
+     * Revision identity for the compatibility Guided Story reference API.
      * @nullable
      */
   guidedReferenceContext: VideoJobGuidedReferenceContext;
@@ -70,6 +70,11 @@ export interface VideoJob {
      * @nullable
      */
   currentVideoPath: string | null;
+  /**
+     * Tenant-scoped Guided Story draft backing this job, when applicable.
+     * @nullable
+     */
+  guidedStoryDraftId: number | null;
   /**
      * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
      * @nullable

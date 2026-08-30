@@ -4707,6 +4707,83 @@ export interface GuidedStoryReferenceOperationCompleteInput {
   error?: string | null;
 }
 
+export type GuidedStoryReferenceInputKind = typeof GuidedStoryReferenceInputKind[keyof typeof GuidedStoryReferenceInputKind];
+
+
+export const GuidedStoryReferenceInputKind = {
+  character: 'character',
+  outfit: 'outfit',
+} as const;
+
+export type GuidedStoryReferenceInputSource = typeof GuidedStoryReferenceInputSource[keyof typeof GuidedStoryReferenceInputSource];
+
+
+export const GuidedStoryReferenceInputSource = {
+  current: 'current',
+  saved: 'saved',
+  upload: 'upload',
+  generated: 'generated',
+} as const;
+
+export interface GuidedStoryReferenceInput {
+  /** @minimum 1 */
+  revision: number;
+  /**
+     * @minLength 2
+     * @maxLength 64
+     */
+  roleId: string;
+  kind: GuidedStoryReferenceInputKind;
+  source: GuidedStoryReferenceInputSource;
+  /** @nullable */
+  characterId?: number | null;
+  /** @nullable */
+  outfitId?: number | null;
+  /**
+     * Canonical tenant-owned uploaded image path.
+     * @nullable
+     */
+  uploadPath?: string | null;
+  /**
+     * @minLength 3
+     * @maxLength 1000
+     * @nullable
+     */
+  description?: string | null;
+  /** Required when selecting or uploading a replacement identity. */
+  confirmed?: boolean;
+}
+
+export type GuidedStoryReferenceOperationKind = typeof GuidedStoryReferenceOperationKind[keyof typeof GuidedStoryReferenceOperationKind];
+
+
+export const GuidedStoryReferenceOperationKind = {
+  character: 'character',
+  outfit: 'outfit',
+} as const;
+
+export type GuidedStoryReferenceOperationSource = typeof GuidedStoryReferenceOperationSource[keyof typeof GuidedStoryReferenceOperationSource];
+
+
+export const GuidedStoryReferenceOperationSource = {
+  current: 'current',
+  saved: 'saved',
+  upload: 'upload',
+  generated: 'generated',
+} as const;
+
+export type GuidedStoryReferenceOperationStatus = typeof GuidedStoryReferenceOperationStatus[keyof typeof GuidedStoryReferenceOperationStatus];
+
+
+export const GuidedStoryReferenceOperationStatus = {
+  queued: 'queued',
+  generating: 'generating',
+  ready_to_review: 'ready_to_review',
+  finalized: 'finalized',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
 export type GuidedStoryCastSnapshotSource = typeof GuidedStoryCastSnapshotSource[keyof typeof GuidedStoryCastSnapshotSource];
 
 
@@ -4769,6 +4846,25 @@ export interface GuidedStoryCastSnapshot {
   consentGranted: boolean;
   /** @nullable */
   generatedAsset?: GuidedStoryCastSnapshotGeneratedAsset;
+}
+
+export interface GuidedStoryReferenceOperation {
+  id: string;
+  revision: number;
+  roleId: string;
+  kind: GuidedStoryReferenceOperationKind;
+  source: GuidedStoryReferenceOperationSource;
+  status: GuidedStoryReferenceOperationStatus;
+  requestKey: string;
+  candidate: GuidedStoryCastSnapshot | null;
+  /** @nullable */
+  description: string | null;
+  /** @nullable */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  finalizedAt: string | null;
 }
 
 export type GuidedStorySetupAspectRatio = typeof GuidedStorySetupAspectRatio[keyof typeof GuidedStorySetupAspectRatio];
@@ -4856,6 +4952,7 @@ export interface GuidedStoryDraft {
      * @nullable
      */
   scriptGeneration: GuidedStoryDraftScriptGeneration;
+  referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
   /** @nullable */
   storyboardJobId: number | null;
@@ -5921,7 +6018,7 @@ export type VideoJobGuidedReferenceContextOperations = {[key: string]: {
 }};
 
 /**
- * Revision identity for inline Guided Story reference finalization.
+ * Revision identity for the compatibility Guided Story reference API.
  * @nullable
  */
 export type VideoJobGuidedReferenceContext = {
@@ -6436,7 +6533,7 @@ export interface VideoJob {
   sourceImagePaths: string[];
   aspectRatio: string;
   /**
-     * Revision identity for inline Guided Story reference finalization.
+     * Revision identity for the compatibility Guided Story reference API.
      * @nullable
      */
   guidedReferenceContext: VideoJobGuidedReferenceContext;
@@ -6472,6 +6569,11 @@ export interface VideoJob {
      * @nullable
      */
   currentVideoPath: string | null;
+  /**
+     * Tenant-scoped Guided Story draft backing this job, when applicable.
+     * @nullable
+     */
+  guidedStoryDraftId: number | null;
   /**
      * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
      * @nullable

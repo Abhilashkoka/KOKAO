@@ -1,4 +1,5 @@
-import { pgTable, text, serial, integer, numeric, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, serial, integer, numeric, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -56,8 +57,15 @@ export const usageEventsTable = pgTable("usage_events", {
   // rate with fee folded in, at the rates in effect when the event happened).
   // NULL = row predates snapshotting; reports fall back to current rates.
   displayPaise: integer("display_paise"),
+  // Optional durable operation identity for retry-safe metering. Normal usage
+  // remains unchanged (NULL keys are intentionally not deduplicated).
+  idempotencyKey: text("idempotency_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("usage_events_tenant_kind_idempotency_uniq")
+    .on(table.tenantId, table.kind, table.idempotencyKey)
+    .where(sql`${table.idempotencyKey} IS NOT NULL`),
+]);
 
 export const insertUsageEventSchema = createInsertSchema(usageEventsTable).omit({
   id: true,

@@ -149,6 +149,7 @@ export async function settleImageFunding(
   funding: Funding,
   meta: { durationMs: number; responseBytes: number; model: string; provider: string },
   operationId?: number,
+  usageIdempotencyKey?: string,
 ): Promise<void> {
   if (funding.source === "wallet" && funding.reservation) {
     if (!operationId) {
@@ -156,7 +157,11 @@ export async function settleImageFunding(
     }
     await settleWalletProviderOperationDurably(operationId);
   }
-  await recordUsage(req.tenantId, "image", { ...meta, funding: funding.source }).catch((err) =>
+  await recordUsage(req.tenantId, "image", {
+    ...meta,
+    funding: funding.source,
+    idempotencyKey: usageIdempotencyKey,
+  }).catch((err) =>
     req.log.error({ err }, "Failed to record character image usage after successful work"),
   );
 }

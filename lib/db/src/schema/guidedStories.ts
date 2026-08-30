@@ -82,6 +82,13 @@ export interface GuidedStoryCastSnapshot {
   } | null;
 }
 
+export type GuidedStoryReferenceOperationStatus =
+  | "queued"
+  | "generating"
+  | "ready_to_review"
+  | "finalized"
+  | "failed"
+  | "outcome_unknown";
 /** Tenant-owned visual direction selected before an attempt is enqueued. */
 export interface GuidedStoryVisualChoices {
   version: 1;
@@ -99,6 +106,7 @@ export interface GuidedStoryVisualChoices {
 
 export interface GuidedStoryDraftState {
   version: 1;
+
   setup: {
     genre: GuidedStoryGenre;
     platform: GuidedStoryPlatform;
@@ -111,12 +119,21 @@ export interface GuidedStoryDraftState {
     topic: string;
     roleCount: number;
     brandKitId: number | null;
+
   } | null;
+  /** Revision-bound, per-role paid cast work. Binary payload is retained only
+   * between provider success and object-storage upload, then removed. */
+
   script: GuidedStoryScript | null;
+
   scriptApprovedAt: string | null;
+
   userRoleId: string | null;
+
   castStrategy: "generated" | "saved" | null;
+
   cast: GuidedStoryCastSnapshot[];
+
   duplicateAssignmentConfirmed: boolean;
   /**
    * A short-lived, revision-bound claim made before a billable script provider
@@ -124,12 +141,14 @@ export interface GuidedStoryDraftState {
    * memory: duplicate HTTP requests and a restart cannot both buy a script for
    * the same revision.
    */
+
   scriptGeneration: { revision: number; claimedAt: string } | null;
   /**
    * Durable two-phase lock for one AI scene insertion. Only bounded provider
    * execution in `generating` may expire; `finalizing` is never reclaimed by
    * wall clock while receipt persistence and wallet settlement are underway.
    */
+
   sceneInsertionGeneration?: {
     revision: number;
     operationKey: string;
@@ -145,8 +164,7 @@ export interface GuidedStoryDraftState {
       script: GuidedStoryScript;
     };
   } | null;
-  /** Revision-bound, per-role paid cast work. Binary payload is retained only
-   * between provider success and object-storage upload, then removed. */
+
   castOperations: Record<string, {
     revision: number;
     operationKey: string;
@@ -176,11 +194,10 @@ export interface GuidedStoryDraftState {
     imageByteLength?: number;
     path?: string;
     settledAt?: string;
+
   }>;
-  /** Durable, revision-bound UI operation state for inline reference work.
-   * Billing and provider receipts remain owned by Character Library; this
-   * record prevents a review job from racing that work or losing recovery
-   * guidance on reload. */
+  /** Inline awaiting-review replacement candidates, keyed by opaque operation id. */
+
   inlineReferenceOperations?: Record<string, {
     revision: number;
     operationKey: string;
@@ -191,12 +208,16 @@ export interface GuidedStoryDraftState {
     error?: string | null;
     updatedAt: string;
   }>;
+
+  visualChoices?: GuidedStoryVisualChoices;
+
+  storyboardJobId: number | null;
+
+  referenceOperations?: Record<string, GuidedStoryReferenceOperation>;
   /**
    * Revisioned draft input. Enqueue copies this byte-for-byte into its immutable
    * attempt snapshot; it is never inferred from a brand kit or mutable asset.
    */
-  visualChoices?: GuidedStoryVisualChoices;
-  storyboardJobId: number | null;
 }
 
 export const guidedStoryDraftsTable = pgTable(
@@ -218,3 +239,47 @@ export const guidedStoryDraftsTable = pgTable(
 );
 
 export type GuidedStoryDraft = typeof guidedStoryDraftsTable.$inferSelect;
+
+/**
+ * A revision-bound candidate for replacing one complete cast role. Candidates
+ * are deliberately separate from `cast`; renderers can only observe them after
+ * the atomic finalization transaction copies `candidate` into that array.
+ */
+export interface GuidedStoryReferenceOperation {
+  id: string;
+  revision: number;
+  roleId: string;
+  kind: "character" | "outfit";
+  source: "current" | "saved" | "upload" | "generated";
+  status: GuidedStoryReferenceOperationStatus;
+  /** Stable request identity lets an interrupted post-provider operation resume. */
+  requestKey: string;
+  /** Internal execution lease. Never serialize this token to API clients. */
+  executionClaimToken?: string | null;
+  /** Heartbeat for conservative stale-claim recovery. Internal only. */
+  executionClaimedAt?: string | null;
+  /** Internal durable provider boundary; never inferred from the public status. */
+  checkpoint?: "funded" | "provider_running" | "provider_succeeded" | "upload_succeeded" | "uploaded";
+  candidate: GuidedStoryCastSnapshot | null;
+  description: string | null;
+  funding?: "quota" | "credit" | "wallet";
+  walletReservation?: {
+    id: number;
+    amountPaise: number;
+    units: number;
+  } | null;
+  providerOperationId?: number | null;
+  provider?: string | null;
+  model?: string | null;
+  providerStartedAt?: string | null;
+  imageBase64?: string;
+  imageByteLength?: number;
+  /** Validated generated-image MIME type. Internal upload checkpoint metadata. */
+  imageContentType?: "image/png" | "image/jpeg";
+  path?: string;
+  settledAt?: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finalizedAt: string | null;
+}

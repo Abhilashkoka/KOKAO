@@ -46,6 +46,10 @@ const objectStorageState = vi.hoisted(() => ({
 const guidedCastProviderState = vi.hoisted(() => ({
   calls: 0,
   uploads: 0,
+  uploadError: false,
+  contentTypes: [] as string[],
+  providerGate: null as Promise<void> | null,
+  providerEntered: null as (() => void) | null,
 }));
 vi.mock("../lib/characters", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/characters")>();
@@ -53,13 +57,29 @@ vi.mock("../lib/characters", async (importOriginal) => {
     ...actual,
     generateCharacterReference: vi.fn(async () => {
       guidedCastProviderState.calls += 1;
-      return { buffer: Buffer.from("new-provider-image"), provider: "mock", model: "mock" };
+      guidedCastProviderState.providerEntered?.();
+      if (guidedCastProviderState.providerGate) {
+        await guidedCastProviderState.providerGate;
+      }
+      return {
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+        provider: "mock",
+        model: "mock",
+      };
     }),
   };
 });
 vi.mock("../lib/storageUpload", () => ({
-  uploadBufferToStorage: vi.fn(async (tenantId: number) => {
+  uploadBufferToStorage: vi.fn(async (
+    tenantId: number,
+    _buffer: Buffer,
+    contentType: string,
+  ) => {
     guidedCastProviderState.uploads += 1;
+    guidedCastProviderState.contentTypes.push(contentType);
+    if (guidedCastProviderState.uploadError) {
+      throw new Error("induced upload interruption");
+    }
     return `/objects/${tenantId}/uploads/resumed-guided-cast.png`;
   }),
 }));
@@ -580,6 +600,10 @@ beforeEach(() => {
   objectStorageState.missingPaths.clear();
   guidedCastProviderState.calls = 0;
   guidedCastProviderState.uploads = 0;
+  guidedCastProviderState.uploadError = false;
+  guidedCastProviderState.contentTypes = [];
+  guidedCastProviderState.providerGate = null;
+  guidedCastProviderState.providerEntered = null;
   // Default: make the LLM throw so tests that don't set this are unaffected
   // (decideShotCountFromBrief is only called when shotCount === 0).
   textGenState.shotCountResponse = null;
@@ -2312,6 +2336,338 @@ describe("guided story route fail-closed regressions", () => {
         .returning()
     )[0]!;
   }
+
+  it("keeps inline reference candidates inert until atomic whole-role finalization", async () => {
+    const tenant = await newTenant("pro");
+    const saved = await seedCharacter(tenant.tenantId);
+    await db.update(characterOutfitsTable).set({
+      status: "approved",
+      identityVerified: true,
+      canonicalReferenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+    }).where(eq(characterOutfitsTable.id, saved.gymOutfitId));
+    const script = routeScript();
+    const makeMember = (roleId: string): GuidedStoryDraftState["cast"][number] => ({
+      roleId,
+      source: "saved",
+      characterId: saved.characterId,
+      outfitId: saved.outfitId,
+      brandKitId: null,
+      voiceId: roleId === "hero" ? "alloy" : "echo",
+      character: {
+        name: "Maya",
+        description: "cheerful founder",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+      },
+      outfit: {
+        name: "Default",
+        description: "casual",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+      },
+      voice: {
+        id: roleId === "hero" ? "alloy" : "echo",
+        label: roleId,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: true,
+    });
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const cast = [makeMember("hero"), makeMember("friend")];
+    const approvedAt = new Date().toISOString();
+    const snapshot: NonNullable<VideoJobOptions["guidedStory"]> = {
+      version: 1,
+      draftId: draft.id,
+      draftRevision: draft.revision,
+      scriptApprovedAt: approvedAt,
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "Keep essential action centered.",
+        durationSeconds: 30,
+      },
+      script,
+      cast,
+      visuals: draft.state.visualChoices,
+    };
+    const board = guidedStoryStoryboard(snapshot);
+    board.scenes[0]!.previewPath = `/objects/${tenant.tenantId}/uploads/old-preview.png`;
+    board.scenes[0]!.previewCheckpoint = {
+      targetPath: board.scenes[0]!.previewPath,
+      status: "complete",
+    };
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "topic_to_video",
+      status: "awaiting_review",
+      options: { aspectRatio: "9:16", guidedStory: snapshot },
+      storyboard: board,
+    }).returning();
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...draft.state,
+        scriptApprovedAt: approvedAt,
+        castStrategy: "saved",
+        cast,
+        duplicateAssignmentConfirmed: true,
+        storyboardJobId: job!.id,
+      },
+    }).where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const queuedInput = {
+      revision: draft.revision,
+      roleId: "hero",
+      kind: "outfit" as const,
+      source: "current" as const,
+    };
+    const queuedRequestKey = createHash("sha256").update(JSON.stringify({
+      revision: queuedInput.revision,
+      roleId: queuedInput.roleId,
+      kind: queuedInput.kind,
+      source: queuedInput.source,
+      characterId: null,
+      outfitId: null,
+      uploadPath: null,
+      description: null,
+    })).digest("hex");
+    const queuedOperationId = `guided-reference:${draft.id}:${draft.revision}:hero:queued-crash`;
+    const [beforeQueuedRecovery] = await db.select().from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...beforeQueuedRecovery!.state,
+        referenceOperations: {
+          [queuedOperationId]: {
+            id: queuedOperationId,
+            revision: draft.revision,
+            roleId: "hero",
+            kind: "outfit",
+            source: "current",
+            status: "queued",
+            requestKey: queuedRequestKey,
+            executionClaimToken: "stale-worker-token",
+            executionClaimedAt: "2020-01-01T00:00:00.000Z",
+            candidate: null,
+            description: null,
+            error: null,
+            createdAt: approvedAt,
+            updatedAt: approvedAt,
+            finalizedAt: null,
+          },
+        },
+      },
+    }).where(eq(guidedStoryDraftsTable.id, draft.id));
+    const differentWhileQueued = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+      .send({ ...queuedInput, roleId: "friend" });
+    expect(differentWhileQueued.status).toBe(409);
+    const recoveredQueued = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+      .send(queuedInput);
+    expect(recoveredQueued.status).toBe(201);
+    expect(recoveredQueued.body).toMatchObject({
+      id: queuedOperationId,
+      status: "ready_to_review",
+    });
+    expect(recoveredQueued.body.executionClaimToken).toBeUndefined();
+    const rejectedQueued = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(queuedOperationId)}/reject`)
+      .send({ revision: draft.revision });
+    expect(rejectedQueued.status).toBe(200);
+
+    let releaseProvider!: () => void;
+    guidedCastProviderState.providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    const providerEntered = new Promise<void>((resolve) => {
+      guidedCastProviderState.providerEntered = resolve;
+    });
+    const concurrentInput = {
+      revision: draft.revision,
+      roleId: "hero",
+      kind: "character" as const,
+      source: "generated" as const,
+      description: "A calm emergency coordinator",
+      confirmed: true,
+    };
+    const winningRequest = request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+      .send(concurrentInput);
+    const winningResponse = winningRequest.then((response) => response);
+    await providerEntered;
+    const duplicateWhileProviderRuns = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+      .send(concurrentInput);
+    expect(duplicateWhileProviderRuns.status).toBe(409);
+    expect(guidedCastProviderState.calls).toBe(1);
+    releaseProvider();
+    const completedConcurrent = await winningResponse;
+    expect(completedConcurrent.status).toBe(201);
+    expect(completedConcurrent.body.status).toBe("ready_to_review");
+    expect(completedConcurrent.body.executionClaimToken).toBeUndefined();
+    expect(completedConcurrent.body.executionClaimedAt).toBeUndefined();
+    expect(guidedCastProviderState.calls).toBe(1);
+    expect(guidedCastProviderState.contentTypes).toContain("image/png");
+    guidedCastProviderState.providerGate = null;
+    guidedCastProviderState.providerEntered = null;
+    const rejectedConcurrent = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(completedConcurrent.body.id)}/reject`)
+      .send({ revision: draft.revision });
+    expect(rejectedConcurrent.status).toBe(200);
+    guidedCastProviderState.calls = 0;
+
+    const interruptedInput = {
+      revision: draft.revision,
+      roleId: "hero",
+      kind: "character" as const,
+      source: "generated" as const,
+      description: "A steadfast rescue coordinator",
+      confirmed: true,
+    };
+    const interruptedRequestKey = createHash("sha256").update(JSON.stringify({
+      revision: interruptedInput.revision,
+      roleId: interruptedInput.roleId,
+      kind: interruptedInput.kind,
+      source: interruptedInput.source,
+      characterId: null,
+      outfitId: null,
+      uploadPath: null,
+      description: interruptedInput.description,
+    })).digest("hex");
+    const interruptedOperationId = `guided-reference:${draft.id}:${draft.revision}:hero:interrupted`;
+    const durableJpegBytes = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+    ]);
+    const [withInterruptedOperation] = await db.select().from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...withInterruptedOperation!.state,
+        referenceOperations: {
+          [interruptedOperationId]: {
+            id: interruptedOperationId,
+            revision: draft.revision,
+            roleId: "hero",
+            kind: "character",
+            source: "generated",
+            status: "generating",
+            requestKey: interruptedRequestKey,
+            checkpoint: "provider_succeeded",
+            candidate: null,
+            description: interruptedInput.description,
+            funding: "quota",
+            provider: "mock",
+            model: "mock",
+            providerOperationId: null,
+            imageBase64: durableJpegBytes.toString("base64"),
+            imageByteLength: durableJpegBytes.length,
+            error: null,
+            createdAt: approvedAt,
+            updatedAt: approvedAt,
+            finalizedAt: null,
+          },
+        },
+      },
+    }).where(eq(guidedStoryDraftsTable.id, draft.id));
+    guidedCastProviderState.uploadError = true;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const interrupted = await request(app)
+        .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+        .send(interruptedInput);
+      expect(interrupted.status).toBe(500);
+      const [afterInterruptedResume] = await db.select().from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, draft.id));
+      expect(afterInterruptedResume!.state.referenceOperations?.[interruptedOperationId])
+        .toMatchObject({
+          status: "generating",
+          checkpoint: "provider_succeeded",
+          imageBase64: durableJpegBytes.toString("base64"),
+          imageContentType: "image/jpeg",
+        });
+    }
+    expect(guidedCastProviderState.calls).toBe(0);
+    expect(guidedCastProviderState.contentTypes.slice(-2)).toEqual([
+      "image/jpeg",
+      "image/jpeg",
+    ]);
+    guidedCastProviderState.uploadError = false;
+    const [afterResumeChecks] = await db.select().from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...afterResumeChecks!.state,
+        referenceOperations: {
+          ...afterResumeChecks!.state.referenceOperations,
+          [interruptedOperationId]: {
+            ...afterResumeChecks!.state.referenceOperations![interruptedOperationId]!,
+            status: "failed",
+            error: "Test interruption resolved.",
+          },
+        },
+      },
+    }).where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const preview = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+      .send({
+        revision: draft.revision,
+        roleId: "hero",
+        kind: "outfit",
+        source: "saved",
+        outfitId: saved.gymOutfitId,
+      });
+    expect(preview.status).toBe(201);
+    expect(preview.body.status).toBe("ready_to_review");
+    // A committed candidate is unresolved work, not merely a client-side
+    // preview. Approval must reject it rather than approving the old immutable
+    // snapshot.
+    const approvalWhileCandidatePending = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`)
+      .send({});
+    expect(approvalWhileCandidatePending.status).toBe(409);
+    const [beforeFinalize] = await db.select().from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(beforeFinalize!.state.cast[0]!.outfitId).toBe(saved.outfitId);
+    const [jobBeforeFinalize] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, job!.id));
+    expect(jobBeforeFinalize!.storyboard!.scenes[0]!.previewPath).toContain("old-preview");
+
+    const rejected = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(preview.body.id)}/reject`)
+      .send({ revision: draft.revision });
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.referenceOperations.find((item: { id: string }) => item.id === preview.body.id))
+      .toMatchObject({ status: "failed", error: "Reference candidate was rejected by the user." });
+    const replacement = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+      .send({
+        revision: draft.revision,
+        roleId: "hero",
+        kind: "outfit",
+        source: "saved",
+        outfitId: saved.gymOutfitId,
+      });
+    expect(replacement.status).toBe(201);
+
+    const finalized = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(replacement.body.id)}/finalize`)
+      .send({ revision: draft.revision });
+    expect(finalized.status).toBe(200);
+    expect(finalized.body.revision).toBe(draft.revision + 1);
+    expect(finalized.body.cast[0].outfitId).toBe(saved.gymOutfitId);
+    const [jobAfterFinalize] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, job!.id));
+    expect(jobAfterFinalize!.options!.guidedStory!.draftRevision).toBe(draft.revision + 1);
+    expect(jobAfterFinalize!.storyboard!.scenes[0]!.previewPath).toBeNull();
+    expect(jobAfterFinalize!.options!.guidedPreviewRender!.state).toBe("queued");
+
+    const duplicate = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(replacement.body.id)}/finalize`)
+      .send({ revision: draft.revision });
+    expect(duplicate.status).toBe(409);
+  });
 
   it("re-approves a draft after its linked job failed before creating a storyboard", async () => {
     const tenant = await newTenant("pro");
@@ -4158,11 +4514,23 @@ describe("guided story route fail-closed regressions", () => {
       isUserRole: index === 0,
       consentGranted: true,
     }));
+    const correctionDraft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const scriptApprovedAt = "2025-01-01T00:00:00.000Z";
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...correctionDraft.state,
+        scriptApprovedAt,
+        castStrategy: "saved",
+        cast,
+        duplicateAssignmentConfirmed: true,
+        referenceOperations: {},
+      },
+    }).where(eq(guidedStoryDraftsTable.id, correctionDraft.id));
     const snapshot = {
       version: 1 as const,
-      draftId: 999_001,
-      draftRevision: 1,
-      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      draftId: correctionDraft.id,
+      draftRevision: correctionDraft.revision,
+      scriptApprovedAt,
       platform: {
         id: "tiktok",
         aspectRatio: "9:16" as const,
@@ -4191,6 +4559,14 @@ describe("guided story route fail-closed regressions", () => {
       options: { aspectRatio: "9:16", guidedStory: snapshot },
       storyboard,
     }).returning();
+    const [linkedCorrectionDraft] = await db.select().from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, correctionDraft.id));
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...linkedCorrectionDraft!.state,
+        storyboardJobId: job!.id,
+      },
+    }).where(eq(guidedStoryDraftsTable.id, correctionDraft.id));
 
     const unconfirmed = await request(app)
       .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${storyboard.scenes[0]!.id}/corrections`)

@@ -12771,7 +12771,7 @@ export const GenerateVideoResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -12784,6 +12784,7 @@ export const GenerateVideoResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -13266,6 +13267,52 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
   "visualChoices": zod.object({
   "logo": zod.object({
   "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
@@ -13441,6 +13488,52 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
   "visualChoices": zod.object({
   "logo": zod.object({
   "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
@@ -13709,6 +13802,52 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
   "visualChoices": zod.object({
   "logo": zod.object({
   "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
@@ -13891,6 +14030,52 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
   "visualChoices": zod.object({
   "logo": zod.object({
   "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
@@ -14180,6 +14365,52 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
   "visualChoices": zod.object({
   "logo": zod.object({
   "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
@@ -14378,6 +14609,52 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
   "visualChoices": zod.object({
   "logo": zod.object({
   "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
@@ -14408,6 +14685,541 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "totalRemainingUnits": zod.number().min(castGuidedStoryDraftResponseEstimatesTotalRemainingUnitsMin),
   "generatedStrategyCastUnits": zod.number().min(castGuidedStoryDraftResponseEstimatesGeneratedStrategyCastUnitsMin).describe('Quote available before choosing Generated Cast.'),
   "savedStrategyCastUnits": zod.number().min(castGuidedStoryDraftResponseEstimatesSavedStrategyCastUnitsMin).describe('Quote available before choosing Saved Cast.')
+}).describe('Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Selection, upload, and generation create a review candidate only. The canonical cast and storyboard are unchanged until explicit finalization.
+ * @summary Create a revision-bound inline character or outfit candidate
+ */
+export const CreateGuidedStoryReferenceParams = zod.object({
+  "draftId": zod.coerce.number()
+})
+
+
+export const createGuidedStoryReferenceBodyRoleIdMin = 2;
+export const createGuidedStoryReferenceBodyRoleIdMax = 64;
+
+export const createGuidedStoryReferenceBodyDescriptionMin = 3;
+export const createGuidedStoryReferenceBodyDescriptionMax = 1000;
+
+
+
+export const CreateGuidedStoryReferenceBody = zod.object({
+  "revision": zod.number().min(1),
+  "roleId": zod.string().min(createGuidedStoryReferenceBodyRoleIdMin).max(createGuidedStoryReferenceBodyRoleIdMax),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "characterId": zod.number().nullish(),
+  "outfitId": zod.number().nullish(),
+  "uploadPath": zod.string().nullish().describe('Canonical tenant-owned uploaded image path.'),
+  "description": zod.string().min(createGuidedStoryReferenceBodyDescriptionMin).max(createGuidedStoryReferenceBodyDescriptionMax).nullish(),
+  "confirmed": zod.boolean().optional().describe('Required when selecting or uploading a replacement identity.')
+})
+
+export const CreateGuidedStoryReferenceResponse = zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Atomically finalize a whole-role reference and rebuild previews
+ */
+export const FinalizeGuidedStoryReferenceParams = zod.object({
+  "draftId": zod.coerce.number(),
+  "operationId": zod.coerce.string()
+})
+
+
+
+
+export const FinalizeGuidedStoryReferenceBody = zod.object({
+  "revision": zod.number().min(1)
+})
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin = 15;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax = 300;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin = 2;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax = 2000;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMin = 2;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMax = 4;
+
+export const finalizeGuidedStoryReferenceResponseScriptOneRolesMin = 2;
+export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 4;
+
+export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
+
+
+export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
+
+
+export const finalizeGuidedStoryReferenceResponseScriptOneScenesMax = 40;
+
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const finalizeGuidedStoryReferenceResponseEstimatesScriptUnitsMin = 0;
+
+export const finalizeGuidedStoryReferenceResponseEstimatesCastAssetUnitsMin = 0;
+
+export const finalizeGuidedStoryReferenceResponseEstimatesPreviewUnitsMin = 0;
+
+export const finalizeGuidedStoryReferenceResponseEstimatesFinalAdditionalUnitsMin = 0;
+
+export const finalizeGuidedStoryReferenceResponseEstimatesTotalRemainingUnitsMin = 0;
+
+export const finalizeGuidedStoryReferenceResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
+
+export const finalizeGuidedStoryReferenceResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
+
+
+export const FinalizeGuidedStoryReferenceResponse = zod.object({
+  "id": zod.number(),
+  "revision": zod.number(),
+  "version": zod.number(),
+  "setup": zod.union([zod.object({
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
+  "durationSeconds": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
+  "locale": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax),
+  "topic": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax),
+  "roleCount": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMax),
+  "brandKitId": zod.number().nullish()
+}).and(zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
+  "width": zod.number(),
+  "height": zod.number(),
+  "safeArea": zod.string()
+})),zod.null()]),
+  "script": zod.union([zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(finalizeGuidedStoryReferenceResponseScriptOneRolesMin).max(finalizeGuidedStoryReferenceResponseScriptOneRolesMax),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "startMs": zod.number().min(finalizeGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(finalizeGuidedStoryReferenceResponseScriptOneScenesMax),
+  "warnings": zod.array(zod.string())
+}),zod.null()]),
+  "scriptApprovedAt": zod.coerce.date().nullable(),
+  "userRoleId": zod.string().nullable(),
+  "castStrategy": zod.union([zod.literal('generated'),zod.literal('saved'),zod.literal(null)]).nullable(),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+})),
+  "duplicateAssignmentConfirmed": zod.boolean(),
+  "scriptGeneration": zod.object({
+  "revision": zod.number(),
+  "claimedAt": zod.coerce.date()
+}).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMin).max(finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMax)).max(finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin).max(finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
+  "storyboardJobId": zod.number().nullable(),
+  "estimates": zod.object({
+  "scriptUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesScriptUnitsMin),
+  "castAssetUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesCastAssetUnitsMin),
+  "previewUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesPreviewUnitsMin),
+  "finalAdditionalUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesFinalAdditionalUnitsMin),
+  "totalRemainingUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesTotalRemainingUnitsMin),
+  "generatedStrategyCastUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesGeneratedStrategyCastUnitsMin).describe('Quote available before choosing Generated Cast.'),
+  "savedStrategyCastUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesSavedStrategyCastUnitsMin).describe('Quote available before choosing Saved Cast.')
+}).describe('Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Reject a reviewable Guided Story reference candidate
+ */
+export const RejectGuidedStoryReferenceParams = zod.object({
+  "draftId": zod.coerce.number(),
+  "operationId": zod.coerce.string()
+})
+
+
+
+
+export const RejectGuidedStoryReferenceBody = zod.object({
+  "revision": zod.number().min(1)
+})
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin = 15;
+export const rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax = 300;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin = 2;
+export const rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
+export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMax = 2000;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMin = 2;
+export const rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMax = 4;
+
+export const rejectGuidedStoryReferenceResponseScriptOneRolesMin = 2;
+export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 4;
+
+export const rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
+
+
+export const rejectGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
+
+
+export const rejectGuidedStoryReferenceResponseScriptOneScenesMax = 40;
+
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const rejectGuidedStoryReferenceResponseEstimatesScriptUnitsMin = 0;
+
+export const rejectGuidedStoryReferenceResponseEstimatesCastAssetUnitsMin = 0;
+
+export const rejectGuidedStoryReferenceResponseEstimatesPreviewUnitsMin = 0;
+
+export const rejectGuidedStoryReferenceResponseEstimatesFinalAdditionalUnitsMin = 0;
+
+export const rejectGuidedStoryReferenceResponseEstimatesTotalRemainingUnitsMin = 0;
+
+export const rejectGuidedStoryReferenceResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
+
+export const rejectGuidedStoryReferenceResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
+
+
+export const RejectGuidedStoryReferenceResponse = zod.object({
+  "id": zod.number(),
+  "revision": zod.number(),
+  "version": zod.number(),
+  "setup": zod.union([zod.object({
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
+  "durationSeconds": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
+  "locale": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax),
+  "topic": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneTopicMin).max(rejectGuidedStoryReferenceResponseSetupOneOneTopicMax),
+  "roleCount": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMin).max(rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMax),
+  "brandKitId": zod.number().nullish()
+}).and(zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
+  "width": zod.number(),
+  "height": zod.number(),
+  "safeArea": zod.string()
+})),zod.null()]),
+  "script": zod.union([zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(rejectGuidedStoryReferenceResponseScriptOneRolesMin).max(rejectGuidedStoryReferenceResponseScriptOneRolesMax),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "startMs": zod.number().min(rejectGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(rejectGuidedStoryReferenceResponseScriptOneScenesMax),
+  "warnings": zod.array(zod.string())
+}),zod.null()]),
+  "scriptApprovedAt": zod.coerce.date().nullable(),
+  "userRoleId": zod.string().nullable(),
+  "castStrategy": zod.union([zod.literal('generated'),zod.literal('saved'),zod.literal(null)]).nullable(),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+})),
+  "duplicateAssignmentConfirmed": zod.boolean(),
+  "scriptGeneration": zod.object({
+  "revision": zod.number(),
+  "claimedAt": zod.coerce.date()
+}).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMin).max(rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMax)).max(rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin).max(rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
+  "storyboardJobId": zod.number().nullable(),
+  "estimates": zod.object({
+  "scriptUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesScriptUnitsMin),
+  "castAssetUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesCastAssetUnitsMin),
+  "previewUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesPreviewUnitsMin),
+  "finalAdditionalUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesFinalAdditionalUnitsMin),
+  "totalRemainingUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesTotalRemainingUnitsMin),
+  "generatedStrategyCastUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesGeneratedStrategyCastUnitsMin).describe('Quote available before choosing Generated Cast.'),
+  "savedStrategyCastUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesSavedStrategyCastUnitsMin).describe('Quote available before choosing Saved Cast.')
 }).describe('Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -14506,7 +15318,7 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -14519,6 +15331,7 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -14800,10 +15613,40 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
 
 
 /**
+ * Cheap pre-pass over a free-text topic. Extracts the facts the topic actually asserts, guesses the video type, and reports which fields a human still needs to answer. Writes nothing and funds nothing; the result pre-fills the script request.
+ * @summary Parse a topic into structured script inputs
+ */
+export const analyzeScriptIntakeBodyTopicMin = 3;
+export const analyzeScriptIntakeBodyTopicMax = 2000;
+
+
+
+export const AnalyzeScriptIntakeBody = zod.object({
+  "topic": zod.string().min(analyzeScriptIntakeBodyTopicMin).max(analyzeScriptIntakeBodyTopicMax),
+  "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
+  "brandKitId": zod.number().optional()
+})
+
+export const analyzeScriptIntakeResponseVariantConfidenceMin = 0;
+export const analyzeScriptIntakeResponseVariantConfidenceMax = 1;
+
+
+
+export const AnalyzeScriptIntakeResponse = zod.object({
+  "suggestedVariant": zod.enum(['marketing', 'training', 'social_short']).describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
+  "variantConfidence": zod.number().min(analyzeScriptIntakeResponseVariantConfidenceMin).max(analyzeScriptIntakeResponseVariantConfidenceMax),
+  "desiredTakeaway": zod.string().describe('Empty when the topic is too vague to support one.'),
+  "extractedFacts": zod.array(zod.string()).describe('Only claims the topic actually asserts. Shown to the user as removable chips before they become the script\'s approved facts.'),
+  "detectedLanguage": zod.string().describe('Two-letter language code of the topic.'),
+  "gaps": zod.array(zod.enum(['audience', 'desiredTakeaway', 'cta', 'toneNote', 'sourceFacts'])).describe('Fields a human still needs to answer. Empty means skip the clarify step.')
+})
+
+
+/**
  * Revision-checks and atomically replaces the role in the tenant-owned draft and immutable job snapshot. Every scene is rebuilt from that new snapshot; previews whose reference fingerprint changed are invalidated.
  * @summary Finalize one approved character and outfit reference across a Guided Story
  */
-export const FinalizeGuidedStoryReferenceParams = zod.object({
+export const FinalizeGuidedStoryJobReferenceParams = zod.object({
   "jobId": zod.coerce.number(),
   "roleId": zod.coerce.string()
 })
@@ -14813,7 +15656,7 @@ export const FinalizeGuidedStoryReferenceParams = zod.object({
 
 
 
-export const FinalizeGuidedStoryReferenceBody = zod.object({
+export const FinalizeGuidedStoryJobReferenceBody = zod.object({
   "revision": zod.number().min(1),
   "characterId": zod.number().min(1),
   "outfitId": zod.number().min(1),
@@ -14821,63 +15664,63 @@ export const FinalizeGuidedStoryReferenceBody = zod.object({
 })
 
 
-export const finalizeGuidedStoryReferenceResponseErrorHistoryItemRecoveryAttemptMin = 0;
+export const finalizeGuidedStoryJobReferenceResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
-export const finalizeGuidedStoryReferenceResponseUnitsMin = 0;
+export const finalizeGuidedStoryJobReferenceResponseUnitsMin = 0;
 
-export const finalizeGuidedStoryReferenceResponseRequiredUnitsMin = 0;
+export const finalizeGuidedStoryJobReferenceResponseRequiredUnitsMin = 0;
 
-export const finalizeGuidedStoryReferenceResponseGuidedPreviewRenderTwoTotalMin = 0;
+export const finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoTotalMin = 0;
 
-export const finalizeGuidedStoryReferenceResponseGuidedPreviewRenderTwoCompletedMin = 0;
-
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
-
-export const finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneTopicMax = 1000;
+export const finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
-export const FinalizeGuidedStoryReferenceResponse = zod.object({
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneTopicMax = 1000;
+
+
+
+export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
@@ -14898,7 +15741,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -14911,6 +15754,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -14932,14 +15776,14 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "code": zod.string().nullable(),
   "message": zod.string(),
   "attempt": zod.number().min(1),
-  "recoveryAttempt": zod.number().min(finalizeGuidedStoryReferenceResponseErrorHistoryItemRecoveryAttemptMin),
+  "recoveryAttempt": zod.number().min(finalizeGuidedStoryJobReferenceResponseErrorHistoryItemRecoveryAttemptMin),
   "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
   "fingerprint": zod.string()
 })).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(finalizeGuidedStoryReferenceResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "requiredUnits": zod.number().min(finalizeGuidedStoryReferenceResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
+  "units": zod.number().min(finalizeGuidedStoryJobReferenceResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(finalizeGuidedStoryJobReferenceResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -14969,8 +15813,8 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "version": zod.literal(1),
   "operationId": zod.string(),
   "state": zod.enum(['queued', 'running', 'succeeded', 'failed']),
-  "total": zod.number().min(finalizeGuidedStoryReferenceResponseGuidedPreviewRenderTwoTotalMin),
-  "completed": zod.number().min(finalizeGuidedStoryReferenceResponseGuidedPreviewRenderTwoCompletedMin),
+  "total": zod.number().min(finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoTotalMin),
+  "completed": zod.number().min(finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoCompletedMin),
   "error": zod.string().nullable(),
   "retryable": zod.boolean().describe('True when another click will claim a new attempt for remaining previews.'),
   "requestedAt": zod.coerce.date(),
@@ -15133,24 +15977,24 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
   "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
   "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
-  "guidance": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
-  "requiredVocabulary": zod.array(zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
-  "forbiddenVocabulary": zod.array(zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "guidance": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
   "evidenceRules": zod.array(zod.object({
   "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
-  "instruction": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
-})).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+  "instruction": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
 }).optional(),
   "structure": zod.object({
   "sceneCount": zod.object({
-  "min": zod.number().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
-  "max": zod.number().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+  "min": zod.number().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
 }).optional(),
   "beats": zod.array(zod.object({
   "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
-  "instruction": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
-  "weight": zod.number().gt(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
-})).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+  "instruction": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
 }).optional(),
   "visual": zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
@@ -15158,23 +16002,23 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
   "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
-  "palette": zod.array(zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
-  "negativeTerms": zod.array(zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
-  "subjectRule": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
-  "stockQueryGuidance": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+  "palette": zod.array(zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
 }).optional(),
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
-  "energy": zod.number().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "energy": zod.number().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
   "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
-  "guidance": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+  "guidance": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
   "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
   "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
 }).optional()
 }),
-  "topic": zod.string().max(finalizeGuidedStoryReferenceResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "topic": zod.string().max(finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneTopicMax).optional(),
   "provenance": zod.array(zod.object({
   "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
   "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
@@ -15285,7 +16129,7 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -15298,6 +16142,7 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -15683,7 +16528,7 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -15696,6 +16541,7 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -15973,36 +16819,6 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
 }),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
-})
-
-
-/**
- * Cheap pre-pass over a free-text topic. Extracts the facts the topic actually asserts, guesses the video type, and reports which fields a human still needs to answer. Writes nothing and funds nothing; the result pre-fills the script request.
- * @summary Parse a topic into structured script inputs
- */
-export const analyzeScriptIntakeBodyTopicMin = 3;
-export const analyzeScriptIntakeBodyTopicMax = 2000;
-
-
-
-export const AnalyzeScriptIntakeBody = zod.object({
-  "topic": zod.string().min(analyzeScriptIntakeBodyTopicMin).max(analyzeScriptIntakeBodyTopicMax),
-  "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
-  "brandKitId": zod.number().optional()
-})
-
-export const analyzeScriptIntakeResponseVariantConfidenceMin = 0;
-export const analyzeScriptIntakeResponseVariantConfidenceMax = 1;
-
-
-
-export const AnalyzeScriptIntakeResponse = zod.object({
-  "suggestedVariant": zod.enum(['marketing', 'training', 'social_short']).describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
-  "variantConfidence": zod.number().min(analyzeScriptIntakeResponseVariantConfidenceMin).max(analyzeScriptIntakeResponseVariantConfidenceMax),
-  "desiredTakeaway": zod.string().describe('Empty when the topic is too vague to support one.'),
-  "extractedFacts": zod.array(zod.string()).describe('Only claims the topic actually asserts. Shown to the user as removable chips before they become the script\'s approved facts.'),
-  "detectedLanguage": zod.string().describe('Two-letter language code of the topic.'),
-  "gaps": zod.array(zod.enum(['audience', 'desiredTakeaway', 'cta', 'toneNote', 'sourceFacts'])).describe('Fields a human still needs to answer. Empty means skip the clarify step.')
 })
 
 
@@ -16378,7 +17194,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -16391,6 +17207,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -16757,7 +17574,7 @@ export const GetVideoJobResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -16770,6 +17587,7 @@ export const GetVideoJobResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -17136,7 +17954,7 @@ export const CancelVideoJobResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -17149,6 +17967,7 @@ export const CancelVideoJobResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -17515,7 +18334,7 @@ export const RetryVideoJobResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -17528,6 +18347,7 @@ export const RetryVideoJobResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -17894,7 +18714,7 @@ export const RestartVideoJobFreshResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -17907,6 +18727,7 @@ export const RestartVideoJobFreshResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -18277,7 +19098,7 @@ export const RepairVideoJobResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -18290,6 +19111,7 @@ export const RepairVideoJobResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -18683,7 +19505,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -18696,6 +19518,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -19074,7 +19897,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -19087,6 +19910,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -19454,7 +20278,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -19467,6 +20291,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -19845,7 +20670,7 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -19858,6 +20683,7 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -20224,7 +21050,7 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -20237,6 +21063,7 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -20603,7 +21430,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -20616,6 +21443,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -20981,7 +21809,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish(),
   "updatedAt": zod.coerce.date()
 })).optional()
-}).nullable().describe('Revision identity for inline Guided Story reference finalization.'),
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -20994,6 +21822,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),

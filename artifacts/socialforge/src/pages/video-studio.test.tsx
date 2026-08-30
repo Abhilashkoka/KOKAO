@@ -37,6 +37,10 @@ const mockState: {
   approvals: number[];
   guidedPreviewRenders: number[];
   guidedCorrections: any[];
+  guidedDraft: any;
+  referenceCreates: any[];
+  referenceFinalizations: any[];
+  referenceRejections: any[];
   transcript: string;
   transcribeError: any;
   lastSpokespersonScriptVars: any;
@@ -67,7 +71,6 @@ const mockState: {
   repairError: unknown;
   lastOutfitVars: any;
   createdOutfitCharacter: any;
-  finalizedGuidedReferences: any[];
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -83,6 +86,10 @@ const mockState: {
   approvals: [],
   guidedPreviewRenders: [],
   guidedCorrections: [],
+  guidedDraft: undefined,
+  referenceCreates: [],
+  referenceFinalizations: [],
+  referenceRejections: [],
   transcript: "",
   transcribeError: null,
   lastSpokespersonScriptVars: null,
@@ -123,7 +130,6 @@ const mockState: {
   repairError: null,
   lastOutfitVars: null,
   createdOutfitCharacter: null,
-  finalizedGuidedReferences: [],
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -385,17 +391,69 @@ vi.mock("@workspace/api-client-react", async () => {
         opts?.onSuccess?.(mockState.activeJob);
       },
     }),
+    useGetGuidedStoryDraft: () => ({ data: mockState.guidedDraft, isLoading: false }),
+    useCreateGuidedStoryReference: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.referenceCreates.push(vars);
+        const operation = {
+          id: `reference-test-${mockState.referenceCreates.length}`,
+          revision: vars.data.revision,
+          roleId: vars.data.roleId,
+          kind: vars.data.kind,
+          source: vars.data.source,
+          status: "ready_to_review",
+          candidate: null,
+          description: vars.data.description ?? null,
+          error: null,
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+          finalizedAt: null,
+        };
+        if (mockState.guidedDraft) {
+          mockState.guidedDraft = {
+            ...mockState.guidedDraft,
+            referenceOperations: [...mockState.guidedDraft.referenceOperations, operation],
+          };
+        }
+        opts?.onSuccess?.(operation);
+      },
+    }),
     useFinalizeGuidedStoryReference: () => ({
       isPending: false,
       mutate: (vars: any, opts: any) => {
-        mockState.finalizedGuidedReferences.push(vars);
-        opts?.onSuccess?.({
-          ...mockState.activeJob,
-          guidedReferenceContext: {
-            ...mockState.activeJob.guidedReferenceContext,
-            revision: mockState.activeJob.guidedReferenceContext.revision + 1,
-          },
-        });
+        mockState.referenceFinalizations.push(vars);
+        if (mockState.guidedDraft) {
+          mockState.guidedDraft = {
+            ...mockState.guidedDraft,
+            referenceOperations: mockState.guidedDraft.referenceOperations.map((operation: any) =>
+              operation.id === vars.operationId
+                ? { ...operation, status: "finalized", finalizedAt: "2026-01-01T00:00:00Z" }
+                : operation,
+            ),
+          };
+        }
+        opts?.onSuccess?.(mockState.guidedDraft);
+      },
+    }),
+    useRejectGuidedStoryReference: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.referenceRejections.push(vars);
+        if (mockState.guidedDraft) {
+          mockState.guidedDraft.referenceOperations =
+            mockState.guidedDraft.referenceOperations.map(
+              (operation: any) => operation.id === vars.operationId
+                ? {
+                    ...operation,
+                    status: "failed",
+                    candidate: null,
+                    error: "Reference candidate was rejected by the user.",
+                  }
+                : operation,
+            );
+        }
+        opts?.onSuccess?.(mockState.guidedDraft);
       },
     }),
     useApproveVideoStoryboard: () => ({
@@ -423,28 +481,6 @@ vi.mock("@workspace/api-client-react", async () => {
         mockState.lastOutfitVars = vars;
         opts?.onSuccess?.(mockState.createdOutfitCharacter);
       },
-    }),
-    useStartGuidedStoryReferenceOperation: () => ({
-      isPending: false,
-      mutate: (vars: any, opts: any) => opts?.onSuccess?.({
-        ...mockState.activeJob,
-        guidedReferenceContext: {
-          ...mockState.activeJob.guidedReferenceContext,
-          operations: {
-            [vars.roleId]: {
-              revision: mockState.activeJob.guidedReferenceContext?.revision ?? 1,
-              operationKey: "durable-reference-operation",
-              kind: vars.data.kind,
-              state: "queued",
-              updatedAt: "2026-01-01T00:00:00Z",
-            },
-          },
-        },
-      }),
-    }),
-    useCompleteGuidedStoryReferenceOperation: () => ({
-      isPending: false,
-      mutate: (_vars: any, opts: any) => opts?.onSuccess?.(mockState.activeJob),
     }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useGetBrandKit: () => ({ data: (mockState as any).brandKitDetail }),
@@ -651,6 +687,59 @@ function pausedJob(storyboard: unknown) {
   };
 }
 
+function guidedReviewBoard() {
+  const board = clipBoard("slide");
+  board.scenes = board.scenes.map((scene, index) => ({
+    ...scene,
+    previewCheckpoint: { status: "complete", targetPath: scene.previewPath! },
+    guidedStory: {
+      scriptSceneId: `script-${index + 1}`,
+      startMs: index * 4_000,
+      endMs: (index + 1) * 4_000,
+      roleIds: ["hero"],
+      lineOwnership: [],
+      cast: [{
+        roleId: "hero",
+        characterName: "Ari",
+        source: "saved",
+        characterId: 12,
+        outfitId: 34,
+        referenceImagePath: "/objects/1/ari.png",
+        outfitReferenceImagePath: "/objects/1/jacket.png",
+        voiceProvider: "stock",
+        providerVoiceId: null,
+      }],
+      inconsistencyFlags: [],
+      inputFingerprint: `guided-${index}`,
+      visuals: { logoPath: null, locationMode: "none", locationImagePath: null, locationDescription: null },
+    },
+  }));
+  return board;
+}
+
+function guidedDraft(operations: any[] = []) {
+  return {
+    id: 81,
+    revision: 7,
+    referenceOperations: operations,
+    cast: [],
+    setup: null,
+    script: null,
+    visualChoices: {},
+  };
+}
+
+function openGuidedReferenceReview(operations: any[] = []) {
+  mockState.guidedDraft = guidedDraft(operations);
+  mockState.activeJob = {
+    ...pausedJob(guidedReviewBoard()),
+    guidedStoryDraftId: 81,
+  };
+  mockState.jobs = [mockState.activeJob];
+  renderPage();
+  fireEvent.click(screen.getByTestId("job-card-11"));
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -679,6 +768,10 @@ beforeEach(() => {
   mockState.approvals = [];
   mockState.guidedPreviewRenders = [];
   mockState.guidedCorrections = [];
+  mockState.guidedDraft = undefined;
+  mockState.referenceCreates = [];
+  mockState.referenceFinalizations = [];
+  mockState.referenceRejections = [];
   mockState.transcript = "";
   mockState.transcribeError = null;
   mockState.lastSpokespersonScriptVars = null;
@@ -718,7 +811,6 @@ beforeEach(() => {
   mockState.repairError = null;
   mockState.lastOutfitVars = null;
   mockState.createdOutfitCharacter = null;
-  mockState.finalizedGuidedReferences = [];
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   localStorage.clear();
@@ -3963,98 +4055,165 @@ describe("Video Studio", () => {
     expect(screen.queryByText("private-provider-id")).toBeNull();
   });
 
-  it("requires explicit identity replacement and finalizes references for the whole Guided job", async () => {
-    const board = clipBoard("slide");
-    board.scenes = [board.scenes[0]!];
-    (board.scenes as any[])[0] = {
-      ...board.scenes[0]!,
-      previewCheckpoint: {
-        status: "complete" as const,
-        targetPath: board.scenes[0]!.previewPath!,
-      },
-      guidedStory: {
-        scriptSceneId: "script-1",
-        startMs: 0,
-        endMs: 4_000,
-        roleIds: ["hero"],
-        lineOwnership: [],
-        cast: [{
-          roleId: "hero",
-          characterName: "Uploaded Ari",
-          source: "saved" as const,
-          characterId: 12,
-          outfitId: 34,
-          referenceImagePath: "/objects/1/uploads/ari.png",
-          outfitReferenceImagePath: "/objects/1/uploads/ari-default.png",
-          voiceProvider: "stock",
-          providerVoiceId: null,
-        }],
-        inconsistencyFlags: [],
-        inputFingerprint: "before-reference-change",
-        visuals: {
-          logoPath: null,
-          locationMode: "none" as const,
-          locationImagePath: null,
-          locationDescription: null,
-        },
-      },
-    };
+  it("renders both inline redefine actions and creates a keep-current candidate with the draft revision", async () => {
+    openGuidedReferenceReview();
+    const character = await screen.findByTestId("button-redefine-character-s1-hero");
+    expect(character).toBeTruthy();
+    expect(screen.getByTestId("button-redefine-costume-s1-hero")).toBeTruthy();
+    expect(screen.getByTestId("button-redefine-character-s2-hero")).toBeTruthy();
+    expect(screen.getByTestId("button-redefine-costume-s2-hero")).toBeTruthy();
+    fireEvent.click(character);
+    fireEvent.click(screen.getByTestId("button-retain-guided-reference-s1-hero"));
+    await waitFor(() => expect(mockState.referenceCreates).toEqual([{
+      draftId: 81,
+      data: { revision: 7, roleId: "hero", kind: "character", source: "current" },
+    }]));
+  });
+
+  it("uses approved saved characters and outfits but does not offer preview or rejected outfits", async () => {
     mockState.characters = [{
-      id: 13,
-      name: "Mina",
-      description: "A fictional explorer",
-      referenceImagePath: "/objects/1/uploads/mina.png",
-      protectedRegion: null,
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      outfits: [{
-        id: 35,
-        name: "Default",
-        description: "Blue field jacket",
-        referenceImagePath: "/objects/1/uploads/mina-default.png",
-        isDefault: true,
-        status: "approved",
-        identityVerified: true,
-        canonicalReferenceImagePath: "/objects/1/uploads/mina.png",
-        protectedRegion: null,
-      }],
+      id: 12, name: "Ari", description: "Original", referenceImagePath: "/objects/1/ari.png",
+      outfits: [
+        { id: 34, name: "Signature", isDefault: true, status: "approved" },
+        { id: 35, name: "Approved jacket", isDefault: false, status: "approved" },
+        { id: 36, name: "Preview coat", isDefault: false, status: "preview" },
+        { id: 37, name: "Rejected coat", isDefault: false, status: "rejected" },
+      ],
+    }, {
+      id: "preset-ari", name: "Included Ari", description: "Platform preset",
+      referenceImagePath: "/objects/1/preset.png", outfits: [],
     }];
-    mockState.activeJob = {
-      ...pausedJob(board),
-      guidedReferenceContext: { draftId: 5, revision: 8 },
-    };
-    mockState.jobs = [mockState.activeJob];
-    renderPage();
-    fireEvent.click(screen.getByTestId("job-card-11"));
-    fireEvent.click(
-      await screen.findByTestId("button-redefine-guided-character-s1-hero"),
-    );
-    fireEvent.click(screen.getByTestId("select-guided-character-s1-hero"));
-    fireEvent.click(await screen.findByText("Mina"));
+    openGuidedReferenceReview();
+    fireEvent.click(await screen.findByTestId("button-redefine-character-s1-hero"));
+    expect(screen.queryByTestId("button-select-guided-character-s1-hero-preset-ari")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-select-guided-character-s1-hero-12"));
+    await waitFor(() => expect(mockState.referenceCreates[0]).toEqual({
+      draftId: 81,
+      data: { revision: 7, roleId: "hero", kind: "character", source: "saved", characterId: 12, confirmed: true },
+    }));
 
-    const finalize = screen.getByTestId("button-finalize-guided-reference-s1-hero");
-    expect((finalize as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(
-      screen.getByTestId("checkbox-confirm-guided-character-replacement-s1-hero"),
-    );
-    expect((finalize as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(finalize);
+    // A fresh review makes the costume picker independently testable.
+    cleanup();
+    mockState.referenceCreates = [];
+    openGuidedReferenceReview();
+    fireEvent.click(await screen.findByTestId("button-redefine-costume-s1-hero"));
+    expect(screen.getByTestId("button-select-guided-outfit-s1-hero-35")).toBeTruthy();
+    expect(screen.queryByText("Use approved Preview coat")).toBeNull();
+    expect(screen.queryByText("Use approved Rejected coat")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-select-guided-outfit-s1-hero-35"));
+    await waitFor(() => expect(mockState.referenceCreates[0]).toEqual({
+      draftId: 81,
+      data: { revision: 7, roleId: "hero", kind: "outfit", source: "saved", characterId: 12, outfitId: 35 },
+    }));
+  });
 
-    expect(mockState.finalizedGuidedReferences).toEqual([{
-      jobId: 11,
-      roleId: "hero",
+  it("requires explicit permission before it uploads a replacement character photo", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+    openGuidedReferenceReview();
+    fireEvent.click(await screen.findByTestId("button-redefine-character-s1-hero"));
+    const file = new File(["photo"], "replacement.png", { type: "image/png" });
+    fireEvent.change(screen.getByTestId("input-guided-reference-upload-s1-hero"), { target: { files: [file] } });
+    const upload = screen.getByTestId("button-upload-guided-reference-s1-hero") as HTMLButtonElement;
+    expect(upload.disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("checkbox-confirm-guided-upload-s1-hero"));
+    expect(upload.disabled).toBe(false);
+    fireEvent.click(upload);
+    await waitFor(() => expect(mockState.referenceCreates[0]).toEqual({
+      draftId: 81,
       data: {
-        revision: 8,
-        characterId: 13,
-        outfitId: 35,
-        replaceCharacterConfirmed: true,
+        revision: 7, roleId: "hero", kind: "character", source: "upload",
+        uploadPath: "/objects/1/uploads/presenter.mp4", confirmed: true,
       },
+    }));
+    expect(fetchSpy).toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("enlarges a ready candidate and finalizes it against the current draft revision", async () => {
+    const candidate = {
+      roleId: "hero", source: "generated", characterId: null, outfitId: null, brandKitId: null,
+      voiceId: "voice", isUserRole: false, consentGranted: false, generatedAsset: null,
+      character: { name: "Ari", description: "New Ari", referenceImagePath: "/objects/1/proposed.png" },
+      outfit: { name: "Wardrobe", description: "As shown", referenceImagePath: "/objects/1/proposed.png" },
+      voice: { id: "voice", label: "Stock", provider: "stock", providerVoiceId: null },
+    };
+    openGuidedReferenceReview([{
+      id: "ready-1", revision: 7, roleId: "hero", kind: "character", source: "generated",
+      status: "ready_to_review", candidate, description: "New Ari", error: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", finalizedAt: null,
     }]);
-    expect(toastSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "References finalized across the story",
-      }),
-    );
+    fireEvent.click(await screen.findByTestId("button-enlarge-guided-candidate-s1-hero"));
+    expect((await screen.findByTestId("image-enlarged-guided-candidate")).getAttribute("src")).toContain("proposed.png");
+    fireEvent.click(screen.getByRole("button", { name: /close/i }));
+    fireEvent.click(screen.getByTestId("button-finalize-guided-reference-s1-hero"));
+    expect(mockState.referenceFinalizations).toEqual([{
+      draftId: 81, operationId: "ready-1", data: { revision: 7 },
+    }]);
+  });
+
+  it("explains all reference operation states and blocks final approval for ready or uncertain work", async () => {
+    const messages: Record<string, string> = {
+      queued: "waiting to be prepared", generating: "keep this page open",
+      failed: "dismiss it, adjust the request, and try again",
+      outcome_unknown: "do not retry automatically", finalized: "every affected scene is rebuilding",
+    };
+    for (const [status, message] of Object.entries(messages)) {
+      cleanup();
+      openGuidedReferenceReview([{
+        id: `state-${status}`, revision: 7, roleId: "hero", kind: "outfit", source: "generated",
+        status, candidate: null, description: null,
+        error: status === "failed" ? "Worker stopped" : null,
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", finalizedAt: status === "finalized" ? "2026-01-01T00:00:00Z" : null,
+      }]);
+      expect((await screen.findByTestId("status-guided-reference-s1-hero-outfit")).textContent).toContain(message);
+    }
+    cleanup();
+    openGuidedReferenceReview([{
+      id: "ready-block", revision: 7, roleId: "hero", kind: "character", source: "current",
+      status: "ready_to_review", candidate: null, description: null, error: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", finalizedAt: null,
+    }]);
+    expect(
+      (screen.getByTestId("button-approve-storyboard") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    cleanup();
+    openGuidedReferenceReview([{
+      id: "unknown-block", revision: 7, roleId: "hero", kind: "character", source: "generated",
+      status: "outcome_unknown", candidate: null, description: null, error: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", finalizedAt: null,
+    }]);
+    expect(
+      (screen.getByTestId("button-approve-storyboard") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("server-rejects reviewable candidates and unblocks approval once the operation is removed", async () => {
+    openGuidedReferenceReview([{
+      id: "reject-ready", revision: 7, roleId: "hero", kind: "character", source: "current",
+      status: "ready_to_review", candidate: null, description: null, error: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", finalizedAt: null,
+    }]);
+    expect((await screen.findByTestId("button-approve-storyboard") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("button-dismiss-guided-reference-s1-hero"));
+    await waitFor(() => expect(mockState.referenceRejections).toEqual([{
+      draftId: 81, operationId: "reject-ready", data: { revision: 7 },
+    }]));
+    await waitFor(() => expect(
+      (screen.getByTestId("button-approve-storyboard") as HTMLButtonElement).disabled,
+    ).toBe(false));
+    expect(
+      screen.getByTestId("button-redefine-character-s1-hero"),
+    ).toBeTruthy();
+    cleanup();
+    openGuidedReferenceReview([{
+      id: "reject-failed", revision: 7, roleId: "hero", kind: "outfit", source: "generated",
+      status: "failed", candidate: null, description: null, error: "Worker stopped",
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", finalizedAt: null,
+    }]);
+    fireEvent.click(await screen.findByTestId("button-dismiss-guided-reference-s1-hero"));
+    await waitFor(() => expect(mockState.referenceRejections[1]).toEqual({
+      draftId: 81, operationId: "reject-failed", data: { revision: 7 },
+    }));
   });
 
   it("confirms a single Guided scene correction with locked references and shows its cost history", async () => {

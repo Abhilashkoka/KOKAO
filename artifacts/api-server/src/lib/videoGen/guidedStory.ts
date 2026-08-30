@@ -86,6 +86,7 @@ export function invalidateGuidedStoryDownstream(
     scriptGeneration: null,
     sceneInsertionGeneration: null,
     castOperations: {},
+    referenceOperations: {},
     storyboardJobId: null,
   };
 }
