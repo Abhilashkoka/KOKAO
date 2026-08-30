@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VideoModelInfoModesItem } from './videoModelInfoModesItem';
+import type { VideoModelInfoProviderModels } from './videoModelInfoProviderModels';
 import type { VideoModelInfoResolutionsItem } from './videoModelInfoResolutionsItem';
 import type { VideoModelInfoTier } from './videoModelInfoTier';
 
@@ -17,6 +18,10 @@ export interface VideoModelInfo {
   blurb: string;
   /** Which configured provider serves it. */
   provider: string;
+  /** Exact provider-native model slug for each supported mode. */
+  providerModels: VideoModelInfoProviderModels;
+  /** Whether this exact provider/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false. */
+  pricingAvailable: boolean;
   tier: VideoModelInfoTier;
   /** Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units. */
   unitMultiplier: number;

@@ -94,6 +94,16 @@ export interface ErrorEnvelope {
   error: string;
   /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything). */
   code?: string;
+  /**
+     * Safe provider identifier for configuration failures.
+     * @nullable
+     */
+  provider?: string | null;
+  /**
+     * Safe provider-native model identifier for configuration failures.
+     * @nullable
+     */
+  model?: string | null;
 }
 
 export interface Tenant {
@@ -4188,6 +4198,14 @@ export interface LocalizedDubTrackInput {
   cues: LocalizedDubCueInput[];
 }
 
+/**
+ * Exact provider-native model slug for each supported mode.
+ */
+export type VideoModelInfoProviderModels = {
+  text?: string;
+  image?: string;
+};
+
 export type VideoModelInfoTier = typeof VideoModelInfoTier[keyof typeof VideoModelInfoTier];
 
 
@@ -4222,6 +4240,10 @@ export interface VideoModelInfo {
   blurb: string;
   /** Which configured provider serves it. */
   provider: string;
+  /** Exact provider-native model slug for each supported mode. */
+  providerModels: VideoModelInfoProviderModels;
+  /** Whether this exact provider/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false. */
+  pricingAvailable: boolean;
   tier: VideoModelInfoTier;
   /** Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units. */
   unitMultiplier: number;
@@ -4240,8 +4262,32 @@ export interface VideoModelInfo {
   supportsEndFrame: boolean;
 }
 
+export type VideoModelListDefaultsText = {
+  provider: string;
+  model: string;
+};
+
+export type VideoModelListDefaultsImage = {
+  provider: string;
+  model: string;
+};
+
+/**
+ * Exact current admin default for each generation mode.
+ * @nullable
+ */
+export type VideoModelListDefaults = {
+  text: VideoModelListDefaultsText;
+  image: VideoModelListDefaultsImage;
+} | null;
+
 export interface VideoModelList {
   models: VideoModelInfo[];
+  /**
+     * Exact current admin default for each generation mode.
+     * @nullable
+     */
+  defaults: VideoModelListDefaults;
 }
 
 /**
@@ -6027,6 +6073,59 @@ export type VideoJobGuidedReferenceContext = {
   operations?: VideoJobGuidedReferenceContextOperations;
 } | null;
 
+export type VideoJobResolvedVideoModelSource = typeof VideoJobResolvedVideoModelSource[keyof typeof VideoJobResolvedVideoModelSource];
+
+
+export const VideoJobResolvedVideoModelSource = {
+  explicit: 'explicit',
+  default: 'default',
+} as const;
+
+export type VideoJobResolvedVideoModelMode = typeof VideoJobResolvedVideoModelMode[keyof typeof VideoJobResolvedVideoModelMode];
+
+
+export const VideoJobResolvedVideoModelMode = {
+  text: 'text',
+  image: 'image',
+} as const;
+
+/**
+ * Composite scenes use nearest; equal-distance ties choose the shorter duration.
+ */
+export type VideoJobResolvedVideoModelDurationPolicy = typeof VideoJobResolvedVideoModelDurationPolicy[keyof typeof VideoJobResolvedVideoModelDurationPolicy];
+
+
+export const VideoJobResolvedVideoModelDurationPolicy = {
+  exact: 'exact',
+  nearest: 'nearest',
+} as const;
+
+/**
+ * Immutable provider/model execution contract frozen before funding.
+ * @nullable
+ */
+export type VideoJobResolvedVideoModel = {
+  version: 1;
+  source: VideoJobResolvedVideoModelSource;
+  mode: VideoJobResolvedVideoModelMode;
+  provider: string;
+  model: string;
+  /** @nullable */
+  catalogModelId: string | null;
+  durationSec: number;
+  /** Every scene/provider-call duration priced before this job was funded. */
+  permittedDurationSec?: number[];
+  /** Composite scenes use nearest; equal-distance ties choose the shorter duration. */
+  durationPolicy?: VideoJobResolvedVideoModelDurationPolicy;
+  /** @nullable */
+  resolution: string | null;
+  /** @nullable */
+  quality: string | null;
+  /** @nullable */
+  generateAudio: boolean | null;
+  supportsEndFrame: boolean;
+} | null;
+
 export type VideoJobErrorHistoryItemScope = typeof VideoJobErrorHistoryItemScope[keyof typeof VideoJobErrorHistoryItemScope];
 
 
@@ -6538,10 +6637,15 @@ export interface VideoJob {
      */
   guidedReferenceContext: VideoJobGuidedReferenceContext;
   /**
-     * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
+     * The catalog model explicitly picked, or null when the mode-specific admin default was resolved.
      * @nullable
      */
-  modelId?: string | null;
+  modelId: string | null;
+  /**
+     * Immutable provider/model execution contract frozen before funding.
+     * @nullable
+     */
+  resolvedVideoModel: VideoJobResolvedVideoModel;
   /**
      * The resolution this job was created with, or null.
      * @nullable

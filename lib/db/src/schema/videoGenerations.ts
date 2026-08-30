@@ -63,6 +63,28 @@ export interface VideoTemplateRuntimeSettings {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /**
+   * Immutable provider contract resolved before funding. Every video provider
+   * call made by this job (including approval, retry, and recovery children)
+   * must use this exact provider/model pair and these normalized variants.
+   */
+  resolvedVideoModel?: {
+    version: 1;
+    source: "explicit" | "default";
+    mode: "text" | "image";
+    provider: string;
+    model: string;
+    catalogModelId: string | null;
+    durationSec: number;
+    /** Every provider-render duration this job was funded and priced to use. */
+    permittedDurationSec?: number[];
+    /** Composite scenes quantize their target to the nearest permitted value. */
+    durationPolicy?: "exact" | "nearest";
+    resolution: string | null;
+    quality: string | null;
+    generateAudio: boolean | null;
+    supportsEndFrame: boolean;
+  } | null;
   /** Non-immutable, draft-revision-bound reference work shown in review UI. */
   guidedReferenceOperations?: Record<string, {
     revision: number;

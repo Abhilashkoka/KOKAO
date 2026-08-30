@@ -16,6 +16,7 @@ import type { VideoJobGuidedReferenceContext } from './videoJobGuidedReferenceCo
 import type { VideoJobPrivacyRecoveryCapability } from './videoJobPrivacyRecoveryCapability';
 import type { VideoJobRecovery } from './videoJobRecovery';
 import type { VideoJobRepair } from './videoJobRepair';
+import type { VideoJobResolvedVideoModel } from './videoJobResolvedVideoModel';
 import type { VideoJobStatus } from './videoJobStatus';
 import type { VideoStoryboard } from './videoStoryboard';
 
@@ -39,10 +40,15 @@ export interface VideoJob {
      */
   guidedReferenceContext: VideoJobGuidedReferenceContext;
   /**
-     * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
+     * The catalog model explicitly picked, or null when the mode-specific admin default was resolved.
      * @nullable
      */
-  modelId?: string | null;
+  modelId: string | null;
+  /**
+     * Immutable provider/model execution contract frozen before funding.
+     * @nullable
+     */
+  resolvedVideoModel: VideoJobResolvedVideoModel;
   /**
      * The resolution this job was created with, or null.
      * @nullable

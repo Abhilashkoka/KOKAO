@@ -6,7 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VideoModelInfo } from './videoModelInfo';
+import type { VideoModelListDefaults } from './videoModelListDefaults';
 
 export interface VideoModelList {
   models: VideoModelInfo[];
+  /**
+     * Exact current admin default for each generation mode.
+     * @nullable
+     */
+  defaults: VideoModelListDefaults;
 }

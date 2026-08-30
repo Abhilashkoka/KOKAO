@@ -10,4 +10,14 @@ export interface ErrorEnvelope {
   error: string;
   /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything). */
   code?: string;
+  /**
+     * Safe provider identifier for configuration failures.
+     * @nullable
+     */
+  provider?: string | null;
+  /**
+     * Safe provider-native model identifier for configuration failures.
+     * @nullable
+     */
+  model?: string | null;
 }

@@ -569,8 +569,9 @@ function resolveVideoPrice(
 }
 
 /**
- * Variant-aware video lookup. Exact provider/model rows retain precedence; if
- * absent, retain the legacy model-only cross-provider fallback.
+ * Variant-aware video lookup. Video prices are provider-authoritative: a row
+ * for the same model at another provider must never authorize or price this
+ * provider's request.
  */
 export async function findVideoPrice(
   provider: string,
@@ -584,21 +585,7 @@ export async function findVideoPrice(
     .from(aiModelPricesTable)
     .where(and(eq(aiModelPricesTable.kind, "video"), providerMatches, modelMatches))
     .orderBy(asc(aiModelPricesTable.id));
-  if (exactRows.length > 0) return resolveVideoPrice(exactRows, variantCriteria);
-
-  const fallbackRows = await db
-    .select()
-    .from(aiModelPricesTable)
-    .where(and(eq(aiModelPricesTable.kind, "video"), modelMatches))
-    .orderBy(asc(aiModelPricesTable.id));
-  if (fallbackRows.length === 0) return null;
-  // Preserve prior "first provider with this model" fallback while applying
-  // the same variant rules to that provider's price rows.
-  const firstProvider = fallbackRows[0].provider.trim().toLowerCase();
-  return resolveVideoPrice(
-    fallbackRows.filter((row) => row.provider.trim().toLowerCase() === firstProvider),
-    variantCriteria,
-  );
+  return resolveVideoPrice(exactRows, variantCriteria);
 }
 
 /** Exported price lookup used by the model activation pricing sync. */

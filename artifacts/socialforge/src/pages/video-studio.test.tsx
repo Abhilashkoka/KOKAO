@@ -4958,6 +4958,151 @@ describe("Video Studio voice notes", () => {
       .toBe("The exact failed story");
   });
 
+  it("identifies the mode-specific default and submits the default sentinel", async () => {
+    mockState.videoModels = {
+      defaults: {
+        text: {
+          provider: "replicate",
+          model: "wan-video/wan-2.2-t2v-fast",
+          modelId: "wan-fast",
+          priceLabel: "₹3.00 for 5 seconds",
+        },
+        image: {
+          provider: "openrouter",
+          model: "kwaivgi/kling-v3.0-std",
+          modelId: "kling-image",
+          priceLabel: "₹5.00 for 5 seconds",
+        },
+      },
+      models: [
+        {
+          id: "wan-fast",
+          label: "WAN Fast",
+          blurb: "Fast drafts.",
+          provider: "replicate",
+          providerModels: {
+            text: "wan-video/wan-2.2-t2v-fast",
+            image: "wan-video/wan-2.2-i2v-fast",
+          },
+          modes: ["text", "image"],
+          durations: [5],
+          resolutions: ["720p"],
+          hasQuality: false,
+          canGenerateAudio: false,
+          supportsEndFrame: false,
+          unitMultiplier: 1,
+          pricingAvailable: true,
+          priceLabel: "₹3.00 for 5 seconds",
+        },
+      ],
+    };
+    renderPage();
+
+    const details = screen.getByTestId("video-model-selection-details");
+    expect(details.textContent).toContain(
+      "Current default: Replicate · wan-video/wan-2.2-t2v-fast",
+    );
+    expect(details.textContent).toContain("₹3.00 for 5 seconds");
+
+    await userEvent
+      .setup()
+      .type(screen.getByTestId("input-video-prompt"), "A launch announcement");
+    await userEvent.setup().click(screen.getByTestId("button-generate-video"));
+    expect(mockState.lastGenerateVars.data.modelId).toBeNull();
+  });
+
+  it("lists exact eligible provider/model details and submits an explicit id", async () => {
+    mockState.videoModels = {
+      defaults: {
+        text: {
+          provider: "replicate",
+          model: "wan-video/default",
+          modelId: "default-wan",
+        },
+      },
+      models: [
+        {
+          id: "kling-openrouter",
+          label: "Kling 3 Pro",
+          blurb: "Final-quality motion.",
+          provider: "openrouter",
+          providerModels: { text: "kwaivgi/kling-v3.0-pro" },
+          modes: ["text"],
+          durations: [5],
+          resolutions: ["1080p"],
+          hasQuality: false,
+          canGenerateAudio: true,
+          supportsEndFrame: false,
+          unitMultiplier: 4,
+          pricingAvailable: true,
+          priceLabel: "₹18.00 for 5 seconds",
+        },
+      ],
+    };
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("select-video-model"));
+    const option = screen.getByRole("option", { name: /Kling 3 Pro.*OpenRouter/i });
+    expect(option.textContent).toContain("kwaivgi/kling-v3.0-pro");
+    expect(option.textContent).toContain("Text to Video");
+    expect(option.textContent).toContain("₹18.00 for 5 seconds");
+    await user.click(option);
+
+    const details = screen.getByTestId("video-model-selection-details");
+    expect(details.textContent).toContain(
+      "Exact choice: OpenRouter · kwaivgi/kling-v3.0-pro",
+    );
+    await user.type(
+      screen.getByTestId("input-video-prompt"),
+      "A launch announcement",
+    );
+    await user.click(screen.getByTestId("button-generate-video"));
+    expect(mockState.lastGenerateVars.data.modelId).toBe("kling-openrouter");
+  });
+
+  it("shows the job's frozen resolved provider/model choice", async () => {
+    const job = {
+      ...pausedJob(clipBoard("prompt")),
+      status: "failed",
+      error: "Provider timed out.",
+      provider: "openrouter",
+      model: "kwaivgi/kling-v3.0-pro",
+      resolvedVideoModel: {
+        version: 1,
+        source: "default",
+        mode: "text",
+        provider: "replicate",
+        model: "wan-video/frozen-default",
+        catalogModelId: null,
+        durationSec: 5,
+        resolution: null,
+        quality: null,
+        generateAudio: null,
+        supportsEndFrame: false,
+      },
+      retryable: false,
+      recovery: null,
+      repairable: false,
+      repair: null,
+      currentVideoPath: null,
+      savedContentItemId: null,
+      errorHistory: [],
+    };
+    mockState.jobs = [job];
+    mockState.activeJob = job;
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("active-video-job-model").textContent).toContain(
+        "Replicate · wan-video/frozen-default",
+      ),
+    );
+    expect(screen.getByTestId("active-video-job-model").textContent).toContain(
+      "mode-specific default was resolved before funding",
+    );
+  });
+
   it("switches Text-to-Video to image-capable models when a preset is selected", async () => {
     mockState.characters = [{
       id: "amara-sen", source: "preset", stableId: "amara-sen", name: "Amara",

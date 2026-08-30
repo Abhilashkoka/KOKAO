@@ -1392,7 +1392,7 @@ function StockSourcesCard() {
   );
 }
 
-function VideoGenProviderCard() {
+export function VideoGenProviderCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetVideoGenSettings();
@@ -1580,8 +1580,9 @@ function VideoGenProviderCard() {
         <CardDescription>
           Which service and models power the Studio's Video tab. "Text to Video"
           and "Animate Photo" each have their own model; the Slideshow engine
-          runs locally and needs no AI model. Any Replicate model in
-          owner/name form works.
+          runs locally and needs no AI model. A model can be saved only when
+          that exact provider/model combination has credentials and its own
+          authoritative price.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1622,6 +1623,15 @@ function VideoGenProviderCard() {
             )}
             {shown && shown.supportsModelOverride && (
               <div className="space-y-3 rounded-md border p-3">
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="video-model-pricing-requirement"
+                >
+                  Pricing is provider-specific. A price saved for another
+                  provider does not make this provider/model eligible. Missing
+                  credentials, mode support, or pricing will be rejected
+                  without changing the current defaults.
+                </p>
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Text to Video model</p>
                   {shown.textModelOptions && shown.textModelOptions.length > 0 && (
@@ -1644,7 +1654,10 @@ function VideoGenProviderCard() {
                             <span className="flex flex-col items-start">
                               <span>{o.label}</span>
                               <span className="text-xs text-muted-foreground">
-                                {videoPriceFor(o.value) ?? "Pricing unavailable"}
+                                {videoPriceFor(o.value) ??
+                                  (effectiveProvider === "replicate"
+                                    ? "Missing Replicate price — cannot activate"
+                                    : "Provider-specific price required")}
                               </span>
                             </span>
                           </SelectItem>
@@ -1687,7 +1700,10 @@ function VideoGenProviderCard() {
                             <span className="flex flex-col items-start">
                               <span>{o.label}</span>
                               <span className="text-xs text-muted-foreground">
-                                {videoPriceFor(o.value) ?? "Pricing unavailable"}
+                                {videoPriceFor(o.value) ??
+                                  (effectiveProvider === "replicate"
+                                    ? "Missing Replicate price — cannot activate"
+                                    : "Provider-specific price required")}
                               </span>
                             </span>
                           </SelectItem>

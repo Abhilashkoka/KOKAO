@@ -82,6 +82,7 @@ import {
   type ScriptIntakeResultGapsItem,
   type VideoCapabilities,
   type VideoCostModel,
+  type VideoModelInfo,
   type CharacterDialogueLocale,
   type BrandKit,
   type GuidedStoryDraft,
@@ -328,6 +329,18 @@ type VideoModelCostEstimate =
     }
   | { available: false };
 
+/**
+ * The catalog response is being extended without changing the request's
+ * stable modelId contract. Keep these additions optional while older API
+ * servers/clients roll forward together.
+ */
+type StudioVideoModel = VideoModelInfo & {
+  /** Temporary aliases retained for compatibility with a rolling deployment. */
+  model?: string;
+  models?: Partial<Record<"text" | "image", string>>;
+  /** Server-owned authoritative provider-price summary. */
+  priceLabel?: string;
+};
 function estimateModelComponent(
   model: VideoCostModel | null,
   operations: number,
@@ -743,8 +756,9 @@ export function VideoStudioPage() {
   /** A cast can be a tenant character or a stable platform preset. */
   const hasSelectedCast = characterId !== null || presetCharacterId !== null;
 
-  // Model choice. Null = the workspace's configured model, which is what
-  // every job used before this picker existed and still costs one unit.
+  // Model choice. Null is the deliberate "mode-specific admin default"
+  // sentinel; the server resolves and freezes its exact provider/model before
+  // it reserves quota or wallet funding.
   const [modelId, setModelId] = useState<string | null>(null);
   const [resolution, setResolution] = useState<VideoResolution | null>(null);
   const [quality, setQuality] = useState<VideoQuality | null>(null);
@@ -759,11 +773,25 @@ export function VideoStudioPage() {
   // frame, so it needs an image-capable model.
   const modelMode: "text" | "image" =
     engine === "text_to_video" && !hasSelectedCast ? "text" : "image";
+  const modelCatalog = videoModels as StudioVideoModelList | undefined;
   const availableModels = useMemo(
     () =>
-      (videoModels?.models ?? []).filter((m) => m.modes.includes(modelMode)),
-    [videoModels, modelMode],
+      (modelCatalog?.models ?? []).filter((m) => m.modes.includes(modelMode)),
+    [modelCatalog, modelMode],
   );
+  const defaultModel =
+    modelCatalog?.defaults?.[modelMode] ??
+    (modelMode === "text"
+      ? modelCatalog?.defaultTextToVideo
+      : modelCatalog?.defaultImageToVideo) ??
+    null;
+  const defaultCatalogModel = defaultModel
+    ? availableModels.find(
+        (model) =>
+          model.provider === defaultModel.provider &&
+          nativeVideoModel(model, modelMode) === defaultModel.model,
+      ) ?? null
+    : null;
   const selectedModel = availableModels.find((m) => m.id === modelId) ?? null;
   // Picking a model narrows every dependent control to what it can render.
   // A stale selection (switching from a 5/10s model to an 8s-only one) is
@@ -5455,9 +5483,11 @@ export function VideoStudioPage() {
 
               {engine !== "slideshow" &&
                 engine !== "lip_sync" &&
-                availableModels.length > 0 && (
+                (availableModels.length > 0 || defaultModel) && (
                   <div className="space-y-2">
-                    <Label htmlFor="video-model">Model</Label>
+                    <Label htmlFor="video-model">
+                      Model for {videoModeLabel(modelMode)}
+                    </Label>
                     <Select
                       value={modelId ?? "default"}
                       onValueChange={(v) =>
@@ -5473,21 +5503,84 @@ export function VideoStudioPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="default">
-                          Standard model (1 unit)
+                          {defaultModel
+                            ? `Default — ${providerLabel(defaultModel.provider)} · ${defaultModel.model}`
+                            : `Default — configured ${videoModeLabel(modelMode)} model`}
                         </SelectItem>
                         {availableModels.map((m) => (
                           <SelectItem key={m.id} value={m.id}>
-                            {m.label} ({m.unitMultiplier}
-                            {m.unitMultiplier === 1 ? " unit" : " units"})
+                            <span className="flex flex-col items-start">
+                              <span>
+                                {m.label} — {providerLabel(m.provider)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {nativeVideoModel(m, modelMode)} ·{" "}
+                                {m.modes.map(videoModeLabel).join(" + ")} ·{" "}
+                                {m.priceLabel ??
+                                  `${m.unitMultiplier} ${
+                                    m.unitMultiplier === 1 ? "unit" : "units"
+                                  } per generation · priced`}
+                              </span>
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {selectedModel && (
-                      <p className="text-xs text-muted-foreground max-w-64">
-                        {selectedModel.blurb}
-                      </p>
-                    )}
+                    <div
+                      className="max-w-96 space-y-1 text-xs text-muted-foreground"
+                      data-testid="video-model-selection-details"
+                    >
+                      {selectedModel ? (
+                        <>
+                          <p>
+                            Exact choice: {providerLabel(selectedModel.provider)} ·{" "}
+                            <span className="font-mono">
+                              {nativeVideoModel(selectedModel, modelMode)}
+                            </span>
+                          </p>
+                          <p>
+                            Compatible with{" "}
+                            {selectedModel.modes.map(videoModeLabel).join(" and ")}.{" "}
+                            {selectedModel.priceLabel ??
+                              `${
+                                selectedModel.pricingAvailable
+                                  ? "Authoritative provider pricing is available"
+                                  : "Pricing unavailable"
+                              }; ${selectedModel.unitMultiplier} ${
+                                selectedModel.unitMultiplier === 1
+                                  ? "unit"
+                                  : "units"
+                              } per generation.`}
+                          </p>
+                          <p>{selectedModel.blurb}</p>
+                        </>
+                      ) : defaultModel ? (
+                        <>
+                          <p>
+                            Current default: {providerLabel(defaultModel.provider)} ·{" "}
+                            <span className="font-mono">{defaultModel.model}</span>
+                          </p>
+                          <p>
+                            Applies to {videoModeLabel(modelMode)} and is frozen onto
+                            this job when you submit.
+                            {defaultModel.priceLabel
+                              ? ` ${defaultModel.priceLabel}`
+                              : defaultCatalogModel
+                                ? ` Authoritative provider pricing is available; ${defaultCatalogModel.unitMultiplier} ${
+                                    defaultCatalogModel.unitMultiplier === 1
+                                      ? "unit"
+                                      : "units"
+                                  } per generation.`
+                                : " Credentials and provider-specific pricing are validated before funding."}
+                          </p>
+                        </>
+                      ) : (
+                        <p>
+                          The configured {videoModeLabel(modelMode)} provider and
+                          model will be resolved and frozen when you submit.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -6129,6 +6222,37 @@ export function VideoStudioPage() {
                 Job #{activeJob.id}
               </span>
             </div>
+            {(activeJob.resolvedVideoModel ||
+              activeJob.provider ||
+              activeJob.model) && (
+              <div
+                className="rounded-lg border px-3 py-2 text-sm"
+                data-testid="active-video-job-model"
+              >
+                <span className="font-medium">Frozen generation model:</span>{" "}
+                {activeJob.resolvedVideoModel?.provider || activeJob.provider
+                  ? providerLabel(
+                      activeJob.resolvedVideoModel?.provider ??
+                        activeJob.provider!,
+                    )
+                  : "Provider not recorded"}{" "}
+                ·{" "}
+                <span className="font-mono">
+                  {activeJob.resolvedVideoModel?.model ??
+                    activeJob.model ??
+                    "Model not recorded"}
+                </span>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This{" "}
+                  {activeJob.resolvedVideoModel?.source === "default"
+                    ? "mode-specific default"
+                    : "explicit choice"}{" "}
+                  was resolved before funding and stays with the job for
+                  approval, retries, and recovery even if platform defaults
+                  change.
+                </p>
+              </div>
+            )}
             {activeJob.errorHistory?.filter((entry) => entry.scope === "job")
               .length ? (
               <DurableErrorHistory
@@ -11631,3 +11755,39 @@ function isSharedCharacter(character: StudioCharacter): boolean {
     character.tenantOwned === false
   );
 }
+
+function providerLabel(provider: string): string {
+  if (provider === "openrouter") return "OpenRouter";
+  if (provider === "replicate") return "Replicate";
+  if (provider === "nvidia") return "NVIDIA";
+  if (provider === "replit") return "Replit";
+  return provider;
+}
+
+type DefaultVideoModelChoice = {
+  provider: string;
+  model: string;
+  modelId?: string | null;
+  label?: string;
+  priceLabel?: string;
+};
+
+function nativeVideoModel(model: StudioVideoModel, mode: "text" | "image"): string {
+  return (
+    model.providerModels?.[mode] ??
+    model.models?.[mode] ??
+    model.model ??
+    model.id
+  );
+}
+
+function videoModeLabel(mode: "text" | "image"): string {
+  return mode === "text" ? "Text to Video" : "Animate Photo";
+}
+
+type StudioVideoModelList = {
+  models: StudioVideoModel[];
+  defaults?: Partial<Record<"text" | "image", DefaultVideoModelChoice | null>>;
+  defaultTextToVideo?: DefaultVideoModelChoice | null;
+  defaultImageToVideo?: DefaultVideoModelChoice | null;
+};

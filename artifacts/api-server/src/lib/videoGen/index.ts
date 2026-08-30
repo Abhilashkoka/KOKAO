@@ -8,7 +8,7 @@ import {
   recordProviderSuccess,
 } from "../providerHealth";
 import { isVideoModelPriced } from "../aiCost";
-import type { VideoPriceCriteria } from "@workspace/db";
+import type { VideoJobOptions, VideoPriceCriteria } from "@workspace/db";
 import { videoPriceCriteria } from "./pricing";
 import {
   notifyVideoGenFailover,
@@ -47,6 +47,7 @@ import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./
 import {
   VIDEO_MODEL_CATALOG,
   findVideoModel,
+  resolveModelOptions,
   supportsMode,
   type VideoModelDef,
 } from "./modelCatalog";
@@ -331,15 +332,16 @@ export interface VideoGenSelection {
   lipSyncPortraitModel: string | null;
 }
 
-/** The current selection (falls back to the default when the settings row is
- * missing or names a provider no longer in the catalog). */
+/** The current selection. A missing settings row uses the platform default;
+ * an invalid persisted provider is intentionally preserved so enqueue can
+ * reject it rather than silently switching an intended provider/model. */
 export async function getVideoGenSelection(): Promise<VideoGenSelection> {
   const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
   const id = row?.provider ?? DEFAULT_VIDEO_GEN_PROVIDER;
   const def = await resolveVideoGenProviderDef(id);
   if (!def) {
     return {
-      provider: DEFAULT_VIDEO_GEN_PROVIDER,
+      provider: id,
       textToVideoModel: null,
       imageToVideoModel: null,
       enabledModelIds: row?.enabledModelIds ?? null,
@@ -364,17 +366,197 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
  * whose key is saved. Offering a model whose provider is unconfigured would
  * be offering a job that preflight is about to refuse.
  */
-export async function availableVideoModels(): Promise<VideoModelDef[]> {
+export async function availableVideoModels(
+  options: { ignoreAllowlist?: boolean } = {},
+): Promise<VideoModelDef[]> {
   const { enabledModelIds } = await getVideoGenSelection();
-  const allowed = enabledModelIds === null ? null : new Set(enabledModelIds);
+  const allowed =
+    options.ignoreAllowlist || enabledModelIds === null
+      ? null
+      : new Set(enabledModelIds);
   const configured = new Map<string, boolean>();
   for (const def of VIDEO_GEN_PROVIDERS) {
     configured.set(def.id, await isVideoGenProviderConfigured(def));
   }
-  return VIDEO_MODEL_CATALOG.filter(
-    (model) =>
-      (allowed === null || allowed.has(model.id)) && configured.get(model.provider) === true,
+  const available: VideoModelDef[] = [];
+  for (const model of VIDEO_MODEL_CATALOG) {
+    if (
+      (allowed !== null && !allowed.has(model.id)) ||
+      configured.get(model.provider) !== true
+    ) continue;
+    let priced = true;
+    for (const mode of ["text", "image"] as const) {
+      const nativeModel = model.models[mode];
+      if (!nativeModel) continue;
+      const qualities = model.hasQuality ? ["basic", "high"] : [null];
+      const audioValues = model.canGenerateAudio ? [false, true] : [null];
+      for (const durationSec of model.durations) {
+        for (const resolution of model.resolutions) {
+          for (const quality of qualities) {
+            for (const generateAudio of audioValues) {
+              if (!(await isVideoModelPriced({
+                provider: model.provider,
+                model: nativeModel,
+                durationSec,
+                variantCriteria: videoPriceCriteria({
+                  resolution,
+                  quality,
+                  generateAudio,
+                }),
+              }).catch(() => false))) {
+                priced = false;
+                break;
+              }
+            }
+            if (!priced) break;
+          }
+          if (!priced) break;
+        }
+        if (!priced) break;
+      }
+      if (!priced) break;
+    }
+    if (priced) available.push(model);
+  }
+  return available;
+}
+
+export type ResolvedVideoModelSnapshot = NonNullable<
+  VideoJobOptions["resolvedVideoModel"]
+>;
+
+export class VideoModelResolutionError extends VideoGenNotConfiguredError {
+  constructor(
+    message: string,
+    readonly code:
+      | "video_model_invalid"
+      | "video_model_incompatible"
+      | "video_provider_unconfigured"
+      | "video_model_unpriced",
+    readonly provider: string | null,
+    readonly model: string | null,
+  ) {
+    super(message);
+    this.name = "VideoModelResolutionError";
+  }
+}
+
+/** Resolve the mutable admin/default selection into a durable execution contract. */
+export async function resolveVideoModelSnapshot(args: {
+  mode: VideoGenMode;
+  modelId?: string | null;
+  durationSec: number;
+  resolution?: string | null;
+  quality?: string | null;
+  generateAudio?: boolean | null;
+  /** Composite render paths can make several fixed scene-duration calls. */
+  permittedDurationSec?: number[];
+}): Promise<ResolvedVideoModelSnapshot> {
+  const picked = findVideoModel(args.modelId);
+  if (args.modelId && !picked) {
+    throw new VideoModelResolutionError(
+      "That video model is not available.",
+      "video_model_invalid",
+      null,
+      null,
+    );
+  }
+  if (picked && !supportsMode(picked, args.mode)) {
+    throw new VideoModelResolutionError(
+      `${picked.label} does not support ${args.mode === "text" ? "text-to-video" : "image-to-video"}.`,
+      "video_model_incompatible",
+      picked.provider,
+      picked.models[args.mode] ?? null,
+    );
+  }
+  const selection = picked ? null : await getVideoGenSelection();
+  const provider = picked?.provider ?? selection!.provider;
+  const def = await resolveVideoGenProviderDef(provider);
+  const model = picked?.models[args.mode] ??
+    (def
+      ? effectiveVideoModel(
+          def,
+          args.mode,
+          args.mode === "text"
+            ? selection!.textToVideoModel
+            : selection!.imageToVideoModel,
+        )
+      : "");
+  if (!def || !model) {
+    throw new VideoModelResolutionError(
+      `AI video provider ${provider} has no ${args.mode}-to-video model configured.`,
+      "video_model_invalid",
+      provider,
+      model || null,
+    );
+  }
+  const catalogModel = picked ?? VIDEO_MODEL_CATALOG.find((candidate) =>
+    candidate.provider === provider && candidate.models[args.mode] === model,
   );
+  if (!(await isVideoGenProviderConfigured(def))) {
+    throw new VideoModelResolutionError(
+      `AI video provider ${provider} is not configured.`,
+      "video_provider_unconfigured",
+      provider,
+      model,
+    );
+  }
+  const normalized = catalogModel
+    ? resolveModelOptions(
+        {
+          modelId: catalogModel.id,
+          durationSec: args.durationSec,
+          resolution: args.resolution,
+          quality: args.quality,
+          generateAudio: args.generateAudio,
+        },
+        args.durationSec,
+      )
+    : {
+        durationSec: args.durationSec,
+        resolution: args.resolution ?? null,
+        quality: args.quality ?? null,
+        generateAudio: args.generateAudio ?? null,
+      };
+  const targetDurations = [...new Set(
+    (args.permittedDurationSec?.length ? args.permittedDurationSec : [normalized.durationSec])
+      .map((duration) => Math.round(duration * 100) / 100),
+  )];
+  // Composite scene targets are mapped onto real provider capabilities now,
+  // not at dispatch time from mutable catalog data. Equal-distance ties choose
+  // the shorter clip to avoid silently purchasing/rendering excess footage.
+  const permittedDurationSec = catalogModel && args.permittedDurationSec?.length
+    ? [...new Set(targetDurations.map((target) =>
+        [...catalogModel.durations].sort((a, b) =>
+          Math.abs(a - target) - Math.abs(b - target) || a - b
+        )[0]!,
+      ))]
+    : targetDurations;
+  if (!(await Promise.all(permittedDurationSec.map((durationSec) => isVideoModelPriced({
+    provider, model, durationSec, variantCriteria: videoPriceCriteria(normalized),
+  }).catch(() => false)))).every(Boolean)) {
+    throw new VideoModelResolutionError(
+      `Video model ${provider}/${model} has no authoritative provider-specific price for the requested variant.`,
+      "video_model_unpriced",
+      provider,
+      model,
+    );
+  }
+  return {
+    version: 1,
+    source: picked ? "explicit" : "default",
+    mode: args.mode,
+    provider,
+    model,
+    catalogModelId: catalogModel?.id ?? null,
+    durationSec: normalized.durationSec,
+    permittedDurationSec,
+    durationPolicy: args.permittedDurationSec?.length ? "nearest" : "exact",
+    resolution: normalized.resolution,
+    quality: normalized.quality,
+    generateAudio: normalized.generateAudio,
+    supportsEndFrame: catalogModel?.supportsEndFrame === true,
+  };
 }
 
 /**
@@ -613,44 +795,67 @@ export async function generateVideo(
      * model choice existed.
      */
     modelId?: string | null;
+    /** Required immutable enqueue-time provider/model contract. */
+    resolvedVideoModel?: ResolvedVideoModelSnapshot | null;
     resolution?: string | null;
     quality?: string | null;
     generateAudio?: boolean | null;
   },
   deps: VideoGenFailoverDeps = {},
 ): Promise<VideoGenResult> {
-  const resolveCandidate = deps.resolveCandidate ?? resolveVideoGenFailoverCandidate;
-  const selection = await getVideoGenSelection();
-  // A picked model that cannot serve this mode is ignored rather than
-  // enforced here: the route and preflight reject it long before funding, and
-  // a background retry must never fail on a validation the user already
-  // passed. Falling back to the platform selection still renders their video.
-  const picked = findVideoModel(params.modelId);
-  const pickedDef =
-    picked && supportsMode(picked, params.mode)
-      ? getVideoGenProviderDef(picked.provider)
+  const snapshot = params.resolvedVideoModel;
+  if (!snapshot || snapshot.version !== 1) {
+    throw new VideoModelResolutionError(
+      "This job has no frozen video provider/model snapshot.",
+      "video_model_invalid",
+      null,
+      null,
+    );
+  }
+  if (snapshot.mode !== params.mode) {
+    throw new VideoModelResolutionError(
+      `Frozen video model ${snapshot.provider}/${snapshot.model} is incompatible with this ${params.mode}-to-video request.`,
+      "video_model_incompatible",
+      snapshot.provider,
+      snapshot.model,
+    );
+  }
+  const permittedDurations = snapshot.permittedDurationSec ?? [snapshot.durationSec];
+  const dispatchDurationSec = permittedDurations.includes(params.durationSec)
+    ? params.durationSec
+    : snapshot.durationPolicy === "nearest"
+      ? [...permittedDurations].sort((a, b) =>
+          Math.abs(a - params.durationSec) - Math.abs(b - params.durationSec) || a - b
+        )[0]
       : undefined;
-  const def =
-    pickedDef ??
-    (await resolveVideoGenProviderDef(selection.provider)) ??
-    getVideoGenProviderDef(DEFAULT_VIDEO_GEN_PROVIDER)!;
-  const override = pickedDef
-    ? (picked!.models[params.mode] ?? null)
-    : params.mode === "text"
-      ? selection.textToVideoModel
-      : selection.imageToVideoModel;
-  const models = videoModelChain(def, params.mode, override);
+  if (dispatchDurationSec === undefined) {
+    throw new VideoModelResolutionError(
+      `Video duration ${params.durationSec}s is outside this job's funded video model contract.`,
+      "video_model_incompatible",
+      snapshot.provider,
+      snapshot.model,
+    );
+  }
+  const def = await resolveVideoGenProviderDef(snapshot.provider);
+  if (!def) {
+    throw new VideoModelResolutionError(
+      `Frozen video provider ${snapshot.provider} is no longer configured.`,
+      "video_provider_unconfigured",
+      snapshot.provider,
+      snapshot.model,
+    );
+  }
   const key = videoGenHealthKey(def.id);
 
   const input = (model: string, withEndFrame = true): VideoGenInput => ({
     prompt: params.prompt,
     aspectRatio: params.aspectRatio,
-    durationSec: params.durationSec,
+    durationSec: dispatchDurationSec,
     model,
     seed: params.seed ?? null,
-    resolution: params.resolution ?? null,
-    quality: params.quality ?? null,
-    generateAudio: params.generateAudio ?? null,
+    resolution: snapshot.resolution,
+    quality: snapshot.quality,
+    generateAudio: snapshot.generateAudio,
     image: params.mode === "image" ? params.image : undefined,
     endImage: params.mode === "image" && withEndFrame ? params.endImage : undefined,
   });
@@ -674,20 +879,26 @@ export async function generateVideo(
       !(await isVideoModelPriced({
         provider,
         model,
-        durationSec: params.durationSec,
+        durationSec: dispatchDurationSec,
         variantCriteria: videoPriceCriteria({
-          resolution: params.resolution,
-          quality: params.quality,
-          generateAudio: params.generateAudio,
+          resolution: snapshot.resolution,
+          quality: snapshot.quality,
+          generateAudio: snapshot.generateAudio,
         }),
       }))
     ) {
-      throw new VideoGenNotConfiguredError(
+      throw new VideoModelResolutionError(
         `Video model ${provider}/${model} has no authoritative price. Configure its catalog price before generating.`,
+        "video_model_unpriced",
+        provider,
+        model,
       );
     }
     try {
-      return await generate(input(model));
+      return {
+        ...(await generate(input(model))),
+        effectiveDurationSec: dispatchDurationSec,
+      };
     } catch (error) {
       const rejected =
         error instanceof VideoGenProviderError &&
@@ -699,123 +910,34 @@ export async function generateVideo(
         { model, err: error },
         "Model rejected the request with an end frame; retrying from the start frame only",
       );
-      return generate(input(model, false));
+      return {
+        ...(await generate(input(model, false))),
+        effectiveDurationSec: dispatchDurationSec,
+      };
     }
   };
-
-  const serveViaCandidate = async (
-    candidate: VideoGenFailoverCandidate,
-    cause: unknown,
-  ): Promise<VideoGenResult> => {
-    const candidateKey = videoGenHealthKey(candidate.def.id);
-    try {
-      const result = await runModel(
-        (i) => candidate.def.generate(i, candidate.apiKey),
-        candidate.def.id,
-        candidate.model,
-      );
-      recordProviderSuccess(candidateKey);
-      notifyOncePerWindow({
-        fromProvider: def.id,
-        toProvider: candidate.def.id,
-        model: candidate.model,
-        lastError:
-          cause === null ? null : cause instanceof Error ? cause.message : String(cause),
-      });
-      return result;
-    } catch (err) {
-      if (isTransientVideoGenError(err)) {
-        recordProviderFailure(candidateKey, err instanceof Error ? err.message : undefined);
-      }
-      // Surface the PRIMARY outage (or the candidate error when we diverted
-      // pre-emptively on an open breaker) — the caller should see why its
-      // configured provider failed, not a confusing substitute-only story.
-      throw cause ?? err;
-    }
-  };
-
-  // Open breaker: divert immediately when a healthy alternative exists so an
-  // ongoing outage doesn't eat a multi-minute timeout per job. Without an
-  // alternative the primary is still attempted (that attempt doubles as the
-  // half-open probe once the cooldown lapses).
-  if (!isProviderHealthy(key)) {
-    const candidate = await resolveCandidate(
-      def.id,
-      params.mode,
-      videoPriceCriteria({
-        resolution: params.resolution,
-        quality: params.quality,
-        generateAudio: params.generateAudio,
-      }),
-    );
-    if (candidate) {
-      logger.warn(
-        { provider: def.id, fallbackProvider: candidate.def.id },
-        "Video provider breaker open; diverting job to substitute provider",
-      );
-      return serveViaCandidate(candidate, null);
-    }
-  }
 
   const apiKey = await resolveVideoGenApiKey(def);
-
-  let primaryError: unknown;
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i]!;
-    try {
-      const result = await runModel((i) => def.generate(i, apiKey), def.id, model);
-      // Recovery: the primary was failing but just served a job again —
-      // clear the failover banner and re-arm the once-per-window throttle so
-      // the NEXT outage produces a fresh alert. Best-effort, off hot path.
-      const wasFailing = (getProviderHealth(key)?.consecutiveFailures ?? 0) > 0;
-      recordProviderSuccess(key);
-      if (wasFailing) {
-        lastNotifiedAt.delete(def.id);
-        void resolveVideoGenFailoverNotifications(def.id).catch(() => {});
-      }
-      return result;
-    } catch (error) {
-      const transient = isTransientVideoGenError(error);
-      if (i === 0) {
-        primaryError = error;
-        // A rejected prompt or a missing key fails identically everywhere.
-        if (!transient) throw error;
-      }
-      if (transient) {
-        recordProviderFailure(key, error instanceof Error ? error.message : undefined);
-      }
-      // A fallback model this account cannot reach ("model not found", "no
-      // access") is that model's problem, not the tenant's — keep walking the
-      // chain, and report the model they actually configured if none works.
-      const next = models[i + 1];
-      if (next) {
-        logger.warn(
-          { provider: def.id, model, fallbackModel: next, err: error },
-          "Video model failed; retrying on the next model",
-        );
-      }
-    }
-  }
-
-  // The whole model chain failed on transient errors — the provider itself
-  // looks down. Try one substitute provider before failing the job.
-  const cause =
-    primaryError ?? new VideoGenProviderError("Video generation failed. Please try again.");
-  const candidate = await resolveCandidate(
-    def.id,
-    params.mode,
-    videoPriceCriteria({
-      resolution: params.resolution,
-      quality: params.quality,
-      generateAudio: params.generateAudio,
-    }),
-  );
-  if (candidate) {
-    logger.warn(
-      { provider: def.id, fallbackProvider: candidate.def.id, err: primaryError },
-      "Video provider exhausted its model chain; failing over to substitute provider",
+  if (!apiKey) {
+    throw new VideoModelResolutionError(
+      `Frozen video provider ${snapshot.provider} has no usable credential.`,
+      "video_provider_unconfigured",
+      snapshot.provider,
+      snapshot.model,
     );
-    return serveViaCandidate(candidate, cause);
   }
-  throw cause;
+  try {
+    const result = await runModel(
+      (input) => def.generate(input, apiKey),
+      snapshot.provider,
+      snapshot.model,
+    );
+    recordProviderSuccess(key);
+    return result;
+  } catch (error) {
+    if (isTransientVideoGenError(error)) {
+      recordProviderFailure(key, error instanceof Error ? error.message : undefined);
+    }
+    throw error;
+  }
 }

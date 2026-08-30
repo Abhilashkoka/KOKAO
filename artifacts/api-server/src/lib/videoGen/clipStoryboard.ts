@@ -625,7 +625,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
         buffer: result.buffer,
         provider: result.provider,
         model: result.model,
-        durationSec: durations[i]!,
+        durationSec: result.effectiveDurationSec ?? durations[i]!,
       });
     }
     provider = result.provider;

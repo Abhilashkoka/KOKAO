@@ -443,7 +443,10 @@ export async function animateSceneKeyframes(params: {
       });
       provider = clip.provider;
       model = clip.model;
-      await params.onCheckpoint?.({ sceneIndex: i, buffer: clip.buffer, provider, model, durationSec });
+      await params.onCheckpoint?.({
+        sceneIndex: i, buffer: clip.buffer, provider, model,
+        durationSec: clip.effectiveDurationSec ?? durationSec,
+      });
       return clip.buffer;
     };
     try {

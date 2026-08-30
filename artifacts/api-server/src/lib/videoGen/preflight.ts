@@ -140,6 +140,18 @@ async function ttsKeys(): Promise<string[]> {
 
 const TRY_AGAIN = "Nothing was charged — please try again in a few minutes.";
 
+function modeForVideoJob(
+  engine: string,
+  options: VideoJobOptions | null,
+): "text" | "image" {
+  return (
+    (engine === "text_to_video" && options?.characterId == null) ||
+    (engine === "dialogue_lip_sync" && !options?.characterDialogue)
+  )
+    ? "text"
+    : "image";
+}
+
 /**
  * Check that everything this job will reach is configured and not currently
  * in a failing state. Returns null when the job is safe to fund.
@@ -164,16 +176,46 @@ export async function preflightVideoJob(
       !isPresenterBroll &&
       (visualsSource === "character" || visualsSource === "ai_video"));
   if (needsVideoGen) {
+    const frozen = options?.resolvedVideoModel;
+    if (frozen) {
+      if (frozen.mode !== modeForVideoJob(engine, options)) {
+        return {
+          status: 400,
+          message: `Frozen video model ${frozen.provider}/${frozen.model} is incompatible with this job mode.`,
+        };
+      }
+      const frozenDef = await resolveVideoGenProviderDef(frozen.provider);
+      if (!frozenDef || !(await isVideoGenProviderConfigured(frozenDef))) {
+        return {
+          status: 400,
+          message: `Frozen video provider ${frozen.provider} is not configured for model ${frozen.model}.`,
+        };
+      }
+      const frozenDurations = frozen.permittedDurationSec ?? [frozen.durationSec];
+      if (!(await Promise.all(frozenDurations.map((durationSec) => isVideoModelPriced({
+        provider: frozen.provider,
+        model: frozen.model,
+        durationSec: Math.max(0.1, durationSec),
+        variantCriteria: videoPriceCriteria(frozen),
+      }).catch(() => false)))).every(Boolean)) {
+        return {
+          status: 400,
+          message: `Frozen video model ${frozen.provider}/${frozen.model} has no authoritative provider-specific price for this variant.`,
+        };
+      }
+      const health = evaluate(
+        [videoGenHealthKey(frozen.provider)],
+        `Frozen video provider ${frozen.provider} is not configured.`,
+        `The selected video model ${frozen.provider}/${frozen.model} is not responding right now. ${TRY_AGAIN}`,
+      );
+      if (health) return health;
+    }
     // A PICKED model pins the provider for this job: failover to a different
     // provider would silently serve a different model than the tenant paid a
     // premium multiplier for, so the picked model's provider must itself be
     // configured and healthy. Checked before funding, like everything here.
-    const picked = findVideoModel(options?.modelId);
-    const mode =
-      (engine === "text_to_video" && options?.characterId == null) ||
-      (engine === "dialogue_lip_sync" && !options?.characterDialogue)
-        ? "text"
-        : "image";
+    const picked = frozen ? null : findVideoModel(options?.modelId);
+    const mode = modeForVideoJob(engine, options);
     if (picked) {
       const pickedProvider = getVideoGenProviderDef(picked.provider);
       const pickedModel = picked.models[mode];
@@ -201,7 +243,9 @@ export async function preflightVideoJob(
       );
       if (issue) return issue;
     }
-    const selectedDef = await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
+    const selectedDef = frozen
+      ? null
+      : await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
     if (!picked && selectedDef) {
       const selection = await getVideoGenSelection();
       const selectedModel = effectiveVideoModel(
@@ -226,7 +270,7 @@ export async function preflightVideoJob(
     const keyHint = selectedDef?.envKey
       ? ` or set the ${selectedDef.envKey} secret`
       : "";
-    const issue = picked
+    const issue = frozen || picked
       ? null
       : evaluate(
           await videoGenKeys(genericCriteria),

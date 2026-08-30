@@ -422,9 +422,10 @@ export async function animateBrollStills(params: {
     sceneIndex: number;
     error: OpenRouterInputImagePrivacyError;
   }) => Promise<Buffer>;
-}): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
+}): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string; effectiveDurationSecs: number[] }> {
   let provider = "";
   let model = "";
+  const effectiveDurationSecs: number[] = [];
   // Motion instruction resolved once per job: a picked preset wins outright,
   // otherwise the governed Prompt Kit wording (fail-open to the built-in).
   const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
@@ -452,7 +453,11 @@ export async function animateBrollStills(params: {
       });
       provider = clip.provider;
       model = clip.model;
-      await params.onCheckpoint?.({ sceneIndex: i, buffer: clip.buffer, provider, model, durationSec });
+      effectiveDurationSecs[i] = clip.effectiveDurationSec ?? durationSec;
+      await params.onCheckpoint?.({
+        sceneIndex: i, buffer: clip.buffer, provider, model,
+        durationSec: clip.effectiveDurationSec ?? durationSec,
+      });
       return clip.buffer;
     };
     try {
@@ -477,6 +482,7 @@ export async function animateBrollStills(params: {
     })),
     provider: provider || "replicate",
     model: model || "image-to-video",
+    effectiveDurationSecs,
   };
 }
 

@@ -321,7 +321,7 @@ describe("variant-aware video pricing", () => {
     });
     createdPriceIds.push(price.id);
     expect(await computeVideoCostPaise({
-      provider: "gateway", model: `${MODEL}-legacy`, variantCriteria: { quality: "high" },
+      provider: "replicate", model: `${MODEL}-legacy`, variantCriteria: { quality: "high" },
     })).toBe(12900);
   });
 });

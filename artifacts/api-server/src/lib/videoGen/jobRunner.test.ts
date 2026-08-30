@@ -60,6 +60,7 @@ const state = vi.hoisted(() => ({
   qaError: null as unknown,
   normalizeError: null as unknown,
   dialogueVisuals: [] as string[],
+  videoRequests: [] as Array<{ resolvedVideoModel?: unknown; mode: string }>,
   dialogueWardrobeSnapshots: [] as unknown[],
   dialogueVisualModels: [] as Array<{ provider: string; model: string }>,
   dialogueSpeech: [] as string[],
@@ -299,8 +300,17 @@ vi.mock("./index", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./index")>();
   return {
     ...actual,
-    generateVideo: vi.fn(async ({ prompt }: { prompt: string }) => {
+    generateVideo: vi.fn(async ({
+      prompt,
+      mode,
+      resolvedVideoModel,
+    }: {
+      prompt: string;
+      mode: string;
+      resolvedVideoModel?: unknown;
+    }) => {
       state.dialogueVisuals.push(prompt);
+      state.videoRequests.push({ mode, resolvedVideoModel });
       return {
         buffer: Buffer.from("generated-ai-person-video"),
         provider: "replicate",
@@ -810,6 +820,7 @@ beforeEach(() => {
   state.qaError = null;
   state.normalizeError = null;
   state.dialogueVisuals.length = 0;
+  state.videoRequests.length = 0;
   state.dialogueWardrobeSnapshots.length = 0;
   state.dialogueVisualModels.length = 0;
   state.dialogueSpeech.length = 0;
@@ -875,6 +886,33 @@ describe("guided-story storyboard routing", () => {
 });
 
 describe("the clip storyboard pause", () => {
+  it("propagates the frozen provider/model snapshot to a direct clip render", async () => {
+    const tenant = await newTenant();
+    const snapshot = {
+      version: 1 as const,
+      source: "explicit" as const,
+      mode: "text" as const,
+      provider: "replicate",
+      model: "wan-video/wan-2.5-t2v",
+      catalogModelId: "wan-2.5",
+      durationSec: 5,
+      resolution: "720p",
+      quality: null,
+      generateAudio: null,
+      supportsEndFrame: true,
+    };
+    const job = await seedJob(tenant.tenantId, {
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        modelId: "wan-2.5",
+        resolvedVideoModel: snapshot,
+      },
+    });
+    await runVideoGenerationJob(job.id, "credit");
+    expect(state.videoRequests).toEqual([{ mode: "text", resolvedVideoModel: snapshot }]);
+  });
+
   it("passes the immutable wardrobe snapshot to a direct character clip", async () => {
     const tenant = await newTenant();
     const characterSnapshot = {

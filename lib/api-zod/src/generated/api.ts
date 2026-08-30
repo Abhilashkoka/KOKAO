@@ -2862,6 +2862,11 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "label": zod.string(),
   "blurb": zod.string().describe('One line on when to pick this model.'),
   "provider": zod.string().describe('Which configured provider serves it.'),
+  "providerModels": zod.object({
+  "text": zod.string().optional(),
+  "image": zod.string().optional()
+}).describe('Exact provider-native model slug for each supported mode.'),
+  "pricingAvailable": zod.boolean().describe('Whether this exact provider\/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false.'),
   "tier": zod.enum(['draft', 'standard', 'premium']),
   "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
@@ -2928,6 +2933,11 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "label": zod.string(),
   "blurb": zod.string().describe('One line on when to pick this model.'),
   "provider": zod.string().describe('Which configured provider serves it.'),
+  "providerModels": zod.object({
+  "text": zod.string().optional(),
+  "image": zod.string().optional()
+}).describe('Exact provider-native model slug for each supported mode.'),
+  "pricingAvailable": zod.boolean().describe('Whether this exact provider\/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false.'),
   "tier": zod.enum(['draft', 'standard', 'premium']),
   "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
@@ -2997,6 +3007,11 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "label": zod.string(),
   "blurb": zod.string().describe('One line on when to pick this model.'),
   "provider": zod.string().describe('Which configured provider serves it.'),
+  "providerModels": zod.object({
+  "text": zod.string().optional(),
+  "image": zod.string().optional()
+}).describe('Exact provider-native model slug for each supported mode.'),
+  "pricingAvailable": zod.boolean().describe('Whether this exact provider\/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false.'),
   "tier": zod.enum(['draft', 'standard', 'premium']),
   "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
@@ -3059,6 +3074,11 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "label": zod.string(),
   "blurb": zod.string().describe('One line on when to pick this model.'),
   "provider": zod.string().describe('Which configured provider serves it.'),
+  "providerModels": zod.object({
+  "text": zod.string().optional(),
+  "image": zod.string().optional()
+}).describe('Exact provider-native model slug for each supported mode.'),
+  "pricingAvailable": zod.boolean().describe('Whether this exact provider\/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false.'),
   "tier": zod.enum(['draft', 'standard', 'premium']),
   "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
@@ -3233,6 +3253,11 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "label": zod.string(),
   "blurb": zod.string().describe('One line on when to pick this model.'),
   "provider": zod.string().describe('Which configured provider serves it.'),
+  "providerModels": zod.object({
+  "text": zod.string().optional(),
+  "image": zod.string().optional()
+}).describe('Exact provider-native model slug for each supported mode.'),
+  "pricingAvailable": zod.boolean().describe('Whether this exact provider\/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false.'),
   "tier": zod.enum(['draft', 'standard', 'premium']),
   "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
@@ -3295,6 +3320,11 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "label": zod.string(),
   "blurb": zod.string().describe('One line on when to pick this model.'),
   "provider": zod.string().describe('Which configured provider serves it.'),
+  "providerModels": zod.object({
+  "text": zod.string().optional(),
+  "image": zod.string().optional()
+}).describe('Exact provider-native model slug for each supported mode.'),
+  "pricingAvailable": zod.boolean().describe('Whether this exact provider\/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false.'),
   "tier": zod.enum(['draft', 'standard', 'premium']),
   "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
@@ -12772,7 +12802,22 @@ export const GenerateVideoResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -15319,7 +15364,22 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -15742,7 +15802,22 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -16130,7 +16205,22 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -16529,7 +16619,22 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -17058,6 +17163,11 @@ export const ListVideoModelsResponse = zod.object({
   "label": zod.string(),
   "blurb": zod.string().describe('One line on when to pick this model.'),
   "provider": zod.string().describe('Which configured provider serves it.'),
+  "providerModels": zod.object({
+  "text": zod.string().optional(),
+  "image": zod.string().optional()
+}).describe('Exact provider-native model slug for each supported mode.'),
+  "pricingAvailable": zod.boolean().describe('Whether this exact provider\/model has authoritative prices for all catalog variants. Tenant catalogs omit entries where this is false.'),
   "tier": zod.enum(['draft', 'standard', 'premium']),
   "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
@@ -17067,7 +17177,17 @@ export const ListVideoModelsResponse = zod.object({
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
-}))
+})),
+  "defaults": zod.object({
+  "text": zod.object({
+  "provider": zod.string(),
+  "model": zod.string()
+}),
+  "image": zod.object({
+  "provider": zod.string(),
+  "model": zod.string()
+})
+}).nullable().describe('Exact current admin default for each generation mode.')
 })
 
 
@@ -17195,7 +17315,22 @@ export const ListVideoJobsResponseItem = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -17575,7 +17710,22 @@ export const GetVideoJobResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -17955,7 +18105,22 @@ export const CancelVideoJobResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -18335,7 +18500,22 @@ export const RetryVideoJobResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -18715,7 +18895,22 @@ export const RestartVideoJobFreshResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -19099,7 +19294,22 @@ export const RepairVideoJobResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -19506,7 +19716,22 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -19898,7 +20123,22 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -20279,7 +20519,22 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -20671,7 +20926,22 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -21051,7 +21321,22 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -21431,7 +21716,22 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -21810,7 +22110,22 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "updatedAt": zod.coerce.date()
 })).optional()
 }).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
-  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),

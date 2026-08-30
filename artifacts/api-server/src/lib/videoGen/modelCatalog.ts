@@ -67,7 +67,9 @@ export interface VideoModelDef {
   /** One-line "when would I pick this?" for the studio. */
   blurb: string;
   /** Which provider catalog entry serves it (lib/videoGen/index.ts). */
-  provider: "replicate" | "openrouter" | "nvidia";
+  /** Stable provider id. Kept open so Replit and future configured providers
+   * can join the catalog without weakening provider-specific price identity. */
+  provider: string;
   /** Provider-native model slug per mode. A mode absent here is unsupported. */
   models: Partial<Record<VideoModelMode, string>>;
   tier: VideoModelTier;
@@ -419,6 +421,20 @@ export interface ResolvedModelOptions {
   resolution: VideoResolution | null;
   quality: string | null;
   generateAudio: boolean | null;
+  /** Frozen provider contract copied from the job options. */
+  resolvedVideoModel?: {
+    version: 1;
+    source: "explicit" | "default";
+    mode: "text" | "image";
+    provider: string;
+    model: string;
+    catalogModelId: string | null;
+    durationSec: number;
+    resolution: string | null;
+    quality: string | null;
+    generateAudio: boolean | null;
+    supportsEndFrame: boolean;
+  } | null;
 }
 
 /**
@@ -438,6 +454,7 @@ export function resolveModelOptions(
     resolution?: string | null;
     quality?: string | null;
     generateAudio?: boolean | null;
+    resolvedVideoModel?: ResolvedModelOptions["resolvedVideoModel"];
   } | null,
   fallbackDurationSec = 5,
 ): ResolvedModelOptions {
@@ -450,6 +467,9 @@ export function resolveModelOptions(
       resolution: null,
       quality: null,
       generateAudio: null,
+      ...(options?.resolvedVideoModel
+        ? { resolvedVideoModel: options.resolvedVideoModel }
+        : {}),
     };
   }
   return {
@@ -458,5 +478,8 @@ export function resolveModelOptions(
     resolution: resolveResolution(def, options?.resolution as VideoResolution | null),
     quality: def.hasQuality ? (options?.quality ?? null) : null,
     generateAudio: def.canGenerateAudio ? (options?.generateAudio ?? null) : null,
+    ...(options?.resolvedVideoModel
+      ? { resolvedVideoModel: options.resolvedVideoModel }
+      : {}),
   };
 }

@@ -33,12 +33,14 @@ const mockState: {
   costReport: Record<string, unknown> | undefined;
   campaignReport: Record<string, unknown> | undefined;
   fallbacks: AdminAiFallbackReportView | undefined;
+  videoSettings: any;
 } = {
   settings: baseSettings("openai", []),
   lastUpdateVars: null,
   costReport: undefined,
   campaignReport: undefined,
   fallbacks: undefined,
+  videoSettings: undefined,
 };
 
 const updateMutate = vi.fn((vars: { data: Record<string, unknown> }) => {
@@ -85,12 +87,40 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useAdminGetAiFallbacks: () => ({ data: mockState.fallbacks, isLoading: false, isError: false }),
     getAdminGetAiFallbacksQueryKey: () => ["/admin/ai-fallbacks"],
+    useAdminGetVideoGenSettings: () => ({
+      data: mockState.videoSettings,
+      isLoading: false,
+    }),
+    useAdminGetNvidiaSettings: () => ({ data: { deployments: [] } }),
+    useAdminUpdateVideoGenSettings: () => ({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
+    useAdminSetVideoGenProviderKey: () => ({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
+    useAdminClearVideoGenProviderKey: () => ({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
+    useAdminSyncVideoModelPricing: () => ({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
+    useAdminListVideoModelPricing: () => ({ data: [] }),
+    getAdminListVideoModelPricingQueryKey: () => ["/admin/video-model-pricing"],
   });
 });
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
-import { ImageGenProviderCard, AiCostReportCard, AiFallbacksCard } from "./ai-tab";
+import {
+  ImageGenProviderCard,
+  AiCostReportCard,
+  AiFallbacksCard,
+  VideoGenProviderCard,
+} from "./ai-tab";
 
 function ranked(
   id: string,
@@ -147,6 +177,52 @@ beforeEach(() => {
   mockState.settings = baseSettings("openai", []);
   mockState.costReport = undefined;
   mockState.campaignReport = undefined;
+  mockState.videoSettings = undefined;
+});
+
+describe("video provider validation guidance", () => {
+  it("makes exact provider pricing mandatory instead of implying prices transfer", async () => {
+    mockState.videoSettings = {
+      provider: "replicate",
+      textToVideoModel: null,
+      imageToVideoModel: null,
+      providers: [
+        {
+          id: "replicate",
+          label: "Replicate",
+          defaultTextToVideoModel: "wan-video/t2v",
+          defaultImageToVideoModel: "wan-video/i2v",
+          configured: true,
+          supportsModelOverride: true,
+          textModelOptions: [{ value: "wan-video/t2v", label: "WAN Text" }],
+          imageModelOptions: [{ value: "wan-video/i2v", label: "WAN Image" }],
+          envKey: "REPLICATE_API_TOKEN",
+          keySource: "env",
+        },
+      ],
+      stockSources: [],
+      replicatePricingModels: [],
+      modelCatalog: [],
+    };
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <VideoGenProviderCard />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.getByTestId("video-model-pricing-requirement").textContent,
+    ).toContain(
+      "A price saved for another provider does not make this provider/model eligible",
+    );
+    await userEvent
+      .setup()
+      .click(screen.getByTestId("select-video-gen-text-model"));
+    expect(
+      screen.getAllByText(/Missing Replicate price — cannot activate/).length,
+    ).toBeGreaterThan(0);
+  });
 });
 
 describe("image provider card ranking", () => {

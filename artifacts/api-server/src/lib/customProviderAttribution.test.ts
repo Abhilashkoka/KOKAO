@@ -195,6 +195,20 @@ describe("video generation through the custom video def", () => {
       prompt: "a spinning cube",
       aspectRatio: "9:16",
       durationSec: 5,
+      resolvedVideoModel: {
+        version: 1,
+        source: "default",
+        mode: "text",
+        provider: ref,
+        model,
+        catalogModelId: null,
+        durationSec: 5,
+        permittedDurationSec: [5],
+        resolution: null,
+        quality: null,
+        generateAudio: null,
+        supportsEndFrame: false,
+      },
     });
 
     expect(result.provider).toBe(ref);

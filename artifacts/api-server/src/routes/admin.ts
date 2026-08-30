@@ -94,6 +94,7 @@ import {
   setStoredVideoGenKey,
   clearStoredVideoGenKey,
   resolveVideoGenProviderDef,
+  availableVideoModels,
 } from "../lib/videoGen";
 import {
   VIDEO_MODEL_CATALOG,
@@ -280,6 +281,7 @@ import {
   duplicateModelPriceKeys,
   modelPriceGroupKey,
   isImageModelPriced,
+  isVideoModelPriced,
 } from "../lib/aiCost";
 import {
   FEATURES,
@@ -1382,6 +1384,9 @@ router.delete(
 /** Serialize the video generation settings view (selection + catalog). */
 async function serializeVideoGenSettings() {
   const selection = await getVideoGenSelection();
+  const operationalModelIds = new Set(
+    (await availableVideoModels({ ignoreAllowlist: true })).map((model) => model.id),
+  );
   const activeReplicateOverrides =
     selection.provider === "replicate"
       ? [selection.textToVideoModel, selection.imageToVideoModel].filter(
@@ -1404,6 +1409,8 @@ async function serializeVideoGenSettings() {
       label: m.label,
       blurb: m.blurb,
       provider: m.provider,
+      providerModels: { ...m.models },
+      pricingAvailable: operationalModelIds.has(m.id),
       tier: m.tier,
       unitMultiplier: TIER_UNIT_MULTIPLIER[m.tier],
       modes: (["text", "image"] as const).filter((mode) => Boolean(m.models[mode])),
@@ -1600,6 +1607,25 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
       res.status(400).json({ error: missingPricingError(entries) });
       return;
     }
+    if (def.id !== "nvidia") {
+      const unpriced = [];
+      for (const model of [effectiveTextToVideo, effectiveImageToVideo]) {
+        if (!(await isVideoModelPriced({
+          provider: def.id,
+          model,
+          durationSec: 5,
+          variantCriteria: {},
+        }).catch(() => false))) {
+          unpriced.push(model);
+        }
+      }
+      if (unpriced.length) {
+        res.status(400).json({
+          error: `The selected provider needs its own authoritative video price configuration for: ${[...new Set(unpriced)].join(", ")}`,
+        });
+        return;
+      }
+    }
   }
 
   // Per-generation model allowlist. Omitted leaves it as it is (this route is
@@ -1608,12 +1634,31 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
   // null re-opens the whole catalog; an array narrows it. Unknown ids are
   // dropped rather than rejected, so removing a model from the catalog in a
   // later release cannot brick this screen.
-  const enabledModelIds =
+  let enabledModelIds =
     parsed.data.enabledModelIds === undefined
       ? before0.enabledModelIds
       : parsed.data.enabledModelIds === null
         ? null
-        : parsed.data.enabledModelIds.filter(isVideoModelId);
+        : parsed.data.enabledModelIds;
+  if (Array.isArray(enabledModelIds)) {
+    const invalid = enabledModelIds.filter((id) => !isVideoModelId(id));
+    if (invalid.length) {
+      res.status(400).json({
+        error: `Unknown video model id: ${invalid.join(", ")}`,
+      });
+      return;
+    }
+    const operational = new Set(
+      (await availableVideoModels({ ignoreAllowlist: true })).map((model) => model.id),
+    );
+    const unavailable = enabledModelIds.filter((id) => !operational.has(id));
+    if (unavailable.length) {
+      res.status(400).json({
+        error: `Video models cannot be enabled without their own provider credential and authoritative prices for every supported variant: ${unavailable.join(", ")}`,
+      });
+      return;
+    }
+  }
 
   const before = before0;
   await setVideoGenSelection({

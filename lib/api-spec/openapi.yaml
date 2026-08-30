@@ -12028,6 +12028,12 @@ components:
             Optional machine-readable error code. Currently
             "already_complete" on resend endpoints when there is nothing left
             to resend (e.g. a concurrent resend already posted everything).
+        provider:
+          type: ["string", "null"]
+          description: Safe provider identifier for configuration failures.
+        model:
+          type: ["string", "null"]
+          description: Safe provider-native model identifier for configuration failures.
 
     Tenant:
       type: object
@@ -16578,8 +16584,9 @@ components:
     VideoModelInfo:
       type: object
       required:
-        [id, label, blurb, provider, tier, unitMultiplier, modes, aspects,
-         durations, resolutions, hasQuality, canGenerateAudio, supportsEndFrame]
+        [id, label, blurb, provider, providerModels, pricingAvailable, tier,
+         unitMultiplier, modes, aspects, durations, resolutions, hasQuality,
+         canGenerateAudio, supportsEndFrame]
       properties:
         id:
           type: string
@@ -16592,6 +16599,17 @@ components:
         provider:
           type: string
           description: Which configured provider serves it.
+        providerModels:
+          type: object
+          description: Exact provider-native model slug for each supported mode.
+          properties:
+            text: { type: string }
+            image: { type: string }
+        pricingAvailable:
+          type: boolean
+          description: >-
+            Whether this exact provider/model has authoritative prices for all
+            catalog variants. Tenant catalogs omit entries where this is false.
         tier:
           type: string
           enum: [draft, standard, premium]
@@ -16637,12 +16655,29 @@ components:
             in image mode.
     VideoModelList:
       type: object
-      required: [models]
+      required: [models, defaults]
       properties:
         models:
           type: array
           items:
             $ref: "#/components/schemas/VideoModelInfo"
+        defaults:
+          type: ["object", "null"]
+          description: Exact current admin default for each generation mode.
+          required: [text, image]
+          properties:
+            text:
+              type: object
+              required: [provider, model]
+              properties:
+                provider: { type: string }
+                model: { type: string }
+            image:
+              type: object
+              required: [provider, model]
+              properties:
+                provider: { type: string }
+                model: { type: string }
     Cinematography:
       type: object
       description: Optics. Every axis is independently optional.
@@ -18118,7 +18153,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedReferenceContext, guidedStoryDraftId, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedReferenceContext, guidedStoryDraftId, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -18169,8 +18204,32 @@ components:
         modelId:
           type: ["string", "null"]
           description: >-
-            The model this job picked, or null when it ran on the platform
-            selection. Job history shows what was actually asked for.
+            The catalog model explicitly picked, or null when the mode-specific
+            admin default was resolved.
+        resolvedVideoModel:
+          type: ["object", "null"]
+          description: Immutable provider/model execution contract frozen before funding.
+          required: [version, source, mode, provider, model, catalogModelId, durationSec, resolution, quality, generateAudio, supportsEndFrame]
+          properties:
+            version: { type: integer, const: 1 }
+            source: { type: string, enum: [explicit, default] }
+            mode: { type: string, enum: [text, image] }
+            provider: { type: string }
+            model: { type: string }
+            catalogModelId: { type: ["string", "null"] }
+            durationSec: { type: number }
+            permittedDurationSec:
+              type: array
+              items: { type: number }
+              description: Every scene/provider-call duration priced before this job was funded.
+            durationPolicy:
+              type: string
+              enum: [exact, nearest]
+              description: Composite scenes use nearest; equal-distance ties choose the shorter duration.
+            resolution: { type: ["string", "null"] }
+            quality: { type: ["string", "null"] }
+            generateAudio: { type: ["boolean", "null"] }
+            supportsEndFrame: { type: boolean }
         resolution:
           type: ["string", "null"]
           description: The resolution this job was created with, or null.

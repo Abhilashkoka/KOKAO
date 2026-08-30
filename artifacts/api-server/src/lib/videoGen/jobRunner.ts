@@ -50,6 +50,7 @@ import {
   resolveVideoGenApiKey,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
+  VideoModelResolutionError,
 } from "./index";
 import { generateLipSyncWithReplicate } from "./providers/replicate";
 import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
@@ -113,7 +114,7 @@ import {
   guidedStorySceneImmutableInputsMatch,
   guidedStoryStoryboard,
 } from "./guidedStory";
-import { resolveModelOptions, findVideoModel, supportsEndFrame, videoModelMultiplier } from "./modelCatalog";
+import { resolveModelOptions, videoModelMultiplier } from "./modelCatalog";
 import {
   LATENT_SYNC,
   SYNC_LIPSYNC_2,
@@ -225,7 +226,11 @@ interface VideoProviderEvent {
 }
 
 function jobVideoPriceCriteria(job: VideoGeneration, hasReferenceVideo = false): VideoPriceCriteria {
-  const model = resolveModelOptions(job.options, 5);
+  // Provider dispatch reads these fields from the immutable snapshot. Receipt
+  // pricing must do the same: a default-resolved job has modelId=null, so
+  // re-resolving mutable catalog options here can select a generic price row.
+  const frozen = job.options?.resolvedVideoModel;
+  const model = frozen ?? resolveModelOptions(job.options, 5);
   return videoPriceCriteria({
     resolution: model.resolution,
     quality: model.quality,
@@ -790,6 +795,9 @@ function providerRequestIdFromError(error: unknown): string | null {
 }
 
 function safeFailureCode(error: unknown): string | null {
+  if (error instanceof VideoModelResolutionError) {
+    return error.code;
+  }
   if (
     (error as { code?: unknown } | null)?.code ===
     OPENROUTER_INPUT_IMAGE_PRIVACY_CODE
@@ -1420,7 +1428,9 @@ async function produceVideo(
         seed: options.seed ?? null,
         model,
       });
-      const event = await checkpointProviderRender(job, result, "text_to_video", model.durationSec);
+      const event = await checkpointProviderRender(
+        job, result, "text_to_video", result.effectiveDurationSec ?? model.durationSec,
+      );
       return {
         // Providers routinely ignore the requested aspect/resolution;
         // normalize (fail-soft) so the delivered file matches the request.
@@ -1445,7 +1455,9 @@ async function produceVideo(
       seed: options.seed ?? null,
       ...model,
     });
-    const event = await checkpointProviderRender(job, result, "text_to_video", model.durationSec);
+    const event = await checkpointProviderRender(
+      job, result, "text_to_video", result.effectiveDurationSec ?? model.durationSec,
+    );
     return {
       buffer: await withMusic(
         await normalizeVideo(result.buffer, aspectRatio, model.resolution),
@@ -1472,7 +1484,7 @@ async function produceVideo(
     // picked model cannot do it, so reaching here means it can.
     const endPath = job.sourceImagePaths?.[1];
     const endImage =
-      endPath && supportsEndFrame(findVideoModel(options.modelId))
+      endPath && options.resolvedVideoModel?.supportsEndFrame === true
         ? await fitImageToAspect(await loadSourceImage(endPath, job.tenantId), aspectRatio)
         : undefined;
     onStage("Animating your image");
@@ -1489,7 +1501,9 @@ async function produceVideo(
       ...(endImage ? { endImage } : {}),
       ...model,
     });
-    const event = await checkpointProviderRender(job, result, "image_to_video", model.durationSec);
+    const event = await checkpointProviderRender(
+      job, result, "image_to_video", result.effectiveDurationSec ?? model.durationSec,
+    );
     const normalized = await normalizeVideo(result.buffer, aspectRatio, model.resolution);
     return {
       buffer: music ? await mixMusicIntoVideo(normalized, music) : normalized,
@@ -1659,15 +1673,18 @@ async function produceVideo(
             tenantId: job.tenantId, characterId: frozenPlan.characterId, outfitId: frozenPlan.outfitId,
             wardrobeSnapshot: options.characterSnapshot,
             prompt: sourcePlatePrompt, aspectRatio, durationSec: Math.min(30, narrationDurationSec + 0.35),
+            model: resolveModelOptions(options, 5),
           });
           plate = visual.buffer;
           visualEvent = {
             eventId: videoProviderEventId(job, `character_plate:${scene.id}`),
-            provider: visual.provider, model: visual.model, durationSec: null,
+            provider: visual.provider, model: visual.model,
+            durationSec: visual.effectiveDurationSec ?? null,
             requestBytes: Buffer.byteLength(sourcePlatePrompt), label: `character_plate:${scene.id}`,
             criteria: jobVideoPriceCriteria(job),
             costPaise: await computeVideoCostPaise({
-              provider: visual.provider, model: visual.model, durationSec: null,
+              provider: visual.provider, model: visual.model,
+              durationSec: visual.effectiveDurationSec ?? null,
               variantCriteria: jobVideoPriceCriteria(job),
             }).catch(() => null),
           };
@@ -1975,6 +1992,7 @@ async function produceVideo(
       prompt: lipSyncSourcePlatePrompt(visualPrompt),
       aspectRatio,
       durationSec: options.durationSec ?? 5,
+      resolvedVideoModel: options.resolvedVideoModel,
     });
     // Provider success is the partial-work boundary. Start with an unmeasured
     // event: flat-per-video models can still resolve an exact cost, while a
@@ -2751,15 +2769,16 @@ async function produceVideo(
               },
             });
             const clip = animated.clips[0]!;
+            const providerDurationSec = animated.effectiveDurationSecs[0] ?? targetSec;
             const event: VideoProviderEvent = {
               eventId: videoProviderEventId(job, `hybrid_animation:${scene.id}`),
-              provider: animated.provider, model: animated.model, durationSec: targetSec,
+              provider: animated.provider, model: animated.model, durationSec: providerDurationSec,
               requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_animation:${scene.id}`,
               criteria: jobVideoPriceCriteria(job),
-              costPaise: await computeVideoCostPaise({ provider: animated.provider, model: animated.model, durationSec: targetSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
+              costPaise: await computeVideoCostPaise({ provider: animated.provider, model: animated.model, durationSec: providerDurationSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
               unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
             };
-            scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, clip, "video/mp4"), provider: animated.provider, model: animated.model, durationSec: targetSec, event };
+            scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, clip, "video/mp4"), provider: animated.provider, model: animated.model, durationSec: providerDurationSec, event };
             await setJob(job.id, { storyboard: board });
             clips.push(clip); events.push(event);
           } else {
@@ -2768,13 +2787,19 @@ async function produceVideo(
               ? scene.providerCheckpoint
               : null;
             const plate = savedPlate
-              ? { buffer: (await loadTenantObject(savedPlate.path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved hybrid plate")).buffer, provider: savedPlate.provider, model: savedPlate.model }
+              ? {
+                  buffer: (await loadTenantObject(savedPlate.path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved hybrid plate")).buffer,
+                  provider: savedPlate.provider,
+                  model: savedPlate.model,
+                  effectiveDurationSec: savedPlate.durationSec,
+                }
               : await (async () => {
                 sceneOperation = "character_plate_generation";
                 return generateCharacterClip({
                 tenantId: job.tenantId, characterId: hybrid.characterId, outfitId: hybrid.outfitId,
                 snapshot: hybrid.characterSnapshot,
                 prompt: lipSyncSourcePlatePrompt(scene.visual), aspectRatio, durationSec: Math.min(30, targetSec + .35),
+                 model,
                 keyframe: scene.previewPath
                   ? (await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Saved hybrid character keyframe")).buffer
                   : null,
@@ -2803,16 +2828,17 @@ async function produceVideo(
                 },
                 });
               })();
+            const plateDurationSec = plate.effectiveDurationSec ?? targetSec;
             const plateEvent: VideoProviderEvent = savedPlate?.event ?? {
               eventId: videoProviderEventId(job, `hybrid_plate:${scene.id}`), provider: plate.provider, model: plate.model,
-              durationSec: targetSec, requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_plate:${scene.id}`,
+              durationSec: plateDurationSec, requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_plate:${scene.id}`,
               criteria: jobVideoPriceCriteria(job),
-              costPaise: await computeVideoCostPaise({ provider: plate.provider, model: plate.model, durationSec: targetSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
+              costPaise: await computeVideoCostPaise({ provider: plate.provider, model: plate.model, durationSec: plateDurationSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
               unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
             };
             if (!savedPlate) {
               // Persist the acknowledged plate receipt before the external lip-sync call.
-              scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, plate.buffer, "video/mp4"), provider: plate.provider, model: plate.model, durationSec: targetSec, event: plateEvent };
+              scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, plate.buffer, "video/mp4"), provider: plate.provider, model: plate.model, durationSec: plateDurationSec, event: plateEvent };
               await setJob(job.id, { storyboard: board });
             }
             const latest = (await db.select({ options: videoGenerationsTable.options }).from(videoGenerationsTable)
@@ -5151,7 +5177,11 @@ async function executeVideoJob(
       });
       const baseHistory = failureEntry({
         job, scope: "job", operation: latest?.stage ?? job.stage ?? "video_generation",
-        error: surfacedError, outcome: "stopped", attempt: baseAttempt,
+         error: surfacedError, outcome: "stopped", attempt: baseAttempt,
+         provider: latest?.options?.resolvedVideoModel?.provider ??
+           job.options?.resolvedVideoModel?.provider,
+         model: latest?.options?.resolvedVideoModel?.model ??
+           job.options?.resolvedVideoModel?.model,
       });
       let errorHistory = appendFailureHistory(latest?.errorHistory, baseHistory);
       // Make stopping behavior explicit for a reviewed board: any scene without
@@ -5213,6 +5243,10 @@ async function executeVideoJob(
       }
       await tx.update(videoGenerationsTable).set({
         status: "failed", error: message, stage: null, storyboardExpiresAt: null,
+        provider: latest?.options?.resolvedVideoModel?.provider ??
+          job.options?.resolvedVideoModel?.provider ?? null,
+        model: latest?.options?.resolvedVideoModel?.model ??
+          job.options?.resolvedVideoModel?.model ?? null,
         providerRequestId: baseHistory.providerRequestId,
         errorHistory,
         durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),

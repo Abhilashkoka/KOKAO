@@ -1253,12 +1253,14 @@ describe("POST /api/ai/generate-video", () => {
 
   describe("picking a model, and what it costs", () => {
     let restoreWan25Price: (() => Promise<void>) | null = null;
+    let restoreWan25ImagePrice: (() => Promise<void>) | null = null;
     let restoreVeo3Price: (() => Promise<void>) | null = null;
     // availableVideoModels() only offers models whose provider has a key
     // saved, so the suite saves one. The credentials guard snapshots and
     // restores app_credentials around the whole run.
     beforeEach(async () => {
       restoreWan25Price = await installVideoTestPrice("wan-video/wan-2.5-t2v");
+      restoreWan25ImagePrice = await installVideoTestPrice("wan-video/wan-2.5-i2v");
       restoreVeo3Price = await installVideoTestPrice("google/veo-3");
       await setStoredVideoGenKey("replicate", "test-token");
       await setVideoGenSelection({
@@ -1277,8 +1279,10 @@ describe("POST /api/ai/generate-video", () => {
         enabledModelIds: null,
       });
       await restoreWan25Price?.();
+      await restoreWan25ImagePrice?.();
       await restoreVeo3Price?.();
       restoreWan25Price = null;
+      restoreWan25ImagePrice = null;
       restoreVeo3Price = null;
     });
 
@@ -1292,6 +1296,70 @@ describe("POST /api/ai/generate-video", () => {
         const def = getVideoGenProviderDef(String(provider));
         expect(def).toBeTruthy();
         expect(await isVideoGenProviderConfigured(def!)).toBe(true);
+      }
+    });
+
+    it("does not borrow another provider's price or reserve funding for that model", async () => {
+      const tenant = await newTenant();
+      await grantCredits({
+        tenantId: tenant.tenantId,
+        captionCredits: 0,
+        imageCredits: 0,
+        videoCredits: 4,
+        kind: "admin_grant",
+      });
+
+      const replicatePrice = and(
+        eq(aiModelPricesTable.kind, "video"),
+        eq(aiModelPricesTable.provider, "replicate"),
+        eq(aiModelPricesTable.model, "google/veo-3"),
+      );
+      await db.delete(aiModelPricesTable).where(replicatePrice);
+      const wrongProviderPrice = await upsertModelPrice({
+        kind: "video",
+        provider: "openrouter",
+        model: "google/veo-3",
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: 0.01,
+      });
+
+      try {
+        const catalog = await request(app).get("/api/ai/video-models");
+        expect(catalog.status).toBe(200);
+        expect(catalog.body.models.map((model: { id: string }) => model.id))
+          .not.toContain("veo-3");
+
+        const balancesBefore = await getCreditBalances(tenant.tenantId);
+        const ledgerBefore = await db.select().from(creditLedgerTable)
+          .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
+        const jobsBefore = await db.select({ id: videoGenerationsTable.id })
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+
+        const rejected = await request(app).post("/api/ai/generate-video").send({
+          engine: "text_to_video",
+          prompt: "A product turning slowly on a clean studio table",
+          modelId: "veo-3",
+        });
+
+        expect(rejected.status).toBe(400);
+        expect(rejected.body.error).toMatch(/pric/i);
+        expect(await getCreditBalances(tenant.tenantId)).toEqual(balancesBefore);
+        expect(
+          await db.select().from(creditLedgerTable)
+            .where(eq(creditLedgerTable.tenantId, tenant.tenantId)),
+        ).toHaveLength(ledgerBefore.length);
+        expect(
+          await db.select({ id: videoGenerationsTable.id })
+            .from(videoGenerationsTable)
+            .where(eq(videoGenerationsTable.tenantId, tenant.tenantId)),
+        ).toHaveLength(jobsBefore.length);
+        expect(runnerState.calls).toHaveLength(0);
+      } finally {
+        await deleteModelPrice(wrongProviderPrice.id);
       }
     });
 
@@ -1371,6 +1439,57 @@ describe("POST /api/ai/generate-video", () => {
       )[0];
       expect(row?.options?.modelId).toBe("wan-2.5");
       expect(row?.options?.resolution).toBe("480p");
+      expect(row?.options?.resolvedVideoModel).toEqual({
+        version: 1,
+        source: "explicit",
+        mode: "text",
+        provider: "replicate",
+        model: "wan-video/wan-2.5-t2v",
+        catalogModelId: "wan-2.5",
+        durationSec: 5,
+        permittedDurationSec: [5, 10],
+        durationPolicy: "nearest",
+        resolution: "480p",
+        quality: null,
+        generateAudio: null,
+        supportsEndFrame: true,
+      });
+    });
+
+    it("resolves the text default before enqueue and freezes its provider model", async () => {
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: "wan-video/wan-2.5-t2v",
+        imageToVideoModel: "wan-video/wan-2.2-i2v-fast",
+        enabledModelIds: null,
+      });
+      await newTenant();
+
+      const response = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "A product on a seamless studio background",
+        resolution: "480p",
+         reviewStoryboard: false,
+      });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(201);
+      const [row] = await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, response.body.id));
+      expect(row?.options?.resolvedVideoModel).toEqual({
+        version: 1,
+        source: "default",
+        mode: "text",
+        provider: "replicate",
+        model: "wan-video/wan-2.5-t2v",
+        catalogModelId: "wan-2.5",
+        durationSec: 5,
+        permittedDurationSec: [5],
+        durationPolicy: "exact",
+        resolution: "480p",
+        quality: null,
+        generateAudio: null,
+        supportsEndFrame: true,
+      });
     });
 
     it("charges a draft model exactly what an unpicked job costs", async () => {
@@ -6067,13 +6186,45 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       engine: "text_to_video",
       status: "failed",
       prompt: "Two approved shots",
-      options: { aspectRatio: "9:16", shotCount: 2, reviewStoryboard: true },
+      options: {
+        aspectRatio: "9:16",
+        shotCount: 2,
+        reviewStoryboard: true,
+        modelId: "wan-2.2-fast",
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "text",
+          provider: "replicate",
+          model: "wan-video/wan-2.2-t2v-fast",
+          catalogModelId: "wan-2.2-fast",
+          durationSec: 5,
+          resolution: "720p",
+          quality: null,
+          generateAudio: null,
+          supportsEndFrame: false,
+        },
+      },
       storyboard,
       error: "Second scene failed",
     }).returning();
     const immutableSnapshot = structuredClone(storyboard);
+    const immutableModel = structuredClone(source!.options!.resolvedVideoModel);
+
+    await setVideoGenSelection({
+      provider: "replicate",
+      textToVideoModel: "google/veo-3",
+      imageToVideoModel: "google/veo-3",
+      enabledModelIds: null,
+    });
 
     const response = await request(app).post(`/api/ai/video-jobs/${source!.id}/retry`);
+    await setVideoGenSelection({
+      provider: "replicate",
+      textToVideoModel: null,
+      imageToVideoModel: null,
+      enabledModelIds: null,
+    });
 
     expect(response.status).toBe(201);
     expect(response.body.units).toBe(1);
@@ -6084,6 +6235,8 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     expect(sourceAfter[0]?.storyboard).toEqual(immutableSnapshot);
     expect(child[0]?.storyboard).toEqual(immutableSnapshot);
     expect(child[0]?.storyboard).not.toBe(sourceAfter[0]?.storyboard);
+    expect(child[0]?.options?.resolvedVideoModel).toEqual(immutableModel);
+    expect(child[0]?.options?.resolvedVideoModel?.model).not.toBe("google/veo-3");
   });
 
   it.each([

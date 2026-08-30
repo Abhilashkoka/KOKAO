@@ -3,24 +3,16 @@ import { like } from "drizzle-orm";
 import { db, appCredentialsTable, videoGenSettingsTable } from "@workspace/db";
 import { getProviderHealth, resetProviderHealthForTests } from "../providerHealth";
 import { generateVideo, getVideoGenSelection, setVideoGenSelection } from "./index";
-import {
-  VideoGenNotConfiguredError,
-  VideoGenProviderError,
-  type VideoGenResult,
-} from "./types";
+import { VideoGenProviderError, type VideoGenResult } from "./types";
 
 vi.mock("../aiCost", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../aiCost")>()),
   isVideoModelPriced: vi.fn(async () => true),
 }));
-
-// A real NVIDIA deployment can be active in the shared development database.
-// This suite covers within-provider model fallback only, not NVIDIA readiness.
 vi.mock("../nvidiaCore", () => ({
   resolveNvidiaCoreDeployment: vi.fn(async () => null),
   isNvidiaCoreDeploymentActivatable: vi.fn(async () => false),
 }));
-
 vi.mock("./providers/replicate", () => ({
   REPLICATE_T2V_MODEL: "wan-video/wan-2.2-t2v-fast",
   REPLICATE_I2V_MODEL: "wan-video/wan-2.2-i2v-fast",
@@ -31,39 +23,23 @@ import { generateWithReplicate } from "./providers/replicate";
 import { isVideoModelPriced } from "../aiCost";
 
 const savedToken = process.env.REPLICATE_API_TOKEN;
-
-function result(model: string): VideoGenResult {
-  return { buffer: Buffer.from(model), provider: "replicate", model };
-}
-
-/** The models a call actually reached, in order. */
-function attemptedModels(): string[] {
-  return vi.mocked(generateWithReplicate).mock.calls.map((call) => call[0].model);
-}
-
+const frozenText = {
+  version: 1 as const, source: "explicit" as const, mode: "text" as const,
+  provider: "replicate", model: "wan-video/wan-2.5-t2v", catalogModelId: "wan-2.5",
+  durationSec: 5, resolution: "720p", quality: null, generateAudio: null,
+  supportsEndFrame: true,
+};
 const params = {
-  mode: "text" as const,
-  prompt: "a pastel sunrise over still water",
-  aspectRatio: "9:16" as const,
-  durationSec: 5,
+  mode: "text" as const, prompt: "a pastel sunrise over still water",
+  aspectRatio: "9:16" as const, durationSec: 5, resolvedVideoModel: frozenText,
 };
 
-function generateOnPrimary(
-  input: Parameters<typeof generateVideo>[0] = params,
-): ReturnType<typeof generateVideo> {
-  // Provider-level failover has its own suite. Pinning this seam prevents a
-  // saved OpenRouter key in the shared dev DB from escaping this unit boundary
-  // (and, critically, from making a real network request).
-  return generateVideo(input, { resolveCandidate: async () => null });
-}
-
-describe("generateVideo model fallback", () => {
+describe("generateVideo frozen model contract", () => {
   beforeEach(async () => {
     vi.mocked(generateWithReplicate).mockReset();
     vi.mocked(isVideoModelPriced).mockReset();
     vi.mocked(isVideoModelPriced).mockResolvedValue(true);
     resetProviderHealthForTests();
-    // Stored admin keys would override env config; clear them for determinism.
     await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "videogen_%"));
     await db.delete(videoGenSettingsTable);
     process.env.REPLICATE_API_TOKEN = "test-replicate-token";
@@ -74,141 +50,88 @@ describe("generateVideo model fallback", () => {
     else process.env.REPLICATE_API_TOKEN = savedToken;
   });
 
-  it("retries on the next catalog model after a transient failure", async () => {
-    vi.mocked(generateWithReplicate)
-      .mockRejectedValueOnce(new VideoGenProviderError("queue backed up", 503))
-      .mockResolvedValueOnce(result("wan-video/wan-2.5-t2v"));
-
-    const out = await generateOnPrimary();
-    expect(out.model).toBe("wan-video/wan-2.5-t2v");
-    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-t2v-fast", "wan-video/wan-2.5-t2v"]);
-  });
-
-  it("does not advance the chain on a permanent failure", async () => {
-    vi.mocked(generateWithReplicate).mockRejectedValue(
-      new VideoGenProviderError("prompt rejected by the safety filter", 400),
-    );
-
-    await expect(generateOnPrimary()).rejects.toThrow("prompt rejected");
-    expect(generateWithReplicate).toHaveBeenCalledTimes(1);
-  });
-
-  it("tries at most two other models, then reports the configured one's failure", async () => {
-    vi.mocked(generateWithReplicate)
-      .mockRejectedValueOnce(new VideoGenProviderError("configured model down", 503))
-      .mockRejectedValueOnce(new VideoGenProviderError("second down", 502))
-      .mockRejectedValueOnce(new VideoGenProviderError("third down", 429));
-
-    await expect(generateOnPrimary()).rejects.toThrow("configured model down");
-    expect(attemptedModels()).toEqual([
-      "wan-video/wan-2.2-t2v-fast",
-      "wan-video/wan-2.5-t2v",
-      "kwaivgi/kling-v2.1-standard",
-    ]);
-  });
-
-  it("keeps walking the chain when a fallback model is unreachable on this account", async () => {
-    // A 404 on a fallback is permanent for THAT model but says nothing about
-    // the job — it must not surface instead of the real failure.
-    vi.mocked(generateWithReplicate)
-      .mockRejectedValueOnce(new VideoGenProviderError("configured model down", 503))
-      .mockRejectedValueOnce(new VideoGenProviderError("model not found", 404))
-      .mockResolvedValueOnce(result("kwaivgi/kling-v2.1-standard"));
-
-    const out = await generateOnPrimary();
-    expect(out.model).toBe("kwaivgi/kling-v2.1-standard");
-  });
-
-  it("reports the configured model's error when every fallback is unreachable", async () => {
-    vi.mocked(generateWithReplicate)
-      .mockRejectedValueOnce(new VideoGenProviderError("configured model down", 503))
-      .mockRejectedValueOnce(new VideoGenProviderError("model not found", 404))
-      .mockRejectedValueOnce(new VideoGenProviderError("no access", 402));
-
-    await expect(generateOnPrimary()).rejects.toThrow("configured model down");
-  });
-
-  it("starts the chain at the admin's model override", async () => {
+  it("uses exactly the frozen provider/model and variants after settings change", async () => {
     await setVideoGenSelection({
-      provider: "replicate",
-      textToVideoModel: "google/veo-3-fast",
-      imageToVideoModel: null,
+      provider: "replicate", textToVideoModel: "google/veo-3",
+      imageToVideoModel: "google/veo-3",
     });
-    vi.mocked(generateWithReplicate)
-      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
-      .mockResolvedValueOnce(result("wan-video/wan-2.2-t2v-fast"));
+    vi.mocked(generateWithReplicate).mockResolvedValue({
+      buffer: Buffer.from("video"), provider: "replicate", model: frozenText.model,
+    } satisfies VideoGenResult);
 
-    await generateOnPrimary();
-    expect(attemptedModels()).toEqual(["google/veo-3-fast", "wan-video/wan-2.2-t2v-fast"]);
+    const output = await generateVideo(params);
+    expect(output.model).toBe(frozenText.model);
+    expect(vi.mocked(generateWithReplicate).mock.calls).toHaveLength(1);
+    expect(vi.mocked(generateWithReplicate).mock.calls[0]![0]).toMatchObject({
+      model: frozenText.model, resolution: "720p", quality: null, generateAudio: null,
+    });
   });
 
-  it("retires saved legacy Replicate overrides back to the provider defaults", async () => {
+  it("does not substitute another model after a transient failure", async () => {
+    vi.mocked(generateWithReplicate).mockRejectedValue(
+      new VideoGenProviderError("queue backed up", 503),
+    );
+    await expect(generateVideo(params)).rejects.toThrow("queue backed up");
+    expect(vi.mocked(generateWithReplicate).mock.calls.map((call) => call[0].model))
+      .toEqual([frozenText.model]);
+    expect(getProviderHealth("videogen:replicate")?.consecutiveFailures).toBe(1);
+  });
+
+  it("rejects calls that lack an immutable snapshot", async () => {
+    const { resolvedVideoModel: _snapshot, ...legacy } = params;
+    await expect(generateVideo(legacy)).rejects.toThrow(/frozen video provider\/model snapshot/i);
+    expect(generateWithReplicate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a scene duration that was not priced and funded in the snapshot", async () => {
+    await expect(generateVideo({
+      ...params,
+      durationSec: 8,
+      resolvedVideoModel: { ...frozenText, permittedDurationSec: [5] },
+    })).rejects.toThrow(/outside this job's funded video model contract/i);
+    expect(generateWithReplicate).not.toHaveBeenCalled();
+  });
+
+  it("allows a properly priced composite scene duration from its frozen contract", async () => {
+    vi.mocked(generateWithReplicate).mockResolvedValue({
+      buffer: Buffer.from("video"), provider: "replicate", model: frozenText.model,
+    } satisfies VideoGenResult);
+    const output = await generateVideo({
+      ...params,
+      durationSec: 8,
+      resolvedVideoModel: { ...frozenText, permittedDurationSec: [5, 8, 10] },
+    });
+    expect(vi.mocked(generateWithReplicate).mock.calls[0]![0].durationSec).toBe(8);
+  });
+
+  it("quantizes an 8s scene target to a frozen 5s-only model without substitution", async () => {
+    vi.mocked(generateWithReplicate).mockResolvedValue({
+      buffer: Buffer.from("video"), provider: "replicate", model: frozenText.model,
+    } satisfies VideoGenResult);
+    const output = await generateVideo({
+      ...params,
+      durationSec: 8,
+      resolvedVideoModel: {
+        ...frozenText,
+        permittedDurationSec: [5],
+        durationPolicy: "nearest",
+      },
+    });
+    expect(vi.mocked(generateWithReplicate).mock.calls).toHaveLength(1);
+    expect(output.effectiveDurationSec).toBe(5);
+    expect(vi.mocked(generateWithReplicate).mock.calls[0]![0]).toMatchObject({
+      model: frozenText.model,
+      durationSec: 5,
+    });
+  });
+
+  it("keeps the legacy override normalization behavior for administration", async () => {
     await setVideoGenSelection({
-      provider: "replicate",
-      textToVideoModel: "google/veo-3.1",
+      provider: "replicate", textToVideoModel: "google/veo-3.1",
       imageToVideoModel: "minimax/video-01",
     });
     const selection = await getVideoGenSelection();
     expect(selection.textToVideoModel).toBeNull();
     expect(selection.imageToVideoModel).toBeNull();
-  });
-
-  it("uses the image-to-video chain in image mode", async () => {
-    vi.mocked(generateWithReplicate)
-      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
-      .mockResolvedValueOnce(result("wan-video/wan-2.5-i2v"));
-
-    await generateOnPrimary({
-      ...params,
-      mode: "image",
-      image: { buffer: Buffer.from("png"), mimeType: "image/png" },
-    });
-    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-i2v-fast", "wan-video/wan-2.5-i2v"]);
-    expect(vi.mocked(generateWithReplicate).mock.calls[1]![0].image).toBeDefined();
-  });
-
-  it("records transient failures against the provider and clears them on success", async () => {
-    vi.mocked(generateWithReplicate)
-      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
-      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
-      .mockRejectedValueOnce(new VideoGenProviderError("down", 503));
-
-    await expect(generateOnPrimary()).rejects.toThrow();
-    expect(getProviderHealth("videogen:replicate")?.consecutiveFailures).toBe(3);
-
-    vi.mocked(generateWithReplicate).mockResolvedValue(result("wan-video/wan-2.2-t2v-fast"));
-    await generateOnPrimary();
-    expect(getProviderHealth("videogen:replicate")?.consecutiveFailures).toBe(0);
-  });
-
-  it("treats a missing API token as terminal: no fallback, no health failure", async () => {
-    // Every model in the chain authenticates with the same credential, so
-    // walking it cannot help. And a missing key says nothing about whether
-    // Replicate is up, so it must not trip the breaker for the tenants who
-    // ARE configured — one misconfigured tenant used to earn 3 recorded
-    // failures per job, opening the breaker and turning every later job's
-    // preflight into a misleading 503.
-    vi.mocked(generateWithReplicate).mockRejectedValue(
-      new VideoGenNotConfiguredError("Replicate is not configured: save an API token"),
-    );
-
-    await expect(generateOnPrimary()).rejects.toThrow("Replicate is not configured");
-    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-t2v-fast"]);
-    expect(getProviderHealth("videogen:replicate")).toBeNull();
-  });
-
-  it("does not count a permanent failure against provider health", async () => {
-    vi.mocked(generateWithReplicate).mockRejectedValue(
-      new VideoGenProviderError("prompt rejected", 400),
-    );
-
-    await expect(generateOnPrimary()).rejects.toThrow();
-    expect(getProviderHealth("videogen:replicate")).toBeNull();
-  });
-
-  it("blocks an unpriced selected model before reaching the provider", async () => {
-    vi.mocked(isVideoModelPriced).mockResolvedValue(false);
-    await expect(generateOnPrimary()).rejects.toThrow(/no authoritative price/i);
-    expect(generateWithReplicate).not.toHaveBeenCalled();
   });
 });

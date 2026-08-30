@@ -140,6 +140,8 @@ export interface VideoGenResult {
   buffer: Buffer;
   provider: string;
   model: string;
+  /** Actual provider-call duration after frozen composite quantization. */
+  effectiveDurationSec?: number;
 }
 
 /** Thrown when the selected provider is missing its API key. */

@@ -46,7 +46,7 @@ export async function generateCharacterClip(params: {
   };
   /** Generic enqueue-time wardrobe snapshot used by ordinary character jobs. */
   wardrobeSnapshot?: CharacterSnapshot | null;
-}): Promise<{ buffer: Buffer; provider: string; model: string }> {
+}): Promise<{ buffer: Buffer; provider: string; model: string; effectiveDurationSec?: number }> {
   const detail = params.wardrobeSnapshot
     ? characterDetailFromSnapshot(params.tenantId, params.wardrobeSnapshot)
     : params.snapshot
@@ -85,5 +85,10 @@ export async function generateCharacterClip(params: {
     image: { buffer: keyframe.buffer, mimeType: "image/png" },
     ...(params.model ?? {}),
   });
-  return { buffer: clip.buffer, provider: clip.provider, model: clip.model };
+  return {
+    buffer: clip.buffer,
+    provider: clip.provider,
+    model: clip.model,
+    effectiveDurationSec: clip.effectiveDurationSec,
+  };
 }

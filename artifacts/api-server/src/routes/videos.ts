@@ -95,7 +95,9 @@ import {
   compiledClipPrompt,
   effectiveVideoModel,
   getVideoGenSelection,
+  resolveVideoModelSnapshot,
   resolveVideoGenProviderDef,
+  VideoModelResolutionError,
 } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import {
@@ -323,6 +325,22 @@ async function guidedStoryCloneCatalog(
 }
 const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
 
+/** Scene renderers quantize generated clips to these supported durations. */
+function compositeVideoDurations(
+  engine: string,
+  options: NonNullable<VideoGeneration["options"]>,
+): number[] | undefined {
+  if (
+    engine === "topic_to_video" ||
+    engine === "dialogue_lip_sync" ||
+    engine === "slideshow" ||
+    options.reviewStoryboard === true
+  ) {
+    return [5, 8, 10];
+  }
+  return undefined;
+}
+
 /**
  * Direct clip engines make one homogeneous provider call per unit, so their
  * exact selected variant can safely size the wallet reservation. Composite
@@ -340,25 +358,14 @@ async function directVideoReservationPrice(
 } | null> {
   if (engine !== "text_to_video" && engine !== "image_to_video") return null;
   const mode = engine === "text_to_video" ? "text" : "image";
-  const picked = findVideoModel(options.modelId);
-  const selection = await getVideoGenSelection();
-  const providerDef = picked
-    ? await resolveVideoGenProviderDef(picked.provider)
-    : await resolveVideoGenProviderDef(selection.provider);
-  if (!providerDef) return null;
-  const model =
-    picked?.models[mode] ??
-    effectiveVideoModel(
-      providerDef,
-      mode,
-      mode === "text"
-        ? selection.textToVideoModel
-        : selection.imageToVideoModel,
-    );
-  const resolved = resolveModelOptions(options, options.durationSec ?? 5);
+  const snapshot = options.resolvedVideoModel;
+  if (!snapshot || snapshot.mode !== mode) return null;
+  // Reservation must use precisely the variants frozen at enqueue, not a
+  // catalog re-resolution that could change after an admin/catalog edit.
+  const resolved = snapshot;
   const oneCall = await computeVideoCostPaise({
-    provider: providerDef.id,
-    model,
+    provider: snapshot.provider,
+    model: snapshot.model,
     durationSec: resolved.durationSec,
     variantCriteria: videoPriceCriteria({
       resolution: resolved.resolution,
@@ -368,8 +375,8 @@ async function directVideoReservationPrice(
   });
   if (oneCall === null || oneCall <= 0) return null;
   return {
-    provider: providerDef.id,
-    model,
+    provider: snapshot.provider,
+    model: snapshot.model,
     totalCostPaise: oneCall * Math.max(1, units),
   };
 }
@@ -713,6 +720,7 @@ function serializeVideoJob(
         }
       : null,
     modelId: job.options?.modelId ?? null,
+    resolvedVideoModel: job.options?.resolvedVideoModel ?? null,
     resolution: job.options?.resolution ?? null,
     motionPreset: job.options?.motionPreset ?? null,
     cinematography: job.options?.cinematography ?? null,
@@ -1215,12 +1223,16 @@ router.post("/ai/music/import", async (req: Request, res: Response) => {
  */
 router.get("/ai/video-models", async (_req: Request, res: Response) => {
   const models = await availableVideoModels();
+  const selection = await getVideoGenSelection();
+  const selectedProvider = await resolveVideoGenProviderDef(selection.provider);
   res.json({
     models: models.map((m) => ({
       id: m.id,
       label: m.label,
       blurb: m.blurb,
       provider: m.provider,
+      providerModels: { ...m.models },
+      pricingAvailable: true,
       tier: m.tier,
       unitMultiplier: TIER_UNIT_MULTIPLIER[m.tier],
       modes: (["text", "image"] as const).filter((mode) =>
@@ -1233,6 +1245,26 @@ router.get("/ai/video-models", async (_req: Request, res: Response) => {
       canGenerateAudio: m.canGenerateAudio,
       supportsEndFrame: m.supportsEndFrame === true,
     })),
+    defaults: selectedProvider
+      ? {
+          text: {
+            provider: selectedProvider.id,
+            model: effectiveVideoModel(
+              selectedProvider,
+              "text",
+              selection.textToVideoModel,
+            ),
+          },
+          image: {
+            provider: selectedProvider.id,
+            model: effectiveVideoModel(
+              selectedProvider,
+              "image",
+              selection.imageToVideoModel,
+            ),
+          },
+        }
+      : null,
   });
 });
 
@@ -5674,8 +5706,11 @@ async function generateVideoHandler(
       return;
     }
     const picked = findVideoModel(body.modelId);
+    const selection = await getVideoGenSelection();
     const enabled =
-      picked && (await availableVideoModels()).some((m) => m.id === picked.id);
+      picked &&
+      (selection.enabledModelIds === null ||
+        selection.enabledModelIds.includes(picked.id));
     if (!picked || !enabled) {
       res.status(400).json({ error: "That video model is not available." });
       return;
@@ -6715,6 +6750,51 @@ async function generateVideoHandler(
         : null,
   };
 
+  // Resolve mutable platform defaults into the immutable provider/model
+  // contract before quota, credits, or wallet funds are touched.
+  const resolvedMode: "text" | "image" | null =
+    body.engine === "image_to_video"
+      ? "image"
+      : body.engine === "text_to_video"
+        ? characterId != null || requestedPresetId != null
+          ? "image"
+          : "text"
+        : body.engine === "dialogue_lip_sync"
+          ? characterDialogue
+            ? "image"
+            : "text"
+          : body.engine === "topic_to_video" &&
+              !presenterTemplate &&
+              (visualsSource === "character" || visualsSource === "ai_video")
+            ? "image"
+            : null;
+  if (resolvedMode) {
+    try {
+      options.resolvedVideoModel = await resolveVideoModelSnapshot({
+        mode: resolvedMode,
+        modelId: options.modelId,
+        durationSec: options.durationSec ?? 5,
+        resolution: options.resolution,
+        quality: options.quality,
+        generateAudio: options.generateAudio,
+        permittedDurationSec: compositeVideoDurations(body.engine, options),
+      });
+    } catch (error) {
+      if (error instanceof VideoModelResolutionError) {
+        res.status(400).json({
+          error: error.message,
+          code: error.code,
+          provider: error.provider,
+          model: error.model,
+        });
+        return;
+      }
+      throw error;
+    }
+  } else {
+    options.resolvedVideoModel = null;
+  }
+
   // Dependency preflight BEFORE funding: a job that will die four minutes in
   // on a missing key or a provider that is already failing should never take
   // the tenant's quota in the first place. Refunds return credits, not time.
@@ -6814,6 +6894,8 @@ async function generateVideoHandler(
         prompt: body.prompt?.trim() || null,
         sourceImagePaths,
         options,
+        provider: options.resolvedVideoModel?.provider ?? null,
+        model: options.resolvedVideoModel?.model ?? null,
         // Persisted at creation, not at the runner's claim: if the process
         // restarts before the runner claims this row, the stuck-job sweep can
         // only refund a reservation it knows about.
@@ -7671,6 +7753,8 @@ router.post(
               ? structuredClone(source.storyboard)
               : null,
             options: childOptions,
+            provider: childOptions.resolvedVideoModel?.provider ?? source.provider,
+            model: childOptions.resolvedVideoModel?.model ?? source.model,
             funding: null,
             chargedRatePaise: (await getAiSpendRates()).videoPaise,
           })
@@ -7966,6 +8050,8 @@ router.post(
           prompt: source.prompt,
           sourceImagePaths: structuredClone(source.sourceImagePaths),
           options: clean,
+           provider: clean.resolvedVideoModel?.provider ?? source.provider,
+           model: clean.resolvedVideoModel?.model ?? source.model,
           funding,
           walletReservationId: reservation?.id ?? null,
           walletReservedPaise: reservation?.amountPaise ?? null,
