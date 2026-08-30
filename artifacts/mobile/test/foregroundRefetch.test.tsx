@@ -40,6 +40,10 @@ vi.mock("react-native", () => ({
       ...args: [string, (state: string) => void]
     ) => addEventListenerMock(...args),
   },
+  StyleSheet: { create: <T,>(styles: T) => styles },
+  ActivityIndicator: () => null,
+  Text: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  View: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
 // ---- Mocks for _layout's module-scope imports (not under test) ----
@@ -53,6 +57,7 @@ vi.mock("@expo-google-fonts/plus-jakarta-sans", () => ({
 vi.mock("@clerk/expo", () => ({
   ClerkProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ClerkLoaded: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  ClerkLoading: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useAuth: () => ({ getToken: async () => null }),
 }));
 vi.mock("@clerk/expo/token-cache", () => ({ tokenCache: {} }));

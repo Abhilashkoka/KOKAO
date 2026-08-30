@@ -64,6 +64,11 @@ vi.mock("../lib/storageUpload", () => ({
   }),
 }));
 
+vi.mock("../lib/voiceClone", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/voiceClone")>()),
+  listElevenLabsPremadeVoices: vi.fn(async () => []),
+}));
+
 /**
  * Controls the stub text-gen client used by decideShotCountFromBrief.
  * - shotCountResponse: number → the LLM returns {"shotCount": <n>}
@@ -2249,6 +2254,11 @@ describe("guided story route fail-closed regressions", () => {
       duplicateAssignmentConfirmed: false,
       scriptGeneration: null,
       castOperations: {},
+      visualChoices: {
+        version: 1,
+        logo: { path: null, sceneIds: [] },
+        location: { mode: "none", imagePath: null, description: null },
+      },
       storyboardJobId: null,
     };
     return (
@@ -2846,7 +2856,7 @@ describe("guided story route fail-closed regressions", () => {
       .patch(`/api/ai/guided-story/drafts/${draft.id}`)
       .send({ revision: draft.revision, script });
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(response.body.setup.roleCount).toBe(4);
     expect(response.body.script.roles).toHaveLength(4);
     expect(response.body.scriptApprovedAt).toBeNull();
@@ -3459,6 +3469,7 @@ describe("guided story route fail-closed regressions", () => {
     const tenant = await newTenant("pro");
     const ownCharacter = await seedCharacter(tenant.tenantId);
     const brandKitId = await guidedVoiceKit(tenant);
+    const voiceId = `brand-kit:${brandKitId}:active`;
     const script = routeScript();
     const claimedAt = "2025-01-01T00:00:00.000Z";
     const state: GuidedStoryDraftState = {
@@ -3559,7 +3570,7 @@ describe("guided story route fail-closed regressions", () => {
     const checkpoint: GuidedStoryDraftState["castOperations"][string] = {
       revision: 8,
       operationKey,
-      voiceId: "active",
+      voiceId,
       status,
       claimedAt,
       updatedAt: claimedAt,
@@ -3599,7 +3610,7 @@ describe("guided story route fail-closed regressions", () => {
             characterId: ownCharacter.characterId,
             outfitId: ownCharacter.outfitId,
             brandKitId,
-            voiceId: "active",
+            voiceId,
             isUserRole: true,
             consentGranted: true,
           },
@@ -3609,7 +3620,7 @@ describe("guided story route fail-closed regressions", () => {
             characterId: null,
             outfitId: null,
             brandKitId,
-            voiceId: "active",
+            voiceId,
             isUserRole: false,
             consentGranted: false,
           },

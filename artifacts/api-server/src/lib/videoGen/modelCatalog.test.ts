@@ -22,7 +22,7 @@ describe("video model catalog", () => {
 
   it("names a provider the video provider catalog actually has", () => {
     for (const model of VIDEO_MODEL_CATALOG) {
-      expect(["replicate", "openrouter"]).toContain(model.provider);
+      expect(["replicate", "openrouter", "nvidia"]).toContain(model.provider);
     }
   });
 

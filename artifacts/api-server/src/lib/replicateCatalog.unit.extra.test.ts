@@ -1,21 +1,29 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   lookupReplicateUnitPricing,
   resetReplicateCatalogCache,
 } from "./replicateCatalog";
+import * as platformFetchModule from "./platformFetch";
 
-vi.mock("./platformFetch", () => ({
-  platformFetch: vi.fn(async () => ({
+const PRICE_HTML = `{"prices": [
+  {"price": "$0.20", "title": "per second of output video"},
+  {"price": "$0.40", "title": "per second of output video"},
+  {"price": "$0.05", "title": "per output image"},
+  {"price": "$1.50", "title": "per video"}
+]}`;
+
+beforeEach(() => {
+  resetReplicateCatalogCache();
+  vi.spyOn(platformFetchModule, "platformFetch").mockResolvedValue({
     ok: true,
-    text: async () =>
-      `"prices": [{"price": "$0.20", "title": "per second of output video"},
-                  {"price": "$0.40", "title": "per second of output video"},
-                  {"price": "$0.05", "title": "per output image"},
-                  {"price": "$1.50", "title": "per video"}]`,
-  })),
-}));
+    text: async () => PRICE_HTML,
+  } as Response);
+});
 
-afterEach(() => resetReplicateCatalogCache());
+afterEach(() => {
+  vi.restoreAllMocks();
+  resetReplicateCatalogCache();
+});
 
 describe("lookupReplicateUnitPricing", () => {
   it("maps titles to structured fields, taking the max across variants", async () => {
@@ -25,6 +33,12 @@ describe("lookupReplicateUnitPricing", () => {
       usdPerImage: 0.05,
       usdPerSecond: 0.4,
       usdPerVideo: 1.5,
+      entries: [
+        { price: "$0.20", title: "per second of output video", criteria: {} },
+        { price: "$0.40", title: "per second of output video", criteria: {} },
+        { price: "$0.05", title: "per output image", criteria: {} },
+        { price: "$1.50", title: "per video", criteria: {} },
+      ],
     });
   });
 
@@ -35,6 +49,13 @@ describe("lookupReplicateUnitPricing", () => {
 
   it("returns all-null for malformed slugs without fetching", async () => {
     const [p] = await lookupReplicateUnitPricing(["not a slug"]);
-    expect(p).toEqual({ model: "not a slug", usdPerImage: null, usdPerSecond: null, usdPerVideo: null });
+    expect(p).toEqual({
+      model: "not a slug",
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+      entries: [],
+    });
+    expect(platformFetchModule.platformFetch).not.toHaveBeenCalled();
   });
 });

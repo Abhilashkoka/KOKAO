@@ -170,9 +170,23 @@ describe("video generation through the custom video def", () => {
   it("stamps the result with custom:<id>, not the shared openrouter adapter id", async () => {
     const row = await makeCustomProvider({ name: `${RUN}-vid`, videoEnabled: true });
     const ref = customProviderRef(row.id);
+    const model = `${RUN}-t2v-model`;
+    // Generation is intentionally fail-closed: even custom models must have an
+    // authoritative provider+model price before the adapter can run.
+    const price = await upsertModelPrice({
+      kind: "video",
+      provider: ref,
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: 0.5,
+    });
+    createdPriceIds.push(price.id);
     await setVideoGenSelection({
       provider: ref,
-      textToVideoModel: `${RUN}-t2v-model`,
+      textToVideoModel: model,
       imageToVideoModel: `${RUN}-i2v-model`,
     });
 
@@ -184,10 +198,10 @@ describe("video generation through the custom video def", () => {
     });
 
     expect(result.provider).toBe(ref);
-    expect(result.model).toBe(`${RUN}-t2v-model`);
+    expect(result.model).toBe(model);
     // The shared adapter was pointed at the custom row's base URL and key.
     expect(vi.mocked(generateWithOpenRouterVideo)).toHaveBeenCalledWith(
-      expect.objectContaining({ model: `${RUN}-t2v-model` }),
+      expect.objectContaining({ model }),
       "sk-attr-test",
       expect.objectContaining({ baseUrl: row.baseUrl }),
     );

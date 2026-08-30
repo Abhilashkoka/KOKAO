@@ -469,7 +469,14 @@ describe("guided approval fail-closed snapshot guard", () => {
                   ...scene,
                   guidedStory: {
                     ...scene.guidedStory!,
-                    inputFingerprint: "different",
+                    cast: scene.guidedStory!.cast.map((member, castIndex) =>
+                      castIndex === 0
+                        ? {
+                            ...member,
+                            referenceImagePath:
+                              "/objects/1/tampered-character.png",
+                          }
+                        : member),
                   },
                 }
               : scene),

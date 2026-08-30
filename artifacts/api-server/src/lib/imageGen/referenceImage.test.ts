@@ -42,6 +42,7 @@ describe("reference image support", () => {
       bfl: false,
       stability: false,
       replicate: false,
+      nvidia: false,
       custom: false,
     });
     expect(getImageGenProviderDef("openai")!.supportsImageInput).toBe(true);

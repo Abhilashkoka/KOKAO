@@ -527,22 +527,68 @@ describe("Import — creates, promotes, and is idempotent", () => {
   it("flow-key clash with another active case imports WITHOUT the binding and warns", async () => {
     const actor = await actAsSuperadmin();
     try {
-      // Use a flow/variant pair that stays isolated from the populated
-      // development Prompt Kit while still exercising exact-pair clashes.
+      // Pick two currently unused, schema-valid pairs so this test never
+      // collides with legitimate Prompt Kit rows in a populated database.
+      const candidatePairs = [
+        ["caption", "marketing"],
+        ["caption", "training"],
+        ["caption", "social_short"],
+        ["image", "marketing"],
+        ["image", "training"],
+        ["image", "social_short"],
+        ["campaign", "marketing"],
+        ["campaign", "training"],
+        ["campaign", "social_short"],
+        ["video_script", "marketing"],
+        ["video_script", "training"],
+        ["video_script", "social_short"],
+        ["video_broll_beats", "marketing"],
+        ["video_broll_beats", "training"],
+        ["video_broll_beats", "social_short"],
+        ["video_script_intake", "marketing"],
+        ["video_script_intake", "training"],
+        ["video_script_intake", "social_short"],
+        ["video_scene_image", "marketing"],
+        ["video_scene_image", "training"],
+        ["video_scene_image", "social_short"],
+        ["video_motion", "marketing"],
+        ["video_motion", "training"],
+        ["video_motion", "social_short"],
+        ["carousel", "marketing"],
+        ["carousel", "training"],
+        ["carousel", "social_short"],
+      ] as const;
+      const occupied = await db
+        .select({
+          flowKey: promptCaseTypesTable.flowKey,
+          variantKey: promptCaseTypesTable.variantKey,
+        })
+        .from(promptCaseTypesTable)
+        .where(eq(promptCaseTypesTable.status, "active"));
+      const unusedPairs = candidatePairs.filter(
+        ([flowKey, variantKey]) =>
+          !occupied.some(
+            (row) => row.flowKey === flowKey && row.variantKey === variantKey,
+          ),
+      );
+      expect(unusedPairs.length).toBeGreaterThanOrEqual(2);
+      const [clashFlowKey, clashVariantKey] = unusedPairs[0]!;
+      const [priorFlowKey, priorVariantKey] = unusedPairs[1]!;
+
       const holderSlug = testSlug();
       await db.insert(promptCaseTypesTable).values({
         name: "Holder",
         slug: holderSlug,
-        flowKey: "caption",
-        variantKey: "marketing",
+        flowKey: clashFlowKey,
+        variantKey: clashVariantKey,
         status: "active",
       });
 
       const bundle = makeBundle(testSlug());
-      bundle.cases[0]!.flowKey = "caption" as never;
+      bundle.cases[0]!.flowKey = clashFlowKey as never;
       (bundle.cases[0] as (typeof bundle.cases)[number] & {
-        variantKey: "marketing";
-      }).variantKey = "marketing";
+        variantKey: typeof clashVariantKey;
+      }).variantKey = clashVariantKey;
       const res = await request(app)
         .post("/api/admin/prompt-kit/import")
         .send(bundle);
@@ -561,7 +607,7 @@ describe("Import — creates, promotes, and is idempotent", () => {
       // silently keep the stale binding.
       await db
         .update(promptCaseTypesTable)
-        .set({ flowKey: "image", variantKey: "training" })
+        .set({ flowKey: priorFlowKey, variantKey: priorVariantKey })
         .where(eq(promptCaseTypesTable.slug, bundle.cases[0]!.slug));
       const res2 = await request(app)
         .post("/api/admin/prompt-kit/import")

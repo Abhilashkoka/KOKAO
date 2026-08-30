@@ -369,7 +369,7 @@ describe("POST /api/characters", () => {
     expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(1);
   });
 
-  it("returns success without refunding when wallet settlement fails after generation", async () => {
+  it("does not refund successful generation when wallet settlement fails", async () => {
     billingState.walletEnabled = true;
     billingState.settleFails = true;
     await newTenant();
@@ -378,7 +378,7 @@ describe("POST /api/characters", () => {
       .post("/api/characters")
       .send({ name: "Maya", description: "a cheerful woman" });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(500);
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
     expect(billingState.events).toEqual(["provider-success-receipt", "settlement-attempt"]);
@@ -387,7 +387,6 @@ describe("POST /api/characters", () => {
       operationKey: expect.stringContaining("character-reference:"),
       settlement: { kind: "image", costPaise: null, refKind: "character", refId: "Maya" },
     });
-    expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
   });
 
   it("never refunds or repeats generated work when its wallet success receipt cannot persist", async () => {
@@ -423,14 +422,17 @@ describe("POST /api/characters", () => {
 
   it("never refunds queued successful work when the atomic cap recheck rejects the save", async () => {
     billingState.walletEnabled = true;
-    billingState.settleFails = true;
     await newTenant();
     const transactionSpy = vi.spyOn(db, "transaction").mockResolvedValueOnce(null as never);
 
-    const res = await request(app)
-      .post("/api/characters")
-      .send({ name: "Maya", description: "a cheerful woman" });
-    transactionSpy.mockRestore();
+    let res;
+    try {
+      res = await request(app)
+        .post("/api/characters")
+        .send({ name: "Maya", description: "a cheerful woman" });
+    } finally {
+      transactionSpy.mockRestore();
+    }
 
     expect(res.status).toBe(400);
     expect(billingState.settleCalls).toHaveLength(1);
@@ -494,7 +496,7 @@ describe("outfits", () => {
     expect(gym.isDefault).toBe(false);
   });
 
-  it("returns success without refunding when wallet settlement fails after outfit generation", async () => {
+  it("does not refund successful outfit generation when wallet settlement fails", async () => {
     const tenant = await newTenant();
     const created = await request(app)
       .post("/api/characters")
@@ -509,7 +511,7 @@ describe("outfits", () => {
       .post(`/api/characters/${created.body.id}/outfits`)
       .send({ name: "Gym wear", description: "black leggings, teal top" });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(500);
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
     expect(billingState.events).toEqual(["provider-success-receipt", "settlement-attempt"]);
@@ -523,7 +525,6 @@ describe("outfits", () => {
         refId: String(created.body.id),
       },
     });
-    expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
   });
 
   it("never refunds or repeats generated outfit work when its wallet success receipt cannot persist", async () => {
@@ -587,10 +588,14 @@ describe("outfits", () => {
       return realInsert(table);
     }) as typeof db.insert);
 
-    const res = await request(app)
-      .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings, teal top" });
-    insertSpy.mockRestore();
+    let res;
+    try {
+      res = await request(app)
+        .post(`/api/characters/${created.body.id}/outfits`)
+        .send({ name: "Gym wear", description: "black leggings, teal top" });
+    } finally {
+      insertSpy.mockRestore();
+    }
 
     expect(res.status).toBe(500);
     expect(billingState.settleCalls).toHaveLength(1);

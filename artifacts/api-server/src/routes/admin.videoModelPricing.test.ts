@@ -34,25 +34,45 @@ vi.mock("../lib/connectionSweep", () => ({
 
 // Stub the scraper so tests never hit replicate.com; the scraper itself is
 // covered by replicateCatalog.test.ts.
-vi.mock("../lib/replicateCatalog", () => ({
-  lookupReplicatePricing: vi.fn(async (models: string[]) =>
-    models.map((model) => ({
-      model,
-      price: model === "google/veo-3" ? "$0.20–$0.40 per second of output video" : null,
-    })),
-  ),
-  lookupReplicateTokenPricing: vi.fn(async (models: string[]) =>
-    models.map((model) => ({ model, inputPerMTokens: null, outputPerMTokens: null })),
-  ),
-  lookupReplicateUnitPricing: vi.fn(async (models: string[]) =>
-    models.map((model) => ({
-      model,
-      usdPerImage: null,
-      usdPerSecond: null,
-      usdPerVideo: null,
-    })),
-  ),
-}));
+vi.mock("../lib/replicateCatalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/replicateCatalog")>();
+  return {
+    ...actual,
+    lookupReplicatePricing: vi.fn(async (models: string[]) =>
+      models.map((model) => ({
+        model,
+        price: model === "google/veo-3" ? "$0.20–$0.40 per second of output video" : null,
+        entries: [],
+      })),
+    ),
+    lookupReplicateTokenPricing: vi.fn(async (models: string[]) =>
+      models.map((model) => ({ model, inputPerMTokens: null, outputPerMTokens: null })),
+    ),
+    lookupReplicateUnitPricing: vi.fn(async (models: string[]) =>
+      models.map((model) => ({
+        model,
+        usdPerImage: null,
+        usdPerSecond: model === "google/veo-3" ? 0.4 : null,
+        usdPerVideo: null,
+        entries:
+          model === "google/veo-3"
+            ? [
+                {
+                  price: "$0.20",
+                  title: "per second of output video",
+                  criteria: { condition: "without_audio" },
+                },
+                {
+                  price: "$0.40",
+                  title: "per second of output video",
+                  criteria: { condition: "with_audio" },
+                },
+              ]
+            : [],
+      })),
+    ),
+  };
+});
 
 vi.mock("../lib/replicateVideoPricing", () => ({
   listReplicateVideoPricingTargets: vi.fn(() => [
@@ -96,8 +116,27 @@ describe("GET /admin/video-model-pricing", () => {
     );
     expect(res.status).toBe(200);
     expect(res.body).toEqual([
-      { model: "google/veo-3", price: "$0.20–$0.40 per second of output video" },
-      { model: "wan-video/wan-2.5-t2v", price: null },
+      {
+        model: "google/veo-3",
+        price: "$0.20–$0.40 per second of output video",
+        variants: [
+          {
+            price: "$0.20",
+            title: "per second of output video",
+            criteria: { condition: "without_audio" },
+            usdPerSecond: 0.2,
+            usdPerVideo: null,
+          },
+          {
+            price: "$0.40",
+            title: "per second of output video",
+            criteria: { condition: "with_audio" },
+            usdPerSecond: 0.4,
+            usdPerVideo: null,
+          },
+        ],
+      },
+      { model: "wan-video/wan-2.5-t2v", price: null, variants: [] },
     ]);
   });
 
@@ -106,7 +145,7 @@ describe("GET /admin/video-model-pricing", () => {
     const res = await request(app).get(`/api/admin/video-model-pricing?models=${models}`);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(52);
-    expect(res.body[51]).toEqual({ model: "owner/model-51", price: null });
+    expect(res.body[51]).toEqual({ model: "owner/model-51", price: null, variants: [] });
   });
 
   it("400s when the models query is missing or empty", async () => {

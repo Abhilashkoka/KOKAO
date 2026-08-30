@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, afterEach, beforeEach } from "vitest";
 import {
   db,
-  pool,
   walletBalancesTable,
   walletLedgerTable,
   walletProviderOperationsTable,
@@ -74,6 +73,7 @@ import {
 import type { AiSpendSettings, WalletSettings } from "@workspace/db";
 
 let tenantId: number;
+const fixtureSweepAt = new Date("1900-01-01T00:00:00.000Z");
 
 /** SUM(ledger) must always equal the stored balance — the whole point. */
 async function ledgerSum(id: number): Promise<number> {
@@ -135,10 +135,10 @@ afterAll(async () => {
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
   invalidateFeatureFlagCache();
   await deleteTenant(tenantId);
-  await pool.end();
 });
 
 beforeEach(async () => {
+  vi.restoreAllMocks();
   await db
     .delete(walletProviderOperationsTable)
     .where(eq(walletProviderOperationsTable.tenantId, tenantId));
@@ -147,6 +147,10 @@ beforeEach(async () => {
     .where(eq(walletSettlementRetriesTable.tenantId, tenantId));
   await db.delete(walletLedgerTable).where(eq(walletLedgerTable.tenantId, tenantId));
   await db.delete(walletBalancesTable).where(eq(walletBalancesTable.tenantId, tenantId));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("GST", () => {
@@ -1082,19 +1086,24 @@ describe("durable settlement retry", () => {
       .mockImplementationOnce((callback, config) => realTransaction(callback, config))
       .mockRejectedValueOnce(new Error("temporary settlement outage"));
 
-    await expect(
-      settleWalletDurably(tenantId, reservation!, {
-        kind: "caption",
-        costPaise: 100,
-        provider: "test",
-        model: "restart-safe",
-        refKind: "character",
-        refId: "42",
-      }),
-    ).rejects.toThrow("temporary settlement outage");
-    transactionSpy.mockRestore();
+    try {
+      await expect(
+        settleWalletDurably(tenantId, reservation!, {
+          kind: "caption",
+          costPaise: 100,
+          provider: "test",
+          model: "restart-safe",
+          refKind: "character",
+          refId: "42",
+        }),
+      ).rejects.toThrow("temporary settlement outage");
+    } finally {
+      transactionSpy.mockRestore();
+    }
 
-    const pending = await listWalletSettlementRetries();
+    const pending = (await listWalletSettlementRetries()).filter(
+      (row) => row.reservationId === reservation!.id,
+    );
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({
       reservationId: reservation!.id,
@@ -1109,11 +1118,15 @@ describe("durable settlement retry", () => {
     // the same sweep index.ts runs before starting its periodic timer.
     await db
       .update(walletSettlementRetriesTable)
-      .set({ nextAttemptAt: new Date(0) })
+      .set({ nextAttemptAt: fixtureSweepAt })
       .where(eq(walletSettlementRetriesTable.reservationId, reservation!.id));
-    const swept = await sweepWalletSettlementRetries(new Date());
+    const swept = await sweepWalletSettlementRetries(fixtureSweepAt);
     expect(swept).toEqual({ claimed: 1, settled: 1, failed: 0 });
-    expect(await listWalletSettlementRetries()).toEqual([]);
+    expect(
+      (await listWalletSettlementRetries()).filter(
+        (row) => row.reservationId === reservation!.id,
+      ),
+    ).toEqual([]);
     expect(await getWalletBalancePaise(tenantId)).toBe(9_880);
   });
 
@@ -1125,15 +1138,18 @@ describe("durable settlement retry", () => {
     firstAttempt
       .mockImplementationOnce((callback, config) => realTransaction(callback, config))
       .mockRejectedValueOnce(new Error("database temporarily unavailable"));
-    await expect(
-      settleWalletDurably(tenantId, reservation!, {
-        kind: "image",
-        costPaise: 250,
-        provider: "test",
-        model: "duplicate-queue-retry",
-      }),
-    ).rejects.toThrow("database temporarily unavailable");
-    firstAttempt.mockRestore();
+    try {
+      await expect(
+        settleWalletDurably(tenantId, reservation!, {
+          kind: "image",
+          costPaise: 250,
+          provider: "test",
+          model: "duplicate-queue-retry",
+        }),
+      ).rejects.toThrow("database temporarily unavailable");
+    } finally {
+      firstAttempt.mockRestore();
+    }
 
     const results = await Promise.all([
       retryWalletSettlement(reservation!.id),
@@ -1159,15 +1175,18 @@ describe("durable settlement retry", () => {
     firstAttempt
       .mockImplementationOnce((callback, config) => realTransaction(callback, config))
       .mockRejectedValueOnce(new Error("settlement unavailable"));
-    await expect(
-      settleWalletDurably(tenantId, reservation!, {
-        kind: "caption",
-        costPaise: 100,
-        provider: "test",
-        model: "terminal-failure",
-      }),
-    ).rejects.toThrow("settlement unavailable");
-    firstAttempt.mockRestore();
+    try {
+      await expect(
+        settleWalletDurably(tenantId, reservation!, {
+          kind: "caption",
+          costPaise: 100,
+          provider: "test",
+          model: "terminal-failure",
+        }),
+      ).rejects.toThrow("settlement unavailable");
+    } finally {
+      firstAttempt.mockRestore();
+    }
 
     await db
       .update(walletSettlementRetriesTable)
@@ -1179,11 +1198,17 @@ describe("durable settlement retry", () => {
     const terminalAttempt = vi
       .spyOn(db, "transaction")
       .mockRejectedValueOnce(new Error("still unavailable"));
-    const result = await retryWalletSettlement(reservation!.id);
-    terminalAttempt.mockRestore();
+    let result;
+    try {
+      result = await retryWalletSettlement(reservation!.id);
+    } finally {
+      terminalAttempt.mockRestore();
+    }
 
     expect(result?.status).toBe("failed");
-    const visible = await listWalletSettlementRetries();
+    const visible = (await listWalletSettlementRetries()).filter(
+      (row) => row.reservationId === reservation!.id,
+    );
     expect(visible).toHaveLength(1);
     expect(visible[0]).toMatchObject({
       reservationId: reservation!.id,
@@ -1201,15 +1226,18 @@ describe("durable settlement retry", () => {
     settlementAttempt
       .mockImplementationOnce((callback, config) => realTransaction(callback, config))
       .mockRejectedValueOnce(new Error("temporary settlement outage"));
-    await expect(
-      settleWalletDurably(tenantId, reservation!, {
-        kind: "image",
-        costPaise: 250,
-        provider: "test",
-        model: "successful-work-no-refund",
-      }),
-    ).rejects.toThrow("temporary settlement outage");
-    settlementAttempt.mockRestore();
+    try {
+      await expect(
+        settleWalletDurably(tenantId, reservation!, {
+          kind: "image",
+          costPaise: 250,
+          provider: "test",
+          model: "successful-work-no-refund",
+        }),
+      ).rejects.toThrow("temporary settlement outage");
+    } finally {
+      settlementAttempt.mockRestore();
+    }
 
     await refundWallet(tenantId, reservation!, "later persistence failure");
     expect(await getWalletBalancePaise(tenantId)).toBe(9_400);
@@ -1218,7 +1246,11 @@ describe("durable settlement retry", () => {
       .from(walletLedgerTable)
       .where(eq(walletLedgerTable.reservationId, reservation!.id));
     expect(lifecycleRows.filter((row) => row.kind === "refund")).toHaveLength(0);
-    expect((await listWalletSettlementRetries())[0]).toMatchObject({
+    expect(
+      (await listWalletSettlementRetries()).find(
+        (row) => row.reservationId === reservation!.id,
+      ),
+    ).toMatchObject({
       reservationId: reservation!.id,
       status: "pending",
     });
@@ -1264,10 +1296,10 @@ describe("durable provider-operation recovery", () => {
       // the route's wallet handoff. A restart only reads durable state.
       await db
         .update(walletProviderOperationsTable)
-        .set({ recoverAfter: new Date(0) })
+        .set({ recoverAfter: fixtureSweepAt })
         .where(eq(walletProviderOperationsTable.id, executed.operationId));
 
-      const swept = await sweepWalletProviderOperations(new Date());
+      const swept = await sweepWalletProviderOperations(fixtureSweepAt);
       expect(swept).toEqual({ settled: 1, refunded: 0, failed: 0 });
       expect(providerCalls).toBe(1);
       expect(await getWalletBalancePaise(tenantId)).toBe(9_880);
@@ -1289,7 +1321,7 @@ describe("durable provider-operation recovery", () => {
       expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(1);
       expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(0);
 
-      expect(await sweepWalletProviderOperations(new Date())).toEqual({
+      expect(await sweepWalletProviderOperations(fixtureSweepAt)).toEqual({
         settled: 0,
         refunded: 0,
         failed: 0,
@@ -1325,14 +1357,18 @@ describe("durable provider-operation recovery", () => {
       ),
     ).rejects.toThrow("provider confirmed failure");
 
-    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+    await db
+      .update(walletProviderOperationsTable)
+      .set({ recoverAfter: fixtureSweepAt })
+      .where(eq(walletProviderOperationsTable.reservationId, reservation!.id));
+    expect(await sweepWalletProviderOperations(fixtureSweepAt)).toEqual({
       settled: 0,
       refunded: 1,
       failed: 0,
     });
     expect(await getWalletBalancePaise(tenantId)).toBe(10_000);
     expect(providerCalls).toBe(1);
-    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+    expect(await sweepWalletProviderOperations(fixtureSweepAt)).toEqual({
       settled: 0,
       refunded: 0,
       failed: 0,
@@ -1356,7 +1392,7 @@ describe("durable provider-operation recovery", () => {
       settlement: { kind: "image", costPaise: 100 },
     });
 
-    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+    expect(await sweepWalletProviderOperations(fixtureSweepAt)).toEqual({
       settled: 0,
       refunded: 0,
       failed: 0,
@@ -1434,9 +1470,9 @@ describe("durable provider-operation recovery", () => {
 
     await db
       .update(walletProviderOperationsTable)
-      .set({ recoverAfter: new Date(0) })
+      .set({ recoverAfter: fixtureSweepAt })
       .where(eq(walletProviderOperationsTable.id, executed.operationId));
-    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+    expect(await sweepWalletProviderOperations(fixtureSweepAt)).toEqual({
       settled: 1,
       refunded: 0,
       failed: 0,
@@ -1544,9 +1580,9 @@ describe("durable provider-operation recovery", () => {
 
     await db
       .update(walletProviderOperationsTable)
-      .set({ recoverAfter: new Date(0) })
+      .set({ recoverAfter: fixtureSweepAt })
       .where(eq(walletProviderOperationsTable.id, operationId!));
-    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+    expect(await sweepWalletProviderOperations(fixtureSweepAt)).toEqual({
       settled: 1,
       refunded: 0,
       failed: 0,

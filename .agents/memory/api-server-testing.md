@@ -11,8 +11,10 @@ description: Durable decisions for writing tests in artifacts/api-server.
   provider="meta" row) so real dev config is never destroyed.
 - **Mock only the trust boundary and the network**, never the DB: mock `@clerk/express` (auth) and the
   live `metaApi` network functions; keep DB-backed helpers real.
-- Integration test files must run serially (they share the global meta row) and must close the pg pool
-  in a top-level afterAll, or vitest hangs.
+- Integration test files must run serially when they share global rows. Individual suites must never
+  close the shared pg pool; only the run-level lifecycle owns it. **Why:** closing it in one file makes
+  every later DB-backed file fail with misleading 500s. **How to apply:** clean only that suite's rows
+  in `afterAll`; leave shared process resources to the Vitest/global teardown.
 - **Contract:** `pageId`/`igUserId` are PUBLIC identifiers the API intentionally returns; only
   `appSecret` and `pageAccessToken` are secrets that must be masked and never returned/stored in
   plaintext. Don't assert IDs are masked — assert the tokens never leak (including the FB page token
