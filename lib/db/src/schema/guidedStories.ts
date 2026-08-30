@@ -123,6 +123,19 @@ export interface GuidedStoryVisualChoices {
     | { mode: "none"; imagePath: null; description: null }
     | { mode: "image"; imagePath: string; description: null }
     | { mode: "text"; imagePath: null; description: string };
+  /**
+   * Dedicated location plate reviewed before any scene preview.  The hash is
+   * over prompt, imagePath and affected scene ids; approval is valid only while
+   * that exact material remains unchanged.
+   */
+  backdropReference?: {
+    version: 1;
+    prompt: string;
+    imagePath: string;
+    sceneIds: string[];
+    fingerprint: string;
+    approvedAt: string | null;
+  } | null;
 }
 
 export interface GuidedStoryDraftState {

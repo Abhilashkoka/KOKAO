@@ -5,10 +5,12 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryBackdropReference } from './guidedStoryBackdropReference';
 import type { GuidedStoryVisualChoicesInputLocation } from './guidedStoryVisualChoicesInputLocation';
 import type { GuidedStoryVisualChoicesInputLogo } from './guidedStoryVisualChoicesInputLogo';
 
 export interface GuidedStoryVisualChoicesInput {
   logo: GuidedStoryVisualChoicesInputLogo;
   location: GuidedStoryVisualChoicesInputLocation;
+  backdropReference?: null | GuidedStoryBackdropReference;
 }

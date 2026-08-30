@@ -137,3 +137,4 @@
 - [Dynamic voice catalogs](dynamic-voice-catalogs.md) — provider voice lists must bypass browser caches and refetch on mount; an empty outage response must not persist.
 - [Guided preview fingerprints](guided-preview-fingerprints.md) — preserve stored structural fingerprints; cast approval separately binds exact reference bytes and draft revision.
 - [ElevenLabs language controls](elevenlabs-language-controls.md) — multilingual v2 rejects explicit language_code and lacks Telugu; v3 handles explicit Guided Story locales.
+- [Approval snapshot invalidation](approval-snapshot-invalidation.md) — pending replacements must revoke executable snapshot approval atomically and serialize against active workers.

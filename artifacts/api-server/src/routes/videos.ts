@@ -47,6 +47,8 @@ import {
   RejectGuidedStoryReferenceBody,
   EnqueueGuidedStoryDraftBody,
   CorrectGuidedStorySceneBody,
+  PrepareGuidedStoryBackdropBody,
+  ApproveGuidedStoryBackdropBody,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -251,6 +253,7 @@ import {
   normalizeGuidedStoryLocale,
   guidedStoryNativeScriptWarning,
   validateAndRepairGuidedScript,
+  guidedBackdropFingerprint,
 } from "../lib/videoGen/guidedStory";
 
 const router: IRouter = Router();
@@ -1508,7 +1511,8 @@ function hasOnlyGuidedVisualFields(value: unknown): boolean {
   const choices = input.visualChoices;
   if (!choices || typeof choices !== "object" || Array.isArray(choices)) return false;
   const visual = choices as Record<string, unknown>;
-  if (Object.keys(visual).some((key) => key !== "logo" && key !== "location")) return false;
+  if (Object.keys(visual).some((key) =>
+    key !== "logo" && key !== "location" && key !== "backdropReference")) return false;
   for (const [item, fields] of [
     [visual.logo, ["path", "sceneIds"]],
     [visual.location, ["mode", "imagePath", "description"]],
@@ -1517,6 +1521,10 @@ function hasOnlyGuidedVisualFields(value: unknown): boolean {
         Object.keys(item as Record<string, unknown>).some((key) => !fields.includes(key))) return false;
   }
   return true;
+}
+
+function guidedBackdropReviewError(): string {
+  return "Review and approve the shared backdrop reference before generating scene previews.";
 }
 
 function validateGuidedVisualChoices(
@@ -2327,8 +2335,16 @@ router.patch(
         return;
       }
     }
-    const visualChoices = parsed.data.visualChoices
+    const validatedVisualChoices = parsed.data.visualChoices
       ? validateGuidedVisualChoices(parsed.data.visualChoices, script, req.tenantId)
+      : null;
+    const visualChoices = parsed.data.visualChoices
+      ? validatedVisualChoices && {
+          ...validatedVisualChoices,
+          // This checkpoint is issued only by the dedicated backdrop routes.
+          // Optional logo/location edits must not silently discard it.
+          backdropReference: row.state.visualChoices?.backdropReference,
+        }
       : row.state.visualChoices ?? emptyGuidedVisualChoices();
     if (!visualChoices) {
       res.status(400).json({
@@ -5194,7 +5210,7 @@ router.post(
         eq(videoGenerationsTable.status, "awaiting_review"),
       )).returning();
       return savedDraft && savedJob
-        ? { kind: "saved" as const, draft: savedDraft, jobId: null }
+        ? { kind: "saved" as const, draft: savedDraft }
         : { kind: "stale" as const };
     });
     if (result.kind === "missing") {
@@ -5208,6 +5224,227 @@ router.post(
       return;
     }
     res.json(serializeGuidedDraft(result.draft));
+  },
+);
+
+router.put(
+  "/ai/guided-story/drafts/:draftId/backdrop",
+  async (req: Request, res: Response) => {
+    const parsed = PrepareGuidedStoryBackdropBody.safeParse(req.body);
+    const draftId = Number(req.params.draftId);
+    if (!parsed.success || !Number.isSafeInteger(draftId) || draftId <= 0) {
+      res.status(400).json({ error: "Choose a rendered backdrop, a prompt, and its affected scenes." });
+      return;
+    }
+    const input = parsed.data;
+    if (!canonicalGuidedVisualObjectPath(input.imagePath, req.tenantId)) {
+      res.status(400).json({ error: "The backdrop must be a tenant-owned uploaded image." });
+      return;
+    }
+    try {
+      await loadReferenceImage(input.imagePath, req.tenantId);
+    } catch {
+      res.status(400).json({ error: "The backdrop image is missing or is not a supported image." });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, draftId),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!draft) return { kind: "missing" as const };
+      if (
+        draft.revision !== input.revision ||
+        !draft.state.script ||
+        unresolvedGuidedReferenceOperation(draft.state)
+      ) return { kind: "stale" as const };
+      const known = new Set(draft.state.script.scenes.map((scene) => scene.id));
+      if (input.sceneIds.some((id) => !known.has(id))) return { kind: "invalid" as const };
+      const fingerprint = guidedBackdropFingerprint(input);
+      const nextReference = {
+        version: 1 as const,
+        prompt: input.prompt.trim(),
+        imagePath: input.imagePath,
+        sceneIds: [...input.sceneIds],
+        fingerprint,
+        approvedAt: null,
+      };
+      const nextVisuals = {
+        ...(draft.state.visualChoices ?? emptyGuidedVisualChoices()),
+        backdropReference: nextReference,
+      };
+      let job: VideoGeneration | undefined;
+      const jobId = draft.state.storyboardJobId;
+      if (jobId && jobId > 0) {
+        [job] = await tx.select().from(videoGenerationsTable).where(and(
+          eq(videoGenerationsTable.id, jobId),
+          eq(videoGenerationsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (!job || job.status !== "awaiting_review" || job.storyboard?.mode !== "guided_story") {
+          return { kind: "stale" as const };
+        }
+        const previewActive =
+          job.options?.guidedPreviewRender?.state === "queued" ||
+          job.options?.guidedPreviewRender?.state === "running";
+        const correctionActive = job.storyboard.scenes.some((scene) =>
+          (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
+            ["queued", "running", "provider_started", "provider_succeeded"].includes(
+              attempt.state,
+            ),
+          ),
+        );
+        if (previewActive || correctionActive) {
+          return { kind: "active" as const };
+        }
+      }
+      const nextRevision = draft.revision + 1;
+      const castApprovals = draft.state.castApprovals
+        ? { ...draft.state.castApprovals, draftRevision: nextRevision }
+        : null;
+      const [saved] = await tx.update(guidedStoryDraftsTable).set({
+        revision: nextRevision,
+        state: { ...draft.state, castApprovals, visualChoices: nextVisuals },
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, draft.id),
+        eq(guidedStoryDraftsTable.revision, draft.revision),
+      )).returning();
+      if (!saved) return { kind: "stale" as const };
+      if (job?.storyboard && job.options?.guidedStory) {
+        // A scene leaving the shared set must be invalidated too: its frozen
+        // environmental reference changes from the old plate to no plate.
+        const affected = new Set([
+          ...input.sceneIds,
+          ...(job.options.guidedStory.backdropReference?.sceneIds ?? []),
+        ]);
+        const storyboard = structuredClone(job.storyboard);
+        for (const scene of storyboard.scenes) {
+          if (!affected.has(scene.id)) continue;
+          scene.previewPath = null;
+          scene.previewCheckpoint = null;
+          scene.providerCheckpoint = null;
+        }
+        await tx.update(videoGenerationsTable).set({
+          storyboard,
+          options: {
+            ...job.options,
+            guidedStory: {
+              ...job.options.guidedStory,
+              draftRevision: nextRevision,
+              castApprovals: castApprovals ?? undefined,
+              visuals: nextVisuals,
+              // Keep the replacement visible in the immutable job snapshot,
+              // but non-executable until its exact fingerprint is approved.
+              // Every preview/correction/final runner already fails closed on
+              // an unapproved execution reference.
+              backdropReference: nextReference as unknown as typeof job.options.guidedStory.backdropReference,
+            },
+            guidedPreviewRender: null,
+          },
+          updatedAt: new Date(),
+        }).where(eq(videoGenerationsTable.id, job.id));
+      }
+      return { kind: "saved" as const, draft: saved };
+    });
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Guided story draft not found." });
+    } else if (result.kind === "invalid") {
+      res.status(400).json({ error: "Every affected scene must belong to the current approved script." });
+    } else if (result.kind === "stale") {
+      res.status(409).json({ error: "The story or its reference work changed. Reload and review the backdrop again." });
+    } else if (result.kind === "active") {
+      res.status(409).json({
+        error:
+          "Wait for the active scene preview or correction to finish before replacing the shared backdrop.",
+      });
+    } else {
+      res.json(serializeGuidedDraft(result.draft));
+    }
+  },
+);
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/backdrop/approve",
+  async (req: Request, res: Response) => {
+    const parsed = ApproveGuidedStoryBackdropBody.safeParse(req.body);
+    const draftId = Number(req.params.draftId);
+    if (!parsed.success || !Number.isSafeInteger(draftId) || draftId <= 0) {
+      res.status(400).json({ error: guidedBackdropReviewError() });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, draftId),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!draft) return { kind: "missing" as const };
+      const reference = draft.state.visualChoices?.backdropReference;
+      if (
+        draft.revision !== parsed.data.revision ||
+        !reference ||
+        reference.fingerprint !== parsed.data.fingerprint ||
+        guidedBackdropFingerprint(reference) !== reference.fingerprint ||
+        unresolvedGuidedReferenceOperation(draft.state)
+      ) return { kind: "stale" as const };
+      const approvedAt = new Date().toISOString();
+      const approved = { ...reference, approvedAt };
+      const visualChoices = { ...draft.state.visualChoices!, backdropReference: approved };
+      const jobId = draft.state.storyboardJobId;
+      const [job] = jobId && jobId > 0
+        ? await tx.select().from(videoGenerationsTable).where(and(
+            eq(videoGenerationsTable.id, jobId),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          )).for("update").limit(1)
+        : [];
+      if (jobId && (!job || job.status !== "awaiting_review" || !job.options?.guidedStory)) {
+        return { kind: "stale" as const };
+      }
+      const [saved] = await tx.update(guidedStoryDraftsTable).set({
+        state: { ...draft.state, visualChoices },
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, draft.id),
+        eq(guidedStoryDraftsTable.revision, draft.revision),
+      )).returning();
+      if (!saved) return { kind: "stale" as const };
+      if (job?.options?.guidedStory && job.storyboard) {
+        const snapshot = {
+          ...job.options.guidedStory,
+          visuals: visualChoices,
+          backdropReference: approved as typeof job.options.guidedStory.backdropReference,
+        };
+        const storyboard = guidedStoryStoryboard(snapshot, job.storyboard);
+        const missing = storyboard.scenes.filter((scene) => !scene.previewPath).length;
+        const previewOperation = missing > 0
+          ? {
+              version: 1 as const,
+              operationId: `guided-preview:${job.id}:${Date.now()}`,
+              state: "queued" as const,
+              total: storyboard.scenes.length,
+              completed: storyboard.scenes.length - missing,
+              error: null,
+              requestedAt: approvedAt,
+              startedAt: null,
+              finishedAt: null,
+            }
+          : null;
+        await tx.update(videoGenerationsTable).set({
+          storyboard,
+          options: { ...job.options, guidedStory: snapshot, guidedPreviewRender: previewOperation },
+          updatedAt: new Date(),
+        }).where(eq(videoGenerationsTable.id, job.id));
+        return { kind: "saved" as const, draft: saved, jobId: previewOperation ? job.id : null };
+      }
+      return { kind: "saved" as const, draft: saved };
+    });
+    if (result.kind === "missing") res.status(404).json({ error: "Guided story draft not found." });
+    else if (result.kind === "stale") res.status(409).json({ error: guidedBackdropReviewError() });
+    else {
+      if (result.jobId && !enqueueBackgroundJob(() => runGuidedPreviewRenderJob(result.jobId!))) {
+        req.log.warn({ jobId: result.jobId }, "Approved backdrop previews remain queued for recovery");
+      }
+      res.json(serializeGuidedDraft(result.draft));
+    }
   },
 );
 
@@ -5232,6 +5469,9 @@ router.post(
       unresolvedGuidedReferenceOperation(row.state) ||
       !row.state.script ||
       !row.state.scriptApprovedAt ||
+      !row.state.visualChoices?.backdropReference?.approvedAt ||
+      guidedBackdropFingerprint(row.state.visualChoices.backdropReference) !==
+        row.state.visualChoices.backdropReference.fingerprint ||
       row.state.cast.length !== row.state.script.roles.length ||
       !guidedCastApprovalsMatch({
         draftRevision: row.revision,
@@ -5246,7 +5486,7 @@ router.post(
         .status(400)
         .json({
           error:
-            `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} Also approve the exact current script and complete casting with fresh consent.`,
+            `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} Also approve the exact current script, complete casting with fresh consent, and review the shared backdrop before enqueue.`,
         });
       return;
     }
@@ -5287,6 +5527,9 @@ router.post(
     }
     const claimed = await saveGuidedState(row, row.revision, {
       ...row.state,
+      castApprovals: row.state.castApprovals
+        ? { ...row.state.castApprovals, draftRevision: row.revision + 1 }
+        : null,
       // A negative id is an enqueue claim, never a real job reference. It closes
       // the race between duplicate requests before any funding can be reserved.
       storyboardJobId: -1,
@@ -5357,6 +5600,7 @@ async function generateVideoHandler(
       !guidedDraft?.state.setup ||
       !guidedDraft.state.script ||
       !guidedDraft.state.scriptApprovedAt ||
+      !guidedDraft.state.visualChoices?.backdropReference?.approvedAt ||
       guidedDraft.state.cast.length !== guidedDraft.state.script.roles.length ||
       !guidedCastApprovalsMatch({
         draftRevision: guidedDraft.revision,
@@ -5367,7 +5611,9 @@ async function generateVideoHandler(
     ) {
       res
         .status(400)
-        .json({ error: GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE });
+        .json({
+          error: `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} ${guidedBackdropReviewError()}`,
+        });
       return;
     }
     const state = guidedDraft.state;
@@ -6675,6 +6921,7 @@ async function generateVideoHandler(
       : null;
   const creativeFragments = compileCreativeBrief(resolvedCreativeBrief);
 
+  const approvedGuidedBackdrop = guidedDraft?.state.visualChoices?.backdropReference;
   const options: VideoJobOptions = {
     templateRuntime:
       body.engine === "topic_to_video" &&
@@ -6685,7 +6932,8 @@ async function generateVideoHandler(
     guidedStory:
       guidedDraft?.state.setup &&
       guidedDraft.state.script &&
-      guidedDraft.state.scriptApprovedAt
+      guidedDraft.state.scriptApprovedAt &&
+      approvedGuidedBackdrop?.approvedAt
         ? {
             version: 1,
             draftId: guidedDraft.id,
@@ -6704,6 +6952,10 @@ async function generateVideoHandler(
             cast: guidedDraft.state.cast,
             castApprovals: guidedDraft.state.castApprovals!,
             visuals: guidedDraft.state.visualChoices,
+            backdropReference: {
+              ...approvedGuidedBackdrop,
+              approvedAt: approvedGuidedBackdrop.approvedAt,
+            },
           }
         : undefined,
     hybridStory:
@@ -9525,6 +9777,11 @@ router.post(
         return { kind: "invalid" as const };
       }
       const snapshot = job.options?.guidedStory;
+      const backdrop = snapshot?.backdropReference;
+      if (
+        !backdrop?.approvedAt ||
+        guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint
+      ) return { kind: "backdrop_review" as const };
       if (
         !snapshot ||
         !guidedCastApprovalsMatch({
@@ -9588,6 +9845,10 @@ router.post(
       res.status(409).json({ error: GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE });
       return;
     }
+    if (result.kind === "backdrop_review") {
+      res.status(409).json({ error: guidedBackdropReviewError() });
+      return;
+    }
     if (result.kind === "correction_active") {
       res.status(409).json({
         error: "Wait for the active scene correction before rendering missing previews.",
@@ -9641,12 +9902,36 @@ router.post(
       });
       return;
     }
+    if (parsed.data.backdropMode === "replace_shared_backdrop") {
+      res.status(409).json({
+        error:
+          "Replace the shared backdrop in Backdrop review, then approve it again. Only affected scene checkpoints will be cleared.",
+      });
+      return;
+    }
+    if (
+      parsed.data.category === "location" &&
+      parsed.data.backdropMode !== "scene_only_background"
+    ) {
+      res.status(400).json({
+        error:
+          "Choose scene-only background for this correction, or replace the shared backdrop in Backdrop review.",
+      });
+      return;
+    }
     const sceneId = String(req.params.sceneId);
     const [before] = await db.select().from(videoGenerationsTable).where(and(
       eq(videoGenerationsTable.id, jobId),
       eq(videoGenerationsTable.tenantId, req.tenantId),
     )).limit(1);
     const beforeScene = before?.storyboard?.scenes.find((scene) => scene.id === sceneId);
+    if (
+      before?.storyboard?.mode === "guided_story" &&
+      !before.options?.guidedStory?.backdropReference?.approvedAt
+    ) {
+      res.status(409).json({ error: guidedBackdropReviewError() });
+      return;
+    }
     if (
       !before || before.status !== "awaiting_review" ||
       before.storyboard?.mode !== "guided_story" || !beforeScene?.guidedStory ||
@@ -9733,6 +10018,9 @@ router.post(
           id: attemptId,
           version: attempts.length + 1,
           category: parsed.data.category,
+          backdropMode: parsed.data.backdropMode === "scene_only_background"
+            ? "scene_only_background"
+            : "keep_locked_backdrop",
           note: parsed.data.note.trim(),
           state: "queued",
           inputFingerprint: scene.guidedStory.inputFingerprint,

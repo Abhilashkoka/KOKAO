@@ -4318,6 +4318,9 @@ describe("Video Studio", () => {
       (await screen.findByTestId("guided-correction-history-s1")).textContent,
     ).toContain("actual ₹0.40");
     fireEvent.click(screen.getByTestId("button-correct-scene-s1"));
+    expect(screen.getByTestId("select-guided-correction-backdrop").textContent).toContain(
+      "Keep locked shared backdrop",
+    );
     expect(screen.getAllByAltText("Ari locked cast reference").length).toBeGreaterThan(0);
     expect(screen.getAllByAltText("Ari locked outfit reference").length).toBeGreaterThan(0);
     expect(screen.getAllByAltText("Locked location reference").length).toBeGreaterThan(0);
@@ -4338,6 +4341,7 @@ describe("Video Studio", () => {
         note:
           "Issues to correct: Character, Costume, Location. Keep Ari in the approved jacket.",
         confirmed: true,
+          backdropMode: "keep_locked_backdrop",
       },
     }]);
   });

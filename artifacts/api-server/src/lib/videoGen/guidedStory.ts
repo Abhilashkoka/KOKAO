@@ -256,6 +256,17 @@ function defaultGuidedStoryVisualChoices(): GuidedStoryVisualChoices {
   };
 }
 
+export function guidedBackdropFingerprint(value: {
+  prompt: string;
+  imagePath: string;
+  sceneIds: string[];
+}): string {
+  return guidedSceneFingerprint({
+    prompt: value.prompt.trim(),
+    imagePath: value.imagePath,
+    sceneIds: [...value.sceneIds].sort(),
+  });
+}
 export function guidedCastFailureDisposition(confirmedFailure: boolean):
   | { releaseFunding: true; nextStatus: null }
   | { releaseFunding: false; nextStatus: "provider_outcome_unknown" } {
@@ -443,6 +454,14 @@ export function guidedStoryApprovalSnapshotMatches(params: {
   storyboard: VideoStoryboard;
 }): boolean {
   const { draftState, snapshot, storyboard } = params;
+  const approvedBackdrop = draftState.visualChoices?.backdropReference;
+  if (
+    !approvedBackdrop?.approvedAt ||
+    !snapshot.backdropReference?.approvedAt ||
+    guidedBackdropFingerprint(approvedBackdrop) !== approvedBackdrop.fingerprint ||
+    guidedBackdropFingerprint(snapshot.backdropReference) !== snapshot.backdropReference.fingerprint ||
+    approvedBackdrop.fingerprint !== snapshot.backdropReference.fingerprint
+  ) return false;
   const draftFingerprint = draftState.script
     ? guidedStorySnapshotFingerprint({
         script: draftState.script,
@@ -544,6 +563,10 @@ export function guidedStoryStoryboard(
   snapshot: NonNullable<VideoJobOptions["guidedStory"]>,
   existing?: VideoStoryboard | null,
 ): VideoStoryboard {
+  // Construction remains deterministic for historical snapshots so they can
+  // be inspected. API/worker execution gates below fail closed before any
+  // provider call when this approved reference is absent.
+  const backdropReference = snapshot.backdropReference;
   const castByRole = new Map(snapshot.cast.map((member) => [member.roleId, member]));
   const approvalByRole = snapshot.castApprovals?.roles ?? {};
   const visuals = snapshot.visuals ?? defaultGuidedStoryVisualChoices();
@@ -553,6 +576,8 @@ export function guidedStoryStoryboard(
       .map((scene) => [scene.guidedStory!.scriptSceneId, scene]),
   );
   const scenes = snapshot.script.scenes.map((scriptScene) => {
+    const sceneBackdrop =
+      backdropReference?.sceneIds.includes(scriptScene.id) ? backdropReference : null;
     const roleIds = scriptScene.roleIds;
     const sceneCast = roleIds.map((roleId) => castByRole.get(roleId)).filter(
       (member): member is GuidedStoryCastSnapshot => Boolean(member),
@@ -611,6 +636,8 @@ export function guidedStoryStoryboard(
         visuals.location.mode === "text"
           ? visuals.location.description
           : null,
+      backdropReferencePath: sceneBackdrop?.imagePath,
+      backdropReferenceFingerprint: sceneBackdrop?.fingerprint,
     };
     const inputFingerprint = guidedSceneFingerprint({
       scriptScene,
@@ -624,9 +651,11 @@ export function guidedStoryStoryboard(
     const roleDirection = sceneCast.map((member) =>
       `${member.character.name} (${member.roleId}) wears ${member.outfit?.description ?? "the approved wardrobe"}; identity reference ${member.character.referenceImagePath ?? "MISSING"}; outfit reference ${member.outfit?.referenceImagePath ?? "MISSING"}.`,
     ).join(" ");
-    const locationDirection =
-      visuals.location.mode === "image"
-        ? `Use the approved shared location image ${visuals.location.imagePath} as environmental guidance.`
+    const locationDirection = sceneBackdrop
+      ? `Use the frozen approved shared backdrop ${sceneBackdrop.imagePath}. ` +
+        `Backdrop direction: ${sceneBackdrop.prompt}. Preserve this location unless an explicitly scene-only background correction is requested.`
+      : visuals.location.mode === "image"
+        ? `Use the shared location image ${visuals.location.imagePath} as environmental guidance.`
         : visuals.location.mode === "text"
           ? `Shared location direction: ${visuals.location.description}.`
           : "";

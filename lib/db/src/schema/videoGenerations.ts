@@ -683,6 +683,16 @@ export interface VideoJobOptions {
     castApprovals?: GuidedStoryCastApprovalManifest;
     /** Immutable logo and shared-location direction resolved before enqueue. */
     visuals?: import("./guidedStories").GuidedStoryVisualChoices;
+    /** Frozen, explicitly-approved location plate used by every render path. */
+    backdropReference?: {
+      version: 1;
+      prompt: string;
+      imagePath: string;
+      sceneIds: string[];
+      fingerprint: string;
+      /** Null while a replacement has been prepared but not approved. */
+      approvedAt: string | null;
+    };
   };
 }
 
@@ -753,6 +763,8 @@ export interface VideoStoryboardScene {
       locationMode: "none" | "image" | "text";
       locationImagePath: string | null;
       locationDescription: string | null;
+      backdropReferencePath?: string;
+      backdropReferenceFingerprint?: string;
     };
     /**
      * Append-only, funded correction history. The approved inputs and
@@ -765,6 +777,7 @@ export interface VideoStoryboardScene {
         id: string;
         version: number;
         category: "character" | "costume" | "location" | "logo" | "other";
+        backdropMode?: "keep_locked_backdrop" | "scene_only_background";
         note: string;
         state:
           | "queued"

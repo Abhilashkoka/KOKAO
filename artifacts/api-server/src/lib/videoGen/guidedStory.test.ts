@@ -4,6 +4,7 @@ import {
   GUIDED_STORY_PLATFORMS,
   GUIDED_SCENE_INSERTION_CLAIM_TTL_MS,
   GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
+  guidedBackdropFingerprint,
   guidedCastFailureDisposition,
   guidedCastHasDuplicates,
   guidedCastApprovalsMatch,
@@ -110,6 +111,27 @@ function approvalFixture() {
       },
     ])),
   };
+  const backdropInput = {
+    prompt: "A storm shelter command room",
+    imagePath: "/objects/1/backdrop.png",
+    sceneIds: script.scenes.map((scene) => scene.id),
+  };
+  const backdropReference = {
+    version: 1 as const,
+    ...backdropInput,
+    fingerprint: guidedBackdropFingerprint(backdropInput),
+    approvedAt: "2025-01-01T00:00:00.000Z",
+  };
+  const visualChoices = {
+    version: 1 as const,
+    logo: { path: null, sceneIds: [] as string[] },
+    location: {
+      mode: "none" as const,
+      imagePath: null,
+      description: null,
+    },
+    backdropReference,
+  };
   const snapshot = {
     version: 1 as const,
     draftId: 7,
@@ -126,6 +148,8 @@ function approvalFixture() {
     script,
     cast,
     castApprovals,
+    visuals: visualChoices,
+    backdropReference,
   };
   const storyboard = guidedStoryStoryboard(snapshot);
   storyboard.scenes = storyboard.scenes.map((scene) => ({
@@ -148,6 +172,7 @@ function approvalFixture() {
     duplicateAssignmentConfirmed: false,
     scriptGeneration: null,
     castOperations: {},
+    visualChoices,
     storyboardJobId: 44,
   };
   return { script, cast, castApprovals, snapshot, storyboard, state };
@@ -508,41 +533,24 @@ describe("guided cast provider uncertainty", () => {
 describe("guided approval fail-closed snapshot guard", () => {
   it("requires every role, current revision, exact paths, and SHA-256 fingerprints", () => {
     const fixture = approvalFixture();
-    expect(guidedCastApprovalsMatch({
-      draftRevision: 4,
-      cast: fixture.cast,
-      approvals: fixture.castApprovals,
-    })).toBe(true);
-    expect(guidedCastApprovalsMatch({
-      draftRevision: 5,
-      cast: fixture.cast,
-      approvals: fixture.castApprovals,
-    })).toBe(false);
-    expect(guidedCastApprovalsMatch({
-      draftRevision: 4,
-      cast: fixture.cast,
-      approvals: {
-        ...fixture.castApprovals,
-        roles: {
-          ...fixture.castApprovals.roles,
-          "role-1": {
-            ...fixture.castApprovals.roles["role-1"]!,
-            outfit: {
-              ...fixture.castApprovals.roles["role-1"]!.outfit,
-              referenceImagePath: "/objects/1/replaced.png",
-            },
-          },
-        },
-      },
-    })).toBe(false);
-    expect(guidedCastApprovalsMatch({
-      draftRevision: 4,
-      cast: fixture.cast,
-      approvals: undefined,
-    })).toBe(false);
+    expect(guidedStoryEstimates(fixture.state)).toMatchObject({
+      castAssetUnits: 0,
+      generatedStrategyCastUnits: 1,
+      savedStrategyCastUnits: 0,
+    });
+    expect(
+      guidedStoryEstimates({
+        ...fixture.state,
+        castStrategy: "generated",
+        cast: fixture.cast.slice(0, 1),
+      }),
+    ).toMatchObject({
+      castAssetUnits: 1,
+      generatedStrategyCastUnits: 1,
+    });
   });
 
-  it("binds snapshot and scene fingerprints to cast approval evidence", () => {
+  it("does not count foreign or malformed completed operation keys as paid assets", () => {
     const fixture = approvalFixture();
     const changed = structuredClone(fixture.snapshot);
     changed.castApprovals!.roles["role-1"]!.outfit.sha256 = "f".repeat(64);

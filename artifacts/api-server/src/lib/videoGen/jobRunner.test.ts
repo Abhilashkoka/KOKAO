@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
   topicPlanMode: null as "ai" | "character" | null,
   topicSceneCount: 1,
   topicPlans: 0,
+  guidedInitialBoard: null as unknown,
   topicRenders: 0,
   topicRenderError: null as unknown,
   topicCheckpointed: [] as number[],
@@ -183,6 +184,10 @@ vi.mock("./topicVideo", async (importOriginal) => {
         : params.upload(result.buffer, "image/png");
     }),
     planTopicStoryboard: vi.fn(async (params: { tenantId: number; visualsSource: string }) => {
+      if (state.guidedInitialBoard) {
+        state.topicPlans += 1;
+        return state.guidedInitialBoard;
+      }
       if (!state.topicPlanMode) return actual.planTopicStoryboard(params as never);
       state.topicPlans += 1;
       const character = state.topicPlanMode === "character";
@@ -752,7 +757,7 @@ import {
   resumeInterruptedGuidedSceneCorrections,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
-import { guidedStoryStoryboard } from "./guidedStory";
+import { guidedBackdropFingerprint, guidedStoryStoryboard } from "./guidedStory";
 import { waitForPendingJobs } from "../backgroundJobs";
 import { CueOverrunError } from "../localization/dub";
 
@@ -795,6 +800,7 @@ beforeEach(() => {
   state.topicPlanMode = null;
   state.topicSceneCount = 1;
   state.topicPlans = 0;
+  state.guidedInitialBoard = null;
   state.topicRenders = 0;
   state.topicRenderError = null;
   state.topicCheckpointed.length = 0;
@@ -3245,6 +3251,11 @@ describe("Guided Story preview-only runner", () => {
         endMs: (index + 1) * 10_000,
       }],
     }));
+    const backdrop = {
+      prompt: "Approved studio backdrop",
+      imagePath: `/objects/${tenantId}/uploads/backdrop.png`,
+      sceneIds: scenes.map((scene) => scene.id),
+    };
     return {
       version: 1 as const,
       draftId: 1,
@@ -3311,8 +3322,60 @@ describe("Guided Story preview-only runner", () => {
           },
         },
       },
+      backdropReference: {
+        version: 1 as const,
+        ...backdrop,
+        fingerprint: guidedBackdropFingerprint(backdrop),
+        approvedAt: "2025-01-01T00:00:00.000Z",
+      },
     };
   }
+
+  it("allows a valid approved Guided Story without a preexisting board through initial planning", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 2);
+    state.guidedInitialBoard = guidedStoryStoryboard(snapshot);
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: true,
+        guidedStory: snapshot,
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status, saved.error ?? undefined).toBe("awaiting_review");
+    expect(saved.storyboard).toMatchObject({ mode: "guided_story" });
+    expect(saved.storyboard!.scenes).toHaveLength(snapshot.script.scenes.length);
+  });
+
+  it("fails an invalid Guided backdrop fingerprint before initial planning", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    snapshot.backdropReference!.fingerprint = "0".repeat(64);
+    state.topicPlanMode = "ai";
+    const plansBefore = state.topicPlans;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: true,
+        guidedStory: snapshot,
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.error).toMatch(/review and approve the shared backdrop/i);
+    expect(state.topicPlans).toBe(plansBefore);
+  });
 
   async function seedGuidedPreviewJob(params: {
     tenantId: number;
@@ -3367,6 +3430,11 @@ describe("Guided Story preview-only runner", () => {
 
   it("reuses completed checkpoints without starting a final render", async () => {
     const tenant = await newTenant();
+    const backdrop = {
+      prompt: "A shared town square",
+      imagePath: `/objects/${tenant.tenantId}/backdrop.png`,
+      sceneIds: ["scene-one"],
+    };
     const snapshot = {
       version: 1 as const,
       draftId: 1,
@@ -3446,6 +3514,12 @@ describe("Guided Story preview-only runner", () => {
             },
           },
         },
+      },
+      backdropReference: {
+        version: 1 as const,
+        ...backdrop,
+        fingerprint: guidedBackdropFingerprint(backdrop),
+        approvedAt: "2025-01-01T00:00:00.000Z",
       },
     };
     const storyboard = guidedStoryStoryboard(snapshot);

@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedSceneCorrectionRequestBackdropMode } from './guidedSceneCorrectionRequestBackdropMode';
 import type { GuidedSceneCorrectionRequestCategory } from './guidedSceneCorrectionRequestCategory';
 
 export interface GuidedSceneCorrectionRequest {
@@ -16,4 +17,6 @@ export interface GuidedSceneCorrectionRequest {
   note: string;
   /** Explicit acknowledgement that only this preview will be replaced. */
   confirmed: true;
+  /** Explicit backdrop behavior. replace_shared_backdrop is rejected here with instructions to use the shared backdrop review endpoint. */
+  backdropMode: GuidedSceneCorrectionRequestBackdropMode;
 }

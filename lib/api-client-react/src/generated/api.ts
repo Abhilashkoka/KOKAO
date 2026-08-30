@@ -193,6 +193,8 @@ import type {
   GoogleDriveStatus,
   GrantCreditsInput,
   GuidedSceneCorrectionRequest,
+  GuidedStoryBackdropApprovalInput,
+  GuidedStoryBackdropInput,
   GuidedStoryCastInput,
   GuidedStoryCastRoleApprovalInput,
   GuidedStoryDraft,
@@ -16415,6 +16417,149 @@ export const useCreateGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCreateGuidedStoryReferenceMutationOptions(options));
+    }
+
+export const getPrepareGuidedStoryBackdropUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/backdrop`
+}
+
+/**
+ * Saves a tenant-owned rendered location plate and prompt as an unapproved revision-bound candidate. Existing preview checkpoints are invalidated only for scenes listed in sceneIds.
+ * @summary Prepare a shared backdrop candidate for dedicated review
+ */
+export const prepareGuidedStoryBackdrop = async (draftId: number,
+    guidedStoryBackdropInput: GuidedStoryBackdropInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getPrepareGuidedStoryBackdropUrl(draftId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryBackdropInput)
+  }
+);}
+
+
+
+
+export const getPrepareGuidedStoryBackdropMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof prepareGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropInput>}, TContext> => {
+
+const mutationKey = ['prepareGuidedStoryBackdrop'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof prepareGuidedStoryBackdrop>>, {draftId: number;data: BodyType<GuidedStoryBackdropInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  prepareGuidedStoryBackdrop(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PrepareGuidedStoryBackdropMutationResult = NonNullable<Awaited<ReturnType<typeof prepareGuidedStoryBackdrop>>>
+    export type PrepareGuidedStoryBackdropMutationBody = BodyType<GuidedStoryBackdropInput>
+    export type PrepareGuidedStoryBackdropMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Prepare a shared backdrop candidate for dedicated review
+ */
+export const usePrepareGuidedStoryBackdrop = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof prepareGuidedStoryBackdrop>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryBackdropInput>},
+        TContext
+      > => {
+      return useMutation(getPrepareGuidedStoryBackdropMutationOptions(options));
+    }
+
+export const getApproveGuidedStoryBackdropUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/backdrop/approve`
+}
+
+/**
+ * @summary Freeze the exact shared backdrop candidate
+ */
+export const approveGuidedStoryBackdrop = async (draftId: number,
+    guidedStoryBackdropApprovalInput: GuidedStoryBackdropApprovalInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getApproveGuidedStoryBackdropUrl(draftId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryBackdropApprovalInput)
+  }
+);}
+
+
+
+
+export const getApproveGuidedStoryBackdropMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropApprovalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropApprovalInput>}, TContext> => {
+
+const mutationKey = ['approveGuidedStoryBackdrop'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveGuidedStoryBackdrop>>, {draftId: number;data: BodyType<GuidedStoryBackdropApprovalInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  approveGuidedStoryBackdrop(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveGuidedStoryBackdropMutationResult = NonNullable<Awaited<ReturnType<typeof approveGuidedStoryBackdrop>>>
+    export type ApproveGuidedStoryBackdropMutationBody = BodyType<GuidedStoryBackdropApprovalInput>
+    export type ApproveGuidedStoryBackdropMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Freeze the exact shared backdrop candidate
+ */
+export const useApproveGuidedStoryBackdrop = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropApprovalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveGuidedStoryBackdrop>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryBackdropApprovalInput>},
+        TContext
+      > => {
+      return useMutation(getApproveGuidedStoryBackdropMutationOptions(options));
     }
 
 export const getFinalizeGuidedStoryReferenceUrl = (draftId: number,

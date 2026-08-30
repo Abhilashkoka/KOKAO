@@ -4545,6 +4545,16 @@ export interface GuidedStoryScript {
   warnings: string[];
 }
 
+export interface GuidedStoryBackdropReference {
+  version: 1;
+  prompt: string;
+  imagePath: string;
+  sceneIds: string[];
+  fingerprint: string;
+  /** @nullable */
+  approvedAt: string | null;
+}
+
 export type GuidedStoryVisualChoicesInputLogo = {
   /**
      * Canonical tenant-owned /objects/{tenant}/uploads path.
@@ -4585,6 +4595,7 @@ export type GuidedStoryVisualChoicesInputLocation = {
 export interface GuidedStoryVisualChoicesInput {
   logo: GuidedStoryVisualChoicesInputLogo;
   location: GuidedStoryVisualChoicesInputLocation;
+  backdropReference?: null | GuidedStoryBackdropReference;
 }
 
 export interface GuidedStoryDraftUpdate {
@@ -4593,6 +4604,35 @@ export interface GuidedStoryDraftUpdate {
   setup?: GuidedStorySetupInput;
   script?: GuidedStoryScript;
   visualChoices?: GuidedStoryVisualChoicesInput;
+}
+
+export interface GuidedStoryBackdropInput {
+  /** @minimum 1 */
+  revision: number;
+  /**
+     * @minLength 3
+     * @maxLength 1000
+     */
+  prompt: string;
+  /** Canonical tenant-owned rendered or uploaded image. */
+  imagePath: string;
+  /**
+     * @minItems 1
+     * @maxItems 40
+     * @items.minLength 2
+     * @items.maxLength 64
+     */
+  sceneIds: string[];
+}
+
+export interface GuidedStoryBackdropApprovalInput {
+  /** @minimum 1 */
+  revision: number;
+  /**
+     * @minLength 64
+     * @maxLength 64
+     */
+  fingerprint: string;
 }
 
 export interface GuidedStorySceneInsertionInput {
@@ -6001,6 +6041,18 @@ export const GuidedSceneCorrectionRequestCategory = {
   other: 'other',
 } as const;
 
+/**
+ * Explicit backdrop behavior. replace_shared_backdrop is rejected here with instructions to use the shared backdrop review endpoint.
+ */
+export type GuidedSceneCorrectionRequestBackdropMode = typeof GuidedSceneCorrectionRequestBackdropMode[keyof typeof GuidedSceneCorrectionRequestBackdropMode];
+
+
+export const GuidedSceneCorrectionRequestBackdropMode = {
+  keep_locked_backdrop: 'keep_locked_backdrop',
+  scene_only_background: 'scene_only_background',
+  replace_shared_backdrop: 'replace_shared_backdrop',
+} as const;
+
 export interface GuidedSceneCorrectionRequest {
   category: GuidedSceneCorrectionRequestCategory;
   /**
@@ -6010,6 +6062,8 @@ export interface GuidedSceneCorrectionRequest {
   note: string;
   /** Explicit acknowledgement that only this preview will be replaced. */
   confirmed: true;
+  /** Explicit backdrop behavior. replace_shared_backdrop is rejected here with instructions to use the shared backdrop review endpoint. */
+  backdropMode: GuidedSceneCorrectionRequestBackdropMode;
 }
 
 export interface InsertStoryboardSceneRequest {

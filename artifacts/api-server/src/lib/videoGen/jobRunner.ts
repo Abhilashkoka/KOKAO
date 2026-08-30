@@ -114,6 +114,7 @@ import {
   GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
   guidedCastApprovalsMatch,
   guidedStorySceneImmutableInputsMatch,
+  guidedBackdropFingerprint,
   guidedStoryStoryboard,
 } from "./guidedStory";
 import { resolveModelOptions, videoModelMultiplier } from "./modelCatalog";
@@ -3922,6 +3923,29 @@ export async function runVideoGenerationJob(
       .returning()
   )[0];
   if (!claimed) return;
+  const guided = claimed.options?.guidedStory;
+  if (guided) {
+    const backdrop = guided.backdropReference;
+    const invalid =
+      !backdrop?.approvedAt ||
+      guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint ||
+      (claimed.storyboard != null && (() => {
+        const expected = guidedStoryStoryboard(guided);
+        return expected.scenes.length !== claimed.storyboard.scenes.length ||
+          expected.scenes.some((scene, index) =>
+            !guidedStorySceneImmutableInputsMatch(claimed.storyboard!.scenes[index], scene));
+      })());
+    if (invalid) {
+      await db.update(videoGenerationsTable).set({
+        status: "failed",
+        stage: null,
+        error:
+          "Guided Story execution is blocked: review and approve the shared backdrop reference, then start a new immutable attempt.",
+        updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, claimed.id));
+      return;
+    }
+  }
   await executeVideoJob(claimed, funding);
 }
 
@@ -3997,6 +4021,16 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
   try {
     const snapshot = claimed.options?.guidedStory;
     if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
+    if (!snapshot.backdropReference?.approvedAt) {
+      throw new VideoJobInputError(
+        "Review and approve the shared backdrop reference before generating scene previews.",
+      );
+    }
+    if (guidedBackdropFingerprint(snapshot.backdropReference) !== snapshot.backdropReference.fingerprint) {
+      throw new VideoJobInputError(
+        "The approved shared backdrop reference changed. Review it again before generating previews.",
+      );
+    }
     if (!guidedCastApprovalsMatch({
       draftRevision: snapshot.draftRevision,
       cast: snapshot.cast,
@@ -4195,6 +4229,284 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
     });
   }
 }
+/*
+ * The duplicate backdrop-only conflict branch is intentionally disabled: the
+ * implementation above combines its backdrop gate with the cast-approval,
+ * checkpoint, funding, and active-operation protections from main.
+ *
+ * Materialize only the missing review frames of an immutable Guided Story.
+ * The operation has its own persisted lifecycle and intentionally never moves
+ * the parent job out of awaiting_review.
+ *
+export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
+  const claimed = await db.transaction(async (tx) => {
+    const [fresh] = await tx.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+    const operation = fresh?.options?.guidedPreviewRender;
+    if (
+      !fresh ||
+      fresh.status !== "awaiting_review" ||
+      fresh.storyboard?.mode !== "guided_story" ||
+      !operation ||
+      operation.state !== "queued"
+    ) return null;
+    const options = {
+      ...fresh.options!,
+      guidedPreviewRender: {
+        ...operation,
+        state: "running" as const,
+        startedAt: operation.startedAt ?? new Date().toISOString(),
+        error: null,
+      },
+    };
+    return (await tx.update(videoGenerationsTable).set({
+      options,
+      stage: `Rendering missing previews (0 of ${operation.total})`,
+      error: null,
+      updatedAt: new Date(),
+    }).where(eq(videoGenerationsTable.id, fresh.id)).returning())[0]!;
+  });
+  if (!claimed) return;
+
+  let board = claimed.storyboard!;
+  const operationId = claimed.options!.guidedPreviewRender!.operationId;
+  const persist = async (
+    nextBoard: VideoStoryboard,
+    patch: Partial<NonNullable<VideoJobOptions["guidedPreviewRender"]>>,
+  ): Promise<void> => {
+    await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+      const operation = current?.options?.guidedPreviewRender;
+      if (
+        !current?.options ||
+        current.status !== "awaiting_review" ||
+        !operation ||
+        operation.operationId !== operationId ||
+        operation.state !== "running"
+      ) {
+        throw new VideoJobInputError(
+          "The Guided Story preview operation changed while it was running.",
+        );
+      }
+      const nextOperation = { ...operation, ...patch };
+      await tx.update(videoGenerationsTable).set({
+        storyboard: nextBoard,
+        options: { ...current.options, guidedPreviewRender: nextOperation },
+        stage: nextOperation.state === "running"
+          ? `Rendering missing previews (${nextOperation.completed} of ${nextOperation.total})`
+          : null,
+        error: nextOperation.error,
+        updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, jobId));
+    });
+  };
+
+  try {
+    const snapshot = claimed.options?.guidedStory;
+    if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
+    if (!snapshot.backdropReference?.approvedAt) {
+      throw new VideoJobInputError(
+        "Review and approve the shared backdrop reference before generating scene previews.",
+      );
+    }
+    if (guidedBackdropFingerprint(snapshot.backdropReference) !== snapshot.backdropReference.fingerprint) {
+      throw new VideoJobInputError(
+        "The approved shared backdrop reference changed. Review it again before generating previews.",
+      );
+    }
+    const expected = guidedStoryStoryboard(snapshot);
+    if (
+      expected.scenes.length !== board.scenes.length ||
+      expected.scenes.some(
+        (scene, index) =>
+          !guidedStorySceneImmutableInputsMatch(board.scenes[index], scene),
+      )
+    ) {
+      throw new VideoJobInputError(
+        "The Guided Story cast or storyboard fingerprint changed. Start a new immutable attempt.",
+      );
+    }
+
+    const requiredUnits = videoJobUnits(claimed.engine, claimed.options);
+    const funding = claimed.options?.storyboardFunding;
+    if (
+      !claimed.funding ||
+      (funding != null && (
+        funding.requiredUnits == null ||
+        funding.fundedUnits < funding.requiredUnits
+      )) ||
+      (claimed.funding === "wallet" &&
+        (claimed.walletReservationId == null ||
+          (claimed.walletReservedUnits ?? 0) < requiredUnits))
+    ) {
+      throw new VideoJobInputError(
+        "The existing Guided Story reservation is invalid or insufficient for its saved storyboard.",
+      );
+    }
+
+    let completed = board.scenes.filter((scene) =>
+      Boolean(scene.previewPath &&
+        (!scene.previewCheckpoint ||
+          (scene.previewCheckpoint.status === "complete" &&
+            scene.previewPath === scene.previewCheckpoint.targetPath))),
+    ).length;
+    const priorImages: Buffer[] = [];
+    for (const sceneSnapshot of board.scenes) {
+      let scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+      if (scene.previewPath && !scene.previewCheckpoint) {
+        scene.previewCheckpoint = {
+          targetPath: scene.previewPath,
+          status: "complete",
+        };
+        await persist(board, { completed });
+      }
+      if (
+        scene.previewCheckpoint?.status === "complete" &&
+        scene.previewPath &&
+        scene.previewPath === scene.previewCheckpoint.targetPath
+      ) {
+        priorImages.push((await loadTenantObject(
+          scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
+        )).buffer);
+        continue;
+      }
+      if (scene.previewCheckpoint?.status === "provider_succeeded") {
+        const events = previewCheckpointEvents(scene.previewCheckpoint);
+        if (events.length === 0) {
+          throw new VideoGenProviderError("Preview checkpoint is missing its provider receipt.");
+        }
+        if (!(await objectExists(scene.previewCheckpoint.targetPath, claimed.tenantId))) {
+          throw new PartialVideoProviderWorkError(events, new VideoGenProviderError(
+            "A provider-succeeded Guided Story preview is unavailable and will not be regenerated.",
+          ));
+        }
+        scene.previewPath = scene.previewCheckpoint.targetPath;
+        scene.previewCheckpoint = { ...scene.previewCheckpoint, status: "complete" };
+        completed += 1;
+        await persist(board, { completed });
+        priorImages.push((await loadTenantObject(
+          scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
+        )).buffer);
+        continue;
+      }
+      if (scene.previewCheckpoint?.status === "provider_started") {
+        throw new VideoGenProviderError(
+          `Guided Story scene ${scene.id} has an uncertain provider outcome. It was not regenerated to avoid a duplicate charge.`,
+        );
+      }
+
+      // A prepared checkpoint proves no provider receipt exists. Minting a new
+      // signed target is safe after restart because no paid work is discarded.
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL(claimed.tenantId);
+      const targetPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      scene.previewPath = null;
+      scene.previewCheckpoint = { targetPath, status: "prepared" };
+      await persist(board, { completed });
+
+      const previewPath = await regenerateStoryboardPreview({
+        tenantId: claimed.tenantId,
+        storyboard: board,
+        scene,
+        aspectRatio: claimed.options?.aspectRatio ?? "9:16",
+        characterId: null,
+        upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
+        priorImages,
+        onProviderStart: async () => {
+          scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+          const checkpoint = scene.previewCheckpoint;
+          if (!checkpoint || checkpoint.status !== "prepared") {
+            throw new VideoGenProviderError(
+              "Guided Story preview was not safely prepared before provider dispatch.",
+            );
+          }
+          scene.previewCheckpoint = { ...checkpoint, status: "provider_started" };
+          await persist(board, { completed });
+        },
+        onProviderSuccess: async ({ attemptIndex, result }) => {
+          scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+          const checkpoint = scene.previewCheckpoint;
+          if (!checkpoint || checkpoint.status !== "provider_started") {
+            throw new VideoGenProviderError("Guided Story preview checkpoint was not prepared.");
+          }
+          const events = previewCheckpointEvents(checkpoint);
+          const label = `storyboard_preview:${scene.id}:attempt:${events.length + 1}`;
+          events.push({
+            eventId: videoProviderEventId(claimed, label),
+            provider: result.provider,
+            model: result.model,
+            durationSec: null,
+            requestBytes: Buffer.byteLength(scene.visual),
+            label,
+            costPaise: await computeImageCostPaise({
+              provider: result.provider,
+              model: result.model,
+              inputTokens: result.usage?.inputTokens,
+              outputTokens: result.usage?.outputTokens,
+            }).catch(() => null),
+            unitWeight: attemptIndex === 0 ? videoModelMultiplier(claimed.options?.modelId) : 0,
+          });
+          scene.previewCheckpoint = {
+            ...checkpoint,
+            status: "provider_succeeded",
+            events,
+            event: undefined,
+          };
+          await persist(board, { completed });
+        },
+        onProviderFailure: async ({ error }) => {
+          await recordSceneFailure(
+            { ...claimed, storyboard: board },
+            scene,
+            "storyboard_preview",
+            error,
+          );
+        },
+        uploadGenerated: async (result) => {
+          scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+          const checkpoint = scene.previewCheckpoint;
+          if (!checkpoint || checkpoint.status !== "provider_succeeded") {
+            throw new VideoGenProviderError("Guided Story preview has no provider receipt.");
+          }
+          const path = await uploadToPreparedOrFreshStorage(
+            claimed.tenantId, uploadURL, result.buffer, "image/png",
+          );
+          scene.previewPath = path;
+          scene.previewCheckpoint = {
+            ...checkpoint,
+            targetPath: path,
+            status: "complete",
+            selectedEventId: checkpoint.events?.at(-1)?.eventId,
+          };
+          completed += 1;
+          await persist(board, { completed });
+          priorImages.push(result.buffer);
+          return path;
+        },
+      });
+      scene.previewPath = previewPath;
+    }
+    await persist(board, {
+      state: "succeeded",
+      completed: board.scenes.length,
+      error: null,
+      finishedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    const cause = error instanceof PartialVideoProviderWorkError ? error.cause : error;
+    const message = cause instanceof Error
+      ? cause.message
+      : "Guided Story preview rendering failed.";
+    await persist(board, {
+      state: "failed",
+      error: message,
+      finishedAt: new Date().toISOString(),
+    }).catch((persistError) => {
+      logger.error({ err: persistError, jobId }, "Failed to persist Guided Story preview failure");
+    });
+  }
+}
+*/
 
 /** Execute one explicitly-confirmed Guided Story scene correction. */
 export async function runGuidedSceneCorrectionJob(
@@ -4310,6 +4622,32 @@ export async function runGuidedSceneCorrectionJob(
     if (!saved) throw new VideoJobInputError("Guided Story is no longer awaiting review.");
     return saved;
   });
+  if (!immutableSnapshot?.backdropReference?.approvedAt) {
+    const attempt = claimedStoryboard.scenes
+      .find((item) => item.id === sceneId)
+      ?.guidedStory?.corrections?.attempts.find((item) => item.id === attemptId);
+    if (attempt?.funding === "wallet" && attempt.walletReservation) {
+      await refundWallet(
+        claimedJob.tenantId,
+        attempt.walletReservation,
+        "Guided correction missing approved backdrop",
+      ).catch(() => {});
+    } else if (attempt?.funding === "credit") {
+      await refundCredits(
+        claimedJob.tenantId,
+        "image",
+        1,
+        "Guided correction missing approved backdrop",
+      ).catch(() => {});
+    }
+    await persistAttempt((current) => {
+      current.state = "failed";
+      current.error =
+        "Review and approve the shared backdrop reference before retrying this scene correction.";
+      current.finishedAt = new Date().toISOString();
+    });
+    return;
+  }
   if (resumeSavedReplacement) {
     await persistAttempt((attempt, scene) => {
       scene.previewPath = attempt.replacementPath;
@@ -4344,7 +4682,11 @@ export async function runGuidedSceneCorrectionJob(
     const attempt = scene.guidedStory!.corrections!.attempts.find((item) => item.id === attemptId)!;
     const correctedScene: VideoStoryboardScene = {
       ...scene,
-      visual: `${scene.visual}\nCorrection request (${attempt.category}): ${attempt.note}`,
+      visual: `${scene.visual}\nBackdrop policy: ${
+        attempt.backdropMode === "scene_only_background"
+          ? "Change only this scene's background as requested; do not alter the frozen cast or outfit references."
+          : "Keep the frozen approved shared backdrop unchanged."
+      }\nCorrection request (${attempt.category}): ${attempt.note}`,
     };
     let walletOperationId: number | null = null;
     const generate = async (
@@ -4720,6 +5062,29 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
  * as the straight-through path does.
  */
 export async function resumeVideoGenerationJob(job: VideoGeneration): Promise<void> {
+  const guided = job.options?.guidedStory;
+  if (guided) {
+    const backdrop = guided.backdropReference;
+    const expected = backdrop?.approvedAt ? guidedStoryStoryboard(guided) : null;
+    const invalid =
+      !backdrop?.approvedAt ||
+      guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint ||
+      !job.storyboard ||
+      !expected ||
+      expected.scenes.length !== job.storyboard.scenes.length ||
+      expected.scenes.some((scene, index) =>
+        !guidedStorySceneImmutableInputsMatch(job.storyboard!.scenes[index], scene));
+    if (invalid) {
+      await db.update(videoGenerationsTable).set({
+        status: "failed",
+        stage: null,
+        error:
+          "Guided Story execution is blocked: review and approve the shared backdrop reference, then start a new immutable attempt.",
+        updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, job.id));
+      return;
+    }
+  }
   await executeVideoJob(job, job.funding ?? "quota");
 }
 

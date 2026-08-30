@@ -6,6 +6,7 @@ import {
   getListGuidedStoryVoicesQueryKey,
   useApproveGuidedStoryDraftScript,
   useApproveGuidedStoryCastRole,
+  useApproveGuidedStoryBackdrop,
   useCastGuidedStoryDraft,
   useCreateGuidedStoryDraft,
   useEnqueueGuidedStoryDraft,
@@ -16,6 +17,7 @@ import {
   useListGuidedStoryPlatforms,
   useListGuidedStoryVoices,
   useRequestUploadUrl,
+  usePrepareGuidedStoryBackdrop,
   useUpdateGuidedStoryDraft,
   type BrandKit,
   type Character,
@@ -49,6 +51,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
 
 const GENRES = [
   ["action_adventure", "Action / Adventure", "High stakes, motion, and a daring goal."],
@@ -100,6 +103,7 @@ const MAX_VISUAL_IMAGE_BYTES = 10 * 1024 * 1024;
 type VisualChoices = {
   logo: { path: string | null; sceneIds: string[] };
   location: { mode: "none"; imagePath: null; description: null } | { mode: "image"; imagePath: string; description: null } | { mode: "text"; imagePath: null; description: string };
+  backdropReference?: GuidedStoryDraft["visualChoices"]["backdropReference"];
 };
 function emptyVisualChoices(): VisualChoices {
   return { logo: { path: null, sceneIds: [] }, location: { mode: "none", imagePath: null, description: null } };
@@ -514,11 +518,13 @@ export function GuidedStoryWorkflow({
           {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">A Brand Kit is required for the story’s visual branding. Voice selection is managed separately.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save setup" : "Create story draft"}</Button>
-        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptApprovalError={scriptApprovalError} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} castApprovalPending={approveCastRole.isPending} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: releaseMutation }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError("Approve every current cast role before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
+        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptApprovalError={scriptApprovalError} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} castApprovalPending={approveCastRole.isPending} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: releaseMutation }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError("Approve every current cast role before building the storyboard."); return; } if (!draft.visualChoices?.backdropReference?.approvedAt) { setEnqueueError("Approve the shared backdrop before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
       </CardContent>
     </Card>
   </div>;
 }
+
+
 
 function StoryFlow(props: any) {
   const { draft, characters, voices } = props;
@@ -554,8 +560,93 @@ function StoryFlow(props: any) {
   };
   if (step === "script") return <>{estimate}<Button type="button" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-generate-script">Generate script</Button></>;
   if (step === "review" || props.scriptEditorOpen) return <>{estimate}{voiceLanguageNote}<ScriptReview {...props} /></>;
-  if (step === "ready") return <>{estimate}<p data-testid="status-guided-cast-complete">Cast is saved. Review and approve each role’s current references before the storyboard.</p><CastApprovalStep {...props} />{voiceLanguageNote}<VisualConsistencyStep {...props} />{props.enqueueError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-enqueue">{props.enqueueError}</p>}<Button type="button" onClick={props.onEnqueue} disabled={props.pending || (props.existingJobId === null && !props.castApprovalsComplete) || !props.visualSaved || !!props.visualUploading} data-testid="button-guided-enqueue">{props.failedBeforeStoryboard ? "Edit story and rebuild storyboard" : props.existingJobId ? "Open existing storyboard job" : props.enqueuePending ? "Starting storyboard…" : "Build storyboard for review"}</Button></>;
+  if (step === "ready") return <>{estimate}<p data-testid="status-guided-cast-complete">Cast is saved. Review and approve each role’s current references before the storyboard.</p><CastApprovalStep {...props} />{voiceLanguageNote}<VisualConsistencyStep {...props} /><BackdropReviewStep draft={draft} />{props.enqueueError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-enqueue">{props.enqueueError}</p>}<Button type="button" onClick={props.onEnqueue} disabled={props.pending || (props.existingJobId === null && (!props.castApprovalsComplete || !draft.visualChoices?.backdropReference?.approvedAt)) || !props.visualSaved || !!props.visualUploading} data-testid="button-guided-enqueue">{props.failedBeforeStoryboard ? "Edit story and rebuild storyboard" : props.existingJobId ? "Open existing storyboard job" : props.enqueuePending ? "Starting storyboard…" : "Build storyboard for review"}</Button></>;
   return <>{estimate}<ScriptSummary script={draft.script} /><Button type="button" variant="outline" onClick={props.onBackToScript} data-testid="button-guided-back-to-script">Back to scene editor</Button><div className={roleChoicePrompt ? "space-y-3 rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : "space-y-3"} data-testid="section-guided-user-role"><h3 className="font-semibold">Which character are you playing?</h3>{roleChoicePrompt && <p className="text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-user-role">Choose your character, or select “None — I’m not playing a character,” before generating the remaining cast.</p>}<div className="flex flex-wrap gap-2"><Button type="button" aria-pressed={props.userRoleChoiceMade && props.userRoleId === null} variant={props.userRoleChoiceMade && props.userRoleId === null ? "default" : "outline"} className={roleChoicePrompt ? "ring-2 ring-amber-400 ring-offset-2" : undefined} onClick={() => chooseUserRole(null)} data-testid="button-guided-user-role-none">None — I’m not playing a character</Button>{draft.script.roles.map((role: any) => <Button type="button" key={role.id} aria-pressed={props.userRoleId === role.id} variant={props.userRoleId === role.id ? "default" : "outline"} className={roleChoicePrompt ? "ring-2 ring-amber-400 ring-offset-2" : undefined} onClick={() => chooseUserRole(role.id)} data-testid={`button-guided-user-role-${role.id}`}>{role.name}</Button>)}</div></div><div className="flex gap-2"><Button type="button" variant={props.strategy === "generated" ? "default" : "outline"} onClick={chooseGeneratedCast} data-testid="button-guided-cast-generated">Generate remaining cast</Button><Button type="button" variant={props.strategy === "saved" ? "default" : "outline"} onClick={() => { props.setStrategy("saved"); setRoleChoicePrompt(false); setReadyToGenerateCast(false); }} data-testid="button-guided-cast-saved">Use saved characters</Button></div>{readyToGenerateCast && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-ready-generate-cast">Role selected. Now click “Generate remaining cast” to continue.</p>}{elevenLabsVoiceCount > 0 && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-elevenlabs-voices">{elevenLabsVoiceCount} ElevenLabs premade voices loaded — open any voice menu to choose one.</p>}{props.needsSaved.length > 0 && characters.length === 0 && <><p data-testid="status-guided-empty-characters">No saved characters are available for the selected roles.</p><Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid="button-guided-manage-characters">Manage characters</Button></>}{props.voiceCatalogWarning && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid="status-guided-voice-catalog-error">{props.voiceCatalogWarning}</p>}{props.needsSaved.map((role: any) => <CastFields key={role.id} role={role} {...props} />)}{props.strategy === "generated" && props.userRoleChoiceMade && draft.script.roles.filter((role: any) => role.id !== props.userRoleId).map((role: any) => <GeneratedCastVoice key={role.id} role={role} {...props} />)}{props.needsSaved.length > 0 && <div className="flex items-center gap-2"><Checkbox checked={props.consent} onCheckedChange={(value) => props.setConsent(value === true)} data-testid="checkbox-guided-consent" /><Label>I have permission to use each saved person’s likeness and selected voice for this attempt.</Label></div>}{props.hasDuplicate && <div className="flex items-center gap-2"><Checkbox checked={props.duplicateConfirmed} onCheckedChange={(value) => props.setDuplicateConfirmed(value === true)} data-testid="checkbox-guided-duplicate-confirmation" /><Label>I confirm one performer may play multiple roles.</Label></div>}{props.castBusyRole && <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm" role="status" aria-live="polite" data-testid="status-guided-cast-progress"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" /><span><b>Generating {props.castBusyRole}’s cast…</b><br /><span className="text-muted-foreground">KOKAO is checking progress automatically. You can keep this page open.</span></span></div>}{props.castSaveError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-save-cast">{props.castSaveError}</p>}<div className="flex flex-wrap items-center gap-3"><Button type="button" disabled={!props.castComplete || (props.hasDuplicate && !props.duplicateConfirmed) || props.pending} onClick={props.onCast} data-testid="button-guided-save-cast">{props.castSaving ? "Saving cast…" : props.castBusyRole ? `Generating ${props.castBusyRole}…` : props.castSaveError ? "Retry saving cast" : "Save cast and continue"}</Button>{props.castSaving && !props.castBusyRole && <span className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-cast-saving"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /><span><b>Saving your cast choices…</b> Securing the selected characters and voices. This can take a moment.</span></span>}</div></>;
+}
+
+
+
+function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
+  const queryClient = useQueryClient();
+  const requestUploadUrl = useRequestUploadUrl();
+  const prepare = usePrepareGuidedStoryBackdrop();
+  const approve = useApproveGuidedStoryBackdrop();
+  const visuals = draft.visualChoices;
+  const [prompt, setPrompt] = useState(
+    visuals?.backdropReference?.prompt ??
+      (visuals?.location.mode === "text" ? visuals.location.description : ""),
+  );
+  const [file, setFile] = useState<File | null>(null);
+  const [enlarged, setEnlarged] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reference = visuals?.backdropReference;
+  const hasUnsavedBackdropEdits = !!file ||
+    prompt.trim() !== (reference?.prompt.trim() ?? "");
+  if (!visuals) {
+    return <Card data-testid="card-guided-backdrop-review"><CardHeader><CardTitle>Backdrop / location reference</CardTitle><CardDescription>Backdrop review is required before previews.</CardDescription></CardHeader><CardContent><p className="text-sm text-destructive" role="alert" data-testid="error-guided-backdrop-missing">This older draft has no visual choices. Save visual consistency settings and prepare a backdrop reference before building the storyboard.</p></CardContent></Card>;
+  }
+  const refresh = (next: GuidedStoryDraft) => {
+    queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
+  };
+  const prepareCandidate = async () => {
+    setError(null);
+    try {
+      let imagePath =
+        visuals.location.mode === "image"
+          ? visuals.location.imagePath
+          : null;
+      if (file) {
+        if (!VISUAL_IMAGE_TYPES.includes(file.type) || file.size > MAX_VISUAL_IMAGE_BYTES) {
+          throw new Error("Use a PNG, JPEG, or WebP image no larger than 10 MB.");
+        }
+        const upload = await requestUploadUrl.mutateAsync({
+          data: { name: file.name, size: file.size, contentType: file.type },
+        });
+        const put = await fetch(upload.uploadURL, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type },
+        });
+        if (!put.ok) throw new Error(`Upload failed (${put.status}).`);
+        imagePath = upload.objectPath;
+      }
+      if (!imagePath) throw new Error("Upload a rendered location reference first.");
+      const next = await prepare.mutateAsync({
+        draftId: draft.id,
+        data: {
+          revision: draft.revision,
+          prompt: prompt.trim(),
+          imagePath,
+          sceneIds: draft.script?.scenes.map((scene) => scene.id) ?? [],
+        },
+      });
+      refresh(next);
+      setFile(null);
+    } catch (cause) {
+      setError(apiErrorMessage(cause, "Could not prepare this backdrop."));
+    }
+  };
+  return <Card data-testid="card-guided-backdrop-review">
+    <CardHeader>
+      <CardTitle>Backdrop / location reference</CardTitle>
+      <CardDescription>Review this shared location before any scene previews are generated. Approval freezes the exact image and prompt for every listed scene. Editing the prompt changes reference guidance; upload a newly rendered image when the visual itself should change.</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-3">
+      {reference && <button type="button" onClick={() => setEnlarged(true)} aria-label="Enlarge backdrop reference" data-testid="button-enlarge-guided-backdrop">
+        <img src={`/api/storage${reference.imagePath}`} alt="Shared backdrop reference" className="h-40 w-64 rounded-md border object-cover" />
+      </button>}
+      <div><Label htmlFor="guided-backdrop-prompt">Backdrop prompt</Label><Textarea id="guided-backdrop-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the shared location and stable environmental details" data-testid="input-guided-backdrop-prompt" /></div>
+      <div><Label htmlFor="guided-backdrop-upload">Upload rendered replacement</Label><Input id="guided-backdrop-upload" type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid="input-guided-backdrop-upload" /></div>
+      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" disabled={prepare.isPending || prompt.trim().length < 3} onClick={() => void prepareCandidate()} data-testid="button-prepare-guided-backdrop">{prepare.isPending ? "Preparing…" : reference ? "Save backdrop review changes" : "Prepare backdrop review"}</Button>
+        <Button type="button" disabled={!reference || !!reference.approvedAt || approve.isPending || hasUnsavedBackdropEdits} onClick={() => reference && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: reference.fingerprint } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not approve this backdrop.")) })} data-testid="button-approve-guided-backdrop">{reference?.approvedAt ? "Backdrop approved" : approve.isPending ? "Approving…" : "Approve for all scenes"}</Button>
+      </div>
+      {hasUnsavedBackdropEdits && <p className="text-sm text-amber-700" role="status" data-testid="status-guided-backdrop-unsaved">Save backdrop review changes before approval.</p>}
+      {!reference?.approvedAt && <p className="text-sm font-medium text-amber-700" role="status">Scene preview generation stays locked until this backdrop and the cast are approved.</p>}
+      <Dialog open={enlarged} onOpenChange={setEnlarged}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>Shared backdrop reference</DialogTitle><DialogDescription>Inspect the exact frozen location plate before approving it.</DialogDescription></DialogHeader>{reference && <img src={`/api/storage${reference.imagePath}`} alt="Enlarged shared backdrop" className="mx-auto max-h-[70vh] max-w-full object-contain" data-testid="image-enlarged-guided-backdrop" />}</DialogContent></Dialog>
+    </CardContent>
+  </Card>;
 }
 
 function CastApprovalStep(props: any) {

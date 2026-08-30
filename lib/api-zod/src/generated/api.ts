@@ -13394,7 +13394,15 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -13634,7 +13642,15 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -13749,7 +13765,15 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMin).max(updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).optional()
 })
 
@@ -13967,7 +13991,15 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -14214,7 +14246,15 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin).max(generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -14568,7 +14608,15 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin).max(approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -14831,7 +14879,15 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -15080,7 +15136,15 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(approveGuidedStoryCastRoleResponseVisualChoicesOneLocationThreeDescriptionMin).max(approveGuidedStoryCastRoleResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -15173,6 +15237,532 @@ export const CreateGuidedStoryReferenceResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "finalizedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * Saves a tenant-owned rendered location plate and prompt as an unapproved revision-bound candidate. Existing preview checkpoints are invalidated only for scenes listed in sceneIds.
+ * @summary Prepare a shared backdrop candidate for dedicated review
+ */
+export const PrepareGuidedStoryBackdropParams = zod.object({
+  "draftId": zod.coerce.number()
+})
+
+
+export const prepareGuidedStoryBackdropBodyPromptMin = 3;
+export const prepareGuidedStoryBackdropBodyPromptMax = 1000;
+
+export const prepareGuidedStoryBackdropBodySceneIdsItemMin = 2;
+export const prepareGuidedStoryBackdropBodySceneIdsItemMax = 64;
+
+export const prepareGuidedStoryBackdropBodySceneIdsMax = 40;
+
+
+
+export const PrepareGuidedStoryBackdropBody = zod.object({
+  "revision": zod.number().min(1),
+  "prompt": zod.string().min(prepareGuidedStoryBackdropBodyPromptMin).max(prepareGuidedStoryBackdropBodyPromptMax),
+  "imagePath": zod.string().describe('Canonical tenant-owned rendered or uploaded image.'),
+  "sceneIds": zod.array(zod.string().min(prepareGuidedStoryBackdropBodySceneIdsItemMin).max(prepareGuidedStoryBackdropBodySceneIdsItemMax)).min(1).max(prepareGuidedStoryBackdropBodySceneIdsMax)
+})
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
+export const prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax = 300;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneLocaleMin = 2;
+export const prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
+export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMax = 2000;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMin = 2;
+export const prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMax = 4;
+
+export const prepareGuidedStoryBackdropResponseScriptOneRolesMin = 2;
+export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 4;
+
+export const prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
+
+
+export const prepareGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
+
+
+export const prepareGuidedStoryBackdropResponseScriptOneScenesMax = 40;
+
+
+export const prepareGuidedStoryBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const prepareGuidedStoryBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const prepareGuidedStoryBackdropResponseEstimatesScriptUnitsMin = 0;
+
+export const prepareGuidedStoryBackdropResponseEstimatesCastAssetUnitsMin = 0;
+
+export const prepareGuidedStoryBackdropResponseEstimatesPreviewUnitsMin = 0;
+
+export const prepareGuidedStoryBackdropResponseEstimatesFinalAdditionalUnitsMin = 0;
+
+export const prepareGuidedStoryBackdropResponseEstimatesTotalRemainingUnitsMin = 0;
+
+export const prepareGuidedStoryBackdropResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
+
+export const prepareGuidedStoryBackdropResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
+
+
+export const PrepareGuidedStoryBackdropResponse = zod.object({
+  "id": zod.number(),
+  "revision": zod.number(),
+  "version": zod.number(),
+  "setup": zod.union([zod.object({
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
+  "durationSeconds": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin).max(prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax),
+  "locale": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
+  "topic": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneTopicMin).max(prepareGuidedStoryBackdropResponseSetupOneOneTopicMax),
+  "roleCount": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMin).max(prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMax),
+  "brandKitId": zod.number().nullish()
+}).and(zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
+  "width": zod.number(),
+  "height": zod.number(),
+  "safeArea": zod.string()
+})),zod.null()]),
+  "script": zod.union([zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(prepareGuidedStoryBackdropResponseScriptOneRolesMin).max(prepareGuidedStoryBackdropResponseScriptOneRolesMax),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "startMs": zod.number().min(prepareGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(prepareGuidedStoryBackdropResponseScriptOneScenesMax),
+  "warnings": zod.array(zod.string())
+}),zod.null()]),
+  "scriptApprovedAt": zod.coerce.date().nullable(),
+  "userRoleId": zod.string().nullable(),
+  "castStrategy": zod.union([zod.literal('generated'),zod.literal('saved'),zod.literal(null)]).nullable(),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+})),
+  "castApprovals": zod.union([zod.object({
+  "version": zod.number(),
+  "draftRevision": zod.number().min(1),
+  "roles": zod.record(zod.string(), zod.object({
+  "roleId": zod.string(),
+  "approvedAt": zod.coerce.date(),
+  "character": zod.object({
+  "referenceImagePath": zod.string(),
+  "sha256": zod.string().regex(prepareGuidedStoryBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp)
+}),
+  "outfit": zod.object({
+  "referenceImagePath": zod.string(),
+  "sha256": zod.string().regex(prepareGuidedStoryBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp)
+})
+}))
+}),zod.null()]),
+  "duplicateAssignmentConfirmed": zod.boolean(),
+  "scriptGeneration": zod.object({
+  "revision": zod.number(),
+  "claimedAt": zod.coerce.date()
+}).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMin).max(prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMax)).max(prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(prepareGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMin).max(prepareGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMax)
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
+}).and(zod.object({
+  "version": zod.number()
+})),
+  "storyboardJobId": zod.number().nullable(),
+  "estimates": zod.object({
+  "scriptUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesScriptUnitsMin),
+  "castAssetUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesCastAssetUnitsMin),
+  "previewUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesPreviewUnitsMin),
+  "finalAdditionalUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesFinalAdditionalUnitsMin),
+  "totalRemainingUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesTotalRemainingUnitsMin),
+  "generatedStrategyCastUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesGeneratedStrategyCastUnitsMin).describe('Quote available before choosing Generated Cast.'),
+  "savedStrategyCastUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesSavedStrategyCastUnitsMin).describe('Quote available before choosing Saved Cast.')
+}).describe('Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Freeze the exact shared backdrop candidate
+ */
+export const ApproveGuidedStoryBackdropParams = zod.object({
+  "draftId": zod.coerce.number()
+})
+
+
+export const approveGuidedStoryBackdropBodyFingerprintMin = 64;
+export const approveGuidedStoryBackdropBodyFingerprintMax = 64;
+
+
+
+export const ApproveGuidedStoryBackdropBody = zod.object({
+  "revision": zod.number().min(1),
+  "fingerprint": zod.string().min(approveGuidedStoryBackdropBodyFingerprintMin).max(approveGuidedStoryBackdropBodyFingerprintMax)
+})
+
+export const approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
+export const approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax = 300;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneLocaleMin = 2;
+export const approveGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
+export const approveGuidedStoryBackdropResponseSetupOneOneTopicMax = 2000;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRoleCountMin = 2;
+export const approveGuidedStoryBackdropResponseSetupOneOneRoleCountMax = 4;
+
+export const approveGuidedStoryBackdropResponseScriptOneRolesMin = 2;
+export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 4;
+
+export const approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryBackdropResponseScriptOneScenesMax = 40;
+
+
+export const approveGuidedStoryBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const approveGuidedStoryBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const approveGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const approveGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const approveGuidedStoryBackdropResponseEstimatesScriptUnitsMin = 0;
+
+export const approveGuidedStoryBackdropResponseEstimatesCastAssetUnitsMin = 0;
+
+export const approveGuidedStoryBackdropResponseEstimatesPreviewUnitsMin = 0;
+
+export const approveGuidedStoryBackdropResponseEstimatesFinalAdditionalUnitsMin = 0;
+
+export const approveGuidedStoryBackdropResponseEstimatesTotalRemainingUnitsMin = 0;
+
+export const approveGuidedStoryBackdropResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
+
+export const approveGuidedStoryBackdropResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
+
+
+export const ApproveGuidedStoryBackdropResponse = zod.object({
+  "id": zod.number(),
+  "revision": zod.number(),
+  "version": zod.number(),
+  "setup": zod.union([zod.object({
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
+  "durationSeconds": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax),
+  "locale": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(approveGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
+  "topic": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneTopicMin).max(approveGuidedStoryBackdropResponseSetupOneOneTopicMax),
+  "roleCount": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneRoleCountMin).max(approveGuidedStoryBackdropResponseSetupOneOneRoleCountMax),
+  "brandKitId": zod.number().nullish()
+}).and(zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
+  "width": zod.number(),
+  "height": zod.number(),
+  "safeArea": zod.string()
+})),zod.null()]),
+  "script": zod.union([zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(approveGuidedStoryBackdropResponseScriptOneRolesMin).max(approveGuidedStoryBackdropResponseScriptOneRolesMax),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "startMs": zod.number().min(approveGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(approveGuidedStoryBackdropResponseScriptOneScenesMax),
+  "warnings": zod.array(zod.string())
+}),zod.null()]),
+  "scriptApprovedAt": zod.coerce.date().nullable(),
+  "userRoleId": zod.string().nullable(),
+  "castStrategy": zod.union([zod.literal('generated'),zod.literal('saved'),zod.literal(null)]).nullable(),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+})),
+  "castApprovals": zod.union([zod.object({
+  "version": zod.number(),
+  "draftRevision": zod.number().min(1),
+  "roles": zod.record(zod.string(), zod.object({
+  "roleId": zod.string(),
+  "approvedAt": zod.coerce.date(),
+  "character": zod.object({
+  "referenceImagePath": zod.string(),
+  "sha256": zod.string().regex(approveGuidedStoryBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp)
+}),
+  "outfit": zod.object({
+  "referenceImagePath": zod.string(),
+  "sha256": zod.string().regex(approveGuidedStoryBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp)
+})
+}))
+}),zod.null()]),
+  "duplicateAssignmentConfirmed": zod.boolean(),
+  "scriptGeneration": zod.object({
+  "revision": zod.number(),
+  "claimedAt": zod.coerce.date()
+}).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMin).max(approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMax)).max(approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(approveGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMin).max(approveGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMax)
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
+}).and(zod.object({
+  "version": zod.number()
+})),
+  "storyboardJobId": zod.number().nullable(),
+  "estimates": zod.object({
+  "scriptUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesScriptUnitsMin),
+  "castAssetUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesCastAssetUnitsMin),
+  "previewUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesPreviewUnitsMin),
+  "finalAdditionalUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesFinalAdditionalUnitsMin),
+  "totalRemainingUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesTotalRemainingUnitsMin),
+  "generatedStrategyCastUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesGeneratedStrategyCastUnitsMin).describe('Quote available before choosing Generated Cast.'),
+  "savedStrategyCastUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesSavedStrategyCastUnitsMin).describe('Quote available before choosing Saved Cast.')
+}).describe('Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
 })
 
 
@@ -15405,7 +15995,15 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin).max(finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -15653,7 +16251,15 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "mode": zod.literal("text"),
   "imagePath": zod.null(),
   "description": zod.string().min(rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin).max(rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax)
-})])
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -21245,7 +21851,8 @@ export const correctGuidedStorySceneBodyNoteMax = 300;
 export const CorrectGuidedStorySceneBody = zod.object({
   "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
   "note": zod.string().min(correctGuidedStorySceneBodyNoteMin).max(correctGuidedStorySceneBodyNoteMax),
-  "confirmed": zod.boolean().describe('Explicit acknowledgement that only this preview will be replaced.')
+  "confirmed": zod.boolean().describe('Explicit acknowledgement that only this preview will be replaced.'),
+  "backdropMode": zod.enum(['keep_locked_backdrop', 'scene_only_background', 'replace_shared_backdrop']).describe('Explicit backdrop behavior. replace_shared_backdrop is rejected here with instructions to use the shared backdrop review endpoint.')
 })
 
 

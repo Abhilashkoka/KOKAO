@@ -7960,6 +7960,9 @@ function StoryboardReview({
   >(["character"]);
   const [correctionNote, setCorrectionNote] = useState("");
   const [correctionConfirmed, setCorrectionConfirmed] = useState(false);
+  const [correctionBackdropMode, setCorrectionBackdropMode] = useState<
+    "keep_locked_backdrop" | "scene_only_background" | "replace_shared_backdrop"
+  >("keep_locked_backdrop");
   const [, setGuidedReferenceRefresh] = useState(0);
 
   const update = useUpdateVideoStoryboard();
@@ -9024,6 +9027,18 @@ function StoryboardReview({
                 </p>
               </div>
               <div className="space-y-1.5">
+                <Label>Backdrop behavior</Label>
+                <Select value={correctionBackdropMode} onValueChange={(value) => setCorrectionBackdropMode(value as typeof correctionBackdropMode)}>
+                  <SelectTrigger data-testid="select-guided-correction-backdrop"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="keep_locked_backdrop">Keep locked shared backdrop</SelectItem>
+                    <SelectItem value="scene_only_background">Change only this scene background</SelectItem>
+                    <SelectItem value="replace_shared_backdrop">Replace shared backdrop and reapprove affected scenes</SelectItem>
+                  </SelectContent>
+                </Select>
+                {correctionBackdropMode === "replace_shared_backdrop" && <p className="text-xs text-amber-700">Use the Backdrop review card to upload or edit the shared reference. Affected previews will be cleared until it is approved again.</p>}
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="guided-correction-note">Short correction note</Label>
                 <Textarea
                   id="guided-correction-note"
@@ -9052,6 +9067,7 @@ function StoryboardReview({
               disabled={
                 correctionNote.trim().length < 3 ||
                 correctionCategories.length === 0 ||
+                correctionBackdropMode === "replace_shared_backdrop" ||
                 compiledCorrectionNote.length > 300 ||
                 !correctionConfirmed ||
                 correctGuidedScene.isPending
@@ -9068,6 +9084,7 @@ function StoryboardReview({
                         : "other",
                     note: compiledCorrectionNote,
                     confirmed: true,
+                    backdropMode: correctionBackdropMode,
                   },
                 }, {
                   onSuccess: (updated) => {

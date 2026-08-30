@@ -67,6 +67,10 @@ vi.mock("../lib/characters", async (importOriginal) => {
         model: "mock",
       };
     }),
+    loadReferenceImage: vi.fn(async () => ({
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      mimeType: "image/png",
+    })),
   };
 });
 vi.mock("../lib/storageUpload", () => ({
@@ -407,6 +411,8 @@ import {
 } from "../lib/aiCost";
 import {
   GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
+  guidedBackdropFingerprint,
+  guidedCastApprovalsMatch,
   guidedStoryStoryboard,
   validateAndRepairGuidedScript,
 } from "../lib/videoGen/guidedStory";
@@ -2489,11 +2495,11 @@ describe("guided story route fail-closed regressions", () => {
       roleId: role.id,
       character: {
         referenceImagePath: characterPath,
-        sha256: createHash("sha256").update(`image:${characterPath}`).digest("hex"),
+        sha256: createHash("sha256").update(Buffer.from([0x89, 0x50, 0x4e, 0x47])).digest("hex"),
       },
       outfit: {
         referenceImagePath: outfitPath,
-        sha256: createHash("sha256").update(`image:${outfitPath}`).digest("hex"),
+        sha256: createHash("sha256").update(Buffer.from([0x89, 0x50, 0x4e, 0x47])).digest("hex"),
       },
     });
   });
@@ -2578,17 +2584,43 @@ describe("guided story route fail-closed regressions", () => {
       scriptApprovedAt: approvedAt,
       castStrategy: "saved",
       cast,
+      castApprovals: castApprovals(cast, draft.revision),
       duplicateAssignmentConfirmed: true,
+      visualChoices: {
+        ...draft.state.visualChoices!,
+        backdropReference: (() => {
+          const input = {
+            prompt: "A storm shelter",
+            imagePath: `/objects/${tenant.tenantId}/uploads/backdrop.png`,
+            sceneIds: draft.state.script!.scenes.map((scene) => scene.id),
+          };
+          return {
+            version: 1 as const,
+            ...input,
+            fingerprint: guidedBackdropFingerprint(input),
+            approvedAt,
+          };
+        })(),
+      },
     } as unknown as GuidedStoryDraftState;
     await db
       .update(guidedStoryDraftsTable)
       .set({ state: legacyState })
       .where(eq(guidedStoryDraftsTable.id, draft.id));
+    const [savedLegacy] = await db.select().from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(guidedCastApprovalsMatch({
+      draftRevision: savedLegacy!.revision,
+      cast: savedLegacy!.state.cast,
+      approvals: savedLegacy!.state.castApprovals,
+    })).toBe(true);
+    expect(guidedBackdropFingerprint(savedLegacy!.state.visualChoices!.backdropReference!))
+      .toBe(savedLegacy!.state.visualChoices!.backdropReference!.fingerprint);
 
     const response = await request(app)
       .post(`/api/ai/guided-story/drafts/${draft.id}/enqueue`)
       .send({ revision: draft.revision });
-    expect(response.status).toBe(201);
+    expect(response.status, response.body.error).toBe(201);
     const [job] = await db
       .select()
       .from(videoGenerationsTable)
@@ -2925,6 +2957,7 @@ describe("guided story route fail-closed regressions", () => {
     expect(jobAfterFinalize!.options!.guidedPreviewRender).toBeNull();
     expect(jobAfterFinalize!.options!.guidedStory!.castApprovals).toBeUndefined();
     expect(finalized.body.castApprovals).toBeNull();
+    expect(runnerState.guidedPreviewRenders).not.toContain(job!.id);
 
     const duplicate = await request(app)
       .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(replacement.body.id)}/finalize`)
@@ -2972,6 +3005,26 @@ describe("guided story route fail-closed regressions", () => {
     actAs(tenant.clerkUserId);
     const draft = await insertEditableGuidedDraft(tenant.tenantId);
     const sceneId = draft.state.script!.scenes[0]!.id;
+    const backdropReference = {
+      version: 1 as const,
+      prompt: "An approved shared location",
+      imagePath: `/objects/${tenant.tenantId}/uploads/backdrop.png`,
+      sceneIds: [sceneId],
+      fingerprint: "a".repeat(64),
+      approvedAt: "2026-01-01T00:00:00.000Z",
+    };
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          visualChoices: {
+            ...draft.state.visualChoices!,
+            backdropReference,
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
     const imageChoices = {
       logo: {
         path: `/objects/${tenant.tenantId}/uploads/logo.png`,
@@ -2988,6 +3041,7 @@ describe("guided story route fail-closed regressions", () => {
       .send({ revision: draft.revision, visualChoices: imageChoices });
     expect(savedImage.status).toBe(200);
     expect(savedImage.body.visualChoices).toMatchObject(imageChoices);
+    expect(savedImage.body.visualChoices.backdropReference).toEqual(backdropReference);
 
     const savedText = await request(app)
       .patch(`/api/ai/guided-story/drafts/${draft.id}`)
@@ -3002,6 +3056,7 @@ describe("guided story route fail-closed regressions", () => {
     expect(savedText.body.visualChoices.location).toEqual({
       mode: "text", imagePath: null, description: "A rain-soaked community hall.",
     });
+    expect(savedText.body.visualChoices.backdropReference).toEqual(backdropReference);
 
     for (const visualChoices of [
       {
@@ -4729,6 +4784,19 @@ describe("guided story route fail-closed regressions", () => {
       script,
       cast,
       castApprovals: castApprovals(cast, 1),
+      backdropReference: (() => {
+        const input = {
+          prompt: "A shared city street at dawn",
+          imagePath: `/objects/${tenant.tenantId}/uploads/backdrop.png`,
+          sceneIds: script.scenes.map((scene) => scene.id),
+        };
+        return {
+        version: 1 as const,
+        ...input,
+        fingerprint: guidedBackdropFingerprint(input),
+        approvedAt: "2025-01-01T00:00:00.000Z",
+        };
+      })(),
     };
     const storyboard = guidedStoryStoryboard(snapshot);
     storyboard.scenes[0]!.previewPath =
@@ -4777,6 +4845,155 @@ describe("guided story route fail-closed regressions", () => {
       .post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`)
       .send({});
     expect(foreign.status).toBe(404);
+  });
+
+  it("fails closed while a replacement backdrop awaits approval, then permits its affected preview and correction", async () => {
+    const tenant = await newTenant("pro");
+    const script = routeScript();
+    script.scenes.push({
+      ...structuredClone(script.scenes[0]!),
+      id: "scene-two",
+      startMs: 15_000,
+      endMs: 30_000,
+    });
+    const cast = script.roles.map((role, index) => ({
+      roleId: role.id, source: "saved" as const, characterId: index + 1,
+      outfitId: index + 11, brandKitId: null, voiceId: `voice-${index}`,
+      character: { name: role.name, description: role.description, referenceImagePath: `/objects/${tenant.tenantId}/character-${index}.png` },
+      outfit: { name: "Approved", description: "Locked", referenceImagePath: `/objects/${tenant.tenantId}/outfit-${index}.png` },
+      voice: { id: `voice-${index}`, label: `Voice ${index}`, provider: "stock", providerVoiceId: null },
+      isUserRole: index === 0, consentGranted: true,
+    }));
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const approvedAt = "2025-01-01T00:00:00.000Z";
+    const oldBackdropInput = {
+      prompt: "Old shared location",
+      imagePath: `/objects/${tenant.tenantId}/uploads/old-backdrop.png`,
+      sceneIds: [script.scenes[0]!.id],
+    };
+    const oldBackdrop = {
+      version: 1 as const,
+      ...oldBackdropInput,
+      fingerprint: guidedBackdropFingerprint(oldBackdropInput),
+      approvedAt,
+    };
+    const snapshot = {
+      version: 1 as const, draftId: draft.id, draftRevision: draft.revision, scriptApprovedAt: approvedAt,
+      platform: { id: "tiktok", aspectRatio: "9:16" as const, width: 1080, height: 1920, safeArea: "center", durationSeconds: 30 },
+      script,
+      cast,
+      castApprovals: castApprovals(cast, draft.revision),
+      backdropReference: oldBackdrop,
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes.forEach((scene, index) => {
+      scene.previewPath = `/objects/${tenant.tenantId}/existing-${index}.png`;
+      scene.previewCheckpoint = { targetPath: scene.previewPath, status: "complete" };
+    });
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId, engine: "topic_to_video", status: "awaiting_review",
+      funding: "quota", options: { aspectRatio: "9:16", guidedStory: snapshot }, storyboard,
+    }).returning();
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...draft.state, scriptApprovedAt: approvedAt, castStrategy: "saved", cast,
+        castApprovals: castApprovals(cast, draft.revision),
+        duplicateAssignmentConfirmed: true, referenceOperations: {}, storyboardJobId: job!.id,
+        visualChoices: {
+          ...draft.state.visualChoices!,
+          backdropReference: oldBackdrop,
+        },
+      },
+    }).where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const affectedId = script.scenes[0]!.id;
+    const unaffectedId = script.scenes[1]!.id;
+    const prepared = await request(app).put(`/api/ai/guided-story/drafts/${draft.id}/backdrop`).send({
+      revision: draft.revision, prompt: "Replacement shared location",
+      imagePath: `/objects/${tenant.tenantId}/uploads/replacement-backdrop.png`, sceneIds: [affectedId],
+    });
+    expect(prepared.status).toBe(200);
+    const pending = await readJob(job!.id);
+    expect(pending.options!.guidedStory!.backdropReference).toMatchObject({
+      imagePath: `/objects/${tenant.tenantId}/uploads/replacement-backdrop.png`, approvedAt: null,
+    });
+    expect(pending.storyboard!.scenes.find((scene) => scene.id === affectedId)!.previewPath).toBeNull();
+    expect(pending.storyboard!.scenes.find((scene) => scene.id === unaffectedId)!.previewPath).toBe(
+      `/objects/${tenant.tenantId}/existing-1.png`,
+    );
+    const [renderBlocked, correctionBlocked] = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`).send({}),
+      request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${affectedId}/corrections`)
+        .send({ category: "costume", note: "Keep the coat.", confirmed: true, backdropMode: "keep_locked_backdrop" }),
+    ]);
+    expect(renderBlocked.status).toBe(409);
+    expect(correctionBlocked.status).toBe(409);
+    expect(renderBlocked.body.error).toMatch(/backdrop.*review/i);
+    expect(correctionBlocked.body.error).toMatch(/backdrop.*review/i);
+
+    const pendingBackdrop = prepared.body.visualChoices.backdropReference;
+    const approved = await request(app).post(`/api/ai/guided-story/drafts/${draft.id}/backdrop/approve`).send({
+      revision: prepared.body.revision, fingerprint: pendingBackdrop.fingerprint,
+    });
+    expect(approved.status).toBe(200);
+    await waitForPendingJobs();
+    expect(runnerState.guidedPreviewRenders).toContain(job!.id);
+    const resumedPreviews = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`)
+      .send({});
+    expect(resumedPreviews.status, resumedPreviews.body.error).toBe(202);
+
+    const reloaded = await readJob(job!.id);
+    const scene = reloaded.storyboard!.scenes.find((candidate) => candidate.id === affectedId)!;
+    scene.previewPath = `/objects/${tenant.tenantId}/replacement-preview.png`;
+    scene.previewCheckpoint = { targetPath: scene.previewPath, status: "complete" };
+    await db.update(videoGenerationsTable).set({
+      storyboard: reloaded.storyboard,
+      options: { ...reloaded.options!, guidedPreviewRender: null },
+    }).where(eq(videoGenerationsTable.id, job!.id));
+    const correction = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${affectedId}/corrections`)
+      .send({ category: "costume", note: "Keep the coat.", confirmed: true, backdropMode: "keep_locked_backdrop" });
+    expect(correction.status).toBe(202);
+
+    // A queued correction owns this old immutable backdrop. Replacing it must
+    // fail before either the draft or preview checkpoint can be invalidated.
+    const beforeBlockedPrepare = await readJob(job!.id);
+    const blockedPrepare = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft.id}/backdrop`)
+      .send({
+        revision: approved.body.revision,
+        prompt: "A third shared location",
+        imagePath: `/objects/${tenant.tenantId}/uploads/third-backdrop.png`,
+        sceneIds: [affectedId],
+      });
+    expect(blockedPrepare.status).toBe(409);
+    expect(blockedPrepare.body.error).toMatch(/active scene preview or correction/i);
+    const afterBlockedPrepare = await readJob(job!.id);
+    expect(afterBlockedPrepare.options!.guidedStory!.backdropReference).toEqual(
+      beforeBlockedPrepare.options!.guidedStory!.backdropReference,
+    );
+    expect(afterBlockedPrepare.storyboard!.scenes.find((candidate) => candidate.id === affectedId)!.previewPath)
+      .toBe(`/objects/${tenant.tenantId}/replacement-preview.png`);
+
+    // Simulate the correction worker's terminal commit. Only after it is no
+    // longer in-flight may a new shared backdrop atomically supersede it.
+    const finishedStoryboard = structuredClone(afterBlockedPrepare.storyboard!);
+    finishedStoryboard.scenes.find((candidate) => candidate.id === affectedId)!
+      .guidedStory!.corrections!.attempts[0]!.state = "failed";
+    await db.update(videoGenerationsTable).set({ storyboard: finishedStoryboard })
+      .where(eq(videoGenerationsTable.id, job!.id));
+    const preparedAfterCorrection = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft.id}/backdrop`)
+      .send({
+        revision: approved.body.revision,
+        prompt: "A third shared location",
+        imagePath: `/objects/${tenant.tenantId}/uploads/third-backdrop.png`,
+        sceneIds: [affectedId],
+      });
+    expect(preparedAfterCorrection.status).toBe(200);
+    expect((await readJob(job!.id)).storyboard!.scenes.find((candidate) => candidate.id === affectedId)!.previewPath)
+      .toBeNull();
   });
 
   it("queues one funded Guided scene correction and keeps every preview unchanged until the runner commits", async () => {
@@ -4836,6 +5053,14 @@ describe("guided story route fail-closed regressions", () => {
       script,
       cast,
       castApprovals: castApprovals(cast, correctionDraft.revision),
+      backdropReference: {
+        version: 1 as const,
+        prompt: "A shared location",
+        imagePath: `/objects/${tenant.tenantId}/uploads/backdrop-correction.png`,
+        sceneIds: script.scenes.map((scene) => scene.id),
+        fingerprint: "c".repeat(64),
+        approvedAt: scriptApprovedAt,
+      },
     };
     const storyboard = guidedStoryStoryboard(snapshot);
     storyboard.scenes.forEach((scene, index) => {
@@ -4865,7 +5090,7 @@ describe("guided story route fail-closed regressions", () => {
 
     const unconfirmed = await request(app)
       .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${storyboard.scenes[0]!.id}/corrections`)
-      .send({ category: "costume", note: "Use the locked red coat.", confirmed: false });
+        .send({ category: "costume", note: "Use the locked red coat.", confirmed: false, backdropMode: "keep_locked_backdrop" });
     expect(unconfirmed.status).toBe(400);
     expect(runnerState.guidedCorrections).toHaveLength(0);
     const beforeConfirmation = await readJob(job!.id);
@@ -4876,10 +5101,10 @@ describe("guided story route fail-closed regressions", () => {
     const requests = await Promise.all([
       request(app)
         .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${storyboard.scenes[0]!.id}/corrections`)
-        .send({ category: "costume", note: "Use the locked red coat.", confirmed: true }),
+        .send({ category: "costume", note: "Use the locked red coat.", confirmed: true, backdropMode: "keep_locked_backdrop" }),
       request(app)
         .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${storyboard.scenes[0]!.id}/corrections`)
-        .send({ category: "costume", note: "Use the locked red coat.", confirmed: true }),
+        .send({ category: "costume", note: "Use the locked red coat.", confirmed: true, backdropMode: "keep_locked_backdrop" }),
     ]);
     expect(requests.every((response) => response.status === 202)).toBe(true);
     await waitForPendingJobs();

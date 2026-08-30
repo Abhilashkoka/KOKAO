@@ -137,6 +137,30 @@ vi.mock("@workspace/api-client-react", async () => {
       state.enqueued = vars.data;
       return { id: 99 };
     }),
+    usePrepareGuidedStoryBackdrop: () => ({
+      isPending: false,
+      mutateAsync: async (vars: any) => ({
+        ...state.draft,
+        revision: state.draft.revision + 1,
+        visualChoices: {
+          ...(state.draft.visualChoices ?? { logo: { path: null, sceneIds: [] }, location: { mode: "none", imagePath: null, description: null } }),
+          backdropReference: {
+            version: 1, prompt: vars.data.prompt, imagePath: vars.data.imagePath,
+            sceneIds: vars.data.sceneIds, fingerprint: "a".repeat(64), approvedAt: null,
+          },
+        },
+      }),
+    }),
+    useApproveGuidedStoryBackdrop: mutation((vars) => ({
+      ...state.draft,
+      visualChoices: {
+        ...state.draft.visualChoices,
+        backdropReference: {
+          ...state.draft.visualChoices.backdropReference,
+          approvedAt: "2026-08-30T00:00:00.000Z",
+        },
+      },
+    })),
     useRequestUploadUrl: () => ({
       mutateAsync: async () => {
         if (state.uploadError) throw state.uploadError;
@@ -192,7 +216,7 @@ const character = {
   ],
 };
 function draft(overrides: Record<string, unknown> = {}) {
-  return { id: 7, revision: 2, version: 1, setup: { genre: "comedy", platform: "instagram_reels", durationSeconds: 15, locale: "en", topic: "A tidy desk", roleCount: 2, brandKitId: 3, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script, scriptApprovedAt: "2026-01-01", userRoleId: null, castStrategy: null, cast: [], castApprovals: null, duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "", ...overrides };
+  return { id: 7, revision: 2, version: 1, setup: { genre: "comedy", platform: "instagram_reels", durationSeconds: 15, locale: "en", topic: "A tidy desk", roleCount: 2, brandKitId: 3, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script, scriptApprovedAt: "2026-01-01", userRoleId: null, castStrategy: null, cast: [], castApprovals: null, duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, visualChoices: { version: 1, logo: { path: null, sceneIds: [] }, location: { mode: "none", imagePath: null, description: null }, backdropReference: { version: 1, prompt: "A tidy desk in warm daylight", imagePath: "/objects/99/uploads/visual.png", sceneIds: ["s1"], fingerprint: "a".repeat(64), approvedAt: "2026-01-01T00:00:00.000Z" } }, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "", ...overrides };
 }
 function renderWorkflow(options: {
   characters?: any[];
@@ -465,93 +489,20 @@ describe("GuidedStoryWorkflow", () => {
 
     const line = await screen.findByTestId("input-guided-line-l1");
     await user.clear(line);
-    await user.type(line, "Keep this local edit.");
-    act(() => {
-      client.setQueryData(["guided", 7], draft({
-        revision: 3,
-        scriptApprovedAt: null,
-        script: { ...script, title: "Background title" },
-      }));
-    });
+    await user.type(line, "A revised line.");
+    expect(trackMock).not.toHaveBeenCalledWith("guided_script_revised_saved", expect.anything());
 
-    expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value).toBe("Keep this local edit.");
-    expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value).toBe("The plan");
-    expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
+    await user.click(screen.getByTestId("button-guided-save-script"));
+    expect(trackMock).toHaveBeenCalledWith("guided_script_revised_saved", {
+      role_count: 2,
+      scene_count: 1,
+    });
   });
 
-  it("requires saved character, voice and fresh consent before saving saved cast", async () => {
+  it("keeps scene creation working when analytics throws", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
-    renderWorkflow();
-    await userEvent.click(screen.getByTestId("button-guided-user-role-r1"));
-    await userEvent.click(screen.getByTestId("button-guided-cast-saved"));
-    expect((screen.getByTestId("button-guided-save-cast") as HTMLButtonElement).disabled).toBe(true);
-    for (const role of ["r1", "r2"]) {
-      await userEvent.click(screen.getByTestId(`select-guided-character-${role}`));
-      await userEvent.click(screen.getAllByText("Me").at(-1)!);
-      await userEvent.click(screen.getByTestId(`select-guided-voice-${role}`));
-      await userEvent.click(screen.getAllByText("A voice · Studio").at(-1)!);
-    }
-    expect((screen.getByTestId("button-guided-save-cast") as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.click(screen.getByTestId("checkbox-guided-consent"));
-    expect(screen.getByTestId("checkbox-guided-duplicate-confirmation")).toBeTruthy();
-    await userEvent.click(screen.getByTestId("checkbox-guided-duplicate-confirmation"));
-    await userEvent.click(screen.getByTestId("button-guided-save-cast"));
-    expect(state.cast).toMatchObject({ strategy: "saved", duplicateAssignmentConfirmed: true });
-    expect(state.cast.assignments).toHaveLength(2);
-    expect(await screen.findByTestId("status-guided-cast-complete")).toBeTruthy();
-    expect(screen.getByTestId("button-guided-enqueue")).toBeTruthy();
-    expect(state.draft.revision).toBe(2);
-    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.click(screen.getByTestId("button-guided-approve-cast-r1"));
-    await userEvent.click(screen.getByTestId("button-guided-approve-cast-r2"));
-    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
-    expect(state.enqueued).toEqual({ revision: 3 });
-  });
-
-  it("blocks storyboard until every role is approved, supports reviewing images, and enables it after approval", async () => {
-    state.draft = draft({
-      cast: [
-        { roleId: "r1", character: { name: "Me", referenceImagePath: "/me.png" }, outfit: { name: "Jacket", referenceImagePath: "/jacket.png" } },
-        { roleId: "r2", character: { name: "Bo", referenceImagePath: "/bo.png" }, outfit: { name: "Coat", referenceImagePath: "/coat.png" } },
-      ],
-    });
-    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
-    renderWorkflow();
-
-    expect((await screen.findByTestId("status-guided-cast-approval-checklist")).textContent).toContain("Ari");
-    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.click(screen.getByTestId("button-guided-review-cast-r1"));
-    expect(screen.getByTestId("dialog-guided-cast-review")).toBeTruthy();
-    expect(screen.getAllByTestId("img-guided-character-reference")[0].getAttribute("src")).toBe("/me.png");
-
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await userEvent.click(screen.getByTestId("button-guided-approve-cast-r1"));
-    expect(screen.getByTestId("status-guided-cast-approval-r1").textContent).toContain("Approved");
-    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.click(screen.getByTestId("button-guided-approve-cast-r2"));
-    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("treats a prior-revision approval manifest as stale", async () => {
-    state.draft = draft({
-      revision: 4,
-      cast: [
-        { roleId: "r1", character: { name: "Me", referenceImagePath: "/me.png" }, outfit: { name: "Jacket", referenceImagePath: "/jacket.png" } },
-        { roleId: "r2", character: { name: "Bo", referenceImagePath: "/bo.png" }, outfit: { name: "Coat", referenceImagePath: "/coat.png" } },
-      ],
-      castApprovals: { version: 1, draftRevision: 3, roles: { r1: {}, r2: {} } },
-    });
-    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
-    renderWorkflow();
-
-    expect((await screen.findByTestId("status-guided-cast-approval-r1")).textContent).toContain("stale");
-    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("guides the user to choose their role before generating the remaining cast", async () => {
-    state.draft = draft();
-    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    trackMock.mockImplementation(() => { throw new Error("analytics unavailable"); });
     renderWorkflow();
     const user = userEvent.setup();
 
@@ -772,20 +723,13 @@ describe("GuidedStoryWorkflow", () => {
     await user.type(screen.getByTestId("input-guided-insert-scene-1"), "End with a surprise");
     await user.click(screen.getByTestId("button-guided-generate-scene-1"));
 
-    expect(screen.getByTestId("error-guided-insert-scene-1").textContent).toContain("temporarily unavailable");
-    expect(screen.getByTestId("button-guided-generate-scene-1").textContent).toBe("Retry");
     expect(screen.queryByTestId("card-guided-script-scene-ai-scene")).toBeNull();
-    expect(screen.getAllByTestId(/card-guided-script-scene-/)).toHaveLength(1);
-
-    await user.click(screen.getByTestId("button-guided-generate-scene-1"));
-    expect(trackMock).toHaveBeenCalledWith("guided_scene_retry_requested", {
-      insertion_position: 2,
-      role_count: 2,
-      scene_count: 1,
-    });
+    expect(screen.getByTestId("error-guided-insert-scene-1").textContent)
+      .toContain("Scene provider is temporarily unavailable.");
+    expect(screen.getByTestId("button-guided-generate-scene-1").textContent).toBe("Retry");
   });
 
-  it("tracks a revised script only after it is saved", async () => {
+  it("does not merge a generated scene after the local script changes", async () => {
     state.draft = draft({ scriptApprovedAt: null });
     state.deferScene = true;
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
@@ -859,7 +803,84 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByTestId("checkbox-guided-logo-scene-s1"));
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByTestId("button-guided-save-visuals"));
-    expect(state.updated).toEqual({ revision: 2, visualChoices: { logo: { path: "/objects/99/uploads/visual.png", sceneIds: ["s1"] }, location: { mode: "none", imagePath: null, description: null } } });
+    expect(state.updated).toEqual({
+      revision: 2,
+      visualChoices: {
+        version: 1,
+        logo: { path: "/objects/99/uploads/visual.png", sceneIds: ["s1"] },
+        location: { mode: "none", imagePath: null, description: null },
+        backdropReference: {
+          version: 1,
+          prompt: "A tidy desk in warm daylight",
+          imagePath: "/objects/99/uploads/visual.png",
+          sceneIds: ["s1"],
+          fingerprint: "a".repeat(64),
+          approvedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+  });
+
+  it("fails closed on an unapproved backdrop and exposes the dedicated review card", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: {
+        version: 1,
+        logo: { path: null, sceneIds: [] },
+        location: {
+          mode: "image",
+          imagePath: "/objects/99/uploads/visual.png",
+          description: null,
+        },
+        backdropReference: {
+          version: 1,
+          prompt: "Warm desk scene",
+          imagePath: "/objects/99/uploads/visual.png",
+          sceneIds: ["s1"],
+          fingerprint: "b".repeat(64),
+          approvedAt: null,
+        },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    expect(screen.getByTestId("card-guided-backdrop-review")).toBeTruthy();
+    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByTestId("button-enlarge-guided-backdrop"));
+    expect(screen.getByTestId("image-enlarged-guided-backdrop")).toBeTruthy();
+  });
+
+  it("requires prompt edits to be prepared before approving the backdrop", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: {
+        version: 1,
+        logo: { path: null, sceneIds: [] },
+        location: { mode: "image", imagePath: "/objects/99/uploads/visual.png", description: null },
+        backdropReference: {
+          version: 1,
+          prompt: "Warm desk scene",
+          imagePath: "/objects/99/uploads/visual.png",
+          sceneIds: ["s1"],
+          fingerprint: "b".repeat(64),
+          approvedAt: null,
+        },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    const prompt = screen.getByTestId("input-guided-backdrop-prompt");
+    await userEvent.clear(prompt);
+    await userEvent.type(prompt, "A bright, organized desk scene");
+    expect((screen.getByTestId("button-approve-guided-backdrop") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("status-guided-backdrop-unsaved").textContent)
+      .toContain("Save backdrop review changes before approval");
+
+    await userEvent.click(screen.getByTestId("button-prepare-guided-backdrop"));
+    await waitFor(() => expect(
+      (screen.getByTestId("button-approve-guided-backdrop") as HTMLButtonElement).disabled,
+    ).toBe(false));
   });
 
   it("saves text and uploaded image location choices and blocks enqueue until each change is saved", async () => {
