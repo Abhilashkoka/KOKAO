@@ -7774,9 +7774,12 @@ function StoryboardReview({
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const [correctionSceneId, setCorrectionSceneId] = useState<string | null>(null);
-  const [correctionCategory, setCorrectionCategory] = useState<
+  type GuidedCorrectionCategory =
     "character" | "costume" | "location" | "logo" | "other"
-  >("character");
+  ;
+  const [correctionCategories, setCorrectionCategories] = useState<
+    GuidedCorrectionCategory[]
+  >(["character"]);
   const [correctionNote, setCorrectionNote] = useState("");
   const [correctionConfirmed, setCorrectionConfirmed] = useState(false);
 
@@ -7870,6 +7873,26 @@ function StoryboardReview({
     (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
       ["queued", "running", "provider_started", "provider_succeeded"].includes(attempt.state)),
   );
+  const guidedCorrectionOptions: Array<{
+    value: GuidedCorrectionCategory;
+    label: string;
+  }> = [
+    { value: "character", label: "Character" },
+    { value: "costume", label: "Costume" },
+    { value: "location", label: "Location" },
+    { value: "logo", label: "Logo" },
+    { value: "other", label: "Other" },
+  ];
+  const correctionIssueSummary = correctionCategories
+    .map(
+      (category) =>
+        guidedCorrectionOptions.find((option) => option.value === category)
+          ?.label ?? category,
+    )
+    .join(", ");
+  const compiledCorrectionNote = correctionCategories.length
+    ? `Issues to correct: ${correctionIssueSummary}. ${correctionNote.trim()}`
+    : correctionNote.trim();
   const guidedReviewBlocked =
     guidedScenes.length > 0 &&
     (guidedCorrectionActive || guidedScenes.some(
@@ -8659,7 +8682,7 @@ function StoryboardReview({
                       disabled={workingOn || guidedCorrectionActive}
                       onClick={() => {
                         setCorrectionSceneId(scene.id);
-                        setCorrectionCategory("character");
+                        setCorrectionCategories(["character"]);
                         setCorrectionNote("");
                         setCorrectionConfirmed(false);
                       }}
@@ -8737,21 +8760,37 @@ function StoryboardReview({
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>What is inconsistent?</Label>
-              <Select
-                value={correctionCategory}
-                onValueChange={(value) => setCorrectionCategory(value as typeof correctionCategory)}
+              <div
+                className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 sm:grid-cols-3"
+                role="group"
+                aria-label="Inconsistent scene elements"
+                data-testid="guided-correction-categories"
               >
-                <SelectTrigger data-testid="select-guided-correction-category">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="character">Character</SelectItem>
-                  <SelectItem value="costume">Costume</SelectItem>
-                  <SelectItem value="location">Location</SelectItem>
-                  <SelectItem value="logo">Logo</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+                {guidedCorrectionOptions.map((option) => (
+                  <label
+                    key={option.value}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <Checkbox
+                      checked={correctionCategories.includes(option.value)}
+                      onCheckedChange={(checked) =>
+                        setCorrectionCategories((current) =>
+                          checked === true
+                            ? current.includes(option.value)
+                              ? current
+                              : [...current, option.value]
+                            : current.filter((value) => value !== option.value),
+                        )
+                      }
+                      data-testid={`checkbox-guided-correction-${option.value}`}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select every element that needs to match its locked reference.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="guided-correction-note">Short correction note</Label>
@@ -8780,6 +8819,8 @@ function StoryboardReview({
             <Button
               disabled={
                 correctionNote.trim().length < 3 ||
+                correctionCategories.length === 0 ||
+                compiledCorrectionNote.length > 300 ||
                 !correctionConfirmed ||
                 correctGuidedScene.isPending
               }
@@ -8789,8 +8830,11 @@ function StoryboardReview({
                   jobId: job.id,
                   sceneId: correctionSceneId,
                   data: {
-                    category: correctionCategory,
-                    note: correctionNote.trim(),
+                    category:
+                      correctionCategories.length === 1
+                        ? correctionCategories[0]
+                        : "other",
+                    note: compiledCorrectionNote,
                     confirmed: true,
                   },
                 }, {

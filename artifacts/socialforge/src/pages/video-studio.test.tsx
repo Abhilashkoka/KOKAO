@@ -3997,6 +3997,8 @@ describe("Video Studio", () => {
     expect(screen.getAllByAltText("Ari locked outfit reference").length).toBeGreaterThan(0);
     expect(screen.getAllByAltText("Locked location reference").length).toBeGreaterThan(0);
     expect(screen.getAllByAltText("Locked logo reference").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByTestId("checkbox-guided-correction-costume"));
+    fireEvent.click(screen.getByTestId("checkbox-guided-correction-location"));
     fireEvent.change(screen.getByTestId("input-guided-correction-note"), {
       target: { value: "Keep Ari in the approved jacket." },
     });
@@ -4007,8 +4009,9 @@ describe("Video Studio", () => {
       jobId: 11,
       sceneId: "s1",
       data: {
-        category: "character",
-        note: "Keep Ari in the approved jacket.",
+        category: "other",
+        note:
+          "Issues to correct: Character, Costume, Location. Keep Ari in the approved jacket.",
         confirmed: true,
       },
     }]);
