@@ -134,3 +134,4 @@
 - [Job error identifiers](job-error-identifiers.md) — user-facing generation errors should include the relevant job number whenever one exists.
 - [Guided cast checkpoints](guided-cast-checkpoints.md) — generated cast assets use fail-closed per-role checkpoints; uncertain provider outcomes never refund/retry, successful work resumes.
 - [AI draft finalization claims](ai-draft-finalization-claims.md) — wall-clock expiry is unsafe after provider success; recover only from terminal funding state with a stored usable result.
+- [Dynamic voice catalogs](dynamic-voice-catalogs.md) — provider voice lists must bypass browser caches and refetch on mount; an empty outage response must not persist.

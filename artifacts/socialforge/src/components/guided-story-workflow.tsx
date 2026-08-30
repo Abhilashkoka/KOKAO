@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   getGetGuidedStoryDraftQueryKey,
   getGetVideoJobQueryKey,
+  getListGuidedStoryVoicesQueryKey,
   useApproveGuidedStoryDraftScript,
   useCastGuidedStoryDraft,
   useCreateGuidedStoryDraft,
@@ -142,7 +143,13 @@ export function GuidedStoryWorkflow({
   const mutationLockRef = useRef(false);
   const queryClient = useQueryClient();
   const platforms = useListGuidedStoryPlatforms();
-  const voiceCatalog = useListGuidedStoryVoices();
+  const voiceCatalog = useListGuidedStoryVoices({
+    query: {
+      queryKey: getListGuidedStoryVoicesQueryKey(),
+      staleTime: 0,
+      refetchOnMount: "always",
+    },
+  });
   const draftQuery = useGetGuidedStoryDraft(draftId ?? 0, {
     query: { enabled: draftId !== null, queryKey: getGetGuidedStoryDraftQueryKey(draftId ?? 0) },
   });

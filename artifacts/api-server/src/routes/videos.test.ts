@@ -2951,6 +2951,7 @@ describe("guided story route fail-closed regressions", () => {
     const response = await request(app).get("/api/ai/guided-story/voices");
 
     expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.body.providerWarning).toBeNull();
     expect(response.body.voices.filter((voice: { provider: string }) => voice.provider === "stock"))
       .toHaveLength(6);

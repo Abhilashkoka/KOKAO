@@ -1990,6 +1990,9 @@ router.get("/ai/guided-story/platforms", (_req: Request, res: Response) => {
 });
 
 router.get("/ai/guided-story/voices", async (req: Request, res: Response) => {
+  // Provider credentials and availability can change independently of app
+  // deployments. Never let a previously empty catalog remain in browser cache.
+  res.set("Cache-Control", "no-store");
   const stock = GUIDED_STORY_STOCK_VOICES.map((voiceId) => ({
     id: `stock:${voiceId}`,
     label: voiceId,
