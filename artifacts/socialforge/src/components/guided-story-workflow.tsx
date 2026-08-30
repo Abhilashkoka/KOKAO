@@ -1489,7 +1489,7 @@ function ReferenceThumbnail({ label, asset, enlarged = false }: { label: string;
   return <div className="space-y-1" data-testid={`reference-guided-${label.toLowerCase()}`}>
     <p className="font-medium">{label}</p>
     {asset?.referenceImagePath
-      ? <img className={enlarged ? "h-64 w-full rounded-md border object-contain bg-muted" : "h-24 w-full rounded border object-cover"} src={asset.referenceImagePath} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${label.toLowerCase()}-reference`} />
+      ? <img className={enlarged ? "h-64 w-full rounded-md border object-contain bg-muted" : "h-24 w-full rounded border object-cover"} src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${label.toLowerCase()}-reference`} />
       : <p className="rounded border border-dashed p-2 text-xs text-muted-foreground">No {label.toLowerCase()} reference image is available.</p>}
     {asset?.name && <p className="text-xs text-muted-foreground">{asset.name}</p>}
   </div>;
