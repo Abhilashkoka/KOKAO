@@ -268,7 +268,7 @@ export function GuidedStoryWorkflow({
   };
   const saveScript = (
     script: GuidedStoryScript,
-    onSaved?: () => void,
+    onSaved?: (savedScript: GuidedStoryScript) => void,
     onError?: (message: string) => void,
   ) => {
     if (!draft?.setup || !acquireMutation()) return;
@@ -288,7 +288,7 @@ export function GuidedStoryWorkflow({
             role_count: script.roles.length,
             scene_count: script.scenes.length,
           });
-          onSaved?.();
+          if (next.script) onSaved?.(next.script);
         },
         onError: (error) => onError?.(
           apiErrorMessage(error, "Could not save these script changes."),
@@ -1003,7 +1003,15 @@ function ScriptReview(props: any) {
             setSaveFeedback({ kind: "saving" });
             props.onSaveScript(
               editedScript,
-              () => setSaveFeedback({ kind: "saved" }),
+              (savedScript: GuidedStoryScript) => {
+                serverScriptRef.current = savedScript;
+                editedScriptRef.current = savedScript;
+                setEditedScript(savedScript);
+                setJsonText(JSON.stringify(savedScript, null, 2));
+                setJsonError(null);
+                localRevisionRef.current += 1;
+                setSaveFeedback({ kind: "saved" });
+              },
               (message: string) => setSaveFeedback({ kind: "error", message }),
             );
           }}
