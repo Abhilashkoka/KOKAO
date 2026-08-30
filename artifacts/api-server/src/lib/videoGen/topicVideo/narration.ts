@@ -12,6 +12,7 @@ import {
 import {
   buildBrandVoiceTtsOperationKey,
   isConfirmedVoiceCloneFailure,
+  resolveElevenLabsSpeechLanguage,
   speakWithClonedVoiceReceipt,
   type ClonedVoiceRef,
 } from "../../voiceClone";
@@ -288,7 +289,13 @@ async function narrateWithBrandVoice(
   sentences: string[],
   billing?: BrandVoiceNarrationBilling | null,
   languageCode?: string,
+  modelId?: "eleven_multilingual_v2" | "eleven_v3",
 ): Promise<ParsedWav[]> {
+  // Validate before checking/reserving wallet funds. Legacy Topic narration
+  // defaults to multilingual v2; Guided Story explicitly selects v3.
+  const speechConfig = clonedVoice.provider === "elevenlabs"
+    ? resolveElevenLabsSpeechLanguage(modelId ?? "eleven_multilingual_v2", languageCode)
+    : { modelId: modelId ?? "eleven_multilingual_v2", languageCode };
   const walletFunded = billing ? await isWalletFunded(billing.tenantId) : false;
   const rateSnapshot =
     billing && clonedVoice.provider === "elevenlabs"
@@ -327,7 +334,7 @@ async function narrateWithBrandVoice(
               reservation = await reserveWallet(
                 billing.tenantId,
                 "caption",
-                { provider: clonedVoice.provider, model: "eleven_multilingual_v2" },
+                { provider: clonedVoice.provider, model: speechConfig.modelId },
                 1,
                 ceilingPaise,
               );
@@ -344,7 +351,7 @@ async function narrateWithBrandVoice(
                     operationKind: "brand_voice_tts",
                     operationKey: buildBrandVoiceTtsOperationKey(
                       clonedVoice.voiceId,
-                      "eleven_multilingual_v2",
+                      speechConfig.modelId,
                       sentence,
                       undefined,
                       languageCode,
@@ -353,7 +360,7 @@ async function narrateWithBrandVoice(
                       kind: "caption",
                       costPaise: ceilingPaise,
                       provider: clonedVoice.provider,
-                      model: "eleven_multilingual_v2",
+                      model: speechConfig.modelId,
                       refKind: billing.refKind ?? "videoJob",
                       refId: billing.refId,
                     },
@@ -367,7 +374,7 @@ async function narrateWithBrandVoice(
                         providerRequestId = receipt.requestId ?? receipt.traceId;
                         await recordReceipt({
                           provider: clonedVoice.provider,
-                          model: "eleven_multilingual_v2",
+                          model: speechConfig.modelId,
                           providerCredits,
                           providerRequestId,
                           providerResultId: providerRequestId,
@@ -380,15 +387,15 @@ async function narrateWithBrandVoice(
                         if (providerCostPaise === null) return;
                         await confirmSuccess({
                           provider: clonedVoice.provider,
-                          model: "eleven_multilingual_v2",
+                          model: speechConfig.modelId,
                           costPaise: providerCostPaise,
                           providerCredits,
                           providerRequestId,
                           providerResultId: providerRequestId,
                         });
                       },
-                      undefined,
-                      languageCode,
+                       speechConfig.modelId,
+                       speechConfig.languageCode,
                     ),
                   () => ({}),
                   {
@@ -410,7 +417,7 @@ async function narrateWithBrandVoice(
                 void recordUsage(billing.tenantId, "caption", {
                   funding: "wallet",
                   provider: clonedVoice.provider,
-                  model: "eleven_multilingual_v2",
+                  model: speechConfig.modelId,
                   inputCharacters: sentence.length,
                   ...(speech.receipt.providerCredits !== null
                     ? { providerCredits: speech.receipt.providerCredits }
@@ -432,11 +439,17 @@ async function narrateWithBrandVoice(
                 );
                 return speech;
               } catch (error) {
-                await refundWallet(
-                  billing.tenantId,
-                  reservation,
-                  "Cloned narration provider call failed",
-                ).catch(() => {});
+                // executeWalletProviderOperation has already marked an
+                // authoritative 4xx rejection failed. Refund only that
+                // resolved outcome; a timeout/5xx remains pending for safe
+                // recovery rather than becoming an orphaned, refunded call.
+                if (isConfirmedVoiceCloneFailure(error)) {
+                  await refundWallet(
+                    billing.tenantId,
+                    reservation,
+                    "Cloned narration provider call failed",
+                  ).catch(() => {});
+                }
                 throw error;
               }
             }
@@ -444,8 +457,8 @@ async function narrateWithBrandVoice(
               clonedVoice,
               sentence,
               undefined,
-              undefined,
-              languageCode,
+              speechConfig.modelId,
+              speechConfig.languageCode,
             );
             if (billing) {
               const costPaise =
@@ -458,7 +471,7 @@ async function narrateWithBrandVoice(
               void recordUsage(billing.tenantId, "caption", {
                 funding: "unmetered",
                 provider: clonedVoice.provider,
-                model: "eleven_multilingual_v2",
+                model: speechConfig.modelId,
                 inputCharacters: sentence.length,
                 ...(speech.receipt.providerCredits !== null
                   ? { providerCredits: speech.receipt.providerCredits }
@@ -507,6 +520,8 @@ export interface SynthesizeNarrationOptions {
   billing?: BrandVoiceNarrationBilling | null;
   /** Provider-supported ISO language code frozen by the owning workflow. */
   languageCode?: string;
+  /** Guided Story selects v3; Topic narration retains the v2 default. */
+  brandVoiceModelId?: "eleven_multilingual_v2" | "eleven_v3";
 }
 
 export interface BrandVoiceNarrationBilling {
@@ -549,6 +564,7 @@ export async function synthesizeNarration(
         sentences,
         options.billing,
         options.languageCode,
+        options.brandVoiceModelId,
       );
       recordProviderSuccess(ttsHealthKey(`brand:${options.clonedVoice.provider}`));
     } catch (error) {
@@ -568,7 +584,7 @@ export async function synthesizeNarration(
     return {
       ...stitchNarration(spoken, sentences),
       provider: options!.clonedVoice!.provider,
-      model: "eleven_multilingual_v2",
+      model: options!.brandVoiceModelId ?? "eleven_multilingual_v2",
       accountingMode: "independently_settled",
       costPaise: null,
     };

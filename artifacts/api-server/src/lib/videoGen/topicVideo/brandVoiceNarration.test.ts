@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resetProviderHealthForTests } from "../../providerHealth";
 import { buildWav, synthesizeNarration } from "./narration";
+import { synthesizeGuidedNarration } from "./index";
 import { VoiceCloneError, VoiceCloneNotConfiguredError } from "../../voiceClone";
 
 const billing = vi.hoisted(() => ({
@@ -9,6 +10,7 @@ const billing = vi.hoisted(() => ({
   settlements: [] as number[],
   receipts: [] as unknown[],
   usage: [] as unknown[],
+  refunds: [] as unknown[],
 }));
 
 vi.mock("@workspace/integrations-openai-ai-server/audio", () => ({
@@ -58,7 +60,9 @@ vi.mock("../../wallet", async () => {
       billing.settlements.push(id);
       return { chargedPaise: 1, estimated: false };
     }),
-    refundWallet: vi.fn(async () => undefined),
+    refundWallet: vi.fn(async (...args: unknown[]) => {
+      billing.refunds.push(args);
+    }),
   };
 });
 vi.mock("../../usage", () => ({
@@ -113,6 +117,7 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     billing.settlements.length = 0;
     billing.receipts.length = 0;
     billing.usage.length = 0;
+    billing.refunds.length = 0;
     resetProviderHealthForTests();
   });
 
@@ -129,7 +134,9 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     const narration = await synthesizeNarration(SENTENCES, "alloy", { clonedVoice: CLONED });
 
     expect(brandSpeak).toHaveBeenCalledTimes(SENTENCES.length);
-    expect(brandSpeak).toHaveBeenCalledWith(CLONED, "First sentence.");
+    expect(brandSpeak).toHaveBeenCalledWith(
+      CLONED, "First sentence.", undefined, "eleven_multilingual_v2", undefined,
+    );
     expect(stockSpeak).not.toHaveBeenCalled();
     expect(narration.cues).toHaveLength(2);
     expect(narration.totalDurationSec).toBeGreaterThan(2);
@@ -192,5 +199,69 @@ describe("synthesizeNarration with a cloned brand voice", () => {
 
     expect(brandSpeak).not.toHaveBeenCalled();
     expect(stockSpeak).toHaveBeenCalledTimes(SENTENCES.length);
+  });
+
+  it("uses v3 and the frozen Telugu locale for Guided Story role narration", async () => {
+    brandSpeak.mockResolvedValue({
+      audio: wav(1),
+      receipt: { providerCredits: "10", requestId: "req", traceId: null },
+    });
+    const script = {
+      version: 1, title: "కథ", logline: "", runtimeSeconds: 1, warnings: [],
+      roles: [{ id: "role-1", name: "పాత్ర", description: "" }],
+      scenes: [{
+        id: "scene-1", startMs: 0, endMs: 1000, visualDirection: "",
+        roleIds: ["role-1"],
+        lines: [{
+          id: "line-1", ownerRoleId: "role-1", kind: "dialogue",
+          text: "ఇది తెలుగు కథ", startMs: 0, endMs: 1000,
+        }],
+      }],
+    } as any;
+    await synthesizeGuidedNarration({
+      tenantId: 77,
+      script,
+      locale: "te-IN",
+      cast: [{
+        roleId: "role-1", characterId: null, outfitId: null,
+        voice: { id: "brand", label: "Brand", provider: "elevenlabs", providerVoiceId: "el-brand-1" },
+      }] as any,
+      fallbackVoice: "alloy",
+      upload: async () => "tenant/77/guided.wav",
+    });
+    expect(brandSpeak).toHaveBeenCalledWith(
+      CLONED,
+      "ఇది తెలుగు కథ",
+      expect.any(Function),
+      "eleven_v3",
+      "te",
+    );
+    expect(billing.reserves[0]).toEqual(expect.arrayContaining([
+      77, "caption", { provider: "elevenlabs", model: "eleven_v3" },
+    ]));
+    expect(billing.operations[0]).toMatchObject({
+      settlement: { model: "eleven_v3", refKind: "guidedStoryLine", refId: "line-1" },
+    });
+  });
+
+  it("rejects Telugu v2 before reserving and refunds confirmed provider failures", async () => {
+    await expect(synthesizeNarration(["తెలుగు"], "alloy", {
+      clonedVoice: CLONED,
+      requireClonedVoice: true,
+      billing: { tenantId: 77 },
+      languageCode: "te",
+    })).rejects.toThrow(/does not support Telugu/u);
+    expect(billing.reserves).toHaveLength(0);
+    expect(billing.operations).toHaveLength(0);
+
+    brandSpeak.mockRejectedValue(new VoiceCloneError("voice unavailable", 400));
+    await expect(synthesizeNarration(["English"], "alloy", {
+      clonedVoice: CLONED,
+      requireClonedVoice: true,
+      billing: { tenantId: 77 },
+    })).rejects.toThrow(/voice unavailable/u);
+    // The bounded retry starts a distinct provider operation each time; every
+    // confirmed failure is resolved by refunding its matching reservation.
+    expect(billing.refunds).toHaveLength(2);
   });
 });

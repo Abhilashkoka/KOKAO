@@ -1238,18 +1238,27 @@ export async function synthesizeGuidedNarration(params: {
     const voice = member?.voice.provider === "stock"
       ? resolveNarrationVoice(member.voice.id, null)
       : params.fallbackVoice;
-    const result = await synthesizeNarration([line.text], voice, {
-      clonedVoice,
-      requireClonedVoice: Boolean(clonedVoice),
-      billing: {
-        tenantId: params.tenantId,
-        refKind: "guidedStoryLine",
-        refId: line.id,
-      },
-      languageCode: params.locale
-        ? new Intl.Locale(params.locale).language
-        : undefined,
-    });
+    let result: Awaited<ReturnType<typeof synthesizeNarration>>;
+    try {
+      result = await synthesizeNarration([line.text], voice, {
+        clonedVoice,
+        requireClonedVoice: Boolean(clonedVoice),
+        billing: {
+          tenantId: params.tenantId,
+          refKind: "guidedStoryLine",
+          refId: line.id,
+        },
+        // Guided Story freezes one of its approved locales and must use v3:
+        // v2 cannot speak Telugu and does not accept language_code.
+        brandVoiceModelId: "eleven_v3",
+        languageCode: params.locale,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "The provider did not return audio.";
+      throw new VideoGenProviderError(
+        `Guided Story voice stage failed for line ${line.id}: ${detail}`,
+      );
+    }
     spoken.push({ line, wav: parseWav(result.wav) });
   }
   const first = spoken[0]?.wav;
