@@ -1754,12 +1754,19 @@ export async function regenerateStoryboardPreview(params: {
         `Guided scene ${params.scene.id} is missing an approved cast reference.`,
       );
     }
-    // Cast identity/outfit anchors MUST stay first. Location and logo are
-    // deliberately supplementary tiles, never replacements for identity.
+    const backdropReferencePath =
+      params.scene.guidedStory.visuals.backdropReferencePath ?? null;
+    // Cast identity/outfit anchors MUST stay first. The approved backdrop is a
+    // real provider input, not merely text in the prompt. Legacy location and
+    // logo tiles remain supplementary and are de-duplicated by object path.
     const visualReferences = [
       ...castReferences as Array<{ label: string; path: string }>,
+      ...(backdropReferencePath
+        ? [{ label: "APPROVED SHARED BACKDROP — REUSE EXACTLY", path: backdropReferencePath }]
+        : []),
       ...(visualGuidance.locationImagePath
-        ? [{ label: "SHARED BACKGROUND / LOCATION", path: visualGuidance.locationImagePath }]
+        && visualGuidance.locationImagePath !== backdropReferencePath
+        ? [{ label: "ADDITIONAL LOCATION GUIDANCE", path: visualGuidance.locationImagePath }]
         : []),
       ...(visualGuidance.logoPath
         ? [{ label: "LOGO OVERLAY", path: visualGuidance.logoPath }]
@@ -1793,15 +1800,21 @@ export async function regenerateStoryboardPreview(params: {
         create: { width: 512, height: 512, channels: 3, background: "#ffffff" },
       }).composite([{ input: image, left: 0, top: 0 }, { input: label, left: 0, top: 456 }]).png().toBuffer();
     }));
+    const columns = Math.min(3, Math.max(1, tiles.length));
+    const rows = Math.ceil(tiles.length / columns);
     const referenceImage = {
       buffer: await sharp({
         create: {
-          width: tiles.length * 512,
-          height: 512,
+          width: columns * 512,
+          height: rows * 512,
           channels: 3,
           background: "#ffffff",
         },
-      }).composite(tiles.map((input, index) => ({ input, left: index * 512, top: 0 }))).png().toBuffer(),
+      }).composite(tiles.map((input, index) => ({
+        input,
+        left: (index % columns) * 512,
+        top: Math.floor(index / columns) * 512,
+      }))).png().toBuffer(),
       mimeType: "image/png",
     };
     const size = params.aspectRatio === "16:9"
@@ -1813,9 +1826,10 @@ export async function regenerateStoryboardPreview(params: {
     try {
       await params.onProviderStart?.({ attemptIndex: 0 });
       result = await generateImage(
-      `${params.scene.visual}\nReference sheet order: ${visualReferences.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. SHARED BACKGROUND / LOCATION and LOGO OVERLAY tiles are environmental/graphic guidance only: do not use them to alter or merge character identities.`,
+      `${params.scene.visual}\nReference sheet order: ${visualReferences.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. Reproduce the APPROVED SHARED BACKDROP consistently in this scene; camera angle and crop may change, but its architecture, layout, colors, fixtures, and permanent objects must not. ADDITIONAL LOCATION GUIDANCE and LOGO OVERLAY tiles are supplementary only and must never alter character identities.`,
         size,
         referenceImage,
+        { requireReferenceInput: true },
       );
     } catch (error) {
       await params.onProviderFailure?.({ attemptIndex: 0, error });

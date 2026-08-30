@@ -761,8 +761,9 @@ function shortMessage(error: unknown): string {
 }
 
 /** Generate an image using the currently selected provider. The reference
- * image is only forwarded to providers that support image input; callers
- * should bake reference guidance into the prompt text either way.
+ * image is only forwarded to providers that support image input. Callers that
+ * require the reference for correctness must set `requireReferenceInput`; that
+ * mode overrides an incapable pin rather than silently degrading to prompt-only.
  *
  * Reliability: the first provider is always attempted (that attempt doubles as
  * the circuit breaker's half-open probe). If it fails with a TRANSIENT error
@@ -784,6 +785,7 @@ export async function generateImage(
   opts?: {
     transparent?: boolean;
     exactMaskedEdit?: ExactMaskedEdit;
+    requireReferenceInput?: boolean;
     onProviderSuccess?: (meta: {
       provider: string;
       model: string;
@@ -792,6 +794,12 @@ export async function generateImage(
 ): Promise<RoutedImageGenResult> {
   const transparent = opts?.transparent === true;
   const exactMaskedEdit = opts?.exactMaskedEdit;
+  const requireReferenceInput = opts?.requireReferenceInput === true;
+  if (requireReferenceInput && !referenceImage) {
+    throw new ImageGenNotConfiguredError(
+      "This image generation requires an approved reference image.",
+    );
+  }
   if (exactMaskedEdit && !referenceImage) {
     throw preservationError("a canonical reference image is required.");
   }
@@ -835,7 +843,8 @@ export async function generateImage(
       getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
     if (
       (transparent && !pinned.supportsTransparency) ||
-      (!!exactMaskedEdit && !pinned.supportsExactMaskedEdits)
+      (!!exactMaskedEdit && !pinned.supportsExactMaskedEdits) ||
+      (requireReferenceInput && !pinned.supportsImageInput)
     ) {
       // Capability beats the pin — see the doc comment above.
       const capable = await autoCandidates(
@@ -847,6 +856,8 @@ export async function generateImage(
         throw new ImageGenNotConfiguredError(
           exactMaskedEdit
             ? "Protected image edits need a provider with exact mask support (currently the built-in OpenAI provider)."
+            : requireReferenceInput
+              ? "This image needs a provider that can consume its approved visual references. Enable a reference-capable image provider in the admin dashboard."
             : "Layered images need an image provider that can return transparent PNGs " +
                 "(currently the built-in OpenAI provider). Enable one in the admin dashboard.",
         );
@@ -854,6 +865,8 @@ export async function generateImage(
       chain.push(...capable.slice(0, 1 + IMAGE_GEN_FALLBACK_LIMIT));
       firstReason = exactMaskedEdit
         ? `${chain[0].id} serves protected editing: the pinned provider ${pinned.id} cannot apply exact masks`
+        : requireReferenceInput
+          ? `${chain[0].id} serves reference-locked generation: the pinned provider ${pinned.id} cannot consume the approved reference image`
         : `${chain[0].id} serves layered generation: the pinned provider ${pinned.id} cannot return transparency`;
     } else {
       chain.push(pinned);

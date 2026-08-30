@@ -456,8 +456,14 @@ export function guidedStoryApprovalSnapshotMatches(params: {
   const { draftState, snapshot, storyboard } = params;
   const approvedBackdrop = draftState.visualChoices?.backdropReference;
   if (
+    !draftState.script ||
     !approvedBackdrop?.approvedAt ||
     !snapshot.backdropReference?.approvedAt ||
+    !guidedBackdropCoversEveryScriptScene({
+      script: draftState.script,
+      backdropReference: approvedBackdrop,
+    }) ||
+    !guidedBackdropCoversEveryScriptScene(snapshot) ||
     guidedBackdropFingerprint(approvedBackdrop) !== approvedBackdrop.fingerprint ||
     guidedBackdropFingerprint(snapshot.backdropReference) !== snapshot.backdropReference.fingerprint ||
     approvedBackdrop.fingerprint !== snapshot.backdropReference.fingerprint
@@ -514,6 +520,21 @@ export function guidedStoryApprovalSnapshotMatches(params: {
         actual.guidedStory?.inconsistencyFlags.length === 0
       );
     })
+  );
+}
+
+/** A Guided Story backdrop is shared by definition: partial scene coverage
+ * would let an apparently approved job render visually unrelated locations. */
+export function guidedBackdropCoversEveryScriptScene(
+  snapshot: Pick<NonNullable<VideoJobOptions["guidedStory"]>, "script" | "backdropReference">,
+): boolean {
+  const reference = snapshot.backdropReference;
+  if (!reference) return false;
+  const expected = snapshot.script.scenes.map((scene) => scene.id);
+  return (
+    reference.sceneIds.length === expected.length &&
+    new Set(reference.sceneIds).size === reference.sceneIds.length &&
+    expected.every((sceneId) => reference.sceneIds.includes(sceneId))
   );
 }
 
@@ -583,6 +604,9 @@ export function guidedStoryStoryboard(
       (member): member is GuidedStoryCastSnapshot => Boolean(member),
     );
     const inconsistencyFlags: string[] = [];
+    if (!sceneBackdrop) {
+      inconsistencyFlags.push("missing_backdrop_reference");
+    }
     for (const roleId of roleIds) {
       const member = castByRole.get(roleId);
       if (!member) {

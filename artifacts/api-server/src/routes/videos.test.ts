@@ -4869,7 +4869,7 @@ describe("guided story route fail-closed regressions", () => {
     const oldBackdropInput = {
       prompt: "Old shared location",
       imagePath: `/objects/${tenant.tenantId}/uploads/old-backdrop.png`,
-      sceneIds: [script.scenes[0]!.id],
+      sceneIds: script.scenes.map((scene) => scene.id),
     };
     const oldBackdrop = {
       version: 1 as const,
@@ -4918,9 +4918,7 @@ describe("guided story route fail-closed regressions", () => {
       imagePath: `/objects/${tenant.tenantId}/uploads/replacement-backdrop.png`, approvedAt: null,
     });
     expect(pending.storyboard!.scenes.find((scene) => scene.id === affectedId)!.previewPath).toBeNull();
-    expect(pending.storyboard!.scenes.find((scene) => scene.id === unaffectedId)!.previewPath).toBe(
-      `/objects/${tenant.tenantId}/existing-1.png`,
-    );
+    expect(pending.storyboard!.scenes.find((scene) => scene.id === unaffectedId)!.previewPath).toBeNull();
     const [renderBlocked, correctionBlocked] = await Promise.all([
       request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`).send({}),
       request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${affectedId}/corrections`)

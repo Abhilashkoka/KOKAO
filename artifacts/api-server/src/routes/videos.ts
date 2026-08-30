@@ -254,6 +254,7 @@ import {
   guidedStoryNativeScriptWarning,
   validateAndRepairGuidedScript,
   guidedBackdropFingerprint,
+  guidedBackdropCoversEveryScriptScene,
 } from "../lib/videoGen/guidedStory";
 
 const router: IRouter = Router();
@@ -5258,14 +5259,16 @@ router.put(
         !draft.state.script ||
         unresolvedGuidedReferenceOperation(draft.state)
       ) return { kind: "stale" as const };
-      const known = new Set(draft.state.script.scenes.map((scene) => scene.id));
+       const allSceneIds = draft.state.script.scenes.map((scene) => scene.id);
+       const known = new Set(allSceneIds);
       if (input.sceneIds.some((id) => !known.has(id))) return { kind: "invalid" as const };
-      const fingerprint = guidedBackdropFingerprint(input);
+       const canonicalInput = { ...input, sceneIds: allSceneIds };
+       const fingerprint = guidedBackdropFingerprint(canonicalInput);
       const nextReference = {
         version: 1 as const,
         prompt: input.prompt.trim(),
         imagePath: input.imagePath,
-        sceneIds: [...input.sceneIds],
+         sceneIds: allSceneIds,
         fingerprint,
         approvedAt: null,
       };
@@ -5314,7 +5317,7 @@ router.put(
         // A scene leaving the shared set must be invalidated too: its frozen
         // environmental reference changes from the old plate to no plate.
         const affected = new Set([
-          ...input.sceneIds,
+           ...allSceneIds,
           ...(job.options.guidedStory.backdropReference?.sceneIds ?? []),
         ]);
         const storyboard = structuredClone(job.storyboard);
@@ -5382,6 +5385,11 @@ router.post(
       if (
         draft.revision !== parsed.data.revision ||
         !reference ||
+         !draft.state.script ||
+         !guidedBackdropCoversEveryScriptScene({
+           script: draft.state.script,
+           backdropReference: reference,
+         }) ||
         reference.fingerprint !== parsed.data.fingerprint ||
         guidedBackdropFingerprint(reference) !== reference.fingerprint ||
         unresolvedGuidedReferenceOperation(draft.state)
@@ -5470,6 +5478,10 @@ router.post(
       !row.state.script ||
       !row.state.scriptApprovedAt ||
       !row.state.visualChoices?.backdropReference?.approvedAt ||
+      !guidedBackdropCoversEveryScriptScene({
+        script: row.state.script,
+        backdropReference: row.state.visualChoices.backdropReference,
+      }) ||
       guidedBackdropFingerprint(row.state.visualChoices.backdropReference) !==
         row.state.visualChoices.backdropReference.fingerprint ||
       row.state.cast.length !== row.state.script.roles.length ||
@@ -9780,6 +9792,8 @@ router.post(
       const backdrop = snapshot?.backdropReference;
       if (
         !backdrop?.approvedAt ||
+        !snapshot ||
+        !guidedBackdropCoversEveryScriptScene(snapshot) ||
         guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint
       ) return { kind: "backdrop_review" as const };
       if (
@@ -9905,7 +9919,7 @@ router.post(
     if (parsed.data.backdropMode === "replace_shared_backdrop") {
       res.status(409).json({
         error:
-          "Replace the shared backdrop in Backdrop review, then approve it again. Only affected scene checkpoints will be cleared.",
+          "Replace the shared backdrop in Backdrop review, then approve it again. Every scene preview will be cleared so the shared location stays consistent.",
       });
       return;
     }
@@ -9925,9 +9939,16 @@ router.post(
       eq(videoGenerationsTable.tenantId, req.tenantId),
     )).limit(1);
     const beforeScene = before?.storyboard?.scenes.find((scene) => scene.id === sceneId);
+    const beforeSnapshot = before?.options?.guidedStory;
+    const beforeBackdrop = beforeSnapshot?.backdropReference;
     if (
       before?.storyboard?.mode === "guided_story" &&
-      !before.options?.guidedStory?.backdropReference?.approvedAt
+      (
+        !beforeBackdrop?.approvedAt ||
+        !beforeSnapshot ||
+        !guidedBackdropCoversEveryScriptScene(beforeSnapshot) ||
+        guidedBackdropFingerprint(beforeBackdrop) !== beforeBackdrop.fingerprint
+      )
     ) {
       res.status(409).json({ error: guidedBackdropReviewError() });
       return;

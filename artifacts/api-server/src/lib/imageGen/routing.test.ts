@@ -199,6 +199,24 @@ describe("automatic image provider routing", () => {
     expect(out.fallbackStep).toBe(0);
     expect(out.routingReason).toBeUndefined();
   });
+
+  it("overrides an incapable pin when visual references are mandatory", async () => {
+    process.env.BFL_API_KEY = "test-bfl-key";
+    await setImageGenSelection({ provider: "bfl", model: null, customBaseUrl: null });
+    vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
+
+    const out = await generateImage("p", "1024x1024", REFERENCE, {
+      requireReferenceInput: true,
+    });
+
+    expect(out.provider).toBe("openai");
+    expect(out.routingReason).toContain("cannot consume the approved reference image");
+    expect(generateWithBfl).not.toHaveBeenCalled();
+    expect(generateWithOpenAIBuiltin).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceImage: REFERENCE }),
+      null,
+    );
+  });
 });
 
 describe("rankImageGenProviders", () => {

@@ -4,6 +4,7 @@ import {
   GUIDED_STORY_PLATFORMS,
   GUIDED_SCENE_INSERTION_CLAIM_TTL_MS,
   GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
+  guidedBackdropCoversEveryScriptScene,
   guidedBackdropFingerprint,
   guidedCastFailureDisposition,
   guidedCastHasDuplicates,
@@ -531,6 +532,22 @@ describe("guided cast provider uncertainty", () => {
 });
 
 describe("guided approval fail-closed snapshot guard", () => {
+  it("requires the approved shared backdrop to cover every script scene exactly once", () => {
+    const fixture = approvalFixture();
+    expect(guidedBackdropCoversEveryScriptScene(fixture.snapshot)).toBe(true);
+
+    const partial = structuredClone(fixture.snapshot);
+    partial.backdropReference!.sceneIds = [];
+    expect(guidedBackdropCoversEveryScriptScene(partial)).toBe(false);
+
+    const duplicated = structuredClone(fixture.snapshot);
+    duplicated.backdropReference!.sceneIds = [
+      ...duplicated.backdropReference!.sceneIds,
+      duplicated.backdropReference!.sceneIds[0]!,
+    ];
+    expect(guidedBackdropCoversEveryScriptScene(duplicated)).toBe(false);
+  });
+
   it("requires every role, current revision, exact paths, and SHA-256 fingerprints", () => {
     const fixture = approvalFixture();
     expect(guidedStoryEstimates(fixture.state)).toMatchObject({

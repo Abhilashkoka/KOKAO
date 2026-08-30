@@ -115,6 +115,7 @@ import {
   guidedCastApprovalsMatch,
   guidedStorySceneImmutableInputsMatch,
   guidedBackdropFingerprint,
+  guidedBackdropCoversEveryScriptScene,
   guidedStoryStoryboard,
 } from "./guidedStory";
 import { resolveModelOptions, videoModelMultiplier } from "./modelCatalog";
@@ -3928,6 +3929,7 @@ export async function runVideoGenerationJob(
     const backdrop = guided.backdropReference;
     const invalid =
       !backdrop?.approvedAt ||
+      !guidedBackdropCoversEveryScriptScene(guided) ||
       guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint ||
       (claimed.storyboard != null && (() => {
         const expected = guidedStoryStoryboard(guided);
@@ -4021,7 +4023,10 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
   try {
     const snapshot = claimed.options?.guidedStory;
     if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
-    if (!snapshot.backdropReference?.approvedAt) {
+    if (
+      !snapshot.backdropReference?.approvedAt ||
+      !guidedBackdropCoversEveryScriptScene(snapshot)
+    ) {
       throw new VideoJobInputError(
         "Review and approve the shared backdrop reference before generating scene previews.",
       );
@@ -4305,7 +4310,10 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
   try {
     const snapshot = claimed.options?.guidedStory;
     if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
-    if (!snapshot.backdropReference?.approvedAt) {
+    if (
+      !snapshot.backdropReference?.approvedAt ||
+      !guidedBackdropCoversEveryScriptScene(snapshot)
+    ) {
       throw new VideoJobInputError(
         "Review and approve the shared backdrop reference before generating scene previews.",
       );
@@ -4547,6 +4555,14 @@ export async function runGuidedSceneCorrectionJob(
   const claimedJob = claimed.job;
   const claimedStoryboard = claimedJob.storyboard!;
   const immutableSnapshot = claimedJob.options?.guidedStory;
+  const immutableBackdrop = immutableSnapshot?.backdropReference;
+  const immutableBackdropValid =
+    Boolean(immutableBackdrop?.approvedAt) &&
+    Boolean(immutableSnapshot && guidedBackdropCoversEveryScriptScene(immutableSnapshot)) &&
+    Boolean(
+      immutableBackdrop &&
+      guidedBackdropFingerprint(immutableBackdrop) === immutableBackdrop.fingerprint,
+    );
   if (
     immutableSnapshot &&
     !guidedCastApprovalsMatch({
@@ -4559,6 +4575,7 @@ export async function runGuidedSceneCorrectionJob(
     // returns reserved correction funding before any provider call.
   }
   const expectedBoard = immutableSnapshot
+    && immutableBackdropValid
     && guidedCastApprovalsMatch({
       draftRevision: immutableSnapshot.draftRevision,
       cast: immutableSnapshot.cast,
@@ -4622,7 +4639,7 @@ export async function runGuidedSceneCorrectionJob(
     if (!saved) throw new VideoJobInputError("Guided Story is no longer awaiting review.");
     return saved;
   });
-  if (!immutableSnapshot?.backdropReference?.approvedAt) {
+  if (!immutableBackdropValid) {
     const attempt = claimedStoryboard.scenes
       .find((item) => item.id === sceneId)
       ?.guidedStory?.corrections?.attempts.find((item) => item.id === attemptId);
@@ -5068,6 +5085,7 @@ export async function resumeVideoGenerationJob(job: VideoGeneration): Promise<vo
     const expected = backdrop?.approvedAt ? guidedStoryStoryboard(guided) : null;
     const invalid =
       !backdrop?.approvedAt ||
+      !guidedBackdropCoversEveryScriptScene(guided) ||
       guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint ||
       !job.storyboard ||
       !expected ||
