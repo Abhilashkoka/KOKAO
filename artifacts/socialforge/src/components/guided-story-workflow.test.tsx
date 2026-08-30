@@ -856,6 +856,9 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByTestId("button-enlarge-guided-backdrop"));
     expect(screen.getByTestId("image-enlarged-guided-backdrop")).toBeTruthy();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByTestId("button-guided-change-outfit-r1"));
+    expect(screen.getByTestId("dialog-guided-change-outfit")).toBeTruthy();
   });
 
   it("requires prompt edits to be prepared before approving the backdrop", async () => {

@@ -8,11 +8,13 @@ import {
   useApproveGuidedStoryCastRole,
   useApproveGuidedStoryBackdrop,
   useCastGuidedStoryDraft,
+  useCreateGuidedStoryReference,
   useCreateGuidedStoryDraft,
   useEnqueueGuidedStoryDraft,
   useGenerateGuidedStoryDraftScript,
   useGenerateGuidedStoryDraftScene,
   useGenerateImage,
+  useFinalizeGuidedStoryReference,
   useGetGuidedStoryDraft,
   useGetVideoJob,
   useListGuidedStoryPlatforms,
@@ -519,7 +521,7 @@ export function GuidedStoryWorkflow({
           {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">A Brand Kit is required for the story’s visual branding. Voice selection is managed separately.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save setup" : "Create story draft"}</Button>
-        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptApprovalError={scriptApprovalError} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} castApprovalPending={approveCastRole.isPending} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: releaseMutation }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError("Approve every current cast role before building the storyboard."); return; } if (!draft.visualChoices?.backdropReference?.approvedAt) { setEnqueueError("Approve the shared backdrop before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
+        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptApprovalError={scriptApprovalError} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} castApprovalPending={approveCastRole.isPending} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: releaseMutation }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError("Approve every current cast role before building the storyboard."); return; } if (!draft.visualChoices?.backdropReference?.approvedAt) { setEnqueueError("Approve the shared backdrop before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
       </CardContent>
     </Card>
   </div>;
@@ -689,11 +691,63 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
 
 function CastApprovalStep(props: any) {
   const [reviewRoleId, setReviewRoleId] = useState<string | null>(null);
+  const [outfitRoleId, setOutfitRoleId] = useState<string | null>(null);
+  const [selectedOutfitId, setSelectedOutfitId] = useState<number | null>(null);
+  const [outfitCandidate, setOutfitCandidate] = useState<any>(null);
+  const [outfitError, setOutfitError] = useState<string | null>(null);
+  const createReference = useCreateGuidedStoryReference();
+  const finalizeReference = useFinalizeGuidedStoryReference();
   const roles = props.draft.script?.roles ?? [];
   const manifest = props.draft.castApprovals;
   const manifestIsCurrent = manifest?.draftRevision === props.draft.revision;
   const pendingNames = props.pendingCastApprovalRoles.map((role: any) => role.name);
   const selected = props.draft.cast.find((item: any) => item.roleId === reviewRoleId);
+  const outfitMember = props.draft.cast.find((item: any) => item.roleId === outfitRoleId);
+  const outfitCharacter = props.characters.find((item: Character) => item.id === outfitMember?.characterId);
+  const availableOutfits = outfitCharacter?.outfits.filter((outfit: Character["outfits"][number]) =>
+    outfit.isDefault || (outfit.status === "approved" && outfit.identityVerified),
+  ) ?? [];
+  const closeOutfitDialog = () => {
+    setOutfitRoleId(null);
+    setSelectedOutfitId(null);
+    setOutfitCandidate(null);
+    setOutfitError(null);
+  };
+  const prepareOutfitCandidate = async () => {
+    if (!outfitRoleId || !outfitMember?.characterId || !selectedOutfitId) return;
+    setOutfitError(null);
+    try {
+      const operation = await createReference.mutateAsync({
+        draftId: props.draft.id,
+        data: {
+          revision: props.draft.revision,
+          roleId: outfitRoleId,
+          kind: "outfit",
+          source: "saved",
+          characterId: outfitMember.characterId,
+          outfitId: selectedOutfitId,
+        },
+      });
+      setOutfitCandidate(operation);
+    } catch (cause) {
+      setOutfitError(apiErrorMessage(cause, "Could not prepare this outfit for review."));
+    }
+  };
+  const confirmOutfitCandidate = async () => {
+    if (!outfitCandidate) return;
+    setOutfitError(null);
+    try {
+      const next = await finalizeReference.mutateAsync({
+        draftId: props.draft.id,
+        operationId: outfitCandidate.id,
+        data: { revision: props.draft.revision },
+      });
+      props.onDraftChanged(next);
+      closeOutfitDialog();
+    } catch (cause) {
+      setOutfitError(apiErrorMessage(cause, "Could not apply this outfit."));
+    }
+  };
   return <section className="space-y-3" aria-labelledby="guided-cast-approval-heading" data-testid="section-guided-cast-approvals">
     <div>
       <h3 id="guided-cast-approval-heading" className="font-semibold">Approve cast references</h3>
@@ -714,6 +768,7 @@ function CastApprovalStep(props: any) {
             {props.castApprovalError?.roleId === role.id && <p className="text-sm text-destructive" role="alert" data-testid={`error-guided-cast-approval-${role.id}`}>{props.castApprovalError.message}</p>}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-review-cast-${role.id}`}>Review references</Button>
+              <Button type="button" variant="outline" onClick={() => { setOutfitRoleId(role.id); setSelectedOutfitId(null); setOutfitCandidate(null); setOutfitError(null); }} data-testid={`button-guided-change-outfit-${role.id}`}>Change outfit</Button>
               <Button type="button" onClick={() => props.onApproveCastRole(role.id)} disabled={props.pending || !cast} data-testid={`button-guided-approve-cast-${role.id}`}>{props.castApprovalPending ? "Approving…" : approved ? "Reapprove" : "Approve"}</Button>
             </div>
           </CardContent>
@@ -727,6 +782,46 @@ function CastApprovalStep(props: any) {
           <ReferenceThumbnail label="Character" asset={selected?.character} enlarged />
           <ReferenceThumbnail label="Outfit" asset={selected?.outfit} enlarged />
         </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={outfitRoleId !== null} onOpenChange={(open) => !open && closeOutfitDialog()}>
+      <DialogContent className="max-w-2xl" data-testid="dialog-guided-change-outfit">
+        <DialogHeader>
+          <DialogTitle>Change {roles.find((role: any) => role.id === outfitRoleId)?.name}’s outfit</DialogTitle>
+          <DialogDescription>Select an approved outfit, review its exact image, then confirm it. Changing the outfit clears this role’s approval until you approve the new character-and-outfit pair.</DialogDescription>
+        </DialogHeader>
+        {!outfitMember?.characterId || !outfitCharacter ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">This fictional character has no saved outfit library yet. Save the character first to manage reusable outfits.</p>
+            <Button type="button" variant="outline" onClick={props.onManageCharacters}>Manage characters and outfits</Button>
+          </div>
+        ) : outfitCandidate?.candidate?.outfit ? (
+          <div className="space-y-3">
+            <ReferenceThumbnail label="Outfit" asset={outfitCandidate.candidate.outfit} enlarged />
+            <p className="text-sm text-muted-foreground">Candidate only—the locked outfit has not changed yet.</p>
+            {outfitError && <p className="text-sm text-destructive" role="alert">{outfitError}</p>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setOutfitCandidate(null)}>Choose another</Button>
+              <Button type="button" disabled={finalizeReference.isPending} onClick={() => void confirmOutfitCandidate()} data-testid="button-guided-confirm-outfit-change">{finalizeReference.isPending ? "Applying outfit…" : "Use this outfit"}</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <Label>Approved outfits</Label>
+              <Select value={selectedOutfitId?.toString() ?? ""} onValueChange={(value) => setSelectedOutfitId(Number(value))}>
+                <SelectTrigger data-testid="select-guided-replacement-outfit"><SelectValue placeholder="Choose an outfit" /></SelectTrigger>
+                <SelectContent>{availableOutfits.map((outfit: Character["outfits"][number]) => <SelectItem key={outfit.id} value={String(outfit.id)}>{outfit.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            {availableOutfits.length === 0 && <p className="text-sm text-muted-foreground">No other approved outfits are available for this character.</p>}
+            {outfitError && <p className="text-sm text-destructive" role="alert">{outfitError}</p>}
+            <div className="flex flex-wrap justify-between gap-2">
+              <Button type="button" variant="ghost" onClick={props.onManageCharacters}>Manage outfits</Button>
+              <Button type="button" disabled={!selectedOutfitId || createReference.isPending} onClick={() => void prepareOutfitCandidate()} data-testid="button-guided-review-outfit-change">{createReference.isPending ? "Preparing outfit…" : "Review selected outfit"}</Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   </section>;
