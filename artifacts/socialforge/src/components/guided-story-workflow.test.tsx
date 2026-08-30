@@ -138,9 +138,11 @@ function draft(overrides: Record<string, unknown> = {}) {
 }
 function renderWorkflow(options: { characters?: any[]; brandKits?: any[] } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const onJobReady = vi.fn();
   return {
     client,
-    ...render(<QueryClientProvider client={client}><TooltipProvider><GuidedStoryWorkflow tenantId={99} characters={options.characters ?? [character]} brandKits={options.brandKits ?? [kit]} onManageCharacters={vi.fn()} onJobReady={vi.fn()} /></TooltipProvider></QueryClientProvider>),
+    onJobReady,
+    ...render(<QueryClientProvider client={client}><TooltipProvider><GuidedStoryWorkflow tenantId={99} characters={options.characters ?? [character]} brandKits={options.brandKits ?? [kit]} onManageCharacters={vi.fn()} onJobReady={onJobReady} /></TooltipProvider></QueryClientProvider>),
   };
 }
 
@@ -261,6 +263,23 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByTestId("button-guided-save-cast"));
     expect(state.cast.assignments.every((item: any) => item.isUserRole === false)).toBe(true);
     expect(state.cast.assignments.every((item: any) => item.source === "generated")).toBe(true);
+  });
+
+  it("opens the existing storyboard job instead of silently re-enqueueing it", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "lead" }, { roleId: "friend" }],
+      storyboardJobId: 43126,
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    const { onJobReady } = renderWorkflow();
+
+    expect(screen.getByTestId("button-guided-enqueue").textContent).toBe(
+      "Open existing storyboard job",
+    );
+    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
+
+    expect(onJobReady).toHaveBeenCalledWith(43126);
+    expect(state.enqueued).toBeNull();
   });
 
   it("offers stock, ElevenLabs premade, and cloned voices independently of the Brand Kit", async () => {
