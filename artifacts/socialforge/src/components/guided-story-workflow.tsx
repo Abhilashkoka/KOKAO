@@ -53,6 +53,7 @@ const GENRES = [
 ] as const;
 
 type Assignment = { characterId: number | null; outfitId: number | null; voiceId: string };
+const GUIDED_STORY_ELEVENLABS_MODEL = "eleven_v3";
 
 const BUILT_IN_VOICES: GuidedStoryVoiceCatalogItem[] = [
   ["alloy", "Alloy · balanced"],
@@ -82,6 +83,44 @@ function normaliseVisualChoices(value: GuidedStoryDraft["visualChoices"] | undef
 }
 function visualChoicesEqual(a: VisualChoices, b: VisualChoices): boolean {
   return JSON.stringify({ ...a, logo: { ...a.logo, sceneIds: [...a.logo.sceneIds].sort() } }) === JSON.stringify({ ...b, logo: { ...b.logo, sceneIds: [...b.logo.sceneIds].sort() } });
+}
+
+export function guidedStoryWritingSystemWarning(
+  script: GuidedStoryScript,
+  locale: string,
+): string | null {
+  let language: string;
+  try {
+    language = new Intl.Locale(locale).language;
+  } catch {
+    return "This story has an unsupported language. Return to setup and choose English, Hindi, Tamil, or Telugu.";
+  }
+  const expected = {
+    hi: { name: "Hindi", script: "Devanagari", pattern: /\p{Script=Devanagari}/u },
+    ta: { name: "Tamil", script: "Tamil", pattern: /\p{Script=Tamil}/u },
+    te: { name: "Telugu", script: "Telugu", pattern: /\p{Script=Telugu}/u },
+  }[language];
+  if (!expected) return null;
+  const spoken = script.scenes.flatMap((scene) => scene.lines.map((line) => line.text)).join(" ");
+  return expected.pattern.test(spoken)
+    ? null
+    : `${expected.name} spoken lines appear to be Romanized. Edit them to use ${expected.script} characters, or regenerate the script, before approval.`;
+}
+
+/** Keep this capability check visible before a Telugu story reaches approval. */
+export function guidedStoryElevenLabsCapabilityWarning(
+  locale: string,
+  modelId = GUIDED_STORY_ELEVENLABS_MODEL,
+): string | null {
+  let language: string;
+  try {
+    language = new Intl.Locale(locale).language;
+  } catch {
+    return null;
+  }
+  return language === "te" && modelId === "eleven_multilingual_v2"
+    ? "Telugu narration requires the ElevenLabs v3 voice model. Choose a compatible narration model before approval."
+    : null;
 }
 
 function trackGuidedStoryEvent(name: string, data: Record<string, number>): void {
@@ -428,7 +467,7 @@ function StoryFlow(props: any) {
   };
   if (step === "script") return <>{estimate}<Button type="button" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-generate-script">Generate script</Button></>;
   if (step === "review" || props.scriptEditorOpen) return <>{estimate}<ScriptReview {...props} /></>;
-  if (step === "ready") return <>{estimate}<p data-testid="status-guided-cast-complete">Cast is saved. Choose optional visual consistency settings before the storyboard.</p><VisualConsistencyStep {...props} />{props.enqueueError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-enqueue">{props.enqueueError}</p>}<Button type="button" onClick={props.onEnqueue} disabled={props.pending || !props.visualSaved || !!props.visualUploading} data-testid="button-guided-enqueue">{props.failedBeforeStoryboard ? "Edit story and rebuild storyboard" : props.existingJobId ? "Open existing storyboard job" : props.enqueuePending ? "Starting storyboard…" : "Build storyboard for review"}</Button></>;
+  if (step === "ready") return <>{estimate}<p data-testid="status-guided-cast-complete">Cast is saved. Choose optional visual consistency settings before the storyboard.</p><p className="text-sm text-muted-foreground" data-testid="text-guided-voice-language">ElevenLabs voices speak the story language; a voice is not language-specific.</p><VisualConsistencyStep {...props} />{props.enqueueError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-enqueue">{props.enqueueError}</p>}<Button type="button" onClick={props.onEnqueue} disabled={props.pending || !props.visualSaved || !!props.visualUploading} data-testid="button-guided-enqueue">{props.failedBeforeStoryboard ? "Edit story and rebuild storyboard" : props.existingJobId ? "Open existing storyboard job" : props.enqueuePending ? "Starting storyboard…" : "Build storyboard for review"}</Button></>;
   return <>{estimate}<ScriptSummary script={draft.script} /><Button type="button" variant="outline" onClick={props.onBackToScript} data-testid="button-guided-back-to-script">Back to scene editor</Button><div className={roleChoicePrompt ? "space-y-3 rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : "space-y-3"} data-testid="section-guided-user-role"><h3 className="font-semibold">Which character are you playing?</h3>{roleChoicePrompt && <p className="text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-user-role">Choose your character, or select “None — I’m not playing a character,” before generating the remaining cast.</p>}<div className="flex flex-wrap gap-2"><Button type="button" aria-pressed={props.userRoleChoiceMade && props.userRoleId === null} variant={props.userRoleChoiceMade && props.userRoleId === null ? "default" : "outline"} className={roleChoicePrompt ? "ring-2 ring-amber-400 ring-offset-2" : undefined} onClick={() => chooseUserRole(null)} data-testid="button-guided-user-role-none">None — I’m not playing a character</Button>{draft.script.roles.map((role: any) => <Button type="button" key={role.id} aria-pressed={props.userRoleId === role.id} variant={props.userRoleId === role.id ? "default" : "outline"} className={roleChoicePrompt ? "ring-2 ring-amber-400 ring-offset-2" : undefined} onClick={() => chooseUserRole(role.id)} data-testid={`button-guided-user-role-${role.id}`}>{role.name}</Button>)}</div></div><div className="flex gap-2"><Button type="button" variant={props.strategy === "generated" ? "default" : "outline"} onClick={chooseGeneratedCast} data-testid="button-guided-cast-generated">Generate remaining cast</Button><Button type="button" variant={props.strategy === "saved" ? "default" : "outline"} onClick={() => { props.setStrategy("saved"); setRoleChoicePrompt(false); setReadyToGenerateCast(false); }} data-testid="button-guided-cast-saved">Use saved characters</Button></div>{readyToGenerateCast && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-ready-generate-cast">Role selected. Now click “Generate remaining cast” to continue.</p>}{elevenLabsVoiceCount > 0 && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-elevenlabs-voices">{elevenLabsVoiceCount} ElevenLabs premade voices loaded — open any voice menu to choose one.</p>}{props.needsSaved.length > 0 && characters.length === 0 && <><p data-testid="status-guided-empty-characters">No saved characters are available for the selected roles.</p><Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid="button-guided-manage-characters">Manage characters</Button></>}{props.voiceCatalogWarning && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid="status-guided-voice-catalog-error">{props.voiceCatalogWarning}</p>}{props.needsSaved.map((role: any) => <CastFields key={role.id} role={role} {...props} />)}{props.strategy === "generated" && props.userRoleChoiceMade && draft.script.roles.filter((role: any) => role.id !== props.userRoleId).map((role: any) => <GeneratedCastVoice key={role.id} role={role} {...props} />)}{props.needsSaved.length > 0 && <div className="flex items-center gap-2"><Checkbox checked={props.consent} onCheckedChange={(value) => props.setConsent(value === true)} data-testid="checkbox-guided-consent" /><Label>I have permission to use each saved person’s likeness and selected voice for this attempt.</Label></div>}{props.hasDuplicate && <div className="flex items-center gap-2"><Checkbox checked={props.duplicateConfirmed} onCheckedChange={(value) => props.setDuplicateConfirmed(value === true)} data-testid="checkbox-guided-duplicate-confirmation" /><Label>I confirm one performer may play multiple roles.</Label></div>}{props.castBusyRole && <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm" role="status" aria-live="polite" data-testid="status-guided-cast-progress"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" /><span><b>Generating {props.castBusyRole}’s cast…</b><br /><span className="text-muted-foreground">KOKAO is checking progress automatically. You can keep this page open.</span></span></div>}{props.castSaveError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-save-cast">{props.castSaveError}</p>}<Button type="button" disabled={!props.castComplete || (props.hasDuplicate && !props.duplicateConfirmed) || props.pending} onClick={props.onCast} data-testid="button-guided-save-cast">{props.castSaving ? "Saving cast…" : props.castBusyRole ? `Generating ${props.castBusyRole}…` : props.castSaveError ? "Retry saving cast" : "Save cast and continue"}</Button></>;
 }
 
@@ -463,7 +502,15 @@ function VisualConsistencyStep(props: any) {
       </div>
       {props.visualError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-visuals">{props.visualError}</p>}
       {!props.visualSaved && <p className="text-sm text-amber-700" data-testid="status-guided-visuals-unsaved">Save these choices before building the storyboard.</p>}
-      <Button type="button" onClick={props.onSaveVisual} disabled={props.pending || !!props.visualUploading || (choices.location.mode === "image" && !choices.location.imagePath) || (choices.location.mode === "text" && choices.location.description.trim().length < 3)} data-testid="button-guided-save-visuals">{props.pending ? "Saving…" : props.visualSaved ? "Visual choices saved" : "Save visual choices"}</Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" onClick={props.onSaveVisual} disabled={props.pending || !!props.visualUploading || (choices.location.mode === "image" && !choices.location.imagePath) || (choices.location.mode === "text" && choices.location.description.trim().length < 3)} data-testid="button-guided-save-visuals">{props.visualSaved ? "Visual choices saved" : "Save visual choices"}</Button>
+        {props.pending && (
+          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-visuals-saving">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Saving visual choices…
+          </span>
+        )}
+      </div>
     </CardContent>
   </Card>;
 }
@@ -500,6 +547,13 @@ function ScriptReview(props: any) {
   const draftRevisionRef = useRef(props.draft.revision);
   const serverScriptRef = useRef(script);
   const generateScene = useGenerateGuidedStoryDraftScene();
+  const writingSystemWarning = guidedStoryWritingSystemWarning(
+    editedScript,
+    props.draft.setup.locale,
+  );
+  const elevenLabsCapabilityWarning = guidedStoryElevenLabsCapabilityWarning(
+    props.draft.setup.locale,
+  );
 
   editedScriptRef.current = editedScript;
   draftRevisionRef.current = props.draft.revision;
@@ -994,7 +1048,17 @@ function ScriptReview(props: any) {
           {props.scriptApprovalError}
         </p>
       )}
-      <div className="flex flex-wrap gap-2">
+      {writingSystemWarning && (
+        <p className="rounded-md border border-amber-500 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100" role="alert" data-testid="warning-guided-script-writing-system">
+          {writingSystemWarning}
+        </p>
+      )}
+      {elevenLabsCapabilityWarning && (
+        <p className="rounded-md border border-amber-500 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100" role="alert" data-testid="warning-guided-elevenlabs-capability">
+          {elevenLabsCapabilityWarning}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-regenerate-script">Regenerate</Button>
         <Button
           type="button"
@@ -1020,7 +1084,13 @@ function ScriptReview(props: any) {
         >
           {saveFeedback.kind === "saving" ? "Saving…" : "Save changes"}
         </Button>
-        <Button type="button" onClick={props.onApprove} disabled={props.pending || dirty || jsonError !== null} data-testid="button-guided-approve-script">Approve script</Button>
+        <Button type="button" onClick={props.onApprove} disabled={props.pending || dirty || jsonError !== null || elevenLabsCapabilityWarning !== null} data-testid="button-guided-approve-script">Approve script</Button>
+        {saveFeedback.kind === "saving" && (
+          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-script-saving">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Saving script changes…
+          </span>
+        )}
       </div>
     </>
   );

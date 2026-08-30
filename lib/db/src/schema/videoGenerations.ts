@@ -662,6 +662,8 @@ export interface VideoJobOptions {
     draftId: number;
     draftRevision: number;
     scriptApprovedAt: string;
+    /** Canonical locale frozen with the approved attempt. Absent only on legacy jobs. */
+    locale?: string;
     platform: {
       id: string;
       aspectRatio: VideoJobAspect;

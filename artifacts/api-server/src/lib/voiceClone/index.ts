@@ -98,13 +98,14 @@ export interface VoiceCloneProviderDef {
     mimeType: string;
   }) => Promise<string>;
   /** Speak text in a cloned voice; returns a complete WAV buffer. */
-  speak: (args: { apiKey: string; voiceId: string; text: string; modelId?: string }) => Promise<Buffer>;
+  speak: (args: { apiKey: string; voiceId: string; text: string; modelId?: string; languageCode?: string }) => Promise<Buffer>;
   /** Receipt-preserving variant for exact provider billing. */
   speakWithReceipt?: (args: {
     apiKey: string;
     voiceId: string;
     text: string;
     modelId?: string;
+    languageCode?: string;
     onReceipt?: VoiceSpeechReceiptHandler;
   }) => Promise<VoiceSpeechResult>;
   /** Best-effort delete of a cloned voice at the provider. */
@@ -127,6 +128,46 @@ const ELEVENLABS_HISTORY_CLOCK_SKEW_SECONDS = 5;
 const ELEVENLABS_PREMADE_CATALOG_PAGE_SIZE = 100;
 const ELEVENLABS_PREMADE_CATALOG_MAX_PAGES = 3;
 const ELEVENLABS_PREMADE_CATALOG_TIMEOUT_MS = 10_000;
+export const ELEVENLABS_MULTILINGUAL_V2_MODEL = "eleven_multilingual_v2";
+export const ELEVENLABS_V3_MODEL = "eleven_v3";
+
+/**
+ * The speech endpoint's language control is model-specific. Multilingual v2
+ * auto-detects from text and ignores language_code; it also cannot synthesize
+ * Telugu. v3 accepts language_code and supports all Guided Story languages.
+ */
+export function resolveElevenLabsSpeechLanguage(
+  modelId: string | undefined,
+  locale: string | undefined,
+): { modelId: string; languageCode?: string } {
+  const model = modelId ?? ELEVENLABS_MULTILINGUAL_V2_MODEL;
+  let languageCode: string | undefined;
+  if (locale) {
+    try {
+      languageCode = new Intl.Locale(locale.replaceAll("_", "-")).language;
+    } catch {
+      throw new VoiceCloneError(`Unsupported ElevenLabs language code "${locale}".`);
+    }
+  }
+  if (model === ELEVENLABS_MULTILINGUAL_V2_MODEL) {
+    if (languageCode === "te") {
+      throw new VoiceCloneError(
+        "ElevenLabs eleven_multilingual_v2 does not support Telugu. Use eleven_v3 for Telugu narration.",
+      );
+    }
+    // This model deliberately auto-detects; language_code is unsupported.
+    return { modelId: model };
+  }
+  if (model === ELEVENLABS_V3_MODEL) {
+    return { modelId: model, ...(languageCode ? { languageCode } : {}) };
+  }
+  if (languageCode) {
+    throw new VoiceCloneError(
+      `ElevenLabs model "${model}" has no configured language capability. Choose eleven_multilingual_v2 or eleven_v3.`,
+    );
+  }
+  return { modelId: model };
+}
 
 /** Publicly selectable provider-owned voices. This deliberately excludes every
  * non-premade category: tenant clones must come from a tenant Brand Kit, not a
@@ -259,14 +300,20 @@ async function elevenLabsSpeakWithReceipt(args: {
   voiceId: string;
   text: string;
   modelId?: string;
+  languageCode?: string;
   onReceipt?: VoiceSpeechReceiptHandler;
 }): Promise<VoiceSpeechResult> {
+  const language = resolveElevenLabsSpeechLanguage(args.modelId, args.languageCode);
   const res = await platformFetch(
     `${ELEVENLABS_BASE}/v1/text-to-speech/${encodeURIComponent(args.voiceId)}?output_format=pcm_${ELEVENLABS_PCM_RATE}`,
     {
       method: "POST",
       headers: { "xi-api-key": args.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: args.text, model_id: args.modelId ?? "eleven_multilingual_v2" }),
+      body: JSON.stringify({
+        text: args.text,
+        model_id: language.modelId,
+        ...(language.languageCode ? { language_code: language.languageCode } : {}),
+      }),
     },
     VOICE_CLONE_TIMEOUT_MS,
   );
@@ -289,23 +336,24 @@ async function elevenLabsSpeak(args: {
   voiceId: string;
   text: string;
   modelId?: string;
+  languageCode?: string;
 }): Promise<Buffer> {
   return (await elevenLabsSpeakWithReceipt(args)).audio;
 }
 
-function brandVoiceTtsDigest(voiceId: string, model: string, text: string): string {
+function brandVoiceTtsDigest(voiceId: string, model: string, text: string, languageCode?: string): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) {
     throw new VoiceCloneError("SESSION_SECRET is required for voice-operation recovery.");
   }
-  return createHmac("sha256", secret)
+  const digest = createHmac("sha256", secret)
     .update("kokao-brand-voice-tts\0", "utf8")
     .update(voiceId, "utf8")
     .update("\0", "utf8")
     .update(model, "utf8")
-    .update("\0", "utf8")
-    .update(text, "utf8")
-    .digest("hex");
+    .update("\0", "utf8");
+  if (languageCode) digest.update(languageCode, "utf8").update("\0", "utf8");
+  return digest.update(text, "utf8").digest("hex");
 }
 
 /** Privacy-safe fingerprint used to reconcile paid TTS after response loss. */
@@ -314,13 +362,18 @@ export function buildBrandVoiceTtsOperationKey(
   model: string,
   text: string,
   scope?: { jobId: number; cueIndex: number },
+  languageCode?: string,
 ): string {
-  const key = [
+  const keyParts = [
     BRAND_VOICE_TTS_OPERATION_PREFIX,
     Buffer.from(voiceId, "utf8").toString("base64url"),
     Buffer.from(model, "utf8").toString("base64url"),
-    brandVoiceTtsDigest(voiceId, model, text),
-  ].join(":");
+  ];
+  if (languageCode) {
+    keyParts.push("lang", Buffer.from(languageCode, "utf8").toString("base64url"));
+  }
+  keyParts.push(brandVoiceTtsDigest(voiceId, model, text, languageCode));
+  const key = keyParts.join(":");
   // Provider history contains the voice/model/text fingerprint but not our job
   // id. Keep that recoverable base intact and append the local idempotency
   // scope used by job runners to distinguish repeated cue text.
@@ -329,8 +382,13 @@ export function buildBrandVoiceTtsOperationKey(
 
 function parseBrandVoiceTtsOperationKey(
   operationKey: string,
-): { voiceId: string; model: string; baseKey: string } | null {
-  const [prefix, voiceId, model, digest, ...extra] = operationKey.split(":");
+): { voiceId: string; model: string; languageCode?: string; baseKey: string } | null {
+  const parts = operationKey.split(":");
+  const [prefix, voiceId, model] = parts;
+  const localized = parts[3] === "lang";
+  const languagePart = localized ? parts[4] : undefined;
+  const digest = localized ? parts[5] : parts[3];
+  const extra = parts.slice(localized ? 6 : 4);
   if (
     prefix !== BRAND_VOICE_TTS_OPERATION_PREFIX ||
     !voiceId ||
@@ -351,7 +409,10 @@ function parseBrandVoiceTtsOperationKey(
     return {
       voiceId: Buffer.from(voiceId, "base64url").toString("utf8"),
       model: Buffer.from(model, "base64url").toString("utf8"),
-      baseKey: [prefix, voiceId, model, digest].join(":"),
+      ...(languagePart
+        ? { languageCode: Buffer.from(languagePart, "base64url").toString("utf8") }
+        : {}),
+      baseKey: parts.slice(0, localized ? 6 : 4).join(":"),
     };
   } catch {
     return null;
@@ -426,7 +487,13 @@ export async function findBrandVoiceTtsHistoryMatches(
         typeof item.date_unix === "number" &&
         item.date_unix >= earliestUnix &&
         item.date_unix < latestExclusiveUnix &&
-        buildBrandVoiceTtsOperationKey(parsed.voiceId, parsed.model, item.text) === parsed.baseKey
+         buildBrandVoiceTtsOperationKey(
+           parsed.voiceId,
+           parsed.model,
+           item.text,
+           undefined,
+           parsed.languageCode,
+         ) === parsed.baseKey
       ) {
         matches.push({
           providerResultId: item.history_item_id,
@@ -792,14 +859,14 @@ export async function findClonedVoiceByExactName(
 /** Speak text in a cloned voice; returns a complete WAV buffer. The voice's
  * provider must be the currently selected one — a clone made at a provider
  * the admin has since switched away from reads as unconfigured. */
-export async function speakWithClonedVoice(voice: ClonedVoiceRef, text: string, modelId?: string): Promise<Buffer> {
+export async function speakWithClonedVoice(voice: ClonedVoiceRef, text: string, modelId?: string, languageCode?: string): Promise<Buffer> {
   const { def, apiKey } = await requireVoiceCloneProvider();
   if (def.id !== voice.provider) {
     throw new VoiceCloneNotConfiguredError(
       "This brand voice was cloned at a different provider than the one currently configured.",
     );
   }
-  return def.speak({ apiKey, voiceId: voice.voiceId, text, modelId });
+  return def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode });
 }
 
 /** Speak while retaining the provider's exact billing receipt. */
@@ -808,6 +875,7 @@ export async function speakWithClonedVoiceReceipt(
   text: string,
   onReceipt?: VoiceSpeechReceiptHandler,
   modelId?: string,
+  languageCode?: string,
 ): Promise<VoiceSpeechResult> {
   const { def, apiKey } = await requireVoiceCloneProvider();
   if (def.id !== voice.provider) {
@@ -817,11 +885,11 @@ export async function speakWithClonedVoiceReceipt(
   }
   if (!def.speakWithReceipt) {
     return {
-      audio: await def.speak({ apiKey, voiceId: voice.voiceId, text, modelId }),
+      audio: await def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode }),
       receipt: { providerCredits: null, requestId: null, traceId: null },
     };
   }
-  return def.speakWithReceipt({ apiKey, voiceId: voice.voiceId, text, onReceipt, modelId });
+  return def.speakWithReceipt({ apiKey, voiceId: voice.voiceId, text, onReceipt, modelId, languageCode });
 }
 
 /** Best-effort delete of a cloned voice at its provider. Never throws. */

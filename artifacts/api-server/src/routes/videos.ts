@@ -245,6 +245,7 @@ import {
   governedGuidedCastPrompt,
   guidedStoryStoryboard,
   validateAndRepairGuidedScript,
+  normalizeGuidedStoryLocale,
 } from "../lib/videoGen/guidedStory";
 
 const router: IRouter = Router();
@@ -1431,7 +1432,8 @@ function guidedSetup(
   allowManualRoleCount = false,
 ): NonNullable<GuidedStoryDraftState["setup"]> | null {
   const platform = guidedStoryPlatform(input.platform);
-  if (!platform || !GUIDED_STORY_GENRES.includes(input.genre as never))
+  const locale = normalizeGuidedStoryLocale(input.locale);
+  if (!platform || !locale || !GUIDED_STORY_GENRES.includes(input.genre as never))
     return null;
   let plan;
   try {
@@ -1454,7 +1456,7 @@ function guidedSetup(
     height: platform.height,
     safeArea: platform.safeArea,
     durationSeconds: input.durationSeconds,
-    locale: input.locale.trim(),
+    locale,
     topic: input.topic.trim(),
     roleCount: input.roleCount,
     brandKitId: input.brandKitId ?? null,
@@ -2155,7 +2157,7 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     res
       .status(400)
       .json({
-        error: "The platform, duration, or role count is not supported.",
+        error: "The platform, duration, role count, or locale is not supported. Use English, Hindi, Tamil, or Telugu.",
       });
     return;
   }
@@ -2252,7 +2254,7 @@ router.patch(
         res
           .status(400)
           .json({
-            error: "The platform, duration, or role count is not supported.",
+            error: "The platform, duration, role count, or locale is not supported. Use English, Hindi, Tamil, or Telugu.",
           });
         return;
       }
@@ -3702,6 +3704,7 @@ router.put(
             tenantId: req.tenantId,
             cast,
             script,
+            locale: guidedSnapshot.locale,
             upload: (bytes, contentType) =>
               uploadBufferToStorage(req.tenantId, bytes, contentType),
             fallbackVoice: "alloy",
@@ -6496,6 +6499,7 @@ async function generateVideoHandler(
             draftId: guidedDraft.id,
             draftRevision: guidedDraft.revision,
             scriptApprovedAt: guidedDraft.state.scriptApprovedAt,
+            locale: guidedDraft.state.setup.locale,
             platform: {
               id: guidedDraft.state.setup.platform,
               aspectRatio: guidedDraft.state.setup.aspectRatio,

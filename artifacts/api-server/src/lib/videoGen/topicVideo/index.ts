@@ -936,6 +936,7 @@ export async function planTopicStoryboard(
       tenantId: params.tenantId,
       cast: params.guidedStory.cast,
       script: params.guidedStory.script,
+      locale: params.guidedStory.locale,
       upload: params.upload,
       fallbackVoice: params.voice,
       onStage: params.onStage,
@@ -1215,6 +1216,7 @@ export async function synthesizeGuidedNarration(params: {
   tenantId: number;
   cast: GuidedStoryCastSnapshot[];
   script: NonNullable<VideoJobOptions["guidedStory"]>["script"];
+  locale?: string;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   fallbackVoice: NarrationVoice;
   onStage?: (stage: string) => void;
@@ -1244,6 +1246,9 @@ export async function synthesizeGuidedNarration(params: {
         refKind: "guidedStoryLine",
         refId: line.id,
       },
+      languageCode: params.locale
+        ? new Intl.Locale(params.locale).language
+        : undefined,
     });
     spoken.push({ line, wav: parseWav(result.wav) });
   }

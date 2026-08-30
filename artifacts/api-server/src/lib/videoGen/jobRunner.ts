@@ -136,6 +136,7 @@ import { normalizeLocalizedNarrationSelection } from "./topicVideo/tts";
 import {
   buildBrandVoiceTtsOperationKey,
   elevenLabsDubSourceVoice,
+  resolveElevenLabsSpeechLanguage,
   isConfirmedVoiceCloneFailure,
   resolveVoiceCloneApiKey,
   getVoiceCloneProviderDef,
@@ -975,8 +976,14 @@ async function speakLocalizedBrandVoiceCue(args: {
   voice: ClonedVoiceRef;
   text: string;
   modelId?: "eleven_multilingual_v2" | "eleven_v3";
+  languageCode?: string;
 }): Promise<Buffer> {
   const modelId = args.modelId ?? "eleven_multilingual_v2";
+  // Do this before balance checks or reservations. A capability mismatch is
+  // user-correctable and must never create a wallet operation.
+  const elevenLabsLanguage = args.voice.provider === "elevenlabs"
+    ? resolveElevenLabsSpeechLanguage(modelId, args.languageCode)
+    : { modelId, languageCode: args.languageCode };
   const walletFunded = await isWalletFunded(args.tenantId);
   const rateSnapshot =
     args.voice.provider === "elevenlabs"
@@ -986,7 +993,15 @@ async function speakLocalizedBrandVoiceCue(args: {
     throw new VideoGenProviderError("ElevenLabs credit billing is not configured for cloned narration.");
   }
   if (!walletFunded) {
-    return (await speakWithClonedVoiceReceipt(args.voice, args.text, undefined, modelId)).audio;
+    return (
+      await speakWithClonedVoiceReceipt(
+        args.voice,
+        args.text,
+        undefined,
+        elevenLabsLanguage.modelId,
+        elevenLabsLanguage.languageCode,
+      )
+    ).audio;
   }
   const ceilingPaise = elevenLabsCreditsToPaise(
     elevenLabsCreditReservationCeiling(args.text),
@@ -1014,9 +1029,10 @@ async function speakLocalizedBrandVoiceCue(args: {
         operationKind: "brand_voice_tts",
         operationKey: buildBrandVoiceTtsOperationKey(
           args.voice.voiceId,
-          modelId,
+          elevenLabsLanguage.modelId,
           args.text,
           { jobId: args.jobId, cueIndex: args.cueIndex },
+          args.languageCode,
         ),
         settlement: {
           kind: "caption",
@@ -1047,7 +1063,7 @@ async function speakLocalizedBrandVoiceCue(args: {
             providerRequestId: receipt.requestId ?? receipt.traceId,
             providerResultId: receipt.requestId ?? receipt.traceId,
           });
-        }, modelId),
+        }, elevenLabsLanguage.modelId, elevenLabsLanguage.languageCode),
       () => ({}),
       {
         isFailureConfirmed: isConfirmedVoiceCloneFailure,
@@ -1648,6 +1664,7 @@ async function produceVideo(
                 voice: branding!.clonedVoice!,
                 text: scene.text,
                 modelId: "eleven_v3",
+                languageCode: frozenPlan.locale,
               });
         const narrationDurationSec = checkpoint?.narrationDurationSec ?? await probeNarrationWavDurationSec(narration);
         if (!checkpoint?.narrationPath) {
@@ -3792,6 +3809,7 @@ async function produceVideo(
             cueIndex,
             voice: clonedVoiceRef,
             text,
+            languageCode: dubLocale,
           });
         },
         repairCue: repairOverflowingCue,

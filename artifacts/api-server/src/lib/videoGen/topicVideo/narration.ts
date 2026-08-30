@@ -287,6 +287,7 @@ async function narrateWithBrandVoice(
   clonedVoice: ClonedVoiceRef,
   sentences: string[],
   billing?: BrandVoiceNarrationBilling | null,
+  languageCode?: string,
 ): Promise<ParsedWav[]> {
   const walletFunded = billing ? await isWalletFunded(billing.tenantId) : false;
   const rateSnapshot =
@@ -345,6 +346,8 @@ async function narrateWithBrandVoice(
                       clonedVoice.voiceId,
                       "eleven_multilingual_v2",
                       sentence,
+                      undefined,
+                      languageCode,
                     ),
                     settlement: {
                       kind: "caption",
@@ -384,6 +387,8 @@ async function narrateWithBrandVoice(
                           providerResultId: providerRequestId,
                         });
                       },
+                      undefined,
+                      languageCode,
                     ),
                   () => ({}),
                   {
@@ -435,7 +440,13 @@ async function narrateWithBrandVoice(
                 throw error;
               }
             }
-            const speech = await speakWithClonedVoiceReceipt(clonedVoice, sentence);
+            const speech = await speakWithClonedVoiceReceipt(
+              clonedVoice,
+              sentence,
+              undefined,
+              undefined,
+              languageCode,
+            );
             if (billing) {
               const costPaise =
                 speech.receipt.providerCredits && rateSnapshot
@@ -494,6 +505,8 @@ export interface SynthesizeNarrationOptions {
   /** Guided role audio must never silently change performers. */
   requireClonedVoice?: boolean;
   billing?: BrandVoiceNarrationBilling | null;
+  /** Provider-supported ISO language code frozen by the owning workflow. */
+  languageCode?: string;
 }
 
 export interface BrandVoiceNarrationBilling {
@@ -535,6 +548,7 @@ export async function synthesizeNarration(
         options.clonedVoice,
         sentences,
         options.billing,
+        options.languageCode,
       );
       recordProviderSuccess(ttsHealthKey(`brand:${options.clonedVoice.provider}`));
     } catch (error) {
