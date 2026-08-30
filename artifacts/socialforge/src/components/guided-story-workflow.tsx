@@ -40,7 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 
 const GENRES = [
   ["action_adventure", "Action / Adventure", "High stakes, motion, and a daring goal."],
@@ -569,6 +569,40 @@ function ScriptReview(props: any) {
     });
     updateScript({ ...editedScript, scenes });
   };
+  const moveScene = (fromIndex: number, toIndex: number) => {
+    if (
+      fromIndex === toIndex ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= editedScript.scenes.length ||
+      toIndex >= editedScript.scenes.length
+    ) return;
+
+    const reordered = [...editedScript.scenes];
+    const [moved] = reordered.splice(fromIndex, 1);
+    if (!moved) return;
+    reordered.splice(toIndex, 0, moved);
+
+    let cursorMs = 0;
+    const scenes = reordered.map((scene) => {
+      const durationMs = Math.max(0, scene.endMs - scene.startMs);
+      const shiftMs = cursorMs - scene.startMs;
+      const shifted = {
+        ...scene,
+        startMs: cursorMs,
+        endMs: cursorMs + durationMs,
+        lines: scene.lines.map((line) => ({
+          ...line,
+          startMs: line.startMs + shiftMs,
+          endMs: line.endMs + shiftMs,
+        })),
+      };
+      cursorMs += durationMs;
+      return shifted;
+    });
+
+    updateScript({ ...editedScript, scenes });
+  };
   const canAddCharacter = editedScript.roles.length < 4;
   const addCharacter = () => {
     if (!canAddCharacter) return;
@@ -756,9 +790,37 @@ function ScriptReview(props: any) {
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="font-semibold">Scene {sceneIndex + 1}</p>
-                <p className="text-xs text-muted-foreground">
-                  {Math.max(0, Math.round((scene.endMs - scene.startMs) / 1000))}s
-                </p>
+                <div className="flex items-center gap-1">
+                  <p className="mr-1 text-xs text-muted-foreground">
+                    {Math.max(0, Math.round((scene.endMs - scene.startMs) / 1000))}s
+                  </p>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    disabled={sceneIndex === 0}
+                    aria-label={`Move scene ${sceneIndex + 1} up`}
+                    title="Move scene up"
+                    onClick={() => moveScene(sceneIndex, sceneIndex - 1)}
+                    data-testid={`button-guided-scene-move-up-${scene.id}`}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    disabled={sceneIndex === editedScript.scenes.length - 1}
+                    aria-label={`Move scene ${sceneIndex + 1} down`}
+                    title="Move scene down"
+                    onClick={() => moveScene(sceneIndex, sceneIndex + 1)}
+                    data-testid={`button-guided-scene-move-down-${scene.id}`}
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`guided-scene-visual-${scene.id}`}>Visual direction</Label>

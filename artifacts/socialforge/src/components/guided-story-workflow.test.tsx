@@ -273,6 +273,72 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.queryByTestId("status-guided-script-unsaved")).toBeNull();
   });
 
+  it("moves complete scene blocks and preserves their relative timings", async () => {
+    state.draft = draft({
+      scriptApprovedAt: null,
+      script: {
+        ...script,
+        scenes: [
+          {
+            ...script.scenes[0],
+            startMs: 0,
+            endMs: 6000,
+            lines: [{ ...script.scenes[0].lines[0], startMs: 1000, endMs: 3000 }],
+          },
+          {
+            id: "s2",
+            startMs: 6000,
+            endMs: 15000,
+            visualDirection: "Hospital corridor",
+            roleIds: ["r1", "r2"],
+            lines: [{
+              id: "l2",
+              ownerRoleId: null,
+              kind: "narration" as const,
+              text: "They hear the announcement.",
+              startMs: 7000,
+              endMs: 9000,
+            }],
+          },
+        ],
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect((await screen.findByTestId("button-guided-scene-move-up-s1") as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect((screen.getByTestId("button-guided-scene-move-down-s2") as HTMLButtonElement).disabled)
+      .toBe(true);
+
+    await userEvent.click(screen.getByTestId("button-guided-scene-move-up-s2"));
+
+    const sceneCards = screen.getAllByTestId(/^card-guided-script-scene-/);
+    expect(sceneCards.map((card) => card.getAttribute("data-testid"))).toEqual([
+      "card-guided-script-scene-s2",
+      "card-guided-script-scene-s1",
+    ]);
+    expect(sceneCards[0].textContent).toContain("Scene 1");
+    expect(sceneCards[1].textContent).toContain("Scene 2");
+
+    await userEvent.click(screen.getByTestId("button-guided-save-script"));
+
+    expect(state.updated.script.scenes).toMatchObject([
+      {
+        id: "s2",
+        startMs: 0,
+        endMs: 9000,
+        lines: [{ id: "l2", startMs: 1000, endMs: 3000 }],
+      },
+      {
+        id: "s1",
+        startMs: 9000,
+        endMs: 15000,
+        lines: [{ id: "l1", startMs: 10000, endMs: 12000 }],
+      },
+    ]);
+  });
+
   it("shows the API error when script approval fails", async () => {
     state.draft = draft({ scriptApprovedAt: null });
     state.approvalError = { data: { error: "This linked storyboard cannot be replaced." } };
