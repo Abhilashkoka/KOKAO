@@ -105,14 +105,14 @@ export function GuidedStoryWorkflow({
   brandKits,
   onManageCharacters,
   onJobReady,
-  editRequestKey = 0,
+  editRequest = null,
 }: {
   tenantId?: number;
   characters: Character[];
   brandKits: BrandKit[];
   onManageCharacters: () => void;
   onJobReady: (jobId: number) => void;
-  editRequestKey?: number;
+  editRequest?: { key: number; draftId: number } | null;
 }) {
   const storageKey = tenantId ? `kokao-guided-story-draft-v1:${tenantId}` : null;
   const [draftId, setDraftId] = useState<number | null>(null);
@@ -125,6 +125,7 @@ export function GuidedStoryWorkflow({
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [scriptEditorOpen, setScriptEditorOpen] = useState(false);
+  const scriptEditorRef = useRef<HTMLDivElement>(null);
   const [userRoleId, setUserRoleId] = useState<string | null>(null);
   const [userRoleChoiceMade, setUserRoleChoiceMade] = useState(false);
   const [strategy, setStrategy] = useState<"generated" | "saved">("generated");
@@ -182,17 +183,31 @@ export function GuidedStoryWorkflow({
     : BUILT_IN_VOICES;
 
   useEffect(() => {
-    if (editRequestKey > 0 && draft?.script) {
-      setScriptEditorOpen(true);
+    if (editRequest?.draftId) {
+      setDraftId(editRequest.draftId);
+      return;
     }
-  }, [draft?.id, draft?.script, editRequestKey]);
-
-  useEffect(() => {
     setDraftId(null);
     if (!storageKey) return;
     const stored = Number(localStorage.getItem(storageKey));
     if (Number.isInteger(stored) && stored > 0) setDraftId(stored);
-  }, [storageKey]);
+  }, [editRequest?.draftId, editRequest?.key, storageKey]);
+  useEffect(() => {
+    if (!editRequest || draft?.id !== editRequest.draftId || !draft.script) return;
+    setEditing(false);
+    setScriptEditorOpen(true);
+    if (storageKey) localStorage.setItem(storageKey, String(draft.id));
+  }, [draft?.id, draft?.script, editRequest, storageKey]);
+  useEffect(() => {
+    if (!scriptEditorOpen || draft?.id !== editRequest?.draftId) return;
+    const frame = window.requestAnimationFrame(() => {
+      scriptEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      scriptEditorRef.current
+        ?.querySelector<HTMLElement>("input, textarea, button")
+        ?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [draft?.id, editRequest?.draftId, scriptEditorOpen]);
   useEffect(() => {
     if (!contract) return;
     if (!contract.durations.includes(duration ?? -1)) setDuration(contract.durations[0] ?? null);
@@ -359,10 +374,11 @@ export function GuidedStoryWorkflow({
   }, [castBusyRole, castRetryAttempt]);
 
   if (draftId !== null && draftQuery.isLoading) return <Card><CardContent className="p-6" data-testid="status-guided-story-loading">Restoring your guided story…</CardContent></Card>;
+  if (editRequest && draftId === editRequest.draftId && (draftQuery.isError || (!draftQuery.isLoading && !draft))) return <Card><CardContent className="p-6 text-destructive" role="alert" data-testid="error-guided-story-restore">This story draft could not be restored. Return to your video jobs and try again.</CardContent></Card>;
   return <div className="space-y-5" data-testid="guided-story-workflow">
     <Card>
       <CardHeader><CardTitle>Guided Story</CardTitle><CardDescription>Plan a cast-led story, approve its script, then use the existing storyboard review.</CardDescription></CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4" ref={scriptEditorRef}>
         {!draft || editing ? <>
           <div className="grid gap-2 md:grid-cols-2">{GENRES.map(([id, name, description]) => <Button key={id} type="button" variant={genre === id ? "default" : "outline"} className="h-auto justify-start whitespace-normal p-4 text-left" onClick={() => setGenre(id)} data-testid={`button-guided-genre-${id}`}><span><b>{name}</b><br /><small>{description}</small></span></Button>)}</div>
           <div className="grid gap-4 md:grid-cols-2">

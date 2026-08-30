@@ -12,8 +12,9 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
+  requestedDraftIds: [],
   existingJob: null,
   created: null,
   cast: null,
@@ -74,14 +75,16 @@ vi.mock("@workspace/api-client-react", async () => {
       isLoading: false,
       isError: false,
     }),
-    useGetGuidedStoryDraft: (id: number, options: any) =>
-      useQuery({
+    useGetGuidedStoryDraft: (id: number, options: any) => {
+      state.requestedDraftIds.push(id);
+      return useQuery({
         queryKey: ["guided", id],
         queryFn: async () => state.draft,
         initialData: state.draft,
         enabled: options?.query?.enabled,
         staleTime: Infinity,
-      }),
+      });
+    },
     useGetVideoJob: () => ({ data: state.existingJob, isLoading: false }),
     useCreateGuidedStoryDraft: mutation((vars) => {
       state.created = vars.data;
@@ -173,17 +176,21 @@ const character = {
 function draft(overrides: Record<string, unknown> = {}) {
   return { id: 7, revision: 2, version: 1, setup: { genre: "comedy", platform: "instagram_reels", durationSeconds: 15, locale: "en", topic: "A tidy desk", roleCount: 2, brandKitId: 3, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script, scriptApprovedAt: "2026-01-01", userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "", ...overrides };
 }
-function renderWorkflow(options: { characters?: any[]; brandKits?: any[] } = {}) {
+function renderWorkflow(options: {
+  characters?: any[];
+  brandKits?: any[];
+  editRequest?: { key: number; draftId: number } | null;
+} = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onJobReady = vi.fn();
   return {
     client,
     onJobReady,
-    ...render(<QueryClientProvider client={client}><TooltipProvider><GuidedStoryWorkflow tenantId={99} characters={options.characters ?? [character]} brandKits={options.brandKits ?? [kit]} onManageCharacters={vi.fn()} onJobReady={onJobReady} /></TooltipProvider></QueryClientProvider>),
+    ...render(<QueryClientProvider client={client}><TooltipProvider><GuidedStoryWorkflow tenantId={99} characters={options.characters ?? [character]} brandKits={options.brandKits ?? [kit]} onManageCharacters={vi.fn()} onJobReady={onJobReady} editRequest={options.editRequest} /></TooltipProvider></QueryClientProvider>),
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.updated = null; state.uploadError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.updated = null; state.uploadError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
@@ -210,6 +217,34 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("text-guided-estimate-script").textContent).toContain("1 unit");
     expect(screen.getByTestId("text-guided-estimate-final").textContent).toContain("4 units");
     expect(screen.getByTestId("text-guided-estimate-total").textContent).toContain("No paise estimate is supplied");
+  });
+
+  it("prioritizes an explicit failed-job draft and opens its scene editor", async () => {
+    state.draft = draft({ id: 81, script: { ...script, title: "Failed job story" } });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+
+    renderWorkflow({ editRequest: { key: 1, draftId: 81 } });
+
+    expect(await screen.findByTestId("guided-readable-script")).toBeTruthy();
+    expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value)
+      .toBe("Failed job story");
+    expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value)
+      .toBe("Here is the plan.");
+    expect(state.requestedDraftIds).toContain(81);
+    expect(state.requestedDraftIds).not.toContain(7);
+    expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBe("81");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("input-guided-script-title")),
+    );
+  });
+
+  it("shows a clear state when an explicitly requested draft is unavailable", async () => {
+    state.draft = null;
+
+    renderWorkflow({ editRequest: { key: 1, draftId: 404 } });
+
+    expect((await screen.findByTestId("error-guided-story-restore")).textContent)
+      .toContain("could not be restored");
   });
 
   it("shows a readable script and keeps readable and JSON edits synchronized", async () => {

@@ -880,7 +880,10 @@ export function VideoStudioPage() {
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [boardOpen, setBoardOpen] = useState(false);
-  const [guidedStoryEditRequest, setGuidedStoryEditRequest] = useState(0);
+  const [guidedStoryEditRequest, setGuidedStoryEditRequest] = useState<{
+    key: number;
+    draftId: number;
+  } | null>(null);
   const requestedJobFocusRef = useRef<number | null>(null);
   const requestedStoryboardOpenRef = useRef<number | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
@@ -3273,7 +3276,7 @@ export function VideoStudioPage() {
           brandKits={brandKits ?? []}
           onManageCharacters={() => setCharactersOpen(true)}
           onJobReady={revealActiveJob}
-          editRequestKey={guidedStoryEditRequest}
+          editRequest={guidedStoryEditRequest}
         />
       ) : (
         <Card>
@@ -6514,10 +6517,22 @@ export function VideoStudioPage() {
                       variant="outline"
                       className="mt-3"
                       onClick={() => {
+                        if (!activeJob.guidedStoryDraftId) {
+                          toast({
+                            title: "Story draft unavailable",
+                            description:
+                              "This failed job is not linked to an editable Guided Story draft.",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        setGuidedStoryEditRequest((current) => ({
+                          key: (current?.key ?? 0) + 1,
+                          draftId: activeJob.guidedStoryDraftId!,
+                        }));
                         setEngine("guided_story");
                         setActiveJobId(null);
                         setBoardOpen(false);
-                        setGuidedStoryEditRequest((value) => value + 1);
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
                       data-testid="button-edit-failed-guided-story"

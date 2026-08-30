@@ -4893,6 +4893,71 @@ describe("Video Studio voice notes", () => {
     });
   });
 
+  it("opens the failed job's own Guided Story draft in the script editor", async () => {
+    mockState.guidedDraft = {
+      id: 81,
+      revision: 2,
+      version: 1,
+      setup: {
+        genre: "comedy", platform: "instagram_reels", durationSeconds: 15,
+        locale: "en", topic: "The failed job story", roleCount: 1, brandKitId: 3,
+        aspectRatio: "9:16", width: 1080, height: 1920, safeArea: "Keep captions clear.",
+      },
+      script: {
+        version: 1,
+        title: "The exact failed story",
+        logline: "A rebuild begins.",
+        runtimeSeconds: 15,
+        roles: [{ id: "hero", name: "Ari", description: "Planner" }],
+        scenes: [{
+          id: "scene-1", startMs: 0, endMs: 15000,
+          visualDirection: "Ari revises the plan.", roleIds: ["hero"],
+          lines: [{
+            id: "line-1", ownerRoleId: "hero", kind: "dialogue",
+            text: "Let us rebuild this story.", startMs: 0, endMs: 3000,
+          }],
+        }],
+        warnings: [],
+      },
+      scriptApprovedAt: "2026-01-01",
+      userRoleId: null,
+      castStrategy: "generated",
+      cast: [{ roleId: "hero" }],
+      duplicateAssignmentConfirmed: false,
+      storyboardJobId: 11,
+      visualChoices: {
+        logo: { path: null, sceneIds: [] },
+        location: { mode: "none", imagePath: null, description: null },
+      },
+      estimates: {
+        scriptUnits: 1, castAssetUnits: 1, previewUnits: 1,
+        finalAdditionalUnits: 1, totalRemainingUnits: 4,
+      },
+      createdAt: "",
+      updatedAt: "",
+      referenceOperations: [],
+    };
+    mockState.activeJob = {
+      ...pausedJob(guidedReviewBoard()),
+      engine: "guided_story",
+      status: "failed",
+      error: "Storyboard generation failed",
+      guidedStoryDraftId: 81,
+      storyboard: { ...guidedReviewBoard(), mode: "guided_story" },
+    };
+    mockState.jobs = [mockState.activeJob];
+    localStorage.setItem("kokao-guided-story-draft-v1:1", "999");
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await userEvent.click(await screen.findByTestId("button-edit-failed-guided-story"));
+
+    expect(await screen.findByTestId("guided-readable-script")).toBeTruthy();
+    expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value)
+      .toBe("The exact failed story");
+  });
+
   it("switches Text-to-Video to image-capable models when a preset is selected", async () => {
     mockState.characters = [{
       id: "amara-sen", source: "preset", stableId: "amara-sen", name: "Amara",
