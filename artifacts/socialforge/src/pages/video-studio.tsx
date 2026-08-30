@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useGenerateVideo,
   useRestartVideoJobFresh,
@@ -864,6 +864,7 @@ export function VideoStudioPage() {
   const [reviewStoryboard, setReviewStoryboard] = useState(true);
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const requestedJobFocusRef = useRef<number | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
   const [repairStartError, setRepairStartError] = useState<string | null>(null);
   const [repairReason, setRepairReason] = useState<
@@ -1443,6 +1444,31 @@ export function VideoStudioPage() {
       },
     },
   });
+
+  const revealActiveJob = useCallback((jobId: number) => {
+    requestedJobFocusRef.current = jobId;
+    setActiveJobId(jobId);
+    requestAnimationFrame(() => {
+      document
+        .querySelector('[data-testid="card-active-job"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (
+      !activeJob ||
+      requestedJobFocusRef.current !== activeJob.id
+    ) {
+      return;
+    }
+    requestedJobFocusRef.current = null;
+    requestAnimationFrame(() => {
+      document
+        .querySelector('[data-testid="card-active-job"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [activeJob]);
 
   // Recovery children remain selected across reloads and other navigation.
   // The list fallback below still handles another session creating the child.
@@ -3205,7 +3231,7 @@ export function VideoStudioPage() {
           ) as Character[]}
           brandKits={brandKits ?? []}
           onManageCharacters={() => setCharactersOpen(true)}
-          onJobReady={setActiveJobId}
+          onJobReady={revealActiveJob}
         />
       ) : (
         <Card>
