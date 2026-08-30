@@ -305,16 +305,27 @@ const VIDEO_MODE_DISABLED_MESSAGES = {
 /** Topic mode's reviewable sub-modes. Stock footage is searched rather than
  * prompted, so it has no prompt to review; the other three engines get their
  * plan kind from clipStoryboardSource instead. */
-function topicStoryboardEligible(
+export function topicStoryboardEligible(
   job: VideoGeneration,
 ): "character" | "ai" | "ai_video" | null {
   if (job.engine !== "topic_to_video") return null;
+  // Guided Story is always cast-aware even though its final scene clips are
+  // animated image-to-video. Do not let a stale/miscombined source option send
+  // it down a stock or generic b-roll branch.
+  if (job.options?.guidedStory) return "character";
   const source = job.options?.visualsSource;
   return source === "character" || source === "ai" || source === "ai_video" ? source : null;
 }
 
-function hasDeferredTemplateFunding(job: VideoGeneration): boolean {
-  return job.engine === "topic_to_video" && job.options?.storyboardFunding != null;
+export function hasDeferredTemplateFunding(job: VideoGeneration): boolean {
+  // Guided Story reserves its full immutable scene workload at enqueue rather
+  // than using the native-template planning slice. It still defers preview
+  // calls until the board exists so each paid image has the same durable
+  // prepared → provider_succeeded → complete recovery boundary.
+  return Boolean(
+    job.engine === "topic_to_video" &&
+      (job.options?.guidedStory || job.options?.storyboardFunding != null),
+  );
 }
 
 export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStoryboard): number {
@@ -364,6 +375,10 @@ export async function fundPlannedTemplateVisualWork(
 ): Promise<{ funded: boolean; job: VideoGeneration; error: string | null }> {
   if (!hasDeferredTemplateFunding(job)) return { funded: true, job, error: null };
   const options = job.options!;
+  // Guided Story's complete preview + animation workload was reserved from its
+  // immutable script at enqueue. Its deferred flag is a checkpointing concern,
+  // not a second funding rail.
+  if (options.guidedStory) return { funded: true, job, error: null };
   const target = plannedTemplateUnits(job, storyboard);
   // A wallet reserve can commit before its aggregate/job-options write. On a
   // retry, the aggregate is therefore the durable indication of held funds;
@@ -491,6 +506,11 @@ async function recoverGeneratedStoryboardKeyframe(params: {
   error: OpenRouterInputImagePrivacyError;
 }): Promise<{ still: Buffer; event: VideoProviderEvent }> {
   const { job, storyboard, scene, error } = params;
+  if (storyboard.mode === "guided_story") {
+    throw new VideoJobInputError(
+      `Guided Story scene ${scene.id} was rejected while animating its approved cast frame. The approved frame was kept unchanged and no replacement was generated. Start a new Guided Story attempt after adjusting the cast or visual direction.`,
+    );
+  }
   const preclaimedLegacyRecovery =
     job.options?.recovery?.privacyRecovery?.code === OPENROUTER_INPUT_IMAGE_PRIVACY_CODE &&
     job.options.recovery.privacyRecovery.sceneId === scene.id &&
@@ -589,6 +609,16 @@ async function recoverGeneratedStoryboardKeyframe(params: {
   recovery.status = "complete";
   await setJob(job.id, { storyboard });
   return { still: result.buffer, event };
+}
+
+export function allowsGeneratedStoryboardPrivacyRecovery(
+  storyboard: Pick<VideoStoryboard, "mode" | "visualsSource">,
+): boolean {
+  // A Guided Story preview is the exact cast/outfit frame the user approved.
+  // Replacing it after approval would bypass identity checks and spend work that
+  // was not part of the immutable attempt's reservation.
+  return storyboard.visualsSource === "ai_video" &&
+    storyboard.mode !== "guided_story";
 }
 
 async function loadTenantObject(
@@ -2863,7 +2893,7 @@ async function produceVideo(
       const previewAttemptIds = new WeakMap<object, string>();
       if (
         hasDeferredTemplateFunding(job) &&
-        (board.visualsSource === "ai" || board.visualsSource === "ai_video" || board.visualsSource === "character")
+        (board.mode === "guided_story" || board.visualsSource === "ai" || board.visualsSource === "ai_video" || board.visualsSource === "character")
       ) {
         for (const scene of board.scenes) {
           // Backward compatibility: boards materialized before preview
@@ -3021,17 +3051,22 @@ async function produceVideo(
       // never call the planner again.
       if (
         hasDeferredTemplateFunding(job) &&
-        (board.visualsSource === "ai" || board.visualsSource === "ai_video") &&
+        (board.mode === "guided_story" || board.visualsSource === "ai" || board.visualsSource === "ai_video") &&
         board.scenes.some((scene) => !scene.previewPath)
       ) {
         const priorSelectedImages: Buffer[] = [];
-        for (const scene of board.scenes) {
+        for (const [sceneIndex, scene] of board.scenes.entries()) {
           if (scene.previewPath) {
             priorSelectedImages.push((
               await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Storyboard preview")
             ).buffer);
             continue;
           }
+          onStage(
+            board.mode === "guided_story"
+              ? `Generating guided storyboard frame ${sceneIndex + 1} of ${board.scenes.length}`
+              : `Generating storyboard frame ${sceneIndex + 1} of ${board.scenes.length}`,
+          );
           const previewPath = await regenerateStoryboardPreview({
             tenantId: job.tenantId,
             storyboard: board,
@@ -3172,7 +3207,7 @@ async function produceVideo(
           ).buffer,
         onStage,
         onPrivacyImageRejected:
-          board.visualsSource === "ai_video"
+          allowsGeneratedStoryboardPrivacyRecovery(board)
             ? async ({ sceneIndex, error }) => {
                 const scene = board.scenes[sceneIndex]!;
                 const recovered = await recoverGeneratedStoryboardKeyframe({

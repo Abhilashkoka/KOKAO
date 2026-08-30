@@ -12510,7 +12510,13 @@ export const GenerateVideoResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -12734,6 +12740,14 @@ export const createGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMi
 
 export const createGuidedStoryDraftResponseScriptOneScenesMax = 40;
 
+export const createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
 export const createGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
 export const createGuidedStoryDraftResponseEstimatesCastAssetUnitsMin = 0;
@@ -12835,6 +12849,27 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin).max(createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax)).max(createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(createGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -12879,6 +12914,14 @@ export const getGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin =
 
 
 export const getGuidedStoryDraftResponseScriptOneScenesMax = 40;
+
+export const getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
 
 export const getGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
@@ -12981,6 +13024,27 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin).max(getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax)).max(getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(getGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -13027,6 +13091,14 @@ export const updateGuidedStoryDraftBodyScriptScenesItemLinesItemStartMsMin = 0;
 
 export const updateGuidedStoryDraftBodyScriptScenesMax = 40;
 
+export const updateGuidedStoryDraftBodyVisualChoicesLogoSceneIdsItemMin = 2;
+export const updateGuidedStoryDraftBodyVisualChoicesLogoSceneIdsItemMax = 64;
+
+export const updateGuidedStoryDraftBodyVisualChoicesLogoSceneIdsMax = 40;
+
+export const updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMin = 3;
+export const updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMax = 1000;
+
 
 
 export const UpdateGuidedStoryDraftBody = zod.object({
@@ -13066,6 +13138,25 @@ export const UpdateGuidedStoryDraftBody = zod.object({
 }))
 })).min(1).max(updateGuidedStoryDraftBodyScriptScenesMax),
   "warnings": zod.array(zod.string())
+}).optional(),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(updateGuidedStoryDraftBodyVisualChoicesLogoSceneIdsItemMin).max(updateGuidedStoryDraftBodyVisualChoicesLogoSceneIdsItemMax)).max(updateGuidedStoryDraftBodyVisualChoicesLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMin).max(updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMax)
+})])
 }).optional()
 })
 
@@ -13091,6 +13182,14 @@ export const updateGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMi
 
 
 export const updateGuidedStoryDraftResponseScriptOneScenesMax = 40;
+
+export const updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
 
 export const updateGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
@@ -13193,6 +13292,27 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin).max(updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax)).max(updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(updateGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -13244,6 +13364,14 @@ export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemS
 
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesMax = 40;
+
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
 
 export const generateGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin = 0;
 
@@ -13346,6 +13474,27 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMin).max(generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMax)).max(generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin).max(generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(generateGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin),
@@ -13505,6 +13654,14 @@ export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemSt
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesMax = 40;
 
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
 export const approveGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin = 0;
 
 export const approveGuidedStoryDraftScriptResponseEstimatesCastAssetUnitsMin = 0;
@@ -13606,6 +13763,27 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMin).max(approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMax)).max(approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin).max(approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(approveGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin),
@@ -13673,6 +13851,14 @@ export const castGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin 
 
 
 export const castGuidedStoryDraftResponseScriptOneScenesMax = 40;
+
+export const castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
 
 export const castGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
@@ -13775,6 +13961,27 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "claimedAt": zod.coerce.date()
 }).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin).max(castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax)).max(castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin).max(castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax)
+})])
+}).and(zod.object({
+  "version": zod.number()
+})),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(castGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -13979,7 +14186,13 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -14609,7 +14822,13 @@ export const ListVideoJobsResponseItem = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -14923,7 +15142,13 @@ export const GetVideoJobResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -15237,7 +15462,13 @@ export const CancelVideoJobResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -15551,7 +15782,13 @@ export const RetryVideoJobResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -15865,7 +16102,13 @@ export const RestartVideoJobFreshResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -16183,7 +16426,13 @@ export const RepairVideoJobResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -16524,7 +16773,13 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -16850,7 +17105,13 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -17165,7 +17426,13 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -17479,7 +17746,13 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -17792,7 +18065,13 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "providerVoiceId": zod.string().nullable()
 })),
   "inconsistencyFlags": zod.array(zod.string()),
-  "inputFingerprint": zod.string()
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+})
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),

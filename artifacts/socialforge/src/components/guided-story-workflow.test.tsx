@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,11 +12,13 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; created: any; cast: any; castError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; created: any; cast: any; castError: unknown; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   created: null,
   cast: null,
   castError: null,
+  updated: null,
+  uploadError: null,
   enqueued: null,
   sceneRequest: null,
   sceneError: null,
@@ -81,11 +83,11 @@ vi.mock("@workspace/api-client-react", async () => {
       state.created = vars.data;
       return { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
     }),
-    useUpdateGuidedStoryDraft: mutation((vars) => ({
-      ...state.draft,
-      ...vars.data,
-      revision: state.draft.revision + 1,
-    })),
+    useUpdateGuidedStoryDraft: mutation((vars) => {
+      if (state.updated === "error") throw { data: { error: "Visual choices could not be saved." } };
+      state.updated = vars.data;
+      return { ...state.draft, ...vars.data, revision: state.draft.revision + 1 };
+    }),
     useCastGuidedStoryDraft: mutation((vars) => {
       if (state.castError) throw state.castError;
       state.cast = vars.data;
@@ -100,6 +102,12 @@ vi.mock("@workspace/api-client-react", async () => {
     useEnqueueGuidedStoryDraft: mutation((vars) => {
       state.enqueued = vars.data;
       return { id: 99 };
+    }),
+    useRequestUploadUrl: () => ({
+      mutateAsync: async () => {
+        if (state.uploadError) throw state.uploadError;
+        return { uploadURL: "http://upload", objectPath: "/objects/99/uploads/visual.png" };
+      },
     }),
     useGenerateGuidedStoryDraftScene: () => ({
       isPending: false,
@@ -146,7 +154,7 @@ function renderWorkflow(options: { characters?: any[]; brandKits?: any[] } = {})
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.castError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.castError = null; state.updated = null; state.uploadError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
@@ -496,5 +504,51 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByTestId("select-guided-voice-r1"));
     expect(screen.getAllByText("Alloy · balanced").length).toBeGreaterThan(0);
     expect((screen.getByTestId("button-guided-save-cast") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("uploads a logo, applies it only to selected scenes, and saves the immutable visual payload", async () => {
+    state.draft = draft({ cast: [{ roleId: "r1" }, { roleId: "r2" }] });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const file = new File(["logo"], "logo.png", { type: "image/png" });
+    await userEvent.upload(screen.getByTestId("input-guided-logo"), file);
+    await waitFor(() => expect(screen.getByTestId("status-guided-logo-selected")).toBeTruthy());
+    expect(fetch).toHaveBeenCalledWith("http://upload", expect.objectContaining({ method: "PUT", body: file }));
+    await userEvent.click(screen.getByTestId("checkbox-guided-logo-scene-s1"));
+    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByTestId("button-guided-save-visuals"));
+    expect(state.updated).toEqual({ revision: 2, visualChoices: { logo: { path: "/objects/99/uploads/visual.png", sceneIds: ["s1"] }, location: { mode: "none", imagePath: null, description: null } } });
+  });
+
+  it("saves text and uploaded image location choices and blocks enqueue until each change is saved", async () => {
+    state.draft = draft({ cast: [{ roleId: "r1" }, { roleId: "r2" }] });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    await userEvent.click(screen.getByTestId("button-guided-location-text"));
+    await userEvent.type(screen.getByTestId("input-guided-location-description"), "A sunlit library");
+    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByTestId("button-guided-save-visuals"));
+    expect(state.updated.visualChoices.location).toEqual({ mode: "text", imagePath: null, description: "A sunlit library" });
+    await userEvent.click(screen.getByTestId("button-guided-location-image"));
+    const file = new File(["background"], "room.webp", { type: "image/webp" });
+    await userEvent.upload(screen.getByTestId("input-guided-background"), file);
+    await waitFor(() => expect(screen.getByTestId("status-guided-background-selected")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("button-guided-save-visuals"));
+    expect(state.updated.visualChoices.location).toEqual({ mode: "image", imagePath: "/objects/99/uploads/visual.png", description: null });
+  });
+
+  it("shows actionable validation, upload, and visual-save errors", async () => {
+    state.draft = draft({ cast: [{ roleId: "r1" }, { roleId: "r2" }] });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    fireEvent.change(screen.getByTestId("input-guided-logo"), { target: { files: [new File(["x"], "bad.gif", { type: "image/gif" })] } });
+    expect(screen.getByTestId("error-guided-visuals").textContent).toContain("PNG, JPEG, or WebP");
+    state.uploadError = { data: { error: "Storage unavailable." } };
+    fireEvent.change(screen.getByTestId("input-guided-logo"), { target: { files: [new File(["x"], "good.png", { type: "image/png" })] } });
+    await waitFor(() => expect(screen.getByTestId("error-guided-visuals").textContent).toContain("Storage unavailable"));
+    state.uploadError = null;
+    state.updated = "error";
+    await userEvent.click(screen.getByTestId("button-guided-save-visuals"));
+    await waitFor(() => expect(screen.getByTestId("error-guided-visuals").textContent).toContain("could not be saved"));
   });
 });

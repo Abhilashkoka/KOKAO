@@ -16423,6 +16423,7 @@ components:
         revision: { type: integer, minimum: 1 }
     GuidedStoryDraftUpdate:
       type: object
+      additionalProperties: false
       required: [revision]
       properties:
         revision: { type: integer, minimum: 1 }
@@ -16430,6 +16431,50 @@ components:
           $ref: "#/components/schemas/GuidedStorySetupInput"
         script:
           $ref: "#/components/schemas/GuidedStoryScript"
+        visualChoices:
+          $ref: "#/components/schemas/GuidedStoryVisualChoicesInput"
+    GuidedStoryVisualChoicesInput:
+      type: object
+      additionalProperties: false
+      required: [logo, location]
+      properties:
+        logo:
+          type: object
+          additionalProperties: false
+          required: [path, sceneIds]
+          properties:
+            path:
+              type: ["string", "null"]
+              description: Canonical tenant-owned /objects/{tenant}/uploads path.
+            sceneIds:
+              type: array
+              maxItems: 40
+              items: { type: string, minLength: 2, maxLength: 64 }
+        location:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [mode, imagePath, description]
+              properties:
+                mode: { type: string, const: none }
+                imagePath: { type: "null" }
+                description: { type: "null" }
+            - type: object
+              additionalProperties: false
+              required: [mode, imagePath, description]
+              properties:
+                mode: { type: string, const: image }
+                imagePath:
+                  type: string
+                  description: Canonical tenant-owned /objects/{tenant}/uploads path.
+                description: { type: "null" }
+            - type: object
+              additionalProperties: false
+              required: [mode, imagePath, description]
+              properties:
+                mode: { type: string, const: text }
+                imagePath: { type: "null" }
+                description: { type: string, minLength: 3, maxLength: 1000 }
     GuidedStorySceneInsertionInput:
       type: object
       additionalProperties: false
@@ -16612,9 +16657,16 @@ components:
             width: { type: integer }
             height: { type: integer }
             safeArea: { type: string }
+    GuidedStoryVisualChoices:
+      allOf:
+        - $ref: "#/components/schemas/GuidedStoryVisualChoicesInput"
+        - type: object
+          required: [version]
+          properties:
+            version: { type: integer, const: 1 }
     GuidedStoryDraft:
       type: object
-      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, duplicateAssignmentConfirmed, scriptGeneration, storyboardJobId, estimates, createdAt, updatedAt]
+      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, duplicateAssignmentConfirmed, scriptGeneration, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
       properties:
         id: { type: integer }
         revision: { type: integer }
@@ -16642,6 +16694,8 @@ components:
           properties:
             revision: { type: integer }
             claimedAt: { type: string, format: date-time }
+        visualChoices:
+          $ref: "#/components/schemas/GuidedStoryVisualChoices"
         storyboardJobId: { type: ["integer", "null"] }
         estimates:
           type: object
@@ -17247,7 +17301,7 @@ components:
         guidedStory:
           type: ["object", "null"]
           description: Immutable role/cast mapping and scene reuse identity for Guided Story review.
-          required: [scriptSceneId, startMs, endMs, roleIds, lineOwnership, cast, inconsistencyFlags, inputFingerprint]
+          required: [scriptSceneId, startMs, endMs, roleIds, lineOwnership, cast, inconsistencyFlags, inputFingerprint, visuals]
           properties:
             scriptSceneId: { type: string }
             startMs: { type: integer }
@@ -17281,6 +17335,14 @@ components:
                   providerVoiceId: { type: ["string", "null"] }
             inconsistencyFlags: { type: array, items: { type: string } }
             inputFingerprint: { type: string }
+            visuals:
+              type: object
+              required: [logoPath, locationMode, locationImagePath, locationDescription]
+              properties:
+                logoPath: { type: ["string", "null"] }
+                locationMode: { type: string, enum: [none, image, text] }
+                locationImagePath: { type: ["string", "null"] }
+                locationDescription: { type: ["string", "null"] }
         beatType:
           type: ["string", "null"]
           enum: [character_speaking, story_animation, null]

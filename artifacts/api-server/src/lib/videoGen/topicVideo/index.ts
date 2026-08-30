@@ -1710,18 +1710,50 @@ export async function regenerateStoryboardPreview(params: {
   uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
 }): Promise<string> {
   if (params.scene.guidedStory) {
-    const paths = params.scene.guidedStory.cast
-      .map((member) => member.outfitReferenceImagePath ?? member.referenceImagePath)
-      .filter((path): path is string => Boolean(path));
-    if (paths.length !== params.scene.guidedStory.cast.length) {
+    // Old paused attempts predate visual metadata; preserve their exact
+    // identity-only behavior instead of making a retry invent visual inputs.
+    const visualGuidance = params.scene.guidedStory.visuals ?? {
+      logoPath: null,
+      locationMode: "none" as const,
+      locationImagePath: null,
+      locationDescription: null,
+    };
+    const castReferences = params.scene.guidedStory.cast.flatMap((member) => [
+      { label: `CAST IDENTITY: ${member.characterName} (${member.roleId})`, path: member.referenceImagePath },
+      { label: `CAST OUTFIT: ${member.characterName} (${member.roleId})`, path: member.outfitReferenceImagePath },
+    ]);
+    if (castReferences.some((reference) => !reference.path)) {
       throw new VideoGenProviderError(
         `Guided scene ${params.scene.id} is missing an approved cast reference.`,
       );
     }
-    const refs = await Promise.all(paths.map((path) => loadReferenceImage(path, params.tenantId)));
-    const tiles = await Promise.all(refs.map((ref) =>
-      sharp(ref.buffer).rotate().resize(512, 512, { fit: "cover" }).png().toBuffer(),
-    ));
+    // Cast identity/outfit anchors MUST stay first. Location and logo are
+    // deliberately supplementary tiles, never replacements for identity.
+    const visualReferences = [
+      ...castReferences as Array<{ label: string; path: string }>,
+      ...(visualGuidance.locationImagePath
+        ? [{ label: "SHARED BACKGROUND / LOCATION", path: visualGuidance.locationImagePath }]
+        : []),
+      ...(visualGuidance.logoPath
+        ? [{ label: "LOGO OVERLAY", path: visualGuidance.logoPath }]
+        : []),
+    ];
+    const refs = await Promise.all(
+      visualReferences.map((reference) => loadReferenceImage(reference.path, params.tenantId)),
+    );
+    const xmlEscape = (value: string) =>
+      value.replace(/[<>&"'']/g, (character) => ({
+        "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;",
+      })[character]!);
+    const tiles = await Promise.all(refs.map(async (ref, index) => {
+      const image = await sharp(ref.buffer).rotate().resize(512, 456, { fit: "cover" }).png().toBuffer();
+      const label = Buffer.from(
+        `<svg width="512" height="56"><rect width="512" height="56" fill="#111827"/><text x="12" y="34" fill="white" font-family="sans-serif" font-size="14">${xmlEscape(visualReferences[index]!.label)}</text></svg>`,
+      );
+      return sharp({
+        create: { width: 512, height: 512, channels: 3, background: "#ffffff" },
+      }).composite([{ input: image, left: 0, top: 0 }, { input: label, left: 0, top: 456 }]).png().toBuffer();
+    }));
     const referenceImage = {
       buffer: await sharp({
         create: {
@@ -1741,7 +1773,7 @@ export async function regenerateStoryboardPreview(params: {
     let result: import("../../imageGen/types").ImageGenResult;
     try {
       result = await generateImage(
-        `${params.scene.visual}\nReference sheet order: ${params.scene.guidedStory.cast.map((member, index) => `${index + 1}=${member.characterName} role ${member.roleId}`).join("; ")}. Preserve every referenced identity and outfit exactly; do not merge performers.`,
+      `${params.scene.visual}\nReference sheet order: ${visualReferences.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. SHARED BACKGROUND / LOCATION and LOGO OVERLAY tiles are environmental/graphic guidance only: do not use them to alter or merge character identities.`,
         size,
         referenceImage,
       );

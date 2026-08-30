@@ -106,6 +106,10 @@ function approvalFixture() {
   storyboard.scenes = storyboard.scenes.map((scene) => ({
     ...scene,
     previewPath: `/objects/1/${scene.id}.png`,
+    previewCheckpoint: {
+      targetPath: `/objects/1/${scene.id}.png`,
+      status: "complete",
+    },
   }));
   const state: GuidedStoryDraftState = {
     version: 1,
@@ -150,6 +154,48 @@ describe("guided story platform contracts", () => {
 });
 
 describe("guided story immutable storyboard adapter", () => {
+  it("scopes a logo to selected scenes and fingerprints shared location direction", () => {
+    const script = validateAndRepairGuidedScript(validRaw(), {
+      roleCount: 2,
+      durationSeconds: 30,
+    });
+    const cast: GuidedStoryCastSnapshot[] = script.roles.map((role, index) => ({
+      roleId: role.id, source: "saved", characterId: index + 1, outfitId: index + 10,
+      brandKitId: null, voiceId: `voice-${index}`,
+      character: { name: role.name, description: role.description, referenceImagePath: `/objects/1/uploads/character-${index}.png` },
+      outfit: { name: "Outfit", description: "approved outfit", referenceImagePath: `/objects/1/uploads/outfit-${index}.png` },
+      voice: { id: `voice-${index}`, label: "Voice", provider: "stock", providerVoiceId: null },
+      isUserRole: index === 0, consentGranted: true,
+    }));
+    const base = {
+      version: 1 as const, draftId: 1, draftRevision: 1,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      platform: { id: "tiktok", aspectRatio: "9:16" as const, width: 1080, height: 1920, safeArea: "center", durationSeconds: 30 },
+      script, cast,
+    };
+    const withVisuals = {
+      ...base,
+      visuals: {
+        version: 1 as const,
+        logo: { path: "/objects/1/uploads/logo.png", sceneIds: [script.scenes[0]!.id] },
+        location: { mode: "text" as const, imagePath: null, description: "A rain-washed mountain village at dawn." },
+      },
+    };
+    const board = guidedStoryStoryboard(withVisuals);
+    expect(board.scenes[0]!.guidedStory?.visuals).toMatchObject({
+      logoPath: "/objects/1/uploads/logo.png",
+      locationMode: "text",
+    });
+    expect(board.scenes[0]!.visual).toContain("rain-washed mountain village");
+    const withoutLogo = guidedStoryStoryboard({
+      ...withVisuals,
+      visuals: { ...withVisuals.visuals, logo: { path: null, sceneIds: [] } },
+    });
+    expect(withoutLogo.scenes[0]!.guidedStory?.inputFingerprint).not.toBe(
+      board.scenes[0]!.guidedStory?.inputFingerprint,
+    );
+  });
+
   it("preserves exact scene timing/ownership and reuses only unaffected receipts", () => {
     const script = validateAndRepairGuidedScript(validRaw(), {
       roleCount: 2,
@@ -388,6 +434,28 @@ describe("guided approval fail-closed snapshot guard", () => {
             index === 1
               ? { ...member, character: { ...member.character, name: "Changed" } }
               : member),
+        },
+      }),
+    ).toBe(false);
+    expect(
+      check({
+        storyboard: {
+          ...fixture.storyboard,
+          scenes: fixture.storyboard.scenes.map((scene) => ({
+            ...scene,
+            visual: `${scene.visual} drift`,
+          })),
+        },
+      }),
+    ).toBe(false);
+    expect(
+      check({
+        storyboard: {
+          ...fixture.storyboard,
+          scenes: fixture.storyboard.scenes.map((scene) => ({
+            ...scene,
+            previewCheckpoint: { ...scene.previewCheckpoint!, status: "prepared" },
+          })),
         },
       }),
     ).toBe(false);

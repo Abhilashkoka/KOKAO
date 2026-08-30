@@ -7,10 +7,12 @@
  */
 import type { GuidedStoryScript } from './guidedStoryScript';
 import type { GuidedStorySetupInput } from './guidedStorySetupInput';
+import type { GuidedStoryVisualChoicesInput } from './guidedStoryVisualChoicesInput';
 
 export interface GuidedStoryDraftUpdate {
   /** @minimum 1 */
   revision: number;
   setup?: GuidedStorySetupInput;
   script?: GuidedStoryScript;
+  visualChoices?: GuidedStoryVisualChoicesInput;
 }

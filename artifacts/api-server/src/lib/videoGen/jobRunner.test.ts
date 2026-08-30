@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { and } from "drizzle-orm";
+import {
+  allowsGeneratedStoryboardPrivacyRecovery,
+  hasDeferredTemplateFunding,
+  topicStoryboardEligible,
+} from "./jobRunner";
 
 /**
  * The storyboard pause, as the runner actually executes it. The three engines
@@ -814,6 +819,32 @@ afterAll(async () => {
       .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
     await deleteTenant(tenant.tenantId);
   }
+});
+
+describe("guided-story storyboard routing", () => {
+  it("never routes an immutable guided snapshot to stock/generic b-roll", () => {
+    const job = {
+      engine: "topic_to_video",
+      options: { visualsSource: "stock", guidedStory: { version: 1 } },
+    } as any;
+    expect(topicStoryboardEligible(job)).toBe("character");
+    expect(hasDeferredTemplateFunding(job)).toBe(true);
+  });
+
+  it("keeps approved guided cast frames unchanged on privacy rejection", () => {
+    expect(
+      allowsGeneratedStoryboardPrivacyRecovery({
+        mode: "guided_story",
+        visualsSource: "ai_video",
+      }),
+    ).toBe(false);
+    expect(
+      allowsGeneratedStoryboardPrivacyRecovery({
+        mode: "standard",
+        visualsSource: "ai_video",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("the clip storyboard pause", () => {

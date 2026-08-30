@@ -7353,7 +7353,8 @@ function SavedStoryboardProgress({
     job.privacyRecoveryCapability.sceneId === scene.id,
   );
   const editable = Boolean(
-    job.retryable && scene && (!scene.previewPath || privacyTarget),
+    !storyboard.scenes.some((item) => item.guidedStory != null) &&
+      job.retryable && scene && (!scene.previewPath || privacyTarget),
   );
   const slides = storyboard.visualsSource === "slide";
   const narrated =
@@ -7428,12 +7429,12 @@ function SavedStoryboardProgress({
       <div>
         <p className="font-medium text-foreground">
           Job #{job.id} — AI provider stopped after saving {saved} of {storyboard.scenes.length}{" "}
-          storyboard images
+          {storyboard.scenes.some((scene) => scene.guidedStory != null) ? "guided cast frames" : "storyboard images"}
         </p>
         <p className="text-sm text-muted-foreground">
-          These images are safely stored and will be reused. Retry generates
-          only the missing provider work; it does not start the storyboard from
-          scratch.
+          {storyboard.scenes.some((scene) => scene.guidedStory != null)
+            ? "Completed cast-anchored frames are retained exactly as saved. Recovery resumes only missing frames; guided scenes are view-only so their fingerprints cannot change."
+            : "These images are safely stored and will be reused. Retry generates only the missing provider work; it does not start the storyboard from scratch."}
         </p>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -7465,7 +7466,9 @@ function SavedStoryboardProgress({
                 className="w-full overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => openScene(scene.id)}
                 aria-label={`Open scene ${index + 1} details, ${
-                  isPrivacyTarget
+                  storyboard.scenes.some((item) => item.guidedStory != null)
+                    ? "guided frame, view only"
+                    : isPrivacyTarget
                     ? "privacy recovery target and editable"
                     : scene.previewPath
                       ? "saved and view only"
@@ -7527,7 +7530,9 @@ function SavedStoryboardProgress({
             <DialogDescription>
               {editable
                 ? "Missing preview · Correct this scene before resuming generation."
-                : "Saved preview · View only. Completed provider work is protected for reuse."}
+                : storyboard.scenes.some((item) => item.guidedStory != null)
+                  ? "Guided frame · View only. Completed cast frames are protected and missing frames resume without changing fingerprints."
+                  : "Saved preview · View only. Completed provider work is protected for reuse."}
             </DialogDescription>
           </DialogHeader>
           {scene && (
@@ -7786,11 +7791,14 @@ function StoryboardReview({
   const guidedScenes = storyboard.scenes.filter(
     (scene) => scene.guidedStory != null,
   );
+  const guidedStoryboard = guidedScenes.length > 0;
   const guidedReviewBlocked =
     guidedScenes.length > 0 &&
     guidedScenes.some(
       (scene) =>
         !scene.previewPath ||
+        scene.previewCheckpoint?.status !== "complete" ||
+        scene.previewPath !== scene.previewCheckpoint?.targetPath ||
         (scene.guidedStory?.inconsistencyFlags.length ?? 0) > 0,
     );
 
@@ -7871,7 +7879,9 @@ function StoryboardReview({
       .catch(() => toast({ title: "Could not copy", variant: "destructive" }));
   };
 
-  const blurb = characterDialogue
+  const blurb = guidedStoryboard
+    ? `${count} immutable guided ${count === 1 ? "scene" : "scenes"} · about ${totalSec}s. Cast, outfits, logo, and location references are frozen for consistency. Review the saved frames, then approve or discard.`
+    : characterDialogue
     ? `${count} speaking ${count === 1 ? "scene" : "scenes"} · about ${totalSec}s. The approved dialogue is locked; review the character shot and supporting B-roll directions, then render. No media provider runs before approval.`
     : storyboard.mode === "character_story"
       ? `${count} character ${count === 1 ? "scene" : "scenes"} · about ${totalSec}s. Review the script and scene directions first. Narration and character frames are created only after approval.`
@@ -7991,6 +8001,15 @@ function StoryboardReview({
           "Every guided scene needs its required preview and no cast consistency flags before final approval.",
         variant: "destructive",
       });
+      return;
+    }
+    // Guided Story fingerprints are immutable. There are no editable guided
+    // drafts to flush; approval must use the exact reviewed snapshot.
+    if (guidedStoryboard) {
+      approve.mutate(
+        { jobId: job.id },
+        { onSuccess: settle, onError: fail("Could not start rendering") },
+      );
       return;
     }
     const scenes = storyboard.scenes.flatMap((scene) => {
@@ -8160,10 +8179,10 @@ function StoryboardReview({
                       {Math.round(draft?.durationSec ?? scene.durationSec)}s
                     </Badge>
                   </div>
-                  {characterDialogue ? (
+                  {characterDialogue || guidedStoryboard ? (
                     <div>
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        Approved dialogue · read only
+                        {guidedStoryboard ? "Guided scene direction · read only" : "Approved dialogue · read only"}
                       </p>
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">
                         {said}
@@ -8202,7 +8221,7 @@ function StoryboardReview({
                       {slides ? "Caption" : "Visual direction"} for scene{" "}
                       {i + 1}
                     </Label>
-                    <Textarea
+                    {guidedStoryboard ? <p className="text-sm leading-relaxed whitespace-pre-wrap" data-testid={`text-guided-script-visual-${scene.id}`}>{shown}</p> : <Textarea
                       id={`script-visual-${scene.id}`}
                       rows={3}
                       maxLength={1000}
@@ -8219,9 +8238,9 @@ function StoryboardReview({
                         }));
                       }}
                       data-testid={`input-script-visual-${scene.id}`}
-                    />
+                    />}
                   </div>
-                  {scene.brollVisual != null && (
+                  {!guidedStoryboard && scene.brollVisual != null && (
                     <div className="space-y-1.5">
                       <Label htmlFor={`script-broll-${scene.id}`}>
                         Supporting B-roll
@@ -8271,7 +8290,7 @@ function StoryboardReview({
               <Copy className="h-3.5 w-3.5 mr-1.5" />
               Copy script
             </Button>
-            <Button
+            {!guidedStoryboard && <Button
               variant="outline"
               disabled={
                 workingOn || rollingScene !== null || guidedReviewBlocked
@@ -8280,7 +8299,7 @@ function StoryboardReview({
               data-testid="button-save-full-script"
             >
               {scriptSaveState === "saving" ? "Saving…" : "Save all changes"}
-            </Button>
+            </Button>}
             <Button
               disabled={workingOn || rollingScene !== null}
               onClick={() => {
@@ -8360,13 +8379,13 @@ function StoryboardReview({
                   </Badge>
                 )}
                 {scene.guidedStory && <GuidedStorySceneDetails scene={scene} />}
-                {characterDialogue ? (
+                {characterDialogue || guidedStoryboard ? (
                   <div
                     className="rounded-md border border-border bg-background px-3 py-2"
                     data-testid={`text-approved-dialogue-${scene.id}`}
                   >
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Approved dialogue · read only
+                      {guidedStoryboard ? "Guided scene direction · read only" : "Approved dialogue · read only"}
                     </p>
                     <p className="mt-1 text-xs whitespace-pre-wrap">
                       {scene.text}
@@ -8423,7 +8442,7 @@ function StoryboardReview({
                     </p>
                   )
                 )}
-                <div className="flex items-center justify-end gap-2">
+                {!guidedStoryboard && <div className="flex items-center justify-end gap-2">
                   <Label htmlFor={`shot-${scene.id}`} className="sr-only">
                     {slides
                       ? `Caption for photo ${i + 1}`
@@ -8447,8 +8466,8 @@ function StoryboardReview({
                     }
                     disabled={rolling || workingOn}
                   />
-                </div>
-                <Textarea
+                </div>}
+                {guidedStoryboard ? <p className="text-sm whitespace-pre-wrap" data-testid={`text-guided-shot-${scene.id}`}>{visual}</p> : <Textarea
                   id={`shot-${scene.id}`}
                   rows={3}
                   maxLength={1000}
@@ -8462,8 +8481,8 @@ function StoryboardReview({
                   }
                   className="text-sm resize-none"
                   data-testid={`input-shot-${scene.id}`}
-                />
-                {scene.brollVisual != null && (
+                />}
+                {!guidedStoryboard && scene.brollVisual != null && (
                   <div className="space-y-1">
                     <Label
                       htmlFor={`broll-${scene.id}`}
@@ -8490,7 +8509,7 @@ function StoryboardReview({
                     />
                   </div>
                 )}
-                {lengths.length > 1 && (
+                {!guidedStoryboard && lengths.length > 1 && (
                   <div className="flex items-center gap-2">
                     <Label
                       htmlFor={`length-${scene.id}`}
@@ -8528,7 +8547,7 @@ function StoryboardReview({
                   </div>
                 )}
                 <div className="flex gap-2 mt-auto">
-                  {drawn && (
+                  {!guidedStoryboard && drawn && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -8543,7 +8562,7 @@ function StoryboardReview({
                       {rolling ? "Redrawing…" : "Redraw"}
                     </Button>
                   )}
-                  {dirty && (
+                  {!guidedStoryboard && dirty && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -8563,7 +8582,7 @@ function StoryboardReview({
                   >
                     <Braces className="h-3.5 w-3.5" />
                   </Button>
-                  {narrated && drawn && !hybridStory && (
+                  {!guidedStoryboard && narrated && drawn && !hybridStory && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -8584,7 +8603,7 @@ function StoryboardReview({
             </div>
           );
         })}
-        {narrated && drawn && (
+        {!guidedStoryboard && narrated && drawn && (
           <button
             type="button"
             className="rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 flex flex-col items-center justify-center gap-2 min-h-32 p-4 text-sm"
@@ -8765,6 +8784,12 @@ function StoryboardReview({
 function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
   const guided = scene.guidedStory;
   if (!guided) return null;
+  const visuals = guided.visuals ?? {
+    logoPath: null,
+    locationMode: "none" as const,
+    locationImagePath: null,
+    locationDescription: null,
+  };
   return (
     <div
       className="space-y-2 rounded-md border border-border bg-background p-2 text-xs"
@@ -8782,10 +8807,8 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
               ? "saved character"
               : "generated fictional character"}{" "}
             · Outfit:{" "}
-            {member.outfitId == null
-              ? "generated/default"
-              : `saved outfit #${member.outfitId}`}{" "}
-            · Voice: {member.voiceProvider}
+            {member.outfitId == null ? "generated/default" : `saved outfit #${member.outfitId}`}{" "}
+            · Voice: {member.voiceProvider} · Cast reference: {member.referenceImagePath ? "anchored" : "missing"} · Outfit reference: {member.outfitReferenceImagePath ? "anchored" : member.outfitId == null ? "not required" : "missing"}
           </p>
         ))}
       </div>
@@ -8802,6 +8825,9 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
           ))}
         </div>
       )}
+      <p data-testid={`guided-story-logo-${scene.id}`}>Logo: {visuals.logoPath ? "on" : "off"}</p>
+      <p data-testid={`guided-story-location-${scene.id}`}>Shared background: {visuals.locationMode === "image" ? "image" : visuals.locationMode === "text" ? `text — ${visuals.locationDescription ?? "missing description"}` : "none"}</p>
+      <p data-testid={`guided-story-checkpoint-${scene.id}`}>Preview checkpoint: {scene.previewCheckpoint?.status ?? "waiting"}</p>
       {!scene.previewPath && (
         <p
           className="text-destructive"
@@ -8810,13 +8836,15 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
           Required preview is missing.
         </p>
       )}
+      {scene.previewCheckpoint?.status !== "complete" && <p className="text-destructive">Preview has not finished saving. Wait for the checkpoint to complete before approval.</p>}
+      {scene.previewPath && scene.previewCheckpoint?.targetPath && scene.previewPath !== scene.previewCheckpoint.targetPath && <p className="text-destructive">Saved preview does not match this scene’s checkpoint; resume the missing frame.</p>}
       {guided.inconsistencyFlags.map((flag) => (
         <p
           className="text-destructive"
           key={flag}
           data-testid={`guided-story-consistency-${scene.id}-${flag}`}
         >
-          Consistency flag: {flag}
+          Consistency flag: {flag}. Resume this frame or discard the storyboard after correcting the source choices.
         </p>
       ))}
     </div>

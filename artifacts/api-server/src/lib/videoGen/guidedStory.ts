@@ -4,6 +4,7 @@ import type {
   GuidedStoryGenre,
   GuidedStoryPlatform,
   GuidedStoryScript,
+  GuidedStoryVisualChoices,
   VideoJobOptions,
   VideoStoryboard,
 } from "@workspace/db";
@@ -135,8 +136,21 @@ function guidedSceneFingerprint(value: unknown): string {
 export function guidedStorySnapshotFingerprint(value: {
   script: GuidedStoryScript;
   cast: GuidedStoryCastSnapshot[];
+  visuals?: GuidedStoryVisualChoices;
 }): string {
-  return guidedSceneFingerprint({ script: value.script, cast: value.cast });
+  return guidedSceneFingerprint({
+    script: value.script,
+    cast: value.cast,
+    visuals: value.visuals ?? defaultGuidedStoryVisualChoices(),
+  });
+}
+
+function defaultGuidedStoryVisualChoices(): GuidedStoryVisualChoices {
+  return {
+    version: 1,
+    logo: { path: null, sceneIds: [] },
+    location: { mode: "none", imagePath: null, description: null },
+  };
 }
 
 export function guidedCastFailureDisposition(confirmedFailure: boolean):
@@ -326,6 +340,18 @@ export function guidedStoryApprovalSnapshotMatches(params: {
   storyboard: VideoStoryboard;
 }): boolean {
   const { draftState, snapshot, storyboard } = params;
+  const draftFingerprint = draftState.script
+    ? guidedStorySnapshotFingerprint({
+        script: draftState.script,
+        cast: draftState.cast,
+        visuals: draftState.visualChoices,
+      })
+    : null;
+  const snapshotFingerprint = guidedStorySnapshotFingerprint({
+    script: snapshot.script,
+    cast: snapshot.cast,
+    visuals: snapshot.visuals,
+  });
   if (
     params.draftId !== snapshot.draftId ||
     params.draftRevision !== snapshot.draftRevision ||
@@ -334,8 +360,7 @@ export function guidedStoryApprovalSnapshotMatches(params: {
     !draftState.scriptApprovedAt ||
     draftState.scriptApprovedAt !== snapshot.scriptApprovedAt ||
     Object.keys(draftState.castOperations ?? {}).length > 0 ||
-    guidedStorySnapshotFingerprint({ script: draftState.script, cast: draftState.cast }) !==
-      guidedStorySnapshotFingerprint({ script: snapshot.script, cast: snapshot.cast })
+    draftFingerprint !== snapshotFingerprint
   ) {
     return false;
   }
@@ -346,8 +371,13 @@ export function guidedStoryApprovalSnapshotMatches(params: {
       const actual = storyboard.scenes[index];
       return (
         actual?.id === scene.id &&
-        actual.guidedStory?.inputFingerprint === scene.guidedStory?.inputFingerprint &&
-        Boolean(actual.previewPath) &&
+        actual.text === scene.text &&
+        actual.visual === scene.visual &&
+        actual.durationSec === scene.durationSec &&
+        actual.outfitId === scene.outfitId &&
+        JSON.stringify(actual.guidedStory) === JSON.stringify(scene.guidedStory) &&
+        actual.previewCheckpoint?.status === "complete" &&
+        actual.previewPath === actual.previewCheckpoint.targetPath &&
         actual.guidedStory?.inconsistencyFlags.length === 0
       );
     })
@@ -366,6 +396,7 @@ export function guidedStoryStoryboard(
   existing?: VideoStoryboard | null,
 ): VideoStoryboard {
   const castByRole = new Map(snapshot.cast.map((member) => [member.roleId, member]));
+  const visuals = snapshot.visuals ?? defaultGuidedStoryVisualChoices();
   const oldByScriptScene = new Map(
     (existing?.scenes ?? [])
       .filter((scene) => scene.guidedStory)
@@ -411,20 +442,45 @@ export function guidedStoryStoryboard(
       startMs: line.startMs,
       endMs: line.endMs,
     }));
+    const showLogo =
+      visuals.logo.path !== null &&
+      visuals.logo.sceneIds.includes(scriptScene.id);
+    const sceneVisuals = {
+      logoPath: showLogo ? visuals.logo.path : null,
+      locationMode: visuals.location.mode,
+      locationImagePath:
+        visuals.location.mode === "image"
+          ? visuals.location.imagePath
+          : null,
+      locationDescription:
+        visuals.location.mode === "text"
+          ? visuals.location.description
+          : null,
+    };
     const inputFingerprint = guidedSceneFingerprint({
       scriptScene,
       cast,
       platform: snapshot.platform,
+      visuals: sceneVisuals,
     });
     const prior = oldByScriptScene.get(scriptScene.id);
     const reusable = prior?.guidedStory?.inputFingerprint === inputFingerprint;
     const roleDirection = sceneCast.map((member) =>
       `${member.character.name} (${member.roleId}) wears ${member.outfit?.description ?? "the approved wardrobe"}; identity reference ${member.character.referenceImagePath ?? "MISSING"}; outfit reference ${member.outfit?.referenceImagePath ?? "MISSING"}.`,
     ).join(" ");
+    const locationDirection =
+      visuals.location.mode === "image"
+        ? `Use the approved shared location image ${visuals.location.imagePath} as environmental guidance.`
+        : visuals.location.mode === "text"
+          ? `Shared location direction: ${visuals.location.description}.`
+          : "";
+    const logoDirection = showLogo
+      ? `Place the approved logo ${visuals.logo.path} subtly in this scene.`
+      : "";
     return {
       id: scriptScene.id,
       text: scriptScene.lines.map((line) => line.text).join(" "),
-      visual: `${scriptScene.visualDirection}\n${roleDirection}\nCompose for ${snapshot.platform.aspectRatio}. ${snapshot.platform.safeArea}`,
+      visual: `${scriptScene.visualDirection}\n${roleDirection}\n${locationDirection}\n${logoDirection}\nCompose for ${snapshot.platform.aspectRatio}. ${snapshot.platform.safeArea}`,
       durationSec: (scriptScene.endMs - scriptScene.startMs) / 1000,
       previewPath: reusable ? prior!.previewPath : null,
       previewCheckpoint: reusable ? prior!.previewCheckpoint : null,
@@ -439,6 +495,7 @@ export function guidedStoryStoryboard(
         cast,
         inconsistencyFlags,
         inputFingerprint,
+        visuals: sceneVisuals,
       },
     };
   });

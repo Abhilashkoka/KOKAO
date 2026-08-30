@@ -82,6 +82,21 @@ export interface GuidedStoryCastSnapshot {
   } | null;
 }
 
+/** Tenant-owned visual direction selected before an attempt is enqueued. */
+export interface GuidedStoryVisualChoices {
+  version: 1;
+  /** A logo is intentionally opt-in per approved script scene. */
+  logo: {
+    path: string | null;
+    sceneIds: string[];
+  };
+  /** Exactly one location mode is active for the whole attempt. */
+  location:
+    | { mode: "none"; imagePath: null; description: null }
+    | { mode: "image"; imagePath: string; description: null }
+    | { mode: "text"; imagePath: null; description: string };
+}
+
 export interface GuidedStoryDraftState {
   version: 1;
   setup: {
@@ -162,6 +177,11 @@ export interface GuidedStoryDraftState {
     path?: string;
     settledAt?: string;
   }>;
+  /**
+   * Revisioned draft input. Enqueue copies this byte-for-byte into its immutable
+   * attempt snapshot; it is never inferred from a brand kit or mutable asset.
+   */
+  visualChoices?: GuidedStoryVisualChoices;
   storyboardJobId: number | null;
 }
 

@@ -11,6 +11,7 @@ import type { GuidedStoryDraftEstimates } from './guidedStoryDraftEstimates';
 import type { GuidedStoryDraftScriptGeneration } from './guidedStoryDraftScriptGeneration';
 import type { GuidedStoryScript } from './guidedStoryScript';
 import type { GuidedStorySetup } from './guidedStorySetup';
+import type { GuidedStoryVisualChoices } from './guidedStoryVisualChoices';
 
 export interface GuidedStoryDraft {
   id: number;
@@ -31,6 +32,7 @@ export interface GuidedStoryDraft {
      * @nullable
      */
   scriptGeneration: GuidedStoryDraftScriptGeneration;
+  visualChoices: GuidedStoryVisualChoices;
   /** @nullable */
   storyboardJobId: number | null;
   /** Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts. */

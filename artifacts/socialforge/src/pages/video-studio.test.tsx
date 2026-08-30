@@ -3839,6 +3839,16 @@ describe("Video Studio", () => {
         ],
         inconsistencyFlags: index === 0 ? ["outfit_changed"] : [],
         inputFingerprint: `fp-${index}`,
+        visuals: {
+          logoPath: index === 0 ? "/objects/1/logo.png" : null,
+          locationMode: index === 0 ? "text" : "none",
+          locationImagePath: null,
+          locationDescription: index === 0 ? "A warm library" : null,
+        },
+      },
+      previewCheckpoint: {
+        status: index === 0 ? "prepared" : "complete",
+        targetPath: index === 0 ? scene.previewPath! : "/objects/1/missing.png",
       },
     }));
     mockState.activeJob = pausedJob(board);
@@ -3852,6 +3862,13 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("guided-story-lines-s1").textContent).toContain(
       "Dialogue · hero",
     );
+    expect(screen.getByTestId("guided-story-cast-s1-hero").textContent).toContain("Cast reference: anchored");
+    expect(screen.getByTestId("guided-story-logo-s1").textContent).toContain("on");
+    expect(screen.getByTestId("guided-story-location-s1").textContent).toContain("text — A warm library");
+    expect(screen.getByTestId("guided-story-checkpoint-s1").textContent).toContain("prepared");
+    expect(screen.queryByTestId("input-shot-s1")).toBeNull();
+    expect(screen.queryByTestId("button-redraw-s1")).toBeNull();
+    expect(screen.queryByTestId("button-add-after-s1")).toBeNull();
     expect(screen.getByTestId("guided-story-consistency-s1-outfit_changed")).toBeTruthy();
     expect(screen.getByTestId("guided-story-preview-missing-s2")).toBeTruthy();
     expect((screen.getByTestId("button-approve-storyboard") as HTMLButtonElement).disabled).toBe(

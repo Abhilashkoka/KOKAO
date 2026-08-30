@@ -4498,11 +4498,54 @@ export interface GuidedStoryScript {
   warnings: string[];
 }
 
+export type GuidedStoryVisualChoicesInputLogo = {
+  /**
+     * Canonical tenant-owned /objects/{tenant}/uploads path.
+     * @nullable
+     */
+  path: string | null;
+  /**
+     * @maxItems 40
+     * @items.minLength 2
+     * @items.maxLength 64
+     */
+  sceneIds: string[];
+};
+
+export type GuidedStoryVisualChoicesInputLocation = {
+  mode: 'none';
+  /** @nullable */
+  imagePath: null;
+  /** @nullable */
+  description: null;
+} | {
+  mode: 'image';
+  /** Canonical tenant-owned /objects/{tenant}/uploads path. */
+  imagePath: string;
+  /** @nullable */
+  description: null;
+} | {
+  mode: 'text';
+  /** @nullable */
+  imagePath: null;
+  /**
+     * @minLength 3
+     * @maxLength 1000
+     */
+  description: string;
+};
+
+export interface GuidedStoryVisualChoicesInput {
+  logo: GuidedStoryVisualChoicesInputLogo;
+  location: GuidedStoryVisualChoicesInputLocation;
+}
+
 export interface GuidedStoryDraftUpdate {
   /** @minimum 1 */
   revision: number;
   setup?: GuidedStorySetupInput;
   script?: GuidedStoryScript;
+  visualChoices?: GuidedStoryVisualChoicesInput;
 }
 
 export interface GuidedStorySceneInsertionInput {
@@ -4681,6 +4724,10 @@ export type GuidedStorySetup = GuidedStorySetupInput & {
   safeArea: string;
 };
 
+export type GuidedStoryVisualChoices = GuidedStoryVisualChoicesInput & {
+  version: 1;
+};
+
 /**
  * @nullable
  */
@@ -4746,6 +4793,7 @@ export interface GuidedStoryDraft {
      * @nullable
      */
   scriptGeneration: GuidedStoryDraftScriptGeneration;
+  visualChoices: GuidedStoryVisualChoices;
   /** @nullable */
   storyboardJobId: number | null;
   /** Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts. */
@@ -5328,6 +5376,25 @@ export type VideoStoryboardSceneGuidedStoryCastItem = {
   providerVoiceId: string | null;
 };
 
+export type VideoStoryboardSceneGuidedStoryVisualsLocationMode = typeof VideoStoryboardSceneGuidedStoryVisualsLocationMode[keyof typeof VideoStoryboardSceneGuidedStoryVisualsLocationMode];
+
+
+export const VideoStoryboardSceneGuidedStoryVisualsLocationMode = {
+  none: 'none',
+  image: 'image',
+  text: 'text',
+} as const;
+
+export type VideoStoryboardSceneGuidedStoryVisuals = {
+  /** @nullable */
+  logoPath: string | null;
+  locationMode: VideoStoryboardSceneGuidedStoryVisualsLocationMode;
+  /** @nullable */
+  locationImagePath: string | null;
+  /** @nullable */
+  locationDescription: string | null;
+};
+
 /**
  * Immutable role/cast mapping and scene reuse identity for Guided Story review.
  * @nullable
@@ -5341,6 +5408,7 @@ export type VideoStoryboardSceneGuidedStory = {
   cast: VideoStoryboardSceneGuidedStoryCastItem[];
   inconsistencyFlags: string[];
   inputFingerprint: string;
+  visuals: VideoStoryboardSceneGuidedStoryVisuals;
 } | null;
 
 /**

@@ -1354,6 +1354,64 @@ function guidedSetup(
   };
 }
 
+function canonicalGuidedVisualObjectPath(path: string, tenantId: number): boolean {
+  return !path.includes("..") &&
+    !path.includes("\\") &&
+    !path.includes("?") &&
+    !path.includes("#") &&
+    new RegExp(`^/objects/${tenantId}/uploads/[A-Za-z0-9][A-Za-z0-9._-]*$`).test(path);
+}
+
+function hasOnlyGuidedVisualFields(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some((key) => !["revision", "setup", "script", "visualChoices"].includes(key))) return false;
+  if (!("visualChoices" in input)) return true;
+  const choices = input.visualChoices;
+  if (!choices || typeof choices !== "object" || Array.isArray(choices)) return false;
+  const visual = choices as Record<string, unknown>;
+  if (Object.keys(visual).some((key) => key !== "logo" && key !== "location")) return false;
+  for (const [item, fields] of [
+    [visual.logo, ["path", "sceneIds"]],
+    [visual.location, ["mode", "imagePath", "description"]],
+  ] as Array<[unknown, string[]]>) {
+    if (!item || typeof item !== "object" || Array.isArray(item) ||
+        Object.keys(item as Record<string, unknown>).some((key) => !fields.includes(key))) return false;
+  }
+  return true;
+}
+
+function validateGuidedVisualChoices(
+  value: {
+    logo?: { path?: string | null; sceneIds?: string[] } | null;
+    location?: { mode?: "none" | "image" | "text"; imagePath?: string | null; description?: string | null } | null;
+  },
+  script: GuidedStoryDraftState["script"],
+  tenantId: number,
+): GuidedStoryDraftState["visualChoices"] | null {
+  const logo = value.logo;
+  const location = value.location;
+  if (!logo || !location || !script) return null;
+  const logoPath = logo.path ?? null;
+  const sceneIds = logo.sceneIds ?? [];
+  if ((logoPath !== null && !canonicalGuidedVisualObjectPath(logoPath, tenantId)) ||
+      (logoPath === null && sceneIds.length > 0) ||
+      new Set(sceneIds).size !== sceneIds.length ||
+      sceneIds.some((id) => !script.scenes.some((scene) => scene.id === id))) return null;
+  if (location.mode === "none" && location.imagePath == null && location.description == null) {
+    return { version: 1, logo: { path: logoPath, sceneIds }, location: { mode: "none", imagePath: null, description: null } };
+  }
+  if (location.mode === "image" && typeof location.imagePath === "string" &&
+      canonicalGuidedVisualObjectPath(location.imagePath, tenantId) && location.description == null) {
+    return { version: 1, logo: { path: logoPath, sceneIds }, location: { mode: "image", imagePath: location.imagePath, description: null } };
+  }
+  if (location.mode === "text" && location.imagePath == null && typeof location.description === "string" &&
+      location.description.trim().length >= 3 && location.description.trim().length <= 1000) {
+    return { version: 1, logo: { path: logoPath, sceneIds }, location: { mode: "text", imagePath: null, description: location.description.trim() } };
+  }
+  return null;
+}
+
 async function saveGuidedState(
   row: GuidedStoryDraft,
   revision: number,
@@ -2010,6 +2068,11 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     scriptGeneration: null,
     sceneInsertionGeneration: null,
     castOperations: {},
+    visualChoices: {
+      version: 1,
+      logo: { path: null, sceneIds: [] },
+      location: { mode: "none", imagePath: null, description: null },
+    },
     storyboardJobId: null,
   };
   const row = (
@@ -2040,7 +2103,7 @@ router.patch(
     let row = parsed.success
       ? await loadGuidedDraft(req.tenantId, Number(req.params.draftId))
       : null;
-    if (!parsed.success) {
+    if (!parsed.success || !hasOnlyGuidedVisualFields(req.body)) {
       res.status(400).json({ error: "Invalid guided story update." });
       return;
     }
@@ -2119,11 +2182,24 @@ router.patch(
         return;
       }
     }
-    const saved = await saveGuidedState(
-      row,
-      parsed.data.revision,
-      invalidateGuidedStoryDownstream({ ...row.state, setup }, script),
-    );
+    const visualChoices = parsed.data.visualChoices
+      ? validateGuidedVisualChoices(parsed.data.visualChoices, script, req.tenantId)
+      : row.state.visualChoices;
+    if (!visualChoices) {
+      res.status(400).json({
+        error:
+          "Visual choices must use tenant upload paths, current scene IDs, and exactly one location mode.",
+      });
+      return;
+    }
+    const nextState =
+      parsed.data.setup || parsed.data.script
+        ? invalidateGuidedStoryDownstream(
+            { ...row.state, setup, visualChoices },
+            script,
+          )
+        : { ...row.state, visualChoices };
+    const saved = await saveGuidedState(row, parsed.data.revision, nextState);
     if (!saved) {
       res
         .status(409)
@@ -5034,6 +5110,7 @@ async function generateVideoHandler(
             },
             script: guidedDraft.state.script,
             cast: guidedDraft.state.cast,
+            visuals: guidedDraft.state.visualChoices,
           }
         : undefined,
     hybridStory:
@@ -6905,6 +6982,12 @@ router.patch(
       const loaded = await loadEditableStoryboardJob(req, res);
       if (!loaded) return;
       const { storyboard } = loaded;
+      if (storyboard.mode === "guided_story") {
+        res.status(400).json({
+          error: "Guided Story storyboards are immutable. Change the draft and start a new attempt.",
+        });
+        return;
+      }
 
       const edits = new Map(
         parsed.data.scenes.map((scene) => [scene.id, scene]),
@@ -6961,18 +7044,6 @@ router.patch(
         res.status(400).json({
           error:
             "Approved Character Dialogue text cannot be changed in the storyboard.",
-        });
-        return;
-      }
-      if (
-        storyboard.mode === "guided_story" &&
-        parsed.data.scenes.some(
-          (edit) => edit.text !== undefined || edit.durationSec !== undefined,
-        )
-      ) {
-        res.status(400).json({
-          error:
-            "Guided Story dialogue, role ownership, and timing are frozen from the approved script. Edit the draft script instead.",
         });
         return;
       }
@@ -7270,6 +7341,12 @@ router.post(
     if (!loaded) return;
     const { job, storyboard } = loaded;
     if (await rejectDisabledVideoMode(job.engine, res)) return;
+    if (storyboard.mode === "guided_story") {
+      res.status(400).json({
+        error: "Guided Story storyboards are immutable. Change the draft and start a new attempt.",
+      });
+      return;
+    }
     if (storyboard.mode === "hybrid_character_story") {
       res.status(400).json({
         error:
@@ -7631,6 +7708,12 @@ router.post(
     if (!loaded) return;
     const { job, storyboard } = loaded;
     if (await rejectDisabledVideoMode(job.engine, res)) return;
+    if (storyboard.mode === "guided_story") {
+      res.status(400).json({
+        error: "Guided Story storyboards are immutable. Change the draft and start a new attempt.",
+      });
+      return;
+    }
     if (storyboard.mode === "hybrid_character_story") {
       res.status(400).json({
         error:
@@ -7784,15 +7867,21 @@ router.post(
         });
         return;
       }
-      const invalid = loaded.storyboard.scenes.filter(
-        (scene) =>
-          !scene.previewPath ||
-          !scene.guidedStory ||
-          scene.guidedStory.inconsistencyFlags.length > 0,
-      );
-      if (invalid.length > 0) {
-        res.status(400).json({
-          error: `Guided Story cannot be approved until every exact cast-aware preview is generated and consistent (${invalid.map((scene) => scene.id).join(", ")}).`,
+      const snapshot = loaded.job.options?.guidedStory;
+      if (
+        !snapshot ||
+        !guidedStoryApprovalSnapshotMatches({
+          draftId: draft.id,
+          draftRevision: draft.revision,
+          draftState: draft.state,
+          jobId: loaded.job.id,
+          snapshot,
+          storyboard: loaded.storyboard,
+        })
+      ) {
+        res.status(409).json({
+          error:
+            "Guided Story changed or has incomplete previews. Change the draft and start a new immutable attempt.",
         });
         return;
       }

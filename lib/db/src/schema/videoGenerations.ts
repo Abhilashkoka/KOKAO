@@ -605,6 +605,8 @@ export interface VideoJobOptions {
     };
     script: GuidedStoryScript;
     cast: GuidedStoryCastSnapshot[];
+    /** Immutable logo and shared-location direction resolved before enqueue. */
+    visuals?: import("./guidedStories").GuidedStoryVisualChoices;
   };
 }
 
@@ -666,6 +668,13 @@ export interface VideoStoryboardScene {
     }>;
     inconsistencyFlags: string[];
     inputFingerprint: string;
+    /** The exact visual directives that participated in inputFingerprint. */
+    visuals: {
+      logoPath: string | null;
+      locationMode: "none" | "image" | "text";
+      locationImagePath: string | null;
+      locationDescription: string | null;
+    };
   } | null;
   /** Mixed hybrid plans distinguish lip-synced character beats from AI animation. */
   beatType?: "character_speaking" | "story_animation" | null;

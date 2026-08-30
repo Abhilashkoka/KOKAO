@@ -7,6 +7,7 @@
  */
 import type { VideoStoryboardSceneGuidedStoryCastItem } from './videoStoryboardSceneGuidedStoryCastItem';
 import type { VideoStoryboardSceneGuidedStoryLineOwnershipItem } from './videoStoryboardSceneGuidedStoryLineOwnershipItem';
+import type { VideoStoryboardSceneGuidedStoryVisuals } from './videoStoryboardSceneGuidedStoryVisuals';
 
 /**
  * Immutable role/cast mapping and scene reuse identity for Guided Story review.
@@ -21,4 +22,5 @@ export type VideoStoryboardSceneGuidedStory = {
   cast: VideoStoryboardSceneGuidedStoryCastItem[];
   inconsistencyFlags: string[];
   inputFingerprint: string;
+  visuals: VideoStoryboardSceneGuidedStoryVisuals;
 } | null;

@@ -2245,6 +2245,65 @@ describe("guided story route fail-closed regressions", () => {
     )[0]!;
   }
 
+  it("saves only validated tenant-owned guided visual choices", async () => {
+    const tenant = await newTenant("pro");
+    const foreign = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const sceneId = draft.state.script!.scenes[0]!.id;
+    const imageChoices = {
+      logo: {
+        path: `/objects/${tenant.tenantId}/uploads/logo.png`,
+        sceneIds: [sceneId],
+      },
+      location: {
+        mode: "image",
+        imagePath: `/objects/${tenant.tenantId}/uploads/location.png`,
+        description: null,
+      },
+    };
+    const savedImage = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({ revision: draft.revision, visualChoices: imageChoices });
+    expect(savedImage.status).toBe(200);
+    expect(savedImage.body.visualChoices).toMatchObject(imageChoices);
+
+    const savedText = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({
+        revision: savedImage.body.revision,
+        visualChoices: {
+          logo: imageChoices.logo,
+          location: { mode: "text", imagePath: null, description: "A rain-soaked community hall." },
+        },
+      });
+    expect(savedText.status).toBe(200);
+    expect(savedText.body.visualChoices.location).toEqual({
+      mode: "text", imagePath: null, description: "A rain-soaked community hall.",
+    });
+
+    for (const visualChoices of [
+      {
+        ...imageChoices,
+        logo: { ...imageChoices.logo, path: `/objects/${foreign.tenantId}/uploads/logo.png` },
+      },
+      {
+        ...imageChoices,
+        location: { mode: "image", imagePath: `/objects/${tenant.tenantId}/uploads/../escape.png`, description: null },
+      },
+      { ...imageChoices, logo: { ...imageChoices.logo, sceneIds: ["stale-scene"] } },
+    ]) {
+      const rejected = await request(app)
+        .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+        .send({ revision: savedText.body.revision, visualChoices });
+      expect(rejected.status).toBe(400);
+    }
+    const unknown = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({ revision: savedText.body.revision, visualChoices: imageChoices, unexpected: true });
+    expect(unknown.status).toBe(400);
+  });
+
   it("generates one strictly validated scene without mutating the durable draft", async () => {
     const tenant = await newTenant("pro");
     const draft = await insertEditableGuidedDraft(tenant.tenantId);
