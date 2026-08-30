@@ -664,6 +664,11 @@ export type VoiceCloneKeySource = "database" | "env" | null;
 export async function getVoiceCloneKeySource(
   def: VoiceCloneProviderDef,
 ): Promise<VoiceCloneKeySource> {
+  // Automated tests run against the shared development database. Keep their
+  // fake provider keys isolated from admin-managed encrypted credentials.
+  if (process.env.NODE_ENV === "test") {
+    return process.env[def.envKey] ? "env" : null;
+  }
   if (await getStoredVoiceCloneKey(def.id)) return "database";
   if (process.env[def.envKey]) return "env";
   return null;
@@ -672,6 +677,9 @@ export async function getVoiceCloneKeySource(
 export async function resolveVoiceCloneApiKey(
   def: VoiceCloneProviderDef,
 ): Promise<string | null> {
+  if (process.env.NODE_ENV === "test") {
+    return process.env[def.envKey] ?? null;
+  }
   const stored = await getStoredVoiceCloneKey(def.id);
   if (stored) return stored;
   return process.env[def.envKey] ?? null;

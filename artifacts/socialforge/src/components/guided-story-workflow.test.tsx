@@ -342,6 +342,9 @@ describe("GuidedStoryWorkflow", () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId("button-guided-user-role-none"));
+    expect(screen.getByTestId("status-guided-elevenlabs-voices").textContent).toContain(
+      "1 ElevenLabs premade voices loaded",
+    );
     await user.click(screen.getByTestId("select-guided-generated-voice-r1"));
     expect(screen.getByText("Built-in voices")).toBeTruthy();
     expect(screen.getByText("ElevenLabs premade voices")).toBeTruthy();

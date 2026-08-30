@@ -167,11 +167,10 @@ import {
   pool,
   db,
   featureFlagsTable,
-  appCredentialsTable,
   brandKitsTable,
   brandVoiceExtractedSamplesTable,
 } from "@workspace/db";
-import { eq, like } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import brandKitsRouter from "./brandKits";
 import { resetAuthState, actAs } from "../test/authState";
@@ -340,7 +339,6 @@ afterAll(async () => {
     .where(eq(brandVoiceExtractedSamplesTable.tenantId, tenant.tenantId));
   await deleteTenant(tenant.tenantId);
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "brandVoiceClone"));
-  await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "voice_clone_%"));
   await pool.end();
 });
 
@@ -372,7 +370,6 @@ beforeEach(async () => {
   platformFetchMock.mockReset();
   process.env.ELEVENLABS_API_KEY = "test-el-key";
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "brandVoiceClone"));
-  await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "voice_clone_%"));
   invalidateFeatureFlagCache();
   vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue(
     fakeSampleFile() as never,

@@ -44,6 +44,8 @@ The vitest globalSetup snapshot/restore guard (`test-credentials-guard.ts`) now 
 
 The guard is crash-safe: the snapshot is persisted to a gitignored `.credentials-guard-snapshot.json` next to the artifact (atomic temp+rename write) before suites run; the next run's setup restores any orphaned file before taking its own snapshot, and the file is deleted only after a successful teardown restore. **Why:** a force-killed vitest run (OOM, double Ctrl-C, container restart) skips teardown and used to leave admin keys wiped.
 
+The run-level guard is a recovery net, not permission to blank live provider credentials during a long suite. Credential resolver tests should use test-only injected keys and bypass stored rows without deleting them. **Why:** teardown eventually restores the snapshot, but the running dev app otherwise loses its provider catalog for the entire test run; a killed run extends the outage until the next guard startup.
+
 ## Singleton settings rows: snapshot/restore, never delete
 Tests run against the REAL dev DB. Any test touching singleton config tables (ai_spend_settings, wallet_settings, email_settings, app_credentials...) must snapshot in beforeAll and restore in afterAll via the dbHelpers snapshot/restore helpers — a blanket `db.delete(table)` silently wipes admin-entered dev configuration (this bit a user: their AI spend rates vanished after every full test run).
 
