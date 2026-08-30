@@ -5929,6 +5929,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/cast/{roleId}/approve:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: roleId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: approveGuidedStoryCastRole
+      tags: [ai]
+      summary: Approve one role's exact character and outfit reference bytes
+      description: >-
+        Authenticated, tenant-scoped approval. The server loads both exact
+        references, computes SHA-256 fingerprints, and records evidence bound
+        to the current draft revision. Repeating the request reapproves the
+        current bytes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryCastRoleApprovalInput"
+      responses:
+        "200":
+          description: Draft containing the updated approval manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "400":
+          description: Role or references are incomplete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Draft or reference image not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale draft revision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/guided-story/drafts/{draftId}/cast/references:
     parameters:
       - name: draftId
@@ -17017,6 +17067,43 @@ components:
           maxItems: 4
           items:
             $ref: "#/components/schemas/GuidedStoryCastAssignmentInput"
+    GuidedStoryCastRoleApprovalInput:
+      type: object
+      additionalProperties: false
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+    GuidedStoryCastApprovalAsset:
+      type: object
+      additionalProperties: false
+      required: [referenceImagePath, sha256]
+      properties:
+        referenceImagePath: { type: string }
+        sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+    GuidedStoryCastRoleApproval:
+      type: object
+      additionalProperties: false
+      required: [roleId, approvedAt, character, outfit]
+      properties:
+        roleId: { type: string }
+        approvedAt: { type: string, format: date-time }
+        character:
+          $ref: "#/components/schemas/GuidedStoryCastApprovalAsset"
+        outfit:
+          $ref: "#/components/schemas/GuidedStoryCastApprovalAsset"
+    GuidedStoryCastApprovalManifest:
+      type: object
+      additionalProperties: false
+      required: [version, draftRevision, roles]
+      properties:
+        version: { type: integer, const: 1 }
+        draftRevision: { type: integer, minimum: 1 }
+        roles:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/GuidedStoryCastRoleApproval"
     GuidedStoryReferenceFinalizationInput:
       type: object
       additionalProperties: false
@@ -17153,7 +17240,7 @@ components:
             version: { type: integer, const: 1 }
     GuidedStoryDraft:
       type: object
-      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, duplicateAssignmentConfirmed, scriptGeneration, referenceOperations, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
+      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, castApprovals, duplicateAssignmentConfirmed, scriptGeneration, referenceOperations, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
       properties:
         id: { type: integer }
         revision: { type: integer }
@@ -17173,6 +17260,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GuidedStoryCastSnapshot"
+        castApprovals:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryCastApprovalManifest"
+            - type: "null"
         duplicateAssignmentConfirmed: { type: boolean }
         scriptGeneration:
           type: ["object", "null"]

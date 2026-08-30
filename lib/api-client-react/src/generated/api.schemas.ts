@@ -4691,6 +4691,33 @@ export interface GuidedStoryCastInput {
   assignments: GuidedStoryCastAssignmentInput[];
 }
 
+export interface GuidedStoryCastRoleApprovalInput {
+  /** @minimum 1 */
+  revision: number;
+}
+
+export interface GuidedStoryCastApprovalAsset {
+  referenceImagePath: string;
+  /** @pattern ^[a-f0-9]{64}$ */
+  sha256: string;
+}
+
+export interface GuidedStoryCastRoleApproval {
+  roleId: string;
+  approvedAt: string;
+  character: GuidedStoryCastApprovalAsset;
+  outfit: GuidedStoryCastApprovalAsset;
+}
+
+export type GuidedStoryCastApprovalManifestRoles = {[key: string]: GuidedStoryCastRoleApproval};
+
+export interface GuidedStoryCastApprovalManifest {
+  version: 1;
+  /** @minimum 1 */
+  draftRevision: number;
+  roles: GuidedStoryCastApprovalManifestRoles;
+}
+
 export interface GuidedStoryReferenceFinalizationInput {
   /** @minimum 1 */
   revision: number;
@@ -4993,6 +5020,7 @@ export interface GuidedStoryDraft {
   /** @nullable */
   castStrategy: GuidedStoryDraftCastStrategy;
   cast: GuidedStoryCastSnapshot[];
+  castApprovals: GuidedStoryCastApprovalManifest | null;
   duplicateAssignmentConfirmed: boolean;
   /**
      * Server-authored pre-provider claim for the current script revision.

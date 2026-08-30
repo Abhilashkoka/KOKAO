@@ -1,5 +1,6 @@
 import type {
   GuidedStoryCastSnapshot,
+  GuidedStoryCastApprovalManifest,
   GuidedStoryDraftState,
   GuidedStoryGenre,
   GuidedStoryLocale,
@@ -174,6 +175,7 @@ export function invalidateGuidedStoryDownstream(
     userRoleId: null,
     castStrategy: null,
     cast: [],
+    castApprovals: null,
     duplicateAssignmentConfirmed: false,
     scriptGeneration: null,
     sceneInsertionGeneration: null,
@@ -183,6 +185,8 @@ export function invalidateGuidedStoryDownstream(
   };
 }
 
+export const GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE =
+  "Review and approve every character and outfit reference before generating Guided Story previews.";
 export function guidedCastHasDuplicates(cast: GuidedStoryCastSnapshot[]): boolean {
   const identities = cast
     .filter((item) => item.characterId !== null)
@@ -233,12 +237,14 @@ export function guidedStorySnapshotFingerprint(value: {
   cast: GuidedStoryCastSnapshot[];
   visuals?: GuidedStoryVisualChoices;
   locale?: string;
+  castApprovals?: GuidedStoryCastApprovalManifest;
 }): string {
   return guidedSceneFingerprint({
     script: value.script,
     cast: value.cast,
     visuals: value.visuals ?? defaultGuidedStoryVisualChoices(),
     ...(value.locale ? { locale: value.locale } : {}),
+    castApprovals: value.castApprovals ?? null,
   });
 }
 
@@ -445,6 +451,7 @@ export function guidedStoryApprovalSnapshotMatches(params: {
         // Jobs created before locale snapshots existed must keep their original
         // fingerprint semantics so review/retry does not reinterpret them.
         locale: snapshot.locale ? draftState.setup?.locale : undefined,
+        castApprovals: draftState.castApprovals ?? undefined,
       })
     : null;
   const snapshotFingerprint = guidedStorySnapshotFingerprint({
@@ -452,6 +459,7 @@ export function guidedStoryApprovalSnapshotMatches(params: {
     cast: snapshot.cast,
     visuals: snapshot.visuals,
     locale: snapshot.locale,
+    castApprovals: snapshot.castApprovals,
   });
   if (
     params.draftId !== snapshot.draftId ||
@@ -459,6 +467,16 @@ export function guidedStoryApprovalSnapshotMatches(params: {
     draftState.storyboardJobId !== params.jobId ||
     !draftState.script ||
     !draftState.scriptApprovedAt ||
+    !guidedCastApprovalsMatch({
+      draftRevision: params.draftRevision,
+      cast: draftState.cast,
+      approvals: draftState.castApprovals,
+    }) ||
+    !guidedCastApprovalsMatch({
+      draftRevision: snapshot.draftRevision,
+      cast: snapshot.cast,
+      approvals: snapshot.castApprovals,
+    }) ||
     draftState.scriptApprovedAt !== snapshot.scriptApprovedAt ||
     Object.keys(draftState.castOperations ?? {}).length > 0 ||
     draftFingerprint !== snapshotFingerprint
@@ -527,6 +545,7 @@ export function guidedStoryStoryboard(
   existing?: VideoStoryboard | null,
 ): VideoStoryboard {
   const castByRole = new Map(snapshot.cast.map((member) => [member.roleId, member]));
+  const approvalByRole = snapshot.castApprovals?.roles ?? {};
   const visuals = snapshot.visuals ?? defaultGuidedStoryVisualChoices();
   const oldByScriptScene = new Map(
     (existing?.scenes ?? [])
@@ -563,6 +582,11 @@ export function guidedStoryStoryboard(
       outfitId: member.outfitId,
       referenceImagePath: member.character.referenceImagePath,
       outfitReferenceImagePath: member.outfit?.referenceImagePath ?? null,
+      castApprovedAt: approvalByRole[member.roleId]?.approvedAt,
+      characterReferenceSha256:
+        approvalByRole[member.roleId]?.character.sha256,
+      outfitReferenceSha256:
+        approvalByRole[member.roleId]?.outfit.sha256,
       voiceProvider: member.voice.provider,
       providerVoiceId: member.voice.providerVoiceId,
     }));
@@ -1202,4 +1226,36 @@ export async function generateGuidedStorySceneInsertion(params: {
     outputTokens: completion.usage?.completion_tokens ?? null,
     costPaise: null,
   };
+}
+
+/** Fail-closed validation shared by routes, workers, retries, and renderers. */
+export function guidedCastApprovalsMatch(params: {
+  draftRevision: number;
+  cast: GuidedStoryCastSnapshot[];
+  approvals: GuidedStoryCastApprovalManifest | null | undefined;
+}): boolean {
+  const { approvals, cast } = params;
+  if (
+    !approvals ||
+    approvals.version !== 1 ||
+    approvals.draftRevision !== params.draftRevision ||
+    Object.keys(approvals.roles).length !== cast.length
+  ) return false;
+  const sha256 = /^[a-f0-9]{64}$/;
+  return cast.every((member) => {
+    const approval = approvals.roles[member.roleId];
+    const characterPath = member.character.referenceImagePath;
+    const outfitPath = member.outfit?.referenceImagePath;
+    return Boolean(
+      approval &&
+      approval.roleId === member.roleId &&
+      Number.isFinite(Date.parse(approval.approvedAt)) &&
+      characterPath &&
+      outfitPath &&
+      approval.character.referenceImagePath === characterPath &&
+      approval.outfit.referenceImagePath === outfitPath &&
+      sha256.test(approval.character.sha256) &&
+      sha256.test(approval.outfit.sha256),
+    );
+  });
 }

@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryCastApprovalManifest } from './guidedStoryCastApprovalManifest';
 import type { GuidedStoryCastSnapshot } from './guidedStoryCastSnapshot';
 import type { GuidedStoryDraftCastStrategy } from './guidedStoryDraftCastStrategy';
 import type { GuidedStoryDraftEstimates } from './guidedStoryDraftEstimates';
@@ -27,6 +28,7 @@ export interface GuidedStoryDraft {
   /** @nullable */
   castStrategy: GuidedStoryDraftCastStrategy;
   cast: GuidedStoryCastSnapshot[];
+  castApprovals: GuidedStoryCastApprovalManifest | null;
   duplicateAssignmentConfirmed: boolean;
   /**
      * Server-authored pre-provider claim for the current script revision.

@@ -3293,6 +3293,24 @@ describe("Guided Story preview-only runner", () => {
         isUserRole: true,
         consentGranted: true,
       }],
+      castApprovals: {
+        version: 1 as const,
+        draftRevision: 1,
+        roles: {
+          hero: {
+            roleId: "hero",
+            approvedAt: "2025-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: `/objects/${tenantId}/hero.png`,
+              sha256: "a".repeat(64),
+            },
+            outfit: {
+              referenceImagePath: `/objects/${tenantId}/coat.png`,
+              sha256: "b".repeat(64),
+            },
+          },
+        },
+      },
     };
   }
 
@@ -3328,6 +3346,24 @@ describe("Guided Story preview-only runner", () => {
     });
     return { job, snapshot, storyboard };
   }
+
+  it("fails legacy preview operations closed before a provider call", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({ tenantId: tenant.tenantId });
+    const legacyOptions = structuredClone(seeded.job.options!);
+    delete legacyOptions.guidedStory!.castApprovals;
+    await db.update(videoGenerationsTable).set({ options: legacyOptions })
+      .where(eq(videoGenerationsTable.id, seeded.job.id));
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.options!.guidedPreviewRender).toMatchObject({
+      state: "failed",
+      error: expect.stringMatching(/review and approve every character and outfit/i),
+    });
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+  });
 
   it("reuses completed checkpoints without starting a final render", async () => {
     const tenant = await newTenant();
@@ -3393,6 +3429,24 @@ describe("Guided Story preview-only runner", () => {
         isUserRole: true,
         consentGranted: true,
       }],
+      castApprovals: {
+        version: 1 as const,
+        draftRevision: 1,
+        roles: {
+          hero: {
+            roleId: "hero",
+            approvedAt: "2025-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: `/objects/${tenant.tenantId}/hero.png`,
+              sha256: "a".repeat(64),
+            },
+            outfit: {
+              referenceImagePath: `/objects/${tenant.tenantId}/coat.png`,
+              sha256: "b".repeat(64),
+            },
+          },
+        },
+      },
     };
     const storyboard = guidedStoryStoryboard(snapshot);
     storyboard.scenes[0]!.previewPath = `/objects/${tenant.tenantId}/complete.png`;

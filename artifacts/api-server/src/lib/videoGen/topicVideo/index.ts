@@ -60,10 +60,15 @@ import {
 } from "../../characters";
 import { generateImage } from "../../imageGen";
 import sharp from "sharp";
+import { createHash } from "node:crypto";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
 import { appendCreativeFragment } from "../creativeBrief";
-import { guidedStoryStoryboard } from "../guidedStory";
+import {
+  GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
+  guidedCastApprovalsMatch,
+  guidedStoryStoryboard,
+} from "../guidedStory";
 import type { GuidedStoryCastSnapshot, VideoJobOptions } from "@workspace/db";
 
 export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
@@ -931,6 +936,13 @@ export async function planTopicStoryboard(
     throw new VideoGenProviderError("A topic is required.");
   }
   if (params.guidedStory) {
+    if (!guidedCastApprovalsMatch({
+      draftRevision: params.guidedStory.draftRevision,
+      cast: params.guidedStory.cast,
+      approvals: params.guidedStory.castApprovals,
+    })) {
+      throw new VideoGenProviderError(GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE);
+    }
     let base = guidedStoryStoryboard(params.guidedStory);
     const narration = await synthesizeGuidedNarration({
       tenantId: params.tenantId,
@@ -1756,6 +1768,18 @@ export async function regenerateStoryboardPreview(params: {
     const refs = await Promise.all(
       visualReferences.map((reference) => loadReferenceImage(reference.path, params.tenantId)),
     );
+    for (let index = 0; index < castReferences.length; index += 1) {
+      const castIndex = Math.floor(index / 2);
+      const expected = index % 2 === 0
+        ? params.scene.guidedStory.cast[castIndex]?.characterReferenceSha256
+        : params.scene.guidedStory.cast[castIndex]?.outfitReferenceSha256;
+      const actual = createHash("sha256").update(refs[index]!.buffer).digest("hex");
+      if (!expected || actual !== expected) {
+        throw new VideoGenProviderError(
+          `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} The saved bytes for ${castReferences[index]!.label} no longer match their approval.`,
+        );
+      }
+    }
     const xmlEscape = (value: string) =>
       value.replace(/[<>&"'']/g, (character) => ({
         "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;",

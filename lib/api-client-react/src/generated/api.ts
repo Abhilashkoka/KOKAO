@@ -194,6 +194,7 @@ import type {
   GrantCreditsInput,
   GuidedSceneCorrectionRequest,
   GuidedStoryCastInput,
+  GuidedStoryCastRoleApprovalInput,
   GuidedStoryDraft,
   GuidedStoryDraftUpdate,
   GuidedStoryPlatformContract,
@@ -16268,6 +16269,80 @@ export const useCastGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCastGuidedStoryDraftMutationOptions(options));
+    }
+
+export const getApproveGuidedStoryCastRoleUrl = (draftId: number,
+    roleId: string,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/cast/${roleId}/approve`
+}
+
+/**
+ * Authenticated, tenant-scoped approval. The server loads both exact references, computes SHA-256 fingerprints, and records evidence bound to the current draft revision. Repeating the request reapproves the current bytes.
+ * @summary Approve one role's exact character and outfit reference bytes
+ */
+export const approveGuidedStoryCastRole = async (draftId: number,
+    roleId: string,
+    guidedStoryCastRoleApprovalInput: GuidedStoryCastRoleApprovalInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getApproveGuidedStoryCastRoleUrl(draftId,roleId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryCastRoleApprovalInput)
+  }
+);}
+
+
+
+
+export const getApproveGuidedStoryCastRoleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryCastRole>>, TError,{draftId: number;roleId: string;data: BodyType<GuidedStoryCastRoleApprovalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryCastRole>>, TError,{draftId: number;roleId: string;data: BodyType<GuidedStoryCastRoleApprovalInput>}, TContext> => {
+
+const mutationKey = ['approveGuidedStoryCastRole'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveGuidedStoryCastRole>>, {draftId: number;roleId: string;data: BodyType<GuidedStoryCastRoleApprovalInput>}> = (props) => {
+          const {draftId,roleId,data} = props ?? {};
+
+          return  approveGuidedStoryCastRole(draftId,roleId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveGuidedStoryCastRoleMutationResult = NonNullable<Awaited<ReturnType<typeof approveGuidedStoryCastRole>>>
+    export type ApproveGuidedStoryCastRoleMutationBody = BodyType<GuidedStoryCastRoleApprovalInput>
+    export type ApproveGuidedStoryCastRoleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Approve one role's exact character and outfit reference bytes
+ */
+export const useApproveGuidedStoryCastRole = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryCastRole>>, TError,{draftId: number;roleId: string;data: BodyType<GuidedStoryCastRoleApprovalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveGuidedStoryCastRole>>,
+        TError,
+        {draftId: number;roleId: string;data: BodyType<GuidedStoryCastRoleApprovalInput>},
+        TContext
+      > => {
+      return useMutation(getApproveGuidedStoryCastRoleMutationOptions(options));
     }
 
 export const getCreateGuidedStoryReferenceUrl = (draftId: number,) => {

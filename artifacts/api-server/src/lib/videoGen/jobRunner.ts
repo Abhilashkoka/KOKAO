@@ -111,6 +111,8 @@ import {
 import { hybridNarrationIsAggregateOwned, hybridRequiredUnits, videoJobUnits } from "./units";
 import { motionPresetClause } from "./motionPrompt";
 import {
+  GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
+  guidedCastApprovalsMatch,
   guidedStorySceneImmutableInputsMatch,
   guidedStoryStoryboard,
 } from "./guidedStory";
@@ -3995,6 +3997,13 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
   try {
     const snapshot = claimed.options?.guidedStory;
     if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
+    if (!guidedCastApprovalsMatch({
+      draftRevision: snapshot.draftRevision,
+      cast: snapshot.cast,
+      approvals: snapshot.castApprovals,
+    })) {
+      throw new VideoJobInputError(GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE);
+    }
     const expected = guidedStoryStoryboard(snapshot);
     if (
       expected.scenes.length !== board.scenes.length ||
@@ -4226,7 +4235,23 @@ export async function runGuidedSceneCorrectionJob(
   const claimedJob = claimed.job;
   const claimedStoryboard = claimedJob.storyboard!;
   const immutableSnapshot = claimedJob.options?.guidedStory;
+  if (
+    immutableSnapshot &&
+    !guidedCastApprovalsMatch({
+      draftRevision: immutableSnapshot.draftRevision,
+      cast: immutableSnapshot.cast,
+      approvals: immutableSnapshot.castApprovals,
+    })
+  ) {
+    // Continue through the ordinary immutable-input failure path below, which
+    // returns reserved correction funding before any provider call.
+  }
   const expectedBoard = immutableSnapshot
+    && guidedCastApprovalsMatch({
+      draftRevision: immutableSnapshot.draftRevision,
+      cast: immutableSnapshot.cast,
+      approvals: immutableSnapshot.castApprovals,
+    })
     ? guidedStoryStoryboard(immutableSnapshot)
     : null;
   if (
@@ -4304,6 +4329,17 @@ export async function runGuidedSceneCorrectionJob(
   let actualCostPaise: number | null = null;
   let responseBytes = 0;
   try {
+    const guidedSnapshot = claimedJob.options?.guidedStory;
+    if (
+      guidedSnapshot &&
+      !guidedCastApprovalsMatch({
+        draftRevision: guidedSnapshot.draftRevision,
+        cast: guidedSnapshot.cast,
+        approvals: guidedSnapshot.castApprovals,
+      })
+    ) {
+      throw new VideoJobInputError(GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE);
+    }
     const scene = claimedStoryboard.scenes.find((item) => item.id === sceneId)!;
     const attempt = scene.guidedStory!.corrections!.attempts.find((item) => item.id === attemptId)!;
     const correctedScene: VideoStoryboardScene = {
@@ -4770,6 +4806,17 @@ async function executeVideoJob(
   };
 
   try {
+    const guidedSnapshot = job.options?.guidedStory;
+    if (
+      guidedSnapshot &&
+      !guidedCastApprovalsMatch({
+        draftRevision: guidedSnapshot.draftRevision,
+        cast: guidedSnapshot.cast,
+        approvals: guidedSnapshot.castApprovals,
+      })
+    ) {
+      throw new VideoJobInputError(GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE);
+    }
     // The long-standing Video Studio master switch overrides every engine,
     // including lip sync. Re-check it here so a queued or paused job cannot
     // outlive an admin shutdown and spend after the whole studio is disabled.

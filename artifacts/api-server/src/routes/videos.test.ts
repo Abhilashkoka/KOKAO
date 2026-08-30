@@ -202,8 +202,13 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
         throw new actual.ObjectNotFoundError();
       }
       return {
-        getMetadata: async () => [{ size: 1024, contentType: "video/mp4" }],
-        download: async () => [Buffer.from("presenter-video")],
+        getMetadata: async () => [{
+          size: 1024,
+          contentType: objectPath.endsWith(".png") ? "image/png" : "video/mp4",
+        }],
+        download: async () => [Buffer.from(
+          objectPath.endsWith(".png") ? `image:${objectPath}` : "presenter-video",
+        )],
       };
     }
   }
@@ -355,6 +360,7 @@ import {
   type VideoStoryboardScene,
   type VideoJobOptions,
   type GuidedStoryDraftState,
+  type GuidedStoryCastSnapshot,
   type AiSpendSettings,
   type WalletSettings,
 } from "@workspace/db";
@@ -2373,6 +2379,28 @@ describe("POST /api/ai/generate-video", () => {
 });
 
 describe("guided story route fail-closed regressions", () => {
+  function castApprovals(cast: GuidedStoryCastSnapshot[], revision: number) {
+    return {
+      version: 1 as const,
+      draftRevision: revision,
+      roles: Object.fromEntries(cast.map((member, index) => [
+        member.roleId,
+        {
+          roleId: member.roleId,
+          approvedAt: "2025-01-01T00:00:00.000Z",
+          character: {
+            referenceImagePath: member.character.referenceImagePath!,
+            sha256: `${index + 1}`.repeat(64),
+          },
+          outfit: {
+            referenceImagePath: member.outfit!.referenceImagePath!,
+            sha256: `${index + 4}`.repeat(64),
+          },
+        },
+      ])),
+    };
+  }
+
   function routeScript() {
     return validateAndRepairGuidedScript(
       {
@@ -2413,6 +2441,62 @@ describe("guided story route fail-closed regressions", () => {
       { roleCount: 2, durationSeconds: 30 },
     );
   }
+
+  it("approves one role by hashing the exact tenant-owned character and outfit bytes", async () => {
+    const tenant = await newTenant("pro");
+    const script = routeScript();
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const role = script.roles[0]!;
+    const characterPath = `/objects/${tenant.tenantId}/character-approved.png`;
+    const outfitPath = `/objects/${tenant.tenantId}/outfit-approved.png`;
+    const cast: GuidedStoryCastSnapshot[] = [{
+      roleId: role.id,
+      source: "saved",
+      characterId: 1,
+      outfitId: 2,
+      brandKitId: null,
+      voiceId: "alloy",
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: characterPath,
+      },
+      outfit: {
+        name: "Approved outfit",
+        description: "Approved outfit",
+        referenceImagePath: outfitPath,
+      },
+      voice: {
+        id: "alloy",
+        label: "Alloy",
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: true,
+      consentGranted: true,
+    }];
+    await db.update(guidedStoryDraftsTable).set({
+      state: { ...draft.state, cast },
+    }).where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/${role.id}/approve`)
+      .send({ revision: draft.revision });
+
+    expect(response.status).toBe(200);
+    expect(response.body.revision).toBe(draft.revision);
+    expect(response.body.castApprovals.roles[role.id]).toMatchObject({
+      roleId: role.id,
+      character: {
+        referenceImagePath: characterPath,
+        sha256: createHash("sha256").update(`image:${characterPath}`).digest("hex"),
+      },
+      outfit: {
+        referenceImagePath: outfitPath,
+        sha256: createHash("sha256").update(`image:${outfitPath}`).digest("hex"),
+      },
+    });
+  });
 
   async function insertEditableGuidedDraft(
     tenantId: number,
@@ -2565,6 +2649,7 @@ describe("guided story route fail-closed regressions", () => {
       },
       script,
       cast,
+      castApprovals: castApprovals(cast, draft.revision),
       visuals: draft.state.visualChoices,
     };
     const board = guidedStoryStoryboard(snapshot);
@@ -2586,6 +2671,7 @@ describe("guided story route fail-closed regressions", () => {
         scriptApprovedAt: approvedAt,
         castStrategy: "saved",
         cast,
+        castApprovals: castApprovals(cast, draft.revision),
         duplicateAssignmentConfirmed: true,
         storyboardJobId: job!.id,
       },
@@ -2836,7 +2922,9 @@ describe("guided story route fail-closed regressions", () => {
       .where(eq(videoGenerationsTable.id, job!.id));
     expect(jobAfterFinalize!.options!.guidedStory!.draftRevision).toBe(draft.revision + 1);
     expect(jobAfterFinalize!.storyboard!.scenes[0]!.previewPath).toBeNull();
-    expect(jobAfterFinalize!.options!.guidedPreviewRender!.state).toBe("queued");
+    expect(jobAfterFinalize!.options!.guidedPreviewRender).toBeNull();
+    expect(jobAfterFinalize!.options!.guidedStory!.castApprovals).toBeUndefined();
+    expect(finalized.body.castApprovals).toBeNull();
 
     const duplicate = await request(app)
       .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(replacement.body.id)}/finalize`)
@@ -4320,6 +4408,7 @@ describe("guided story route fail-closed regressions", () => {
       },
       script,
       cast,
+      castApprovals: castApprovals(cast, 1),
     };
     const storyboard = guidedStoryStoryboard(snapshot);
     storyboard.scenes = storyboard.scenes.map((scene) => ({
@@ -4639,6 +4728,7 @@ describe("guided story route fail-closed regressions", () => {
       },
       script,
       cast,
+      castApprovals: castApprovals(cast, 1),
     };
     const storyboard = guidedStoryStoryboard(snapshot);
     storyboard.scenes[0]!.previewPath =
@@ -4745,6 +4835,7 @@ describe("guided story route fail-closed regressions", () => {
       },
       script,
       cast,
+      castApprovals: castApprovals(cast, correctionDraft.revision),
     };
     const storyboard = guidedStoryStoryboard(snapshot);
     storyboard.scenes.forEach((scene, index) => {

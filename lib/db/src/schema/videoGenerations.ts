@@ -9,6 +9,7 @@ import {
 import type { ResolvedCreativeBrief } from "./creativeDirection";
 import type { VideoPriceCriteria } from "./aiCost";
 import type {
+  GuidedStoryCastApprovalManifest,
   GuidedStoryCastSnapshot,
   GuidedStoryLocale,
   GuidedStoryScript,
@@ -678,6 +679,8 @@ export interface VideoJobOptions {
     };
     script: GuidedStoryScript;
     cast: GuidedStoryCastSnapshot[];
+    /** Exact reference paths and content hashes approved before enqueue. */
+    castApprovals?: GuidedStoryCastApprovalManifest;
     /** Immutable logo and shared-location direction resolved before enqueue. */
     visuals?: import("./guidedStories").GuidedStoryVisualChoices;
   };
@@ -736,6 +739,9 @@ export interface VideoStoryboardScene {
       outfitId: number | null;
       referenceImagePath: string | null;
       outfitReferenceImagePath: string | null;
+      castApprovedAt?: string;
+      characterReferenceSha256?: string;
+      outfitReferenceSha256?: string;
       voiceProvider: string;
       providerVoiceId: string | null;
     }>;

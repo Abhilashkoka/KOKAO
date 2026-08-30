@@ -85,6 +85,24 @@ export interface GuidedStoryCastSnapshot {
   } | null;
 }
 
+/** Human approval evidence for the exact bytes used by one cast role. */
+export interface GuidedStoryCastApprovalManifest {
+  version: 1;
+  /** Approvals are valid only while the draft remains at this revision. */
+  draftRevision: number;
+  roles: Record<string, {
+    roleId: string;
+    approvedAt: string;
+    character: {
+      referenceImagePath: string;
+      sha256: string;
+    };
+    outfit: {
+      referenceImagePath: string;
+      sha256: string;
+    };
+  }>;
+}
 export type GuidedStoryReferenceOperationStatus =
   | "queued"
   | "generating"
@@ -136,6 +154,9 @@ export interface GuidedStoryDraftState {
   castStrategy: "generated" | "saved" | null;
 
   cast: GuidedStoryCastSnapshot[];
+
+  /** Explicit, server-verified approvals for the current cast revision. */
+  castApprovals?: GuidedStoryCastApprovalManifest | null;
 
   duplicateAssignmentConfirmed: boolean;
   /**

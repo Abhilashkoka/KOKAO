@@ -38,6 +38,7 @@ import {
   GenerateGuidedStoryDraftSceneBody,
   ApproveGuidedStoryDraftScriptBody,
   CastGuidedStoryDraftBody,
+  ApproveGuidedStoryCastRoleBody,
   FinalizeGuidedStoryJobReferenceBody,
   FinalizeGuidedStoryReferenceBody,
   StartGuidedStoryReferenceOperationBody,
@@ -141,6 +142,7 @@ import { preflightVideoJob } from "../lib/videoGen/preflight";
 import {
   generateCharacterReference,
   createOutfitMaskedEdit,
+  CharacterInputError,
   generateOutfitVariant,
   getCharacterDetail,
   isOutfitSelectable,
@@ -235,6 +237,8 @@ import {
   guidedStoryPlatform,
   guidedStoryRolePlan,
   guidedCastHasDuplicates,
+  guidedCastApprovalsMatch,
+  GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
   guidedCastFailureDisposition,
   guidedCastOperationCanRestart,
   guidedCastOperationCanResume,
@@ -1317,6 +1321,7 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
     id: row.id,
     revision: row.revision,
     ...row.state,
+    castApprovals: row.state.castApprovals ?? null,
     visualChoices: row.state.visualChoices ?? emptyGuidedVisualChoices(),
     script,
     castOperations: undefined,
@@ -2201,6 +2206,7 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     userRoleId: null,
     castStrategy: null,
     cast: [],
+    castApprovals: null,
     duplicateAssignmentConfirmed: false,
     scriptGeneration: null,
     sceneInsertionGeneration: null,
@@ -2833,6 +2839,7 @@ router.post(
       userRoleId: null,
       castStrategy: null,
       cast: [],
+      castApprovals: null,
       duplicateAssignmentConfirmed: false,
       scriptGeneration: null,
       storyboardJobId: null,
@@ -3703,6 +3710,7 @@ router.put(
       userRoleId: cast.find((item) => item.isUserRole)?.roleId ?? null,
       castStrategy: parsed.data.strategy,
       cast,
+      castApprovals: null,
       duplicateAssignmentConfirmed: duplicates,
       castOperations: linkedJob ? row.state.castOperations : {},
       storyboardJobId: row.state.storyboardJobId,
@@ -3718,6 +3726,7 @@ router.put(
         ...linkedJob.options.guidedStory,
         draftRevision: saved.revision,
         cast,
+        castApprovals: undefined,
       };
       let storyboard = guidedStoryStoryboard(
         guidedSnapshot,
@@ -3768,6 +3777,158 @@ router.put(
       if (cleared) saved = cleared;
     }
     res.json(serializeGuidedDraft(saved));
+  },
+);
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/cast/:roleId/approve",
+  async (req: Request, res: Response) => {
+    const parsed = ApproveGuidedStoryCastRoleBody.safeParse(req.body);
+    const draftId = Number(req.params.draftId);
+    const roleId = String(req.params.roleId);
+    const row = parsed.success
+      ? await loadGuidedDraft(req.tenantId, draftId)
+      : null;
+    if (!parsed.success || !row) {
+      res.status(row ? 400 : 404).json({
+        error: row ? "Invalid cast approval request." : "Guided story draft not found.",
+      });
+      return;
+    }
+    if (parsed.data.revision !== row.revision) {
+      res.status(409).json({ error: "This draft changed. Reload it, review the references, and approve again." });
+      return;
+    }
+    const member = row.state.cast.find((item) => item.roleId === roleId);
+    const characterPath = member?.character.referenceImagePath;
+    const outfitPath = member?.outfit?.referenceImagePath;
+    if (!member || !characterPath || !outfitPath) {
+      res.status(400).json({
+        error: "Select complete character and outfit references for this role before approving.",
+      });
+      return;
+    }
+    let characterSha256: string;
+    let outfitSha256: string;
+    try {
+      const [character, outfit] = await Promise.all([
+        loadReferenceImage(characterPath, req.tenantId),
+        loadReferenceImage(outfitPath, req.tenantId),
+      ]);
+      characterSha256 = createHash("sha256").update(character.buffer).digest("hex");
+      outfitSha256 = createHash("sha256").update(outfit.buffer).digest("hex");
+    } catch (error) {
+      if (error instanceof CharacterInputError) {
+        res.status(404).json({
+          error: `${error.message} Review or replace the reference, then approve again.`,
+        });
+        return;
+      }
+      throw error;
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const [fresh] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, row.id),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      const freshMember = fresh?.state.cast.find((item) => item.roleId === roleId);
+      if (
+        !fresh ||
+        fresh.revision !== parsed.data.revision ||
+        freshMember?.character.referenceImagePath !== characterPath ||
+        freshMember.outfit?.referenceImagePath !== outfitPath
+      ) return null;
+      const priorRoles =
+        fresh.state.castApprovals?.draftRevision === fresh.revision
+          ? fresh.state.castApprovals.roles
+          : {};
+      const approvedAt = new Date().toISOString();
+      const castApprovals = {
+        version: 1 as const,
+        draftRevision: fresh.revision,
+        roles: {
+          ...priorRoles,
+          [roleId]: {
+            roleId,
+            approvedAt,
+            character: { referenceImagePath: characterPath, sha256: characterSha256 },
+            outfit: { referenceImagePath: outfitPath, sha256: outfitSha256 },
+          },
+        },
+      };
+      const state: GuidedStoryDraftState = { ...fresh.state, castApprovals };
+      const [savedDraft] = await tx.update(guidedStoryDraftsTable).set({
+        state,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, fresh.id),
+        eq(guidedStoryDraftsTable.revision, fresh.revision),
+      )).returning();
+      if (!savedDraft) return null;
+
+      let previewJobId: number | null = null;
+      if (
+        state.storyboardJobId &&
+        state.storyboardJobId > 0 &&
+        state.script &&
+        guidedCastApprovalsMatch({
+          draftRevision: fresh.revision,
+          cast: state.cast,
+          approvals: castApprovals,
+        })
+      ) {
+        const [job] = await tx.select().from(videoGenerationsTable).where(and(
+          eq(videoGenerationsTable.id, state.storyboardJobId),
+          eq(videoGenerationsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (job?.status === "awaiting_review" && job.options?.guidedStory) {
+          const snapshot = {
+            ...job.options.guidedStory,
+            draftRevision: fresh.revision,
+            cast: state.cast,
+            castApprovals,
+          };
+          const storyboard = guidedStoryStoryboard(snapshot, job.storyboard);
+          const now = new Date().toISOString();
+          const operation = {
+            version: 1 as const,
+            operationId: `guided-preview:${job.id}:${Date.now()}`,
+            state: "queued" as const,
+            total: storyboard.scenes.length,
+            completed: storyboard.scenes.filter((scene) => Boolean(scene.previewPath)).length,
+            error: null,
+            requestedAt: now,
+            startedAt: null,
+            finishedAt: null,
+          };
+          await tx.update(videoGenerationsTable).set({
+            options: { ...job.options, guidedStory: snapshot, guidedPreviewRender: operation },
+            storyboard,
+            error: null,
+            updatedAt: new Date(),
+          }).where(eq(videoGenerationsTable.id, job.id));
+          previewJobId = job.id;
+        }
+      }
+      return { draft: savedDraft, previewJobId };
+    });
+    if (!result) {
+      res.status(409).json({
+        error: "This cast changed while its images were checked. Reload, review, and approve again.",
+      });
+      return;
+    }
+    if (
+      result.previewJobId &&
+      !enqueueBackgroundJob(() => runGuidedPreviewRenderJob(result.previewJobId!))
+    ) {
+      req.log.warn(
+        { jobId: result.previewJobId },
+        "Approved Guided Story previews remain queued for startup recovery",
+      );
+    }
+    res.json(serializeGuidedDraft(result.draft));
   },
 );
 
@@ -5001,26 +5162,16 @@ router.post(
       const nextState: GuidedStoryDraftState = {
         ...draft.state,
         cast,
+        castApprovals: null,
         referenceOperations,
       };
       const snapshot = {
         ...job.options.guidedStory,
         draftRevision: nextRevision,
         cast,
+        castApprovals: undefined,
       };
       const storyboard = guidedStoryStoryboard(snapshot, job.storyboard);
-      const missing = storyboard.scenes.filter((scene) => !scene.previewPath).length;
-      const previewOperation = {
-        version: 1 as const,
-        operationId: `guided-preview:${job.id}:${Date.now()}`,
-        state: "queued" as const,
-        total: storyboard.scenes.length,
-        completed: storyboard.scenes.length - missing,
-        error: null,
-        requestedAt: finalizedAt,
-        startedAt: null,
-        finishedAt: null,
-      };
       const [savedDraft] = await tx.update(guidedStoryDraftsTable).set({
         state: nextState,
         revision: nextRevision,
@@ -5033,7 +5184,7 @@ router.post(
         options: {
           ...job.options,
           guidedStory: snapshot,
-          guidedPreviewRender: previewOperation,
+          guidedPreviewRender: null,
         },
         storyboard,
         error: null,
@@ -5043,7 +5194,7 @@ router.post(
         eq(videoGenerationsTable.status, "awaiting_review"),
       )).returning();
       return savedDraft && savedJob
-        ? { kind: "saved" as const, draft: savedDraft, jobId: savedJob.id }
+        ? { kind: "saved" as const, draft: savedDraft, jobId: null }
         : { kind: "stale" as const };
     });
     if (result.kind === "missing") {
@@ -5055,10 +5206,6 @@ router.post(
         error: "This candidate was already finalized, is unresolved, or belongs to a stale revision.",
       });
       return;
-    }
-    if (!enqueueBackgroundJob(() => runGuidedPreviewRenderJob(result.jobId))) {
-      // The queued marker is durable and startup recovery will resume it.
-      req.log.warn({ jobId: result.jobId }, "Guided reference previews remain queued for recovery");
     }
     res.json(serializeGuidedDraft(result.draft));
   },
@@ -5086,6 +5233,11 @@ router.post(
       !row.state.script ||
       !row.state.scriptApprovedAt ||
       row.state.cast.length !== row.state.script.roles.length ||
+      !guidedCastApprovalsMatch({
+        draftRevision: row.revision,
+        cast: row.state.cast,
+        approvals: row.state.castApprovals,
+      }) ||
       row.state.cast.some(
         (item) => item.source === "saved" && item.consentGranted !== true,
       )
@@ -5094,7 +5246,7 @@ router.post(
         .status(400)
         .json({
           error:
-            "Approve the exact current script and complete casting with fresh consent before enqueue.",
+            `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} Also approve the exact current script and complete casting with fresh consent.`,
         });
       return;
     }
@@ -5206,11 +5358,16 @@ async function generateVideoHandler(
       !guidedDraft.state.script ||
       !guidedDraft.state.scriptApprovedAt ||
       guidedDraft.state.cast.length !== guidedDraft.state.script.roles.length ||
+      !guidedCastApprovalsMatch({
+        draftRevision: guidedDraft.revision,
+        cast: guidedDraft.state.cast,
+        approvals: guidedDraft.state.castApprovals,
+      }) ||
       Object.keys(guidedDraft.state.castOperations ?? {}).length > 0
     ) {
       res
         .status(400)
-        .json({ error: "The guided story is not approved and fully cast." });
+        .json({ error: GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE });
       return;
     }
     const state = guidedDraft.state;
@@ -6545,6 +6702,7 @@ async function generateVideoHandler(
             },
             script: guidedDraft.state.script,
             cast: guidedDraft.state.cast,
+            castApprovals: guidedDraft.state.castApprovals!,
             visuals: guidedDraft.state.visualChoices,
           }
         : undefined,
@@ -7634,6 +7792,20 @@ router.post(
       res.status(400).json({
         error: "This video does not have saved inputs that can be retried.",
         code: "recovery_not_eligible",
+      });
+      return;
+    }
+    if (
+      initial.options?.guidedStory &&
+      !guidedCastApprovalsMatch({
+        draftRevision: initial.options.guidedStory.draftRevision,
+        cast: initial.options.guidedStory.cast,
+        approvals: initial.options.guidedStory.castApprovals,
+      })
+    ) {
+      res.status(409).json({
+        error: GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
+        code: "guided_cast_approval_required",
       });
       return;
     }
@@ -9352,6 +9524,15 @@ router.post(
       if (job.status !== "awaiting_review" || job.storyboard?.mode !== "guided_story") {
         return { kind: "invalid" as const };
       }
+      const snapshot = job.options?.guidedStory;
+      if (
+        !snapshot ||
+        !guidedCastApprovalsMatch({
+          draftRevision: snapshot.draftRevision,
+          cast: snapshot.cast,
+          approvals: snapshot.castApprovals,
+        })
+      ) return { kind: "cast_unapproved" as const };
       const active = job.options?.guidedPreviewRender;
       if (active?.state === "queued" || active?.state === "running") {
         return { kind: "existing" as const, job };
@@ -9401,6 +9582,10 @@ router.post(
       res.status(400).json({
         error: "Only a Guided Story waiting for storyboard review can render missing previews.",
       });
+      return;
+    }
+    if (result.kind === "cast_unapproved") {
+      res.status(409).json({ error: GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE });
       return;
     }
     if (result.kind === "correction_active") {
@@ -9465,12 +9650,18 @@ router.post(
     if (
       !before || before.status !== "awaiting_review" ||
       before.storyboard?.mode !== "guided_story" || !beforeScene?.guidedStory ||
+      !before.options?.guidedStory ||
+      !guidedCastApprovalsMatch({
+        draftRevision: before.options.guidedStory.draftRevision,
+        cast: before.options.guidedStory.cast,
+        approvals: before.options.guidedStory.castApprovals,
+      }) ||
       !beforeScene.previewPath ||
       beforeScene.previewCheckpoint?.status !== "complete" ||
       beforeScene.previewCheckpoint.targetPath !== beforeScene.previewPath
     ) {
       res.status(400).json({
-        error: "Only a complete generated Guided Story preview can be corrected.",
+        error: `Only a complete, approved Guided Story preview can be corrected. ${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE}`,
       });
       return;
     }

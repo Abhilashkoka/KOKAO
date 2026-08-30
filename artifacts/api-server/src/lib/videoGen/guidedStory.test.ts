@@ -6,11 +6,13 @@ import {
   GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
   guidedCastFailureDisposition,
   guidedCastHasDuplicates,
+  guidedCastApprovalsMatch,
   guidedCastOperationCanRestart,
   guidedCastOperationCanResume,
   guidedStoryApprovalSnapshotMatches,
   guidedStoryEstimates,
   guidedStoryRolePlan,
+  guidedStorySnapshotFingerprint,
   guidedStoryStoryboard,
   guidedStoryNativeScriptWarning,
   invalidateGuidedStoryDownstream,
@@ -89,6 +91,25 @@ function approvalFixture() {
     isUserRole: index === 0,
     consentGranted: true,
   }));
+  const castApprovals = {
+    version: 1 as const,
+    draftRevision: 4,
+    roles: Object.fromEntries(cast.map((member, index) => [
+      member.roleId,
+      {
+        roleId: member.roleId,
+        approvedAt: "2025-01-01T00:00:00.000Z",
+        character: {
+          referenceImagePath: member.character.referenceImagePath!,
+          sha256: `${index + 1}`.repeat(64),
+        },
+        outfit: {
+          referenceImagePath: member.outfit!.referenceImagePath!,
+          sha256: `${index + 3}`.repeat(64),
+        },
+      },
+    ])),
+  };
   const snapshot = {
     version: 1 as const,
     draftId: 7,
@@ -104,6 +125,7 @@ function approvalFixture() {
     },
     script,
     cast,
+    castApprovals,
   };
   const storyboard = guidedStoryStoryboard(snapshot);
   storyboard.scenes = storyboard.scenes.map((scene) => ({
@@ -122,12 +144,13 @@ function approvalFixture() {
     userRoleId: script.roles[0]!.id,
     castStrategy: "saved",
     cast,
+    castApprovals,
     duplicateAssignmentConfirmed: false,
     scriptGeneration: null,
     castOperations: {},
     storyboardJobId: 44,
   };
-  return { script, cast, snapshot, storyboard, state };
+  return { script, cast, castApprovals, snapshot, storyboard, state };
 }
 
 describe("guided story platform contracts", () => {
@@ -483,6 +506,54 @@ describe("guided cast provider uncertainty", () => {
 });
 
 describe("guided approval fail-closed snapshot guard", () => {
+  it("requires every role, current revision, exact paths, and SHA-256 fingerprints", () => {
+    const fixture = approvalFixture();
+    expect(guidedCastApprovalsMatch({
+      draftRevision: 4,
+      cast: fixture.cast,
+      approvals: fixture.castApprovals,
+    })).toBe(true);
+    expect(guidedCastApprovalsMatch({
+      draftRevision: 5,
+      cast: fixture.cast,
+      approvals: fixture.castApprovals,
+    })).toBe(false);
+    expect(guidedCastApprovalsMatch({
+      draftRevision: 4,
+      cast: fixture.cast,
+      approvals: {
+        ...fixture.castApprovals,
+        roles: {
+          ...fixture.castApprovals.roles,
+          "role-1": {
+            ...fixture.castApprovals.roles["role-1"]!,
+            outfit: {
+              ...fixture.castApprovals.roles["role-1"]!.outfit,
+              referenceImagePath: "/objects/1/replaced.png",
+            },
+          },
+        },
+      },
+    })).toBe(false);
+    expect(guidedCastApprovalsMatch({
+      draftRevision: 4,
+      cast: fixture.cast,
+      approvals: undefined,
+    })).toBe(false);
+  });
+
+  it("binds snapshot and scene fingerprints to cast approval evidence", () => {
+    const fixture = approvalFixture();
+    const changed = structuredClone(fixture.snapshot);
+    changed.castApprovals!.roles["role-1"]!.outfit.sha256 = "f".repeat(64);
+    expect(guidedStorySnapshotFingerprint(changed)).not.toBe(
+      guidedStorySnapshotFingerprint(fixture.snapshot),
+    );
+    expect(guidedStoryStoryboard(changed).scenes[0]!.guidedStory!.inputFingerprint).not.toBe(
+      fixture.storyboard.scenes[0]!.guidedStory!.inputFingerprint,
+    );
+  });
+
   it("rejects revision drift, cast fingerprints, scene fingerprints, and cast operations", () => {
     const fixture = approvalFixture();
     const check = (

@@ -135,5 +135,5 @@
 - [Guided cast checkpoints](guided-cast-checkpoints.md) — persist running before provider dispatch; recover only after timeout/receipt checks; derived outfits use server-owned identity regions.
 - [AI draft finalization claims](ai-draft-finalization-claims.md) — wall-clock expiry is unsafe after provider success; recover only from terminal funding state with a stored usable result.
 - [Dynamic voice catalogs](dynamic-voice-catalogs.md) — provider voice lists must bypass browser caches and refetch on mount; an empty outage response must not persist.
-- [Guided preview fingerprints](guided-preview-fingerprints.md) — jsonb key reordering breaks old order-sensitive hashes; compare immutable inputs structurally and preserve stored fingerprints.
+- [Guided preview fingerprints](guided-preview-fingerprints.md) — preserve stored structural fingerprints; cast approval separately binds exact reference bytes and draft revision.
 - [ElevenLabs language controls](elevenlabs-language-controls.md) — multilingual v2 rejects explicit language_code and lacks Telugu; v3 handles explicit Guided Story locales.
