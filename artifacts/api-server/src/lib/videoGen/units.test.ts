@@ -59,6 +59,7 @@ describe("spoken character video units", () => {
   ])("charges twice the character visual units for %i paragraph(s)", (paragraphCount, expected) => {
     expect(
       videoJobFullUnits("topic_to_video", {
+        aspectRatio: "9:16",
         visualsSource: "character",
         paragraphCount,
         characterLipSync: true,
@@ -69,6 +70,7 @@ describe("spoken character video units", () => {
   it("does not double narrated character videos", () => {
     expect(
       videoJobFullUnits("topic_to_video", {
+        aspectRatio: "9:16",
         visualsSource: "character",
         paragraphCount: 2,
         characterLipSync: false,
@@ -79,6 +81,7 @@ describe("spoken character video units", () => {
   it("doubles the frozen template scene ceiling", () => {
     expect(
       videoJobFullUnits("topic_to_video", {
+        aspectRatio: "9:16",
         visualsSource: "character",
         paragraphCount: 1,
         characterLipSync: true,

@@ -4,6 +4,7 @@ import {
   resolveVideoGenApiKey,
   resolveLipSyncModelRef,
 } from "./index";
+import { LATENT_SYNC } from "./lipSyncModels";
 
 /**
  * Lip-sync one generated shot to its slice of the narration.
@@ -26,8 +27,9 @@ export async function lipSyncClip(args: {
   const apiKey = def ? await resolveVideoGenApiKey(def) : null;
   return generateLipSyncWithReplicate(
     {
-      video: { buffer: args.video, mimeType: "video/mp4" },
+      source: { buffer: args.video, mimeType: "video/mp4" },
       audio: { buffer: args.audio, mimeType: "audio/wav" },
+      def: LATENT_SYNC,
     },
     apiKey,
     await resolveLipSyncModelRef(),
