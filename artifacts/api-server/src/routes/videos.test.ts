@@ -3259,6 +3259,7 @@ describe("guided story route fail-closed regressions", () => {
       })
       .where(eq(guidedStoryDraftsTable.id, draft.id));
     const imageChoices = {
+      version: 1,
       logo: {
         path: `/objects/${tenant.tenantId}/uploads/logo.png`,
         sceneIds: [sceneId],

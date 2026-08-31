@@ -1541,7 +1541,7 @@ function hasOnlyGuidedVisualFields(value: unknown): boolean {
   if (!choices || typeof choices !== "object" || Array.isArray(choices)) return false;
   const visual = choices as Record<string, unknown>;
   if (Object.keys(visual).some((key) =>
-    key !== "logo" && key !== "location" && key !== "backdropReference" && key !== "backdrops")) return false;
+    key !== "version" && key !== "logo" && key !== "location" && key !== "backdropReference" && key !== "backdrops")) return false;
   for (const [item, fields] of [
     [visual.logo, ["path", "sceneIds"]],
     [visual.location, ["mode", "imagePath", "description"]],
