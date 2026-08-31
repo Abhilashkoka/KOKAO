@@ -6699,7 +6699,6 @@ export function VideoStudioPage() {
                               setEngine("guided_story");
                               setActiveJobId(null);
                               setBoardOpen(false);
-                              window.scrollTo({ top: 0, behavior: "smooth" });
                             },
                             onError: (error) =>
                               toast({

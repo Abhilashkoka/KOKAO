@@ -5106,6 +5106,7 @@ describe("Video Studio voice notes", () => {
     expect(await screen.findByTestId("guided-readable-script")).toBeTruthy();
     expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value)
       .toBe("The exact failed story");
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
   it("identifies the mode-specific default and submits the default sentinel", async () => {
