@@ -203,6 +203,7 @@ import type {
   GuidedStoryDialogueReplayPreviewRequest,
   GuidedStoryDraft,
   GuidedStoryDraftUpdate,
+  GuidedStoryLineTranslationInput,
   GuidedStoryPlatformContract,
   GuidedStoryReferenceFinalizationInput,
   GuidedStoryReferenceInput,
@@ -16061,6 +16062,78 @@ export const useGenerateGuidedStoryDraftScript = <TError = ErrorType<ErrorEnvelo
         TContext
       > => {
       return useMutation(getGenerateGuidedStoryDraftScriptMutationOptions(options));
+    }
+
+export const getRefreshGuidedStoryLineTranslationUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/line-translation`
+}
+
+/**
+ * Funds one translation request against an exact draft revision and source line. Only englishTranslation is changed; source text, timings, ownership, approvals, cast, speech inputs, and storyboard state remain untouched. Provider failures leave the saved source script unchanged.
+ * @summary Refresh one saved non-English line's display-only English meaning
+ */
+export const refreshGuidedStoryLineTranslation = async (draftId: number,
+    guidedStoryLineTranslationInput: GuidedStoryLineTranslationInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getRefreshGuidedStoryLineTranslationUrl(draftId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryLineTranslationInput)
+  }
+);}
+
+
+
+
+export const getRefreshGuidedStoryLineTranslationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshGuidedStoryLineTranslation>>, TError,{draftId: number;data: BodyType<GuidedStoryLineTranslationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof refreshGuidedStoryLineTranslation>>, TError,{draftId: number;data: BodyType<GuidedStoryLineTranslationInput>}, TContext> => {
+
+const mutationKey = ['refreshGuidedStoryLineTranslation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshGuidedStoryLineTranslation>>, {draftId: number;data: BodyType<GuidedStoryLineTranslationInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  refreshGuidedStoryLineTranslation(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RefreshGuidedStoryLineTranslationMutationResult = NonNullable<Awaited<ReturnType<typeof refreshGuidedStoryLineTranslation>>>
+    export type RefreshGuidedStoryLineTranslationMutationBody = BodyType<GuidedStoryLineTranslationInput>
+    export type RefreshGuidedStoryLineTranslationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Refresh one saved non-English line's display-only English meaning
+ */
+export const useRefreshGuidedStoryLineTranslation = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshGuidedStoryLineTranslation>>, TError,{draftId: number;data: BodyType<GuidedStoryLineTranslationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof refreshGuidedStoryLineTranslation>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryLineTranslationInput>},
+        TContext
+      > => {
+      return useMutation(getRefreshGuidedStoryLineTranslationMutationOptions(options));
     }
 
 export const getGenerateGuidedStoryDraftSceneUrl = (draftId: number,) => {

@@ -5807,6 +5807,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/line-translation:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      operationId: refreshGuidedStoryLineTranslation
+      tags: [ai]
+      summary: Refresh one saved non-English line's display-only English meaning
+      description: >-
+        Funds one translation request against an exact draft revision and source
+        line. Only englishTranslation is changed; source text, timings,
+        ownership, approvals, cast, speech inputs, and storyboard state remain
+        untouched. Provider failures leave the saved source script unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryLineTranslationInput"
+      responses:
+        "200":
+          description: Draft with the refreshed display-only English meaning
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "400":
+          description: Invalid, English, or already translated line
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Translation funding unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Draft, scene, or line not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale draft revision or source text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Translation provider failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Translation provider is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/guided-story/drafts/{draftId}/scenes/generate:
     parameters:
       - name: draftId
@@ -17069,6 +17133,15 @@ components:
       required: [revision]
       properties:
         revision: { type: integer, minimum: 1 }
+    GuidedStoryLineTranslationInput:
+      type: object
+      additionalProperties: false
+      required: [revision, sceneId, lineId, sourceText]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        sceneId: { type: string, minLength: 1, maxLength: 64 }
+        lineId: { type: string, minLength: 1, maxLength: 64 }
+        sourceText: { type: string, minLength: 1, maxLength: 4000 }
     GuidedStoryDraftUpdate:
       type: object
       additionalProperties: false

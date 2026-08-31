@@ -35,6 +35,7 @@ import {
   CreateGuidedStoryDraftBody,
   UpdateGuidedStoryDraftBody,
   GenerateGuidedStoryDraftScriptBody,
+  RefreshGuidedStoryLineTranslationBody,
   GenerateGuidedStoryDraftSceneBody,
   ApproveGuidedStoryDraftScriptBody,
   CastGuidedStoryDraftBody,
@@ -236,6 +237,7 @@ import {
   GUIDED_STORY_PLATFORMS,
   GUIDED_SCENE_INSERTION_CLAIM_TTL_MS,
   generateGuidedStoryScript,
+  translateGuidedStoryLine,
   generateGuidedStorySceneInsertion,
   guidedStoryPlatform,
   guidedStoryRolePlan,
@@ -404,7 +406,7 @@ type BillableScriptResult = {
 };
 
 class StaleBillableScriptOperationError extends Error {
-  constructor() {
+  constructor(readonly providerCostSettled = false) {
     super("The draft changed while AI work was in progress.");
   }
 }
@@ -414,11 +416,16 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
   tenantModel: string;
   operationKind: Extract<
     WalletProviderOperationKind,
-    "video_script_intake" | "video_script_draft"
+    "video_script_intake" | "video_script_draft" | "guided_line_translation"
   >;
   perform: () => Promise<T>;
   /** Runs after provider completion, before success persistence or settlement. */
   beforeSettlement?: (result: T) => Promise<boolean>;
+  /**
+   * Records and settles confirmed provider work even when the following
+   * persistence CAS loses a race. The caller still receives a stale error.
+   */
+  settleProviderSuccessBeforePersistence?: boolean;
   operationKey?: string;
   onFundingReady?: (funding: "wallet" | "unmetered") => Promise<boolean>;
 }): Promise<{
@@ -486,7 +493,11 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
       },
       async () => {
         const result = await args.perform();
-        if (args.beforeSettlement && !(await args.beforeSettlement(result))) {
+        if (
+          !args.settleProviderSuccessBeforePersistence &&
+          args.beforeSettlement &&
+          !(await args.beforeSettlement(result))
+        ) {
           throw new StaleBillableScriptOperationError();
         }
         return result;
@@ -499,6 +510,10 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
         ...(result.costPaise !== null ? { costPaise: result.costPaise } : {}),
       }),
     );
+    const persistenceWon =
+      !args.settleProviderSuccessBeforePersistence ||
+      !args.beforeSettlement ||
+      (await args.beforeSettlement(executed.value));
     const target = await actualChargePaise({
       kind: "caption",
       costPaise: executed.value.costPaise,
@@ -512,6 +527,9 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
       );
       return null;
     });
+    if (!persistenceWon) {
+      throw new StaleBillableScriptOperationError(true);
+    }
     return {
       result: executed.value,
       funding: "wallet",
@@ -520,7 +538,11 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
   } catch (error) {
     if (
       !(error instanceof WalletProviderSuccessPersistenceError) &&
-        !(error instanceof WalletProviderPostSuccessError)
+        !(error instanceof WalletProviderPostSuccessError) &&
+        !(
+          error instanceof StaleBillableScriptOperationError &&
+          error.providerCostSettled
+        )
     ) {
       await refundWallet(
         args.req.tenantId,
@@ -1594,16 +1616,104 @@ async function saveGuidedState(
   state: GuidedStoryDraftState,
 ): Promise<GuidedStoryDraft | null> {
   if (revision !== row.revision) return null;
+  return db.transaction(async (tx) => {
+    const current =
+      (
+        await tx
+          .select()
+          .from(guidedStoryDraftsTable)
+          .where(
+            and(
+              eq(guidedStoryDraftsTable.id, row.id),
+              eq(guidedStoryDraftsTable.tenantId, row.tenantId),
+            ),
+          )
+          .for("update")
+      )[0] ?? null;
+    if (!current || current.revision !== revision) return null;
+    const nextState = preserveConcurrentGuidedLineTranslations(
+      current.state,
+      state,
+    );
+    return (
+      (
+        await tx
+          .update(guidedStoryDraftsTable)
+          .set({
+            state: nextState,
+            revision: row.revision + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(guidedStoryDraftsTable.id, row.id))
+          .returning()
+      )[0] ?? null
+    );
+  });
+}
+
+function preserveConcurrentGuidedLineTranslations(
+  current: GuidedStoryDraftState,
+  next: GuidedStoryDraftState,
+): GuidedStoryDraftState {
+  if (!current.script || !next.script) return next;
+  const currentLines = new Map(
+    current.script.scenes.flatMap((scene) =>
+      scene.lines.map(
+        (line) => [`${scene.id}\u0000${line.id}`, line] as const,
+      ),
+    ),
+  );
+  let changed = false;
+  const script = structuredClone(next.script);
+  for (const scene of script.scenes) {
+    for (const line of scene.lines) {
+      const committed = currentLines.get(`${scene.id}\u0000${line.id}`);
+      if (
+        line.englishTranslation == null &&
+        committed?.englishTranslation != null &&
+        committed.text === line.text
+      ) {
+        line.englishTranslation = committed.englishTranslation;
+        changed = true;
+      }
+    }
+  }
+  return changed ? { ...next, script } : next;
+}
+
+async function saveGuidedLineTranslation(args: {
+  row: GuidedStoryDraft;
+  sceneIndex: number;
+  lineIndex: number;
+  sourceText: string;
+  englishTranslation: string;
+}): Promise<GuidedStoryDraft | null> {
+  const translationPath = sql.raw(
+    `'{script,scenes,${args.sceneIndex},lines,${args.lineIndex},englishTranslation}'`,
+  );
+  const sourcePath = sql.raw(
+    `'{script,scenes,${args.sceneIndex},lines,${args.lineIndex},text}'`,
+  );
   return (
     (
       await db
         .update(guidedStoryDraftsTable)
-        .set({ state, revision: row.revision + 1, updatedAt: new Date() })
+        .set({
+          state: sql`jsonb_set(
+            ${guidedStoryDraftsTable.state},
+            ${translationPath},
+            ${JSON.stringify(args.englishTranslation)}::jsonb,
+            false
+          )`,
+          updatedAt: new Date(),
+        })
         .where(
           and(
-            eq(guidedStoryDraftsTable.id, row.id),
-            eq(guidedStoryDraftsTable.tenantId, row.tenantId),
-            eq(guidedStoryDraftsTable.revision, row.revision),
+            eq(guidedStoryDraftsTable.id, args.row.id),
+            eq(guidedStoryDraftsTable.tenantId, args.row.tenantId),
+            eq(guidedStoryDraftsTable.revision, args.row.revision),
+            sql`${guidedStoryDraftsTable.state} #>> ${sourcePath} = ${args.sourceText}`,
+            sql`${guidedStoryDraftsTable.state} #> ${translationPath} = 'null'::jsonb`,
           ),
         )
         .returning()
@@ -2399,6 +2509,163 @@ router.patch(
       return;
     }
     res.json(serializeGuidedDraft(saved));
+  },
+);
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/line-translation",
+  async (req: Request, res: Response): Promise<void> => {
+    const parsed = RefreshGuidedStoryLineTranslationBody.safeParse(req.body);
+    const row = parsed.success
+      ? await loadGuidedDraft(req.tenantId, Number(req.params.draftId))
+      : null;
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid line translation request." });
+      return;
+    }
+    if (!row) {
+      res.status(404).json({ error: "Guided story draft not found." });
+      return;
+    }
+    if (parsed.data.revision !== row.revision) {
+      res.status(409).json({ error: "This draft changed. Reload it and try again." });
+      return;
+    }
+    if (!row.state.setup || !row.state.script) {
+      res.status(400).json({ error: "Save the source script before refreshing its English meaning." });
+      return;
+    }
+    if (row.state.setup.locale === "en") {
+      res.status(400).json({ error: "English source lines do not need an English meaning." });
+      return;
+    }
+    if (
+      row.state.scriptGeneration ||
+      guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration) ||
+      Object.keys(row.state.castOperations ?? {}).length > 0
+    ) {
+      res.status(409).json({
+        error: "Paid draft work is in progress; wait for it to finish before refreshing this meaning.",
+      });
+      return;
+    }
+    if (row.state.storyboardJobId !== null) {
+      res.status(409).json({
+        error: "This approved attempt is already in storyboard review.",
+      });
+      return;
+    }
+    const sceneIndex = row.state.script.scenes.findIndex(
+      (scene) => scene.id === parsed.data.sceneId,
+    );
+    const lineIndex = row.state.script.scenes[sceneIndex]?.lines.findIndex(
+      (line) => line.id === parsed.data.lineId,
+    ) ?? -1;
+    if (sceneIndex < 0 || lineIndex < 0) {
+      res.status(404).json({ error: "The saved source line was not found." });
+      return;
+    }
+    const sourceLine = row.state.script.scenes[sceneIndex]!.lines[lineIndex]!;
+    if (sourceLine.text !== parsed.data.sourceText) {
+      res.status(409).json({
+        error: "This source line changed. Save it before refreshing its English meaning.",
+      });
+      return;
+    }
+    if (!sourceLine.text.trim()) {
+      res.status(400).json({ error: "A blank source line cannot be translated." });
+      return;
+    }
+    if (sourceLine.englishTranslation !== null) {
+      res.status(400).json({ error: "This line already has a current English meaning." });
+      return;
+    }
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, req.tenantId))
+        .limit(1)
+    )[0];
+    if (!tenant) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    let saved: GuidedStoryDraft | null = null;
+    try {
+      const billed = await runBillableScriptRequest({
+        req,
+        tenantModel: tenant.aiModel,
+        operationKind: "guided_line_translation",
+        settleProviderSuccessBeforePersistence: true,
+        perform: () =>
+          translateGuidedStoryLine({
+            tenantAiModel: tenant.aiModel,
+            locale: row.state.setup!.locale,
+            sourceText: sourceLine.text,
+          }),
+        beforeSettlement: async (result) => {
+          saved = await saveGuidedLineTranslation({
+            row,
+            sceneIndex,
+            lineIndex,
+            sourceText: sourceLine.text,
+            englishTranslation: result.englishTranslation,
+          });
+          return saved !== null;
+        },
+      });
+      if (!billed) {
+        res.status(402).json({
+          error: "Your wallet balance can't cover this English meaning refresh.",
+        });
+        return;
+      }
+      await recordUsage(req.tenantId, "caption", {
+        requestBytes: Buffer.byteLength(sourceLine.text),
+        responseBytes: Buffer.byteLength(billed.result.englishTranslation),
+        provider: billed.result.provider,
+        model: billed.result.model,
+        funding: billed.funding,
+        displayPaiseOverride: billed.chargedPaise,
+        ...(billed.result.inputTokens !== null
+          ? { inputTokens: billed.result.inputTokens }
+          : {}),
+        ...(billed.result.outputTokens !== null
+          ? { outputTokens: billed.result.outputTokens }
+          : {}),
+      }).catch((error) => {
+        req.log.warn(
+          { err: error, draftId: row.id, lineId: sourceLine.id },
+          "Guided story line translation usage recording failed",
+        );
+      });
+      res.json(serializeGuidedDraft(saved!));
+    } catch (error) {
+      if (error instanceof StaleBillableScriptOperationError) {
+        res.status(409).json({
+          error: "This draft changed while its English meaning was refreshed.",
+        });
+        return;
+      }
+      if (error instanceof TextGenNotConfiguredError) {
+        res.status(503).json({
+          error: "English meaning refresh is not configured. Contact your admin.",
+        });
+        return;
+      }
+      req.log.warn(
+        { err: error, draftId: row.id, lineId: sourceLine.id },
+        "Guided story line translation failed",
+      );
+      res.status(502).json({
+        error:
+          error instanceof VideoGenProviderError
+            ? error.message
+            : "Refreshing the English meaning failed. Please try again.",
+      });
+    }
   },
 );
 

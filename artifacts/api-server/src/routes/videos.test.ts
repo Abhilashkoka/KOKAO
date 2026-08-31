@@ -106,6 +106,11 @@ const textGenState = vi.hoisted(() => ({
       | string
       | Error
       | (() => Promise<string>),
+  lineTranslationResponse:
+    '{"englishTranslation":"This is our updated plan."}' as
+      | string
+      | Error
+      | (() => Promise<string>),
   guidedSceneTimeoutMs: null as number | null,
   guidedSceneMaxRetries: null as number | null,
   guidedSceneCalls: 0,
@@ -303,6 +308,26 @@ vi.mock("../lib/textGen", async (importOriginal) => {
                 return {
                   choices: [{ message: { content } }],
                   usage: { prompt_tokens: 90, completion_tokens: 30, total_tokens: 120 },
+                };
+              }
+              const isLineTranslation = request.messages?.some((message) =>
+                message.content?.includes("Translate the supplied screenplay line"),
+              );
+              if (isLineTranslation) {
+                if (textGenState.lineTranslationResponse instanceof Error) {
+                  throw textGenState.lineTranslationResponse;
+                }
+                const content =
+                  typeof textGenState.lineTranslationResponse === "function"
+                    ? await textGenState.lineTranslationResponse()
+                    : textGenState.lineTranslationResponse;
+                return {
+                  choices: [{ message: { content } }],
+                  usage: {
+                    prompt_tokens: 32,
+                    completion_tokens: 8,
+                    total_tokens: 40,
+                  },
                 };
               }
               const isSpokespersonDraft = request.messages?.some((message) =>
@@ -626,6 +651,8 @@ beforeEach(() => {
   textGenState.guidedSceneTimeoutMs = null;
   textGenState.guidedSceneMaxRetries = null;
   textGenState.guidedSceneCalls = 0;
+  textGenState.lineTranslationResponse =
+    '{"englishTranslation":"This is our updated plan."}';
   textGenState.lastSpokespersonPrompt = null;
   presenterPlanState.beatCount = 1;
   presenterAsrState.transcript =
@@ -2778,6 +2805,226 @@ describe("guided story route fail-closed regressions", () => {
         .returning()
     )[0]!;
   }
+
+  it("refreshes only one saved non-English line meaning and preserves approved source inputs", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const script = routeScript();
+    const line = script.scenes[0]!.lines[0]!;
+    line.text = "ఇది మన కొత్త ప్రణాళిక.";
+    line.englishTranslation = null;
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const approvedAt = "2026-08-31T00:00:00.000Z";
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          setup: { ...draft.state.setup!, locale: "te" },
+          scriptApprovedAt: approvedAt,
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    const before = structuredClone({
+      ...draft.state,
+      setup: { ...draft.state.setup!, locale: "te" },
+      scriptApprovedAt: approvedAt,
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send({
+        revision: draft.revision,
+        sceneId: script.scenes[0]!.id,
+        lineId: line.id,
+        sourceText: line.text,
+      });
+
+    expect(response.status, response.body.error).toBe(200);
+    expect(response.body.revision).toBe(draft.revision);
+    expect(response.body.script.scenes[0].lines[0]).toEqual({
+      ...line,
+      englishTranslation: "This is our updated plan.",
+    });
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.state).toEqual({
+      ...before,
+      script: {
+        ...before.script!,
+        scenes: before.script!.scenes.map((scene, sceneIndex) => ({
+          ...scene,
+          lines: scene.lines.map((storedLine, lineIndex) =>
+            sceneIndex === 0 && lineIndex === 0
+              ? {
+                  ...storedLine,
+                  englishTranslation: "This is our updated plan.",
+                }
+              : storedLine,
+          ),
+        })),
+      },
+    });
+  });
+
+  it("preserves a committed meaning when a stale full-state save keeps the same source line", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const script = routeScript();
+    const line = script.scenes[0]!.lines[0]!;
+    line.text =
+      "ఇది మన కొత్త ప్రణాళిక ఇప్పుడు అందరం కలిసి ముందుకు సాగి ప్రతి పనిని జాగ్రత్తగా పూర్తి చేసి మంచి ఫలితం సాధిద్దాం.";
+    line.englishTranslation = null;
+    script.scenes[0]!.lines[1]!.text =
+      "మన స్నేహితులు కూడా వెంటనే వచ్చి అవసరమైన సహాయం అందించి ప్రతి కుటుంబం సురక్షితంగా ఇంటికి చేరే వరకు మనతో కలిసి ఉంటారు.";
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const state: GuidedStoryDraftState = {
+      ...draft.state,
+      setup: { ...draft.state.setup!, locale: "te" },
+    };
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ state })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    const staleScript = structuredClone(script);
+
+    const translated = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send({
+        revision: draft.revision,
+        sceneId: script.scenes[0]!.id,
+        lineId: line.id,
+        sourceText: line.text,
+      });
+    expect(translated.status).toBe(200);
+
+    const staleSave = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({
+        revision: draft.revision,
+        setup: {
+          genre: state.setup!.genre,
+          platform: state.setup!.platform,
+          durationSeconds: state.setup!.durationSeconds,
+          locale: state.setup!.locale,
+          topic: state.setup!.topic,
+          roleCount: state.setup!.roleCount,
+          brandKitId: state.setup!.brandKitId,
+        },
+        script: staleScript,
+      });
+
+    expect(staleSave.status, staleSave.body.error).toBe(200);
+    expect(
+      staleSave.body.script.scenes[0].lines[0].englishTranslation,
+    ).toBe("This is our updated plan.");
+  });
+
+  it("leaves the saved source line retryable after translation failure", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const script = routeScript();
+    const line = script.scenes[0]!.lines[0]!;
+    line.text = "ఇది మన కొత్త ప్రణాళిక.";
+    line.englishTranslation = null;
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          setup: { ...draft.state.setup!, locale: "te" },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    textGenState.lineTranslationResponse = new Error("provider unavailable");
+    const payload = {
+      revision: draft.revision,
+      sceneId: script.scenes[0]!.id,
+      lineId: line.id,
+      sourceText: line.text,
+    };
+
+    const failed = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send(payload);
+    expect(failed.status).toBe(502);
+    const [unchanged] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(unchanged!.revision).toBe(draft.revision);
+    expect(unchanged!.state.script!.scenes[0]!.lines[0]).toEqual(line);
+
+    textGenState.lineTranslationResponse =
+      '{"englishTranslation":"This is our updated plan."}';
+    const retried = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send(payload);
+    expect(retried.status, retried.body.error).toBe(200);
+    expect(retried.body.script.scenes[0].lines[0].text).toBe(line.text);
+    expect(retried.body.script.scenes[0].lines[0].englishTranslation).toBe(
+      "This is our updated plan.",
+    );
+  });
+
+  it("rejects a translation result when the draft revision changes during the provider call", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const script = routeScript();
+    const line = script.scenes[0]!.lines[0]!;
+    line.text = "ఇది మన కొత్త ప్రణాళిక.";
+    line.englishTranslation = null;
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          setup: { ...draft.state.setup!, locale: "te" },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    let releaseProvider!: () => void;
+    let providerStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    textGenState.lineTranslationResponse = async () => {
+      providerStarted();
+      await gate;
+      return '{"englishTranslation":"This is our updated plan."}';
+    };
+
+    const pending = request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send({
+        revision: draft.revision,
+        sceneId: script.scenes[0]!.id,
+        lineId: line.id,
+        sourceText: line.text,
+      })
+      .then((result) => result);
+    await started;
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ revision: draft.revision + 1 })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    releaseProvider();
+    const response = await pending;
+
+    expect(response.status).toBe(409);
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.state.script!.scenes[0]!.lines[0]).toEqual(line);
+  });
 
   it("canonicalizes a legacy regional locale before freezing the enqueued snapshot", async () => {
     const tenant = await newTenant("pro");
@@ -5714,6 +5961,167 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
       .values({ tenantId: tenant.tenantId, balancePaise: 10_000 });
     return tenant;
   }
+
+  async function insertWalletTranslationDraft(tenantId: number) {
+    const sourceText = "ఇది మన కొత్త ప్రణాళిక.";
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: {
+        genre: "drama",
+        platform: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "Keep essential action centered.",
+        durationSeconds: 30,
+        locale: "te",
+        topic: "A revised plan",
+        roleCount: 2,
+        brandKitId: null,
+      },
+      script: {
+        version: 1,
+        title: "ప్రణాళిక",
+        logline: "ఇద్దరు స్నేహితులు ఒక ప్రణాళిక రూపొందిస్తారు.",
+        runtimeSeconds: 30,
+        roles: [
+          { id: "hero", name: "హీరో", description: "A careful planner" },
+          { id: "friend", name: "స్నేహితుడు", description: "A helpful friend" },
+        ],
+        scenes: [{
+          id: "scene-one",
+          startMs: 0,
+          endMs: 30_000,
+          visualDirection: "Two friends plan together.",
+          roleIds: ["hero", "friend"],
+          lines: [{
+            id: "line-one",
+            ownerRoleId: "hero",
+            kind: "dialogue",
+            text: sourceText,
+            englishTranslation: null,
+            startMs: 0,
+            endMs: 10_000,
+          }],
+        }],
+        warnings: [],
+      },
+      scriptApprovedAt: null,
+      userRoleId: null,
+      castStrategy: null,
+      cast: [],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      visualChoices: {
+        version: 1,
+        logo: { path: null, sceneIds: [] },
+        location: { mode: "none", imagePath: null, description: null },
+      },
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId, state })
+      .returning();
+    return { draft: draft!, sourceText };
+  }
+
+  it("attributes and settles a line translation as its own wallet operation", async () => {
+    await enableWalletFlag();
+    const tenant = await makeWalletTenant();
+    const { draft, sourceText } = await insertWalletTranslationDraft(
+      tenant.tenantId,
+    );
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send({
+        revision: draft.revision,
+        sceneId: "scene-one",
+        lineId: "line-one",
+        sourceText,
+      });
+
+    expect(response.status, response.body.error).toBe(200);
+    const operations = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId));
+    expect(operations).toEqual([
+      expect.objectContaining({
+        operationKind: "guided_line_translation",
+        status: "settled",
+        targetChargePaise: 100,
+      }),
+    ]);
+    const [balance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balance?.balancePaise).toBe(9_900);
+  });
+
+  it("settles confirmed provider cost when a wallet translation loses its source revision race", async () => {
+    await enableWalletFlag();
+    const tenant = await makeWalletTenant();
+    const { draft, sourceText } = await insertWalletTranslationDraft(
+      tenant.tenantId,
+    );
+    let releaseProvider!: () => void;
+    let providerStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    textGenState.lineTranslationResponse = async () => {
+      providerStarted();
+      await gate;
+      return '{"englishTranslation":"This is our updated plan."}';
+    };
+
+    const pending = request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send({
+        revision: draft.revision,
+        sceneId: "scene-one",
+        lineId: "line-one",
+        sourceText,
+      })
+      .then((result) => result);
+    await started;
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ revision: draft.revision + 1 })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    releaseProvider();
+
+    const response = await pending;
+    expect(response.status).toBe(409);
+    const operations = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId));
+    expect(operations).toEqual([
+      expect.objectContaining({
+        operationKind: "guided_line_translation",
+        status: "settled",
+        targetChargePaise: 100,
+      }),
+    ]);
+    const [balance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balance?.balancePaise).toBe(9_900);
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.state.script!.scenes[0]!.lines[0]!.englishTranslation).toBeNull();
+  });
 
   it("walletReservedUnits equals the AI-decided shot count when the LLM returns 6", async () => {
     await enableWalletFlag();

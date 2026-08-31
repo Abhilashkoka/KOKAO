@@ -404,6 +404,7 @@ export * from './guidedStoryDraftScriptGeneration';
 export * from './guidedStoryDraftUpdate';
 export * from './guidedStoryLine';
 export * from './guidedStoryLineKind';
+export * from './guidedStoryLineTranslationInput';
 export * from './guidedStoryPlatformContract';
 export * from './guidedStoryPlatformContractAspectRatio';
 export * from './guidedStoryPlatformContractId';

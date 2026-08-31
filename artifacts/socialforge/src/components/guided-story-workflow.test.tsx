@@ -12,7 +12,7 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   requestedDraftIds: [],
   existingJob: null,
@@ -23,6 +23,8 @@ const state: { draft: any; requestedDraftIds: number[]; existingJob: any; create
   castApprovalError: null,
   castApprovalRoles: {},
   updated: null,
+  translationRequest: null,
+  translationError: null,
   uploadError: null,
   generatedImageRequest: null,
   enqueued: null,
@@ -121,6 +123,33 @@ vi.mock("@workspace/api-client-react", async () => {
       if (state.updated === "error") throw { data: { error: "Visual choices could not be saved." } };
       state.updated = vars.data;
       return { ...state.draft, ...vars.data, revision: state.draft.revision + 1 };
+    }),
+    useRefreshGuidedStoryLineTranslation: mutation((vars) => {
+      state.translationRequest = vars.data;
+      if (state.translationError) throw state.translationError;
+      return {
+        ...state.draft,
+        revision: vars.data.revision,
+        script: {
+          ...state.draft.script,
+          scenes: state.draft.script.scenes.map((scene: any) =>
+            scene.id === vars.data.sceneId
+              ? {
+                  ...scene,
+                  lines: scene.lines.map((line: any) =>
+                    line.id === vars.data.lineId
+                      ? {
+                          ...line,
+                          text: vars.data.sourceText,
+                          englishTranslation: "This is our updated plan.",
+                        }
+                      : line,
+                  ),
+                }
+              : scene,
+          ),
+        },
+      };
     }),
     useCastGuidedStoryDraft: mutation((vars) => {
       if (state.castError) throw state.castError;
@@ -257,7 +286,7 @@ function renderWorkflow(options: {
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("shows English meaning beneath Telugu source text without duplicating English stories", async () => {
@@ -285,6 +314,96 @@ describe("GuidedStoryWorkflow", () => {
     state.draft = draft({ scriptApprovedAt: null });
     renderWorkflow();
     expect(screen.queryByTestId("text-guided-line-english-l1")).toBeNull();
+  });
+
+  it("saves edited source text before refreshing only its missing English meaning", async () => {
+    state.draft = draft({
+      setup: { ...draft().setup, locale: "te" },
+      scriptApprovedAt: null,
+      script: {
+        ...script,
+        scenes: [{
+          ...script.scenes[0],
+          lines: [{
+            ...script.scenes[0]!.lines[0]!,
+            text: "ఇది మన ప్రణాళిక.",
+            englishTranslation: "This is our plan.",
+          }],
+        }],
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+    const line = await screen.findByTestId("input-guided-line-l1");
+
+    await user.clear(line);
+    await user.type(line, "ఇది మన కొత్త ప్రణాళిక.");
+    expect(screen.getByTestId("button-guided-refresh-english-l1").textContent)
+      .toContain("Save changes first");
+    expect((screen.getByTestId("button-guided-refresh-english-l1") as HTMLButtonElement).disabled)
+      .toBe(true);
+
+    await user.click(screen.getByTestId("button-guided-save-script"));
+    expect(state.updated.script.scenes[0].lines[0]).toMatchObject({
+      text: "ఇది మన కొత్త ప్రణాళిక.",
+      englishTranslation: null,
+    });
+    expect(state.updated.setup).toEqual({
+      genre: "comedy",
+      platform: "instagram_reels",
+      durationSeconds: 15,
+      locale: "te",
+      topic: "A tidy desk",
+      roleCount: 2,
+      brandKitId: 3,
+    });
+    await user.click(screen.getByTestId("button-guided-refresh-english-l1"));
+
+    expect(state.translationRequest).toMatchObject({
+      sceneId: "s1",
+      lineId: "l1",
+      sourceText: "ఇది మన కొత్త ప్రణాళిక.",
+    });
+    expect(screen.getByTestId("text-guided-line-english-l1").textContent)
+      .toContain("This is our updated plan.");
+    expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value)
+      .toBe("ఇది మన కొత్త ప్రణాళిక.");
+  });
+
+  it("shows a retryable per-line error without losing the saved source edit", async () => {
+    state.draft = draft({
+      setup: { ...draft().setup, locale: "te" },
+      scriptApprovedAt: null,
+      script: {
+        ...script,
+        scenes: [{
+          ...script.scenes[0],
+          lines: [{
+            ...script.scenes[0]!.lines[0]!,
+            text: "ఇది మన కొత్త ప్రణాళిక.",
+            englishTranslation: null,
+          }],
+        }],
+      },
+    });
+    state.translationError = {
+      data: { error: "The translation provider is temporarily unavailable." },
+    };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(await screen.findByTestId("button-guided-refresh-english-l1"));
+    expect(screen.getByTestId("error-guided-refresh-english-l1").textContent)
+      .toContain("temporarily unavailable");
+    expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value)
+      .toBe("ఇది మన కొత్త ప్రణాళిక.");
+
+    state.translationError = null;
+    await userEvent.click(screen.getByTestId("button-guided-refresh-english-l1"));
+    expect(screen.queryByTestId("error-guided-refresh-english-l1")).toBeNull();
+    expect(screen.getByTestId("text-guided-line-english-l1").textContent)
+      .toContain("This is our updated plan.");
   });
 
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {

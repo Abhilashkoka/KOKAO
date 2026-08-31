@@ -4489,6 +4489,26 @@ export interface GuidedStoryRevisionInput {
   revision: number;
 }
 
+export interface GuidedStoryLineTranslationInput {
+  /** @minimum 1 */
+  revision: number;
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  sceneId: string;
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  lineId: string;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  sourceText: string;
+}
+
 export interface GuidedStoryRole {
   id: string;
   name: string;
