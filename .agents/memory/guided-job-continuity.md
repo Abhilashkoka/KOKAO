@@ -14,3 +14,9 @@ When reopening a failed storyboard, preserve or restore cast members and exact a
 **Why:** A failed-story detach retained zero-cost cast assets for billing but could drop or revision-invalidate the selections needed to reuse them, making completed work appear required again.
 
 **How to apply:** Recovery must not ask users to regenerate or reapprove unchanged references. If the prior job snapshot proves the exact cast bytes, reuse those receipts and require fresh consent only where the next provider attempt actually needs it.
+
+When recovery resets attempt-scoped likeness/voice consent, the ready-to-build screen must show a dedicated confirmation and disable enqueue until it is checked. The enqueue API must require that confirmation and return a consent-specific error.
+
+**Why:** Hiding renewed consent behind already-approved cast cards allowed submission but produced a misleading combined “approve cast/script/backdrop” rejection.
+
+**How to apply:** Keep immutable cast approvals separate from per-attempt consent. Never require reapproval just to renew consent, and never report a consent failure as a cast-reference failure.

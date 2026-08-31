@@ -6289,7 +6289,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/GuidedStoryRevisionInput"
+              $ref: "#/components/schemas/GuidedStoryEnqueueInput"
       responses:
         "201":
           description: Existing topic-to-video job queued for storyboard review
@@ -17133,6 +17133,15 @@ components:
       required: [revision]
       properties:
         revision: { type: integer, minimum: 1 }
+    GuidedStoryEnqueueInput:
+      type: object
+      additionalProperties: false
+      required: [revision, consentGranted]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        consentGranted:
+          type: boolean
+          description: Fresh confirmation for this generation attempt when the cast includes saved people or voices.
     GuidedStoryLineTranslationInput:
       type: object
       additionalProperties: false

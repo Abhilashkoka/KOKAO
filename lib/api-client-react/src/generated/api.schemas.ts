@@ -4489,6 +4489,13 @@ export interface GuidedStoryRevisionInput {
   revision: number;
 }
 
+export interface GuidedStoryEnqueueInput {
+  /** @minimum 1 */
+  revision: number;
+  /** Fresh confirmation for this generation attempt when the cast includes saved people or voices. */
+  consentGranted: boolean;
+}
+
 export interface GuidedStoryLineTranslationInput {
   /** @minimum 1 */
   revision: number;

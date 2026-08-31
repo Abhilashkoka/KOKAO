@@ -5957,10 +5957,7 @@ router.post(
         draftRevision: row.revision,
         cast: row.state.cast,
         approvals: row.state.castApprovals,
-      }) ||
-      row.state.cast.some(
-        (item) => item.source === "saved" && item.consentGranted !== true,
-      )
+      })
     ) {
       res
         .status(400)
@@ -5968,6 +5965,16 @@ router.post(
           error:
             `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} Also approve the exact current script, complete casting with fresh consent, and review the shared backdrop before enqueue.`,
         });
+      return;
+    }
+    if (
+      row.state.cast.some((item) => item.source === "saved") &&
+      parsed.data.consentGranted !== true
+    ) {
+      res.status(400).json({
+        error:
+          "Confirm permission to use each saved person’s likeness and selected voice for this generation attempt.",
+      });
       return;
     }
     if (row.state.storyboardJobId === -1) {
@@ -6007,6 +6014,13 @@ router.post(
     }
     const claimed = await saveGuidedState(row, row.revision, {
       ...row.state,
+      cast: row.state.cast.map((member) => ({
+        ...member,
+        consentGranted:
+          member.source === "saved"
+            ? parsed.data.consentGranted === true
+            : member.consentGranted,
+      })),
       castApprovals: row.state.castApprovals
         ? { ...row.state.castApprovals, draftRevision: row.revision + 1 }
         : null,

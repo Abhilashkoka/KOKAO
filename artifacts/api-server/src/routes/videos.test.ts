@@ -3097,15 +3097,28 @@ describe("guided story route fail-closed regressions", () => {
     expect(guidedBackdropFingerprint(savedLegacy!.state.visualChoices!.backdropReference!))
       .toBe(savedLegacy!.state.visualChoices!.backdropReference!.fingerprint);
 
+    const missingConsent = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/enqueue`)
+      .send({ revision: draft.revision, consentGranted: false });
+    expect(missingConsent.status).toBe(400);
+    expect(missingConsent.body.error).toContain(
+      "Confirm permission to use each saved person",
+    );
+
     const response = await request(app)
       .post(`/api/ai/guided-story/drafts/${draft.id}/enqueue`)
-      .send({ revision: draft.revision });
+      .send({ revision: draft.revision, consentGranted: true });
     expect(response.status, response.body.error).toBe(201);
     const [job] = await db
       .select()
       .from(videoGenerationsTable)
       .where(eq(videoGenerationsTable.id, response.body.id));
     expect(job!.options!.guidedStory!.locale).toBe("en");
+    expect(
+      job!.options!.guidedStory!.cast.every(
+        (member) => member.source !== "saved" || member.consentGranted,
+      ),
+    ).toBe(true);
   });
 
   it("keeps inline reference candidates inert until atomic whole-role finalization", async () => {

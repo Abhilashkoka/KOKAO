@@ -17361,7 +17361,8 @@ export const EnqueueGuidedStoryDraftParams = zod.object({
 
 
 export const EnqueueGuidedStoryDraftBody = zod.object({
-  "revision": zod.number().min(1)
+  "revision": zod.number().min(1),
+  "consentGranted": zod.boolean().describe('Fresh confirmation for this generation attempt when the cast includes saved people or voices.')
 })
 
 

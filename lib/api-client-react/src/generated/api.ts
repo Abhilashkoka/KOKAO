@@ -203,6 +203,7 @@ import type {
   GuidedStoryDialogueReplayPreviewRequest,
   GuidedStoryDraft,
   GuidedStoryDraftUpdate,
+  GuidedStoryEnqueueInput,
   GuidedStoryLineTranslationInput,
   GuidedStoryPlatformContract,
   GuidedStoryReferenceFinalizationInput,
@@ -16870,14 +16871,14 @@ export const getEnqueueGuidedStoryDraftUrl = (draftId: number,) => {
  * @summary Enqueue through the existing topic-to-video storyboard review and funding pipeline
  */
 export const enqueueGuidedStoryDraft = async (draftId: number,
-    guidedStoryRevisionInput: GuidedStoryRevisionInput, options?: RequestInit): Promise<VideoJob> => {
+    guidedStoryEnqueueInput: GuidedStoryEnqueueInput, options?: RequestInit): Promise<VideoJob> => {
 
   return customFetch<VideoJob>(getEnqueueGuidedStoryDraftUrl(draftId),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(guidedStoryRevisionInput)
+    body: JSON.stringify(guidedStoryEnqueueInput)
   }
 );}
 
@@ -16885,8 +16886,8 @@ export const enqueueGuidedStoryDraft = async (draftId: number,
 
 
 export const getEnqueueGuidedStoryDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryEnqueueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryEnqueueInput>}, TContext> => {
 
 const mutationKey = ['enqueueGuidedStoryDraft'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -16898,7 +16899,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, {draftId: number;data: BodyType<GuidedStoryRevisionInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, {draftId: number;data: BodyType<GuidedStoryEnqueueInput>}> = (props) => {
           const {draftId,data} = props ?? {};
 
           return  enqueueGuidedStoryDraft(draftId,data,requestOptions)
@@ -16912,18 +16913,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type EnqueueGuidedStoryDraftMutationResult = NonNullable<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>>
-    export type EnqueueGuidedStoryDraftMutationBody = BodyType<GuidedStoryRevisionInput>
+    export type EnqueueGuidedStoryDraftMutationBody = BodyType<GuidedStoryEnqueueInput>
     export type EnqueueGuidedStoryDraftMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Enqueue through the existing topic-to-video storyboard review and funding pipeline
  */
 export const useEnqueueGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryEnqueueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>,
         TError,
-        {draftId: number;data: BodyType<GuidedStoryRevisionInput>},
+        {draftId: number;data: BodyType<GuidedStoryEnqueueInput>},
         TContext
       > => {
       return useMutation(getEnqueueGuidedStoryDraftMutationOptions(options));

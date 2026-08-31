@@ -780,6 +780,71 @@ describe("GuidedStoryWorkflow", () => {
     expect(onJobReady).not.toHaveBeenCalled();
   });
 
+  it("requires and submits fresh attempt consent without redoing cast approvals", async () => {
+    const savedCast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved",
+      characterId: index + 1,
+      outfitId: index + 11,
+      brandKitId: null,
+      voiceId: index === 0 ? "alloy" : "echo",
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/99/character-${index}.png`,
+      },
+      outfit: {
+        name: "Approved outfit",
+        description: "Approved wardrobe",
+        referenceImagePath: `/objects/99/outfit-${index}.png`,
+      },
+      voice: {
+        id: index === 0 ? "alloy" : "echo",
+        label: `Voice ${index + 1}`,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: false,
+    }));
+    state.draft = draft({
+      castStrategy: "saved",
+      cast: savedCast,
+      castApprovals: {
+        version: 1,
+        draftRevision: 2,
+        roles: Object.fromEntries(savedCast.map((member) => [
+          member.roleId,
+          {
+            roleId: member.roleId,
+            approvedAt: "2026-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: member.character.referenceImagePath,
+              sha256: "a".repeat(64),
+            },
+            outfit: {
+              referenceImagePath: member.outfit.referenceImagePath,
+              sha256: "b".repeat(64),
+            },
+          },
+        ])),
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect(screen.getByTestId("section-guided-attempt-consent")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Reapprove" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.click(screen.getByTestId("checkbox-guided-attempt-consent"));
+    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
+
+    expect(state.enqueued).toEqual({ revision: 2, consentGranted: true });
+  });
+
   it("offers stock, ElevenLabs premade, and cloned voices independently of the Brand Kit", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
