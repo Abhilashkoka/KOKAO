@@ -93,4 +93,35 @@ describe("Guided Story preview references", () => {
     expect(metadata.width).toBe(1536);
     expect(metadata.height).toBe(512);
   });
+
+  it("binds a scene override by its approved bytes, not just its path", async () => {
+    const sha256 = createHash("sha256").update(state.image).digest("hex");
+    await regenerateStoryboardPreview({
+      tenantId: 7,
+      storyboard: {} as never,
+      scene: {
+        id: "scene-override",
+        visual: "A different approved location.",
+        guidedStory: {
+          cast: [{
+            roleId: "lead", characterName: "Lead",
+            referenceImagePath: "/objects/7/uploads/character.png",
+            outfitReferenceImagePath: "/objects/7/uploads/outfit.png",
+            characterReferenceSha256: sha256, outfitReferenceSha256: sha256,
+          }],
+          visuals: {
+            logoPath: null, locationMode: "none", locationImagePath: null,
+            locationDescription: null,
+            backdropReferencePath: "/objects/7/uploads/override.png",
+            backdropReferenceFingerprint: "override-fingerprint",
+            backdropSource: "override",
+            backdropImageSha256: sha256,
+          },
+        },
+      } as never,
+      aspectRatio: "16:9",
+      upload: async () => "/objects/7/uploads/generated.png",
+    });
+    expect(state.generated[0]!.prompt).toContain("APPROVED SCENE BACKDROP OVERRIDE");
+  });
 });

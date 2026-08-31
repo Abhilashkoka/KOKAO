@@ -14,4 +14,10 @@ export interface GuidedStoryBackdropApprovalInput {
      * @maxLength 64
      */
   fingerprint: string;
+  /**
+     * @minLength 2
+     * @maxLength 64
+     * @nullable
+     */
+  sceneId?: string | null;
 }

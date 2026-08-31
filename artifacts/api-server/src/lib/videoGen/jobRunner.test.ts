@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { and } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import {
   allowsGeneratedStoryboardPrivacyRecovery,
   hasDeferredTemplateFunding,
@@ -3375,6 +3376,100 @@ describe("Guided Story preview-only runner", () => {
     expect(saved.status).toBe("failed");
     expect(saved.error).toMatch(/review and approve the shared backdrop/i);
     expect(state.topicPlans).toBe(plansBefore);
+  });
+
+  it("fails before provider work for an unapproved scene override without erasing an unrelated checkpoint", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 2);
+    const defaultReference = {
+      version: 1 as const, prompt: "Approved default", imagePath: `/objects/${tenant.tenantId}/uploads/default.png`,
+      imageSha256: "d".repeat(64), revision: 1, approvedAt: "2025-01-01T00:00:00.000Z",
+      fingerprint: guidedBackdropFingerprint({
+        prompt: "Approved default", imagePath: `/objects/${tenant.tenantId}/uploads/default.png`,
+        imageSha256: "d".repeat(64), revision: 1, sceneId: null,
+      }),
+    };
+    const sceneId = snapshot.script.scenes[0]!.id;
+    const pendingOverride = {
+      version: 1 as const, prompt: "Pending override", imagePath: `/objects/${tenant.tenantId}/uploads/override.png`,
+      imageSha256: "e".repeat(64), revision: 1, approvedAt: null,
+      fingerprint: guidedBackdropFingerprint({
+        prompt: "Pending override", imagePath: `/objects/${tenant.tenantId}/uploads/override.png`,
+        imageSha256: "e".repeat(64), revision: 1, sceneId,
+      }),
+    };
+    const canonical = {
+      ...snapshot,
+      backdrops: {
+        version: 1 as const,
+        default: defaultReference,
+        sceneOverrides: { [sceneId]: pendingOverride },
+      },
+    };
+    const storyboard = guidedStoryStoryboard(canonical);
+    storyboard.scenes[1]!.previewPath = `/objects/${tenant.tenantId}/uploads/reusable.png`;
+    storyboard.scenes[1]!.previewCheckpoint = {
+      targetPath: storyboard.scenes[1]!.previewPath!, status: "complete",
+    };
+    const plansBefore = state.topicPlans;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video", storyboard,
+      options: { aspectRatio: "9:16", reviewStoryboard: true, guidedStory: canonical },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(state.topicPlans).toBe(plansBefore);
+    expect(saved.storyboard!.scenes[1]!.previewPath).toBe(
+      `/objects/${tenant.tenantId}/uploads/reusable.png`,
+    );
+  });
+
+  it("checks canonical backdrop bytes before final animation; final image-to-video uses the approved preview", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 2);
+    const actualHash = createHash("sha256").update("fake-video-bytes").digest("hex");
+    const sceneId = snapshot.script.scenes[0]!.id;
+    const defaultReference = {
+      version: 1 as const, prompt: "Default", imagePath: `/objects/${tenant.tenantId}/uploads/default.png`,
+      imageSha256: actualHash, revision: 1, approvedAt: "2025-01-01T00:00:00.000Z",
+      fingerprint: guidedBackdropFingerprint({
+        prompt: "Default", imagePath: `/objects/${tenant.tenantId}/uploads/default.png`,
+        imageSha256: actualHash, revision: 1, sceneId: null,
+      }),
+    };
+    const override = {
+      version: 1 as const, prompt: "Override", imagePath: `/objects/${tenant.tenantId}/uploads/override.png`,
+      imageSha256: "f".repeat(64), revision: 1, approvedAt: "2025-01-01T00:00:00.000Z",
+      fingerprint: guidedBackdropFingerprint({
+        prompt: "Override", imagePath: `/objects/${tenant.tenantId}/uploads/override.png`,
+        imageSha256: "f".repeat(64), revision: 1, sceneId,
+      }),
+    };
+    const canonical = {
+      ...snapshot,
+      backdrops: { version: 1 as const, default: defaultReference, sceneOverrides: { [sceneId]: override } },
+    };
+    const storyboard = guidedStoryStoryboard(canonical);
+    // Final animation reads this approved preview as its image-to-video input;
+    // the backdrop is already bound into it during preview creation.
+    storyboard.scenes.forEach((scene) => {
+      scene.previewPath = `/objects/${tenant.tenantId}/uploads/${scene.id}-preview.png`;
+      scene.previewCheckpoint = { targetPath: scene.previewPath, status: "complete" };
+    });
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video", storyboard,
+      options: { aspectRatio: "9:16", reviewStoryboard: true, guidedStory: canonical },
+    });
+    const plansBefore = state.topicPlans;
+    await runVideoGenerationJob(job.id, "quota");
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.error).toMatch(/could not complete|backdrop bytes no longer match/i);
+    expect(state.topicPlans).toBe(plansBefore);
+    expect(saved.storyboard!.scenes[1]!.previewPath).toContain("scene-2-preview.png");
   });
 
   async function seedGuidedPreviewJob(params: {

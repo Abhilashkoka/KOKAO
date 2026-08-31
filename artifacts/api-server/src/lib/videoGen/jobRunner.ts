@@ -11,6 +11,7 @@ import {
   type LocalizedDubResult,
   type VideoPriceCriteria,
 } from "@workspace/db";
+import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { getUsage, recordUsage } from "../usage";
@@ -116,7 +117,9 @@ import {
   guidedStorySceneImmutableInputsMatch,
   guidedBackdropFingerprint,
   guidedBackdropCoversEveryScriptScene,
+  guidedStoryBackdropsAreApproved,
   guidedStoryStoryboard,
+  effectiveGuidedBackdrop,
 } from "./guidedStory";
 import { resolveModelOptions, videoModelMultiplier } from "./modelCatalog";
 import {
@@ -680,6 +683,39 @@ async function loadSourceImage(
     );
   }
   return { buffer, mimeType };
+}
+
+/**
+ * Canonical backdrops are immutable provider inputs: validate their retained
+ * bytes immediately before any final pipeline can call a provider. Legacy
+ * plates predate byte receipts and intentionally retain metadata-only support.
+ * Final animation still uses the already-approved scene preview as its
+ * image-to-video input; the plate is bound while that preview is made.
+ */
+async function verifyGuidedBackdropBytesBeforeRender(
+  snapshot: NonNullable<VideoJobOptions["guidedStory"]>,
+  tenantId: number,
+): Promise<void> {
+  if (!snapshot.backdrops) return;
+  const seen = new Set<string>();
+  for (const scene of snapshot.script.scenes) {
+    const effective = effectiveGuidedBackdrop(snapshot, scene.id);
+    const reference = effective?.reference;
+    if (!reference?.imageSha256 || seen.has(reference.imagePath)) continue;
+    seen.add(reference.imagePath);
+    const { buffer } = await loadTenantObject(
+      reference.imagePath,
+      tenantId,
+      MAX_SOURCE_IMAGE_BYTES,
+      `Approved ${effective!.source} backdrop`,
+    );
+    const actual = createHash("sha256").update(buffer).digest("hex");
+    if (actual !== reference.imageSha256) {
+      throw new VideoJobInputError(
+        `Guided Story ${effective!.source} backdrop bytes no longer match their approval.`,
+      );
+    }
+  }
 }
 
 /** PUT bytes to a fresh presigned upload URL and return the /objects/... path. */
@@ -3926,11 +3962,8 @@ export async function runVideoGenerationJob(
   if (!claimed) return;
   const guided = claimed.options?.guidedStory;
   if (guided) {
-    const backdrop = guided.backdropReference;
     const invalid =
-      !backdrop?.approvedAt ||
-      !guidedBackdropCoversEveryScriptScene(guided) ||
-      guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint ||
+      !guidedStoryBackdropsAreApproved(guided) ||
       (claimed.storyboard != null && (() => {
         const expected = guidedStoryStoryboard(guided);
         return expected.scenes.length !== claimed.storyboard.scenes.length ||
@@ -4024,16 +4057,10 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
     const snapshot = claimed.options?.guidedStory;
     if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
     if (
-      !snapshot.backdropReference?.approvedAt ||
-      !guidedBackdropCoversEveryScriptScene(snapshot)
+      !guidedStoryBackdropsAreApproved(snapshot)
     ) {
       throw new VideoJobInputError(
         "Review and approve the shared backdrop reference before generating scene previews.",
-      );
-    }
-    if (guidedBackdropFingerprint(snapshot.backdropReference) !== snapshot.backdropReference.fingerprint) {
-      throw new VideoJobInputError(
-        "The approved shared backdrop reference changed. Review it again before generating previews.",
       );
     }
     if (!guidedCastApprovalsMatch({
@@ -4311,16 +4338,10 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
     const snapshot = claimed.options?.guidedStory;
     if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
     if (
-      !snapshot.backdropReference?.approvedAt ||
-      !guidedBackdropCoversEveryScriptScene(snapshot)
+      !guidedStoryBackdropsAreApproved(snapshot)
     ) {
       throw new VideoJobInputError(
         "Review and approve the shared backdrop reference before generating scene previews.",
-      );
-    }
-    if (guidedBackdropFingerprint(snapshot.backdropReference) !== snapshot.backdropReference.fingerprint) {
-      throw new VideoJobInputError(
-        "The approved shared backdrop reference changed. Review it again before generating previews.",
       );
     }
     const expected = guidedStoryStoryboard(snapshot);
@@ -4555,14 +4576,8 @@ export async function runGuidedSceneCorrectionJob(
   const claimedJob = claimed.job;
   const claimedStoryboard = claimedJob.storyboard!;
   const immutableSnapshot = claimedJob.options?.guidedStory;
-  const immutableBackdrop = immutableSnapshot?.backdropReference;
   const immutableBackdropValid =
-    Boolean(immutableBackdrop?.approvedAt) &&
-    Boolean(immutableSnapshot && guidedBackdropCoversEveryScriptScene(immutableSnapshot)) &&
-    Boolean(
-      immutableBackdrop &&
-      guidedBackdropFingerprint(immutableBackdrop) === immutableBackdrop.fingerprint,
-    );
+    Boolean(immutableSnapshot && guidedStoryBackdropsAreApproved(immutableSnapshot));
   if (
     immutableSnapshot &&
     !guidedCastApprovalsMatch({
@@ -4694,6 +4709,9 @@ export async function runGuidedSceneCorrectionJob(
       })
     ) {
       throw new VideoJobInputError(GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE);
+    }
+    if (guidedSnapshot) {
+      await verifyGuidedBackdropBytesBeforeRender(guidedSnapshot, claimedJob.tenantId);
     }
     const scene = claimedStoryboard.scenes.find((item) => item.id === sceneId)!;
     const attempt = scene.guidedStory!.corrections!.attempts.find((item) => item.id === attemptId)!;
@@ -5081,12 +5099,10 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
 export async function resumeVideoGenerationJob(job: VideoGeneration): Promise<void> {
   const guided = job.options?.guidedStory;
   if (guided) {
-    const backdrop = guided.backdropReference;
-    const expected = backdrop?.approvedAt ? guidedStoryStoryboard(guided) : null;
+    const backdropsApproved = guidedStoryBackdropsAreApproved(guided);
+    const expected = backdropsApproved ? guidedStoryStoryboard(guided) : null;
     const invalid =
-      !backdrop?.approvedAt ||
-      !guidedBackdropCoversEveryScriptScene(guided) ||
-      guidedBackdropFingerprint(backdrop) !== backdrop.fingerprint ||
+      !backdropsApproved ||
       !job.storyboard ||
       !expected ||
       expected.scenes.length !== job.storyboard.scenes.length ||
@@ -5199,6 +5215,9 @@ async function executeVideoJob(
       })
     ) {
       throw new VideoJobInputError(GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE);
+    }
+    if (guidedSnapshot) {
+      await verifyGuidedBackdropBytesBeforeRender(guidedSnapshot, job.tenantId);
     }
     // The long-standing Video Studio master switch overrides every engine,
     // including lip sync. Re-check it here so a queued or paused job cannot

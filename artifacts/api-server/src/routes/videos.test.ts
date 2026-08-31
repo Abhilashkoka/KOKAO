@@ -4877,6 +4877,18 @@ describe("guided story route fail-closed regressions", () => {
       fingerprint: guidedBackdropFingerprint(oldBackdropInput),
       approvedAt,
     };
+    const canonicalDefault = {
+      version: 1 as const,
+      prompt: oldBackdrop.prompt,
+      imagePath: oldBackdrop.imagePath,
+      imageSha256: "a".repeat(64),
+      revision: 1,
+      fingerprint: guidedBackdropFingerprint({
+        prompt: oldBackdrop.prompt, imagePath: oldBackdrop.imagePath,
+        imageSha256: "a".repeat(64), revision: 1, sceneId: null,
+      }),
+      approvedAt,
+    };
     const snapshot = {
       version: 1 as const, draftId: draft.id, draftRevision: draft.revision, scriptApprovedAt: approvedAt,
       platform: { id: "tiktok", aspectRatio: "9:16" as const, width: 1080, height: 1920, safeArea: "center", durationSeconds: 30 },
@@ -4884,6 +4896,7 @@ describe("guided story route fail-closed regressions", () => {
       cast,
       castApprovals: castApprovals(cast, draft.revision),
       backdropReference: oldBackdrop,
+      backdrops: { version: 1 as const, default: canonicalDefault, sceneOverrides: {} },
     };
     const storyboard = guidedStoryStoryboard(snapshot);
     storyboard.scenes.forEach((scene, index) => {
@@ -4902,6 +4915,7 @@ describe("guided story route fail-closed regressions", () => {
         visualChoices: {
           ...draft.state.visualChoices!,
           backdropReference: oldBackdrop,
+          backdrops: { version: 1 as const, default: canonicalDefault, sceneOverrides: {} },
         },
       },
     }).where(eq(guidedStoryDraftsTable.id, draft.id));
@@ -4910,15 +4924,16 @@ describe("guided story route fail-closed regressions", () => {
     const unaffectedId = script.scenes[1]!.id;
     const prepared = await request(app).put(`/api/ai/guided-story/drafts/${draft.id}/backdrop`).send({
       revision: draft.revision, prompt: "Replacement shared location",
-      imagePath: `/objects/${tenant.tenantId}/uploads/replacement-backdrop.png`, sceneIds: [affectedId],
+      imagePath: `/objects/${tenant.tenantId}/uploads/replacement-backdrop.png`, sceneId: affectedId,
     });
     expect(prepared.status).toBe(200);
     const pending = await readJob(job!.id);
-    expect(pending.options!.guidedStory!.backdropReference).toMatchObject({
+    expect(pending.options!.guidedStory!.backdrops!.sceneOverrides[affectedId]).toMatchObject({
       imagePath: `/objects/${tenant.tenantId}/uploads/replacement-backdrop.png`, approvedAt: null,
     });
     expect(pending.storyboard!.scenes.find((scene) => scene.id === affectedId)!.previewPath).toBeNull();
-    expect(pending.storyboard!.scenes.find((scene) => scene.id === unaffectedId)!.previewPath).toBeNull();
+    expect(pending.storyboard!.scenes.find((scene) => scene.id === unaffectedId)!.previewPath)
+      .toBe(`/objects/${tenant.tenantId}/existing-1.png`);
     const [renderBlocked, correctionBlocked] = await Promise.all([
       request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`).send({}),
       request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${affectedId}/corrections`)
@@ -4929,9 +4944,9 @@ describe("guided story route fail-closed regressions", () => {
     expect(renderBlocked.body.error).toMatch(/backdrop.*review/i);
     expect(correctionBlocked.body.error).toMatch(/backdrop.*review/i);
 
-    const pendingBackdrop = prepared.body.visualChoices.backdropReference;
+    const pendingBackdrop = prepared.body.visualChoices.backdrops.sceneOverrides[affectedId];
     const approved = await request(app).post(`/api/ai/guided-story/drafts/${draft.id}/backdrop/approve`).send({
-      revision: prepared.body.revision, fingerprint: pendingBackdrop.fingerprint,
+      revision: prepared.body.revision, fingerprint: pendingBackdrop.fingerprint, sceneId: affectedId,
     });
     expect(approved.status).toBe(200);
     await waitForPendingJobs();
@@ -4991,6 +5006,13 @@ describe("guided story route fail-closed regressions", () => {
       });
     expect(preparedAfterCorrection.status).toBe(200);
     expect((await readJob(job!.id)).storyboard!.scenes.find((candidate) => candidate.id === affectedId)!.previewPath)
+      .toBe(`/objects/${tenant.tenantId}/replacement-preview.png`);
+    const inherited = await request(app)
+      .delete(`/api/ai/guided-story/drafts/${draft.id}/backdrop/scenes/${affectedId}`)
+      .send({ revision: preparedAfterCorrection.body.revision });
+    expect(inherited.status).toBe(200);
+    expect(inherited.body.visualChoices.backdrops.sceneOverrides[affectedId]).toBeUndefined();
+    expect((await readJob(job!.id)).storyboard!.scenes.find((scene) => scene.id === affectedId)!.previewPath)
       .toBeNull();
   });
 
@@ -5056,7 +5078,11 @@ describe("guided story route fail-closed regressions", () => {
         prompt: "A shared location",
         imagePath: `/objects/${tenant.tenantId}/uploads/backdrop-correction.png`,
         sceneIds: script.scenes.map((scene) => scene.id),
-        fingerprint: "c".repeat(64),
+        fingerprint: guidedBackdropFingerprint({
+          prompt: "A shared location",
+          imagePath: `/objects/${tenant.tenantId}/uploads/backdrop-correction.png`,
+          sceneIds: script.scenes.map((scene) => scene.id),
+        }),
         approvedAt: scriptApprovedAt,
       },
     };

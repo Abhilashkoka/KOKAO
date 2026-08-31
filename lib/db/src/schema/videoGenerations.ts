@@ -11,6 +11,7 @@ import type { VideoPriceCriteria } from "./aiCost";
 import type {
   GuidedStoryCastApprovalManifest,
   GuidedStoryCastSnapshot,
+  GuidedStoryBackdropChoices,
   GuidedStoryLocale,
   GuidedStoryScript,
 } from "./guidedStories";
@@ -693,6 +694,8 @@ export interface VideoJobOptions {
       /** Null while a replacement has been prepared but not approved. */
       approvedAt: string | null;
     };
+    /** Canonical immutable per-scene backdrop snapshot. */
+    backdrops?: GuidedStoryBackdropChoices;
   };
 }
 
@@ -765,6 +768,10 @@ export interface VideoStoryboardScene {
       locationDescription: string | null;
       backdropReferencePath?: string;
       backdropReferenceFingerprint?: string;
+      /** Whether the effective approved plate is inherited or scene-specific. */
+      backdropSource?: "default" | "override";
+      backdropRevision?: number;
+      backdropImageSha256?: string;
     };
     /**
      * Append-only, funded correction history. The approved inputs and

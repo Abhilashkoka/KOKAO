@@ -6044,11 +6044,11 @@ paths:
     put:
       operationId: prepareGuidedStoryBackdrop
       tags: [ai]
-      summary: Prepare a shared backdrop candidate for dedicated review
+      summary: Prepare the default or one scene backdrop candidate for review
       description: >-
         Saves a tenant-owned rendered location plate and prompt as an unapproved
-        revision-bound candidate. Existing preview checkpoints are invalidated
-        only for scenes listed in sceneIds.
+        revision-bound candidate. A null sceneId replaces the story default;
+        otherwise only that scene's override and preview are changed.
       requestBody:
         required: true
         content:
@@ -6081,7 +6081,7 @@ paths:
     post:
       operationId: approveGuidedStoryBackdrop
       tags: [ai]
-      summary: Freeze the exact shared backdrop candidate
+      summary: Freeze the exact default or scene backdrop candidate
       requestBody:
         required: true
         content:
@@ -6097,6 +6097,38 @@ paths:
                 $ref: "#/components/schemas/GuidedStoryDraft"
         "409":
           description: Candidate changed or requires review
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /ai/guided-story/drafts/{draftId}/backdrop/scenes/{sceneId}:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: sceneId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: inheritGuidedStoryDefaultBackdrop
+      tags: [ai]
+      summary: Remove a scene override so the scene inherits the approved default
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryRevisionInput"
+      responses:
+        "200":
+          description: Scene now inherits the default backdrop
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "409":
+          description: Stale revision or active preview/correction work
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -17006,22 +17038,33 @@ components:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/GuidedStoryBackdropReference"
+          deprecated: true
+          description: Legacy shared default; new clients use backdrops.
+        backdrops:
+          $ref: "#/components/schemas/GuidedStoryBackdropChoices"
     GuidedStoryBackdropInput:
       type: object
       additionalProperties: false
-      required: [revision, prompt, imagePath, sceneIds]
+      required: [revision, prompt, imagePath]
       properties:
         revision: { type: integer, minimum: 1 }
         prompt: { type: string, minLength: 3, maxLength: 1000 }
         imagePath:
           type: string
           description: Canonical tenant-owned rendered or uploaded image.
+        sceneId:
+          type: ["string", "null"]
+          minLength: 2
+          maxLength: 64
+          description: Null prepares the default; a scene id prepares that scene's override.
         sceneIds:
           type: array
           minItems: 1
           maxItems: 40
           uniqueItems: true
           items: { type: string, minLength: 2, maxLength: 64 }
+          deprecated: true
+          description: Legacy shared-default input; ignored when sceneId is present.
     GuidedStoryBackdropApprovalInput:
       type: object
       additionalProperties: false
@@ -17029,6 +17072,10 @@ components:
       properties:
         revision: { type: integer, minimum: 1 }
         fingerprint: { type: string, minLength: 64, maxLength: 64 }
+        sceneId:
+          type: ["string", "null"]
+          minLength: 2
+          maxLength: 64
     GuidedStoryBackdropReference:
       type: object
       additionalProperties: false
@@ -17042,6 +17089,32 @@ components:
           items: { type: string }
         fingerprint: { type: string }
         approvedAt: { type: ["string", "null"], format: date-time }
+    GuidedStorySceneBackdropReference:
+      type: object
+      additionalProperties: false
+      required: [version, prompt, imagePath, imageSha256, fingerprint, revision, approvedAt]
+      properties:
+        version: { type: integer, const: 1 }
+        prompt: { type: string }
+        imagePath: { type: string }
+        imageSha256: { type: string, minLength: 64, maxLength: 64 }
+        fingerprint: { type: string }
+        revision: { type: integer, minimum: 1 }
+        approvedAt: { type: ["string", "null"], format: date-time }
+    GuidedStoryBackdropChoices:
+      type: object
+      additionalProperties: false
+      required: [version, default, sceneOverrides]
+      properties:
+        version: { type: integer, const: 1 }
+        default:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/GuidedStorySceneBackdropReference"
+        sceneOverrides:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/GuidedStorySceneBackdropReference"
     GuidedStorySceneInsertionInput:
       type: object
       additionalProperties: false

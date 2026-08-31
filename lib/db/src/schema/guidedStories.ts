@@ -110,6 +110,24 @@ export type GuidedStoryReferenceOperationStatus =
   | "finalized"
   | "failed"
   | "outcome_unknown";
+
+/** One revisioned backdrop candidate. Approval covers the exact stored bytes. */
+export interface GuidedStoryBackdropReference {
+  version: 1;
+  prompt: string;
+  imagePath: string;
+  imageSha256?: string;
+  fingerprint: string;
+  revision: number;
+  approvedAt: string | null;
+}
+
+/** The default plate plus explicit, independently-approved scene assignments. */
+export interface GuidedStoryBackdropChoices {
+  version: 1;
+  default: GuidedStoryBackdropReference | null;
+  sceneOverrides: Record<string, GuidedStoryBackdropReference>;
+}
 /** Tenant-owned visual direction selected before an attempt is enqueued. */
 export interface GuidedStoryVisualChoices {
   version: 1;
@@ -136,6 +154,8 @@ export interface GuidedStoryVisualChoices {
     fingerprint: string;
     approvedAt: string | null;
   } | null;
+  /** Canonical backdrop contract. Legacy backdropReference is read as default. */
+  backdrops?: GuidedStoryBackdropChoices;
 }
 
 export interface GuidedStoryDraftState {

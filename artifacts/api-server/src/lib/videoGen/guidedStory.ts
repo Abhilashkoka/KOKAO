@@ -7,6 +7,8 @@ import type {
   GuidedStoryPlatform,
   GuidedStoryScript,
   GuidedStoryVisualChoices,
+  GuidedStoryBackdropChoices,
+  GuidedStoryBackdropReference,
   VideoJobOptions,
   VideoStoryboard,
   VideoStoryboardScene,
@@ -168,6 +170,19 @@ export function invalidateGuidedStoryDownstream(
   state: GuidedStoryDraftState,
   script: GuidedStoryDraftState["script"],
 ): GuidedStoryDraftState {
+  const knownSceneIds = new Set(script?.scenes.map((scene) => scene.id) ?? []);
+  const visualChoices = state.visualChoices?.backdrops
+    ? {
+        ...state.visualChoices,
+        backdrops: {
+          ...state.visualChoices.backdrops,
+          sceneOverrides: Object.fromEntries(
+            Object.entries(state.visualChoices.backdrops.sceneOverrides)
+              .filter(([sceneId]) => knownSceneIds.has(sceneId)),
+          ),
+        },
+      }
+    : state.visualChoices;
   return {
     ...state,
     script,
@@ -181,6 +196,7 @@ export function invalidateGuidedStoryDownstream(
     sceneInsertionGeneration: null,
     castOperations: {},
     referenceOperations: {},
+    visualChoices,
     storyboardJobId: null,
   };
 }
@@ -259,12 +275,101 @@ function defaultGuidedStoryVisualChoices(): GuidedStoryVisualChoices {
 export function guidedBackdropFingerprint(value: {
   prompt: string;
   imagePath: string;
-  sceneIds: string[];
+  sceneIds?: string[];
+  sceneId?: string | null;
+  revision?: number;
+  imageSha256?: string;
 }): string {
   return guidedSceneFingerprint({
     prompt: value.prompt.trim(),
     imagePath: value.imagePath,
-    sceneIds: [...value.sceneIds].sort(),
+    ...(value.imageSha256 ? { imageSha256: value.imageSha256 } : {}),
+    ...(value.revision != null ? { revision: value.revision } : {}),
+    ...(value.sceneIds ? { sceneIds: [...value.sceneIds].sort() } : {}),
+    ...("sceneId" in value ? { sceneId: value.sceneId ?? null } : {}),
+  });
+}
+
+/** Read old shared plates as the canonical default without mutating old rows. */
+export function guidedBackdropChoices(
+  value: Pick<NonNullable<VideoJobOptions["guidedStory"]>, "backdrops" | "backdropReference">
+    | Pick<GuidedStoryVisualChoices, "backdrops" | "backdropReference">,
+): GuidedStoryBackdropChoices {
+  if (value.backdrops) return value.backdrops;
+  const legacy = value.backdropReference;
+  const migratedDefault = legacy
+    ? {
+        version: 1 as const,
+        prompt: legacy.prompt,
+        imagePath: legacy.imagePath,
+        revision: 1,
+        approvedAt: legacy.approvedAt,
+        fingerprint: legacy.fingerprint,
+      }
+    : null;
+  return {
+    version: 1,
+    default: migratedDefault,
+    sceneOverrides: {},
+  };
+}
+
+export function effectiveGuidedBackdrop(
+  value: Pick<NonNullable<VideoJobOptions["guidedStory"]>, "backdrops" | "backdropReference">,
+  sceneId: string,
+): { source: "default" | "override"; reference: GuidedStoryBackdropReference } | null {
+  const choices = guidedBackdropChoices(value);
+  const override = choices.sceneOverrides[sceneId];
+  if (override) return { source: "override", reference: override };
+  return choices.default ? { source: "default", reference: choices.default } : null;
+}
+
+export function guidedBackdropReferenceIsApproved(
+  reference: GuidedStoryBackdropReference,
+  sceneId?: string | null,
+): boolean {
+  return Boolean(reference.approvedAt) &&
+    guidedBackdropFingerprint({
+      prompt: reference.prompt,
+      imagePath: reference.imagePath,
+      ...(reference.imageSha256 ? { imageSha256: reference.imageSha256 } : {}),
+      revision: reference.revision,
+      sceneId: sceneId ?? null,
+    }) === reference.fingerprint;
+}
+
+export function guidedStoryBackdropsAreApproved(
+  snapshot: Pick<NonNullable<VideoJobOptions["guidedStory"]>, "script" | "backdrops" | "backdropReference">,
+): boolean {
+  if (!snapshot.backdrops) {
+    const legacy = snapshot.backdropReference;
+    return Boolean(
+      legacy?.approvedAt &&
+      guidedBackdropCoversEveryScriptScene(snapshot) &&
+      guidedBackdropFingerprint(legacy!) === legacy!.fingerprint,
+    );
+  }
+  const choices = guidedBackdropChoices(snapshot);
+  const legacyDefaultValid = Boolean(
+    snapshot.backdropReference?.approvedAt &&
+    choices.default?.fingerprint === snapshot.backdropReference?.fingerprint &&
+    guidedBackdropFingerprint(snapshot.backdropReference!) === snapshot.backdropReference!.fingerprint,
+  );
+  if (
+    !choices.default ||
+    (!guidedBackdropReferenceIsApproved(choices.default, null) && !legacyDefaultValid)
+  ) return false;
+  const known = new Set(snapshot.script.scenes.map((scene) => scene.id));
+  if (Object.keys(choices.sceneOverrides).some((id) => !known.has(id))) return false;
+  return snapshot.script.scenes.every((scene) => {
+    const effective = effectiveGuidedBackdrop(snapshot, scene.id);
+    if (!effective) return false;
+    return effective.source === "default" && legacyDefaultValid
+      ? true
+      : guidedBackdropReferenceIsApproved(
+          effective.reference,
+          effective.source === "override" ? scene.id : null,
+        );
   });
 }
 export function guidedCastFailureDisposition(confirmedFailure: boolean):
@@ -457,16 +562,16 @@ export function guidedStoryApprovalSnapshotMatches(params: {
   const approvedBackdrop = draftState.visualChoices?.backdropReference;
   if (
     !draftState.script ||
-    !approvedBackdrop?.approvedAt ||
-    !snapshot.backdropReference?.approvedAt ||
-    !guidedBackdropCoversEveryScriptScene({
+    !guidedStoryBackdropsAreApproved({
       script: draftState.script,
-      backdropReference: approvedBackdrop,
+      backdrops: draftState.visualChoices?.backdrops,
+      backdropReference: approvedBackdrop ?? undefined,
     }) ||
-    !guidedBackdropCoversEveryScriptScene(snapshot) ||
-    guidedBackdropFingerprint(approvedBackdrop) !== approvedBackdrop.fingerprint ||
-    guidedBackdropFingerprint(snapshot.backdropReference) !== snapshot.backdropReference.fingerprint ||
-    approvedBackdrop.fingerprint !== snapshot.backdropReference.fingerprint
+    !guidedStoryBackdropsAreApproved(snapshot) ||
+    !isDeepStrictEqual(
+      guidedBackdropChoices(draftState.visualChoices ?? defaultGuidedStoryVisualChoices()),
+      guidedBackdropChoices(snapshot),
+    )
   ) return false;
   const draftFingerprint = draftState.script
     ? guidedStorySnapshotFingerprint({
@@ -526,8 +631,12 @@ export function guidedStoryApprovalSnapshotMatches(params: {
 /** A Guided Story backdrop is shared by definition: partial scene coverage
  * would let an apparently approved job render visually unrelated locations. */
 export function guidedBackdropCoversEveryScriptScene(
-  snapshot: Pick<NonNullable<VideoJobOptions["guidedStory"]>, "script" | "backdropReference">,
+  snapshot: Pick<NonNullable<VideoJobOptions["guidedStory"]>, "script" | "backdropReference" | "backdrops">,
 ): boolean {
+  if (snapshot.backdrops) {
+    return snapshot.script.scenes.every((scene) =>
+      Boolean(effectiveGuidedBackdrop(snapshot, scene.id)));
+  }
   const reference = snapshot.backdropReference;
   if (!reference) return false;
   const expected = snapshot.script.scenes.map((scene) => scene.id);
@@ -597,8 +706,12 @@ export function guidedStoryStoryboard(
       .map((scene) => [scene.guidedStory!.scriptSceneId, scene]),
   );
   const scenes = snapshot.script.scenes.map((scriptScene) => {
-    const sceneBackdrop =
-      backdropReference?.sceneIds.includes(scriptScene.id) ? backdropReference : null;
+    const effectiveBackdrop = snapshot.backdrops
+      ? effectiveGuidedBackdrop(snapshot, scriptScene.id)
+      : null;
+    const sceneBackdrop = effectiveBackdrop?.reference ?? (
+      backdropReference?.sceneIds.includes(scriptScene.id) ? backdropReference : null
+    );
     const roleIds = scriptScene.roleIds;
     const sceneCast = roleIds.map((roleId) => castByRole.get(roleId)).filter(
       (member): member is GuidedStoryCastSnapshot => Boolean(member),
@@ -649,6 +762,13 @@ export function guidedStoryStoryboard(
     const showLogo =
       visuals.logo.path !== null &&
       visuals.logo.sceneIds.includes(scriptScene.id);
+    const migratedLegacyDefault =
+      effectiveBackdrop?.source === "default" &&
+      !effectiveBackdrop.reference.imageSha256 &&
+      snapshot.backdropReference?.fingerprint === effectiveBackdrop.reference.fingerprint;
+    const canonicalSceneBackdrop = sceneBackdrop && "revision" in sceneBackdrop && !migratedLegacyDefault
+      ? sceneBackdrop
+      : null;
     const sceneVisuals = {
       logoPath: showLogo ? visuals.logo.path : null,
       locationMode: visuals.location.mode,
@@ -662,6 +782,15 @@ export function guidedStoryStoryboard(
           : null,
       backdropReferencePath: sceneBackdrop?.imagePath,
       backdropReferenceFingerprint: sceneBackdrop?.fingerprint,
+      ...(!migratedLegacyDefault && effectiveBackdrop
+        ? {
+            backdropSource: effectiveBackdrop.source,
+            backdropRevision: canonicalSceneBackdrop?.revision,
+            ...(canonicalSceneBackdrop?.imageSha256
+              ? { backdropImageSha256: canonicalSceneBackdrop.imageSha256 }
+              : {}),
+          }
+        : {}),
     };
     const inputFingerprint = guidedSceneFingerprint({
       scriptScene,
@@ -676,7 +805,7 @@ export function guidedStoryStoryboard(
       `${member.character.name} (${member.roleId}) wears ${member.outfit?.description ?? "the approved wardrobe"}; identity reference ${member.character.referenceImagePath ?? "MISSING"}; outfit reference ${member.outfit?.referenceImagePath ?? "MISSING"}.`,
     ).join(" ");
     const locationDirection = sceneBackdrop
-      ? `Use the frozen approved shared backdrop ${sceneBackdrop.imagePath}. ` +
+      ? `Use the frozen approved ${effectiveBackdrop?.source === "override" ? "scene override" : snapshot.backdrops && !migratedLegacyDefault ? "default" : "shared"} backdrop ${sceneBackdrop.imagePath}. ` +
         `Backdrop direction: ${sceneBackdrop.prompt}. Preserve this location unless an explicitly scene-only background correction is requested.`
       : visuals.location.mode === "image"
         ? `Use the shared location image ${visuals.location.imagePath} as environmental guidance.`

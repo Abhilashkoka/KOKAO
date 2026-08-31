@@ -6,6 +6,8 @@ import {
   GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
   guidedBackdropCoversEveryScriptScene,
   guidedBackdropFingerprint,
+  effectiveGuidedBackdrop,
+  guidedStoryBackdropsAreApproved,
   guidedCastFailureDisposition,
   guidedCastHasDuplicates,
   guidedCastApprovalsMatch,
@@ -23,6 +25,30 @@ import {
   validateGuidedStoryGeneratedSpeech,
   validateGuidedResumableCastOperation,
 } from "./guidedStory";
+
+function approvedBackdrop(
+  prompt: string,
+  imagePath: string,
+  revision: number,
+  sceneId: string | null,
+) {
+  const imageSha256 = "a".repeat(64);
+  return {
+    version: 1 as const,
+    prompt,
+    imagePath,
+    imageSha256,
+    revision,
+    fingerprint: guidedBackdropFingerprint({
+      prompt,
+      imagePath,
+      imageSha256,
+      revision,
+      sceneId,
+    }),
+    approvedAt: "2025-01-01T00:00:00.000Z",
+  };
+}
 
 function validRaw(roleCount = 2) {
   const roles = Array.from({ length: roleCount }, (_, index) => ({
@@ -528,6 +554,66 @@ describe("guided cast provider uncertainty", () => {
         { ...expected, operationKey: `${expected.operationKey}:different` },
       ),
     ).toBe(false);
+  });
+});
+
+describe("per-scene Guided Story backdrops", () => {
+  it("resolves an approved override without weakening the approved default gate", () => {
+    const fixture = approvalFixture();
+    const sceneId = fixture.snapshot.script.scenes[0]!.id;
+    const defaultReference = approvedBackdrop(
+      "Default command room",
+      "/objects/1/default.png",
+      1,
+      null,
+    );
+    const override = approvedBackdrop(
+      "Scene-specific rooftop",
+      "/objects/1/rooftop.png",
+      1,
+      sceneId,
+    );
+    const snapshot = {
+      ...fixture.snapshot,
+      backdrops: {
+        version: 1 as const,
+        default: defaultReference,
+        sceneOverrides: { [sceneId]: override },
+      },
+    };
+
+    expect(guidedStoryBackdropsAreApproved(snapshot)).toBe(true);
+    expect(effectiveGuidedBackdrop(snapshot, sceneId)).toEqual({
+      source: "override",
+      reference: override,
+    });
+    expect(guidedStoryStoryboard(snapshot).scenes[0]!.guidedStory!.visuals).toMatchObject({
+      backdropSource: "override",
+      backdropReferencePath: override.imagePath,
+      backdropRevision: 1,
+      backdropImageSha256: override.imageSha256,
+    });
+  });
+
+  it("fails closed for an active unapproved override", () => {
+    const fixture = approvalFixture();
+    const sceneId = fixture.snapshot.script.scenes[0]!.id;
+    const pending = {
+      ...approvedBackdrop("Pending room", "/objects/1/pending.png", 2, sceneId),
+      approvedAt: null,
+    };
+    const snapshot = {
+      ...fixture.snapshot,
+      backdrops: {
+        version: 1 as const,
+        default: approvedBackdrop("Default room", "/objects/1/default.png", 1, null),
+        sceneOverrides: { [sceneId]: pending },
+      },
+    };
+
+    expect(guidedStoryBackdropsAreApproved(snapshot)).toBe(false);
+    expect(guidedStoryStoryboard(snapshot).scenes[0]!.guidedStory!.visuals)
+      .toMatchObject({ backdropSource: "override", backdropReferencePath: pending.imagePath });
   });
 });
 

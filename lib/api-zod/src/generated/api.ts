@@ -13214,6 +13214,14 @@ export const createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
 export const createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const createGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
 
+export const createGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const createGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const createGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const createGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
+
 export const createGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
 export const createGuidedStoryDraftResponseEstimatesCastAssetUnitsMin = 0;
@@ -13402,7 +13410,28 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(createGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(createGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(createGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(createGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -13461,6 +13490,14 @@ export const getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
 
 export const getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const getGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const getGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const getGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const getGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const getGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const getGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
@@ -13650,7 +13687,28 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(getGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(getGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(getGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(getGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -13707,6 +13765,14 @@ export const updateGuidedStoryDraftBodyVisualChoicesLogoSceneIdsMax = 40;
 
 export const updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMin = 3;
 export const updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMax = 1000;
+
+export const updateGuidedStoryDraftBodyVisualChoicesBackdropsDefaultTwoImageSha256Min = 64;
+export const updateGuidedStoryDraftBodyVisualChoicesBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const updateGuidedStoryDraftBodyVisualChoicesBackdropsSceneOverridesImageSha256Min = 64;
+export const updateGuidedStoryDraftBodyVisualChoicesBackdropsSceneOverridesImageSha256Max = 64;
+
 
 
 
@@ -13773,7 +13839,28 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(updateGuidedStoryDraftBodyVisualChoicesBackdropsDefaultTwoImageSha256Min).max(updateGuidedStoryDraftBodyVisualChoicesBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(updateGuidedStoryDraftBodyVisualChoicesBackdropsSceneOverridesImageSha256Min).max(updateGuidedStoryDraftBodyVisualChoicesBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).optional()
 })
 
@@ -13810,6 +13897,14 @@ export const updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
 
 export const updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const updateGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const updateGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const updateGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const updateGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const updateGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const updateGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
@@ -13999,7 +14094,28 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(updateGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(updateGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(updateGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(updateGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -14065,6 +14181,14 @@ export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsM
 
 export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const generateGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin = 0;
 
@@ -14254,7 +14378,28 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -14427,6 +14572,14 @@ export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsMa
 
 export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const approveGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin = 0;
 
@@ -14616,7 +14769,28 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -14698,6 +14872,14 @@ export const castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsMax = 40;
 
 export const castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const castGuidedStoryDraftResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const castGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const castGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const castGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const castGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const castGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
@@ -14887,7 +15069,28 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(castGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(castGuidedStoryDraftResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(castGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(castGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -14955,6 +15158,14 @@ export const approveGuidedStoryCastRoleResponseVisualChoicesOneLogoSceneIdsMax =
 
 export const approveGuidedStoryCastRoleResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const approveGuidedStoryCastRoleResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const approveGuidedStoryCastRoleResponseEstimatesScriptUnitsMin = 0;
 
@@ -15144,7 +15355,28 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -15241,8 +15473,8 @@ export const CreateGuidedStoryReferenceResponse = zod.object({
 
 
 /**
- * Saves a tenant-owned rendered location plate and prompt as an unapproved revision-bound candidate. Existing preview checkpoints are invalidated only for scenes listed in sceneIds.
- * @summary Prepare a shared backdrop candidate for dedicated review
+ * Saves a tenant-owned rendered location plate and prompt as an unapproved revision-bound candidate. A null sceneId replaces the story default; otherwise only that scene's override and preview are changed.
+ * @summary Prepare the default or one scene backdrop candidate for review
  */
 export const PrepareGuidedStoryBackdropParams = zod.object({
   "draftId": zod.coerce.number()
@@ -15251,6 +15483,9 @@ export const PrepareGuidedStoryBackdropParams = zod.object({
 
 export const prepareGuidedStoryBackdropBodyPromptMin = 3;
 export const prepareGuidedStoryBackdropBodyPromptMax = 1000;
+
+export const prepareGuidedStoryBackdropBodySceneIdMin = 2;
+export const prepareGuidedStoryBackdropBodySceneIdMax = 64;
 
 export const prepareGuidedStoryBackdropBodySceneIdsItemMin = 2;
 export const prepareGuidedStoryBackdropBodySceneIdsItemMax = 64;
@@ -15263,7 +15498,8 @@ export const PrepareGuidedStoryBackdropBody = zod.object({
   "revision": zod.number().min(1),
   "prompt": zod.string().min(prepareGuidedStoryBackdropBodyPromptMin).max(prepareGuidedStoryBackdropBodyPromptMax),
   "imagePath": zod.string().describe('Canonical tenant-owned rendered or uploaded image.'),
-  "sceneIds": zod.array(zod.string().min(prepareGuidedStoryBackdropBodySceneIdsItemMin).max(prepareGuidedStoryBackdropBodySceneIdsItemMax)).min(1).max(prepareGuidedStoryBackdropBodySceneIdsMax)
+  "sceneId": zod.string().min(prepareGuidedStoryBackdropBodySceneIdMin).max(prepareGuidedStoryBackdropBodySceneIdMax).nullish().describe('Null prepares the default; a scene id prepares that scene\'s override.'),
+  "sceneIds": zod.array(zod.string().min(prepareGuidedStoryBackdropBodySceneIdsItemMin).max(prepareGuidedStoryBackdropBodySceneIdsItemMax)).min(1).max(prepareGuidedStoryBackdropBodySceneIdsMax).optional().describe('Legacy shared-default input; ignored when sceneId is present.')
 })
 
 export const prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
@@ -15299,6 +15535,14 @@ export const prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsMax =
 
 export const prepareGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const prepareGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const prepareGuidedStoryBackdropResponseEstimatesScriptUnitsMin = 0;
 
@@ -15488,7 +15732,28 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -15508,7 +15773,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
 
 
 /**
- * @summary Freeze the exact shared backdrop candidate
+ * @summary Freeze the exact default or scene backdrop candidate
  */
 export const ApproveGuidedStoryBackdropParams = zod.object({
   "draftId": zod.coerce.number()
@@ -15518,11 +15783,15 @@ export const ApproveGuidedStoryBackdropParams = zod.object({
 export const approveGuidedStoryBackdropBodyFingerprintMin = 64;
 export const approveGuidedStoryBackdropBodyFingerprintMax = 64;
 
+export const approveGuidedStoryBackdropBodySceneIdMin = 2;
+export const approveGuidedStoryBackdropBodySceneIdMax = 64;
+
 
 
 export const ApproveGuidedStoryBackdropBody = zod.object({
   "revision": zod.number().min(1),
-  "fingerprint": zod.string().min(approveGuidedStoryBackdropBodyFingerprintMin).max(approveGuidedStoryBackdropBodyFingerprintMax)
+  "fingerprint": zod.string().min(approveGuidedStoryBackdropBodyFingerprintMin).max(approveGuidedStoryBackdropBodyFingerprintMax),
+  "sceneId": zod.string().min(approveGuidedStoryBackdropBodySceneIdMin).max(approveGuidedStoryBackdropBodySceneIdMax).nullish()
 })
 
 export const approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
@@ -15558,6 +15827,14 @@ export const approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsMax =
 
 export const approveGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const approveGuidedStoryBackdropResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const approveGuidedStoryBackdropResponseEstimatesScriptUnitsMin = 0;
 
@@ -15747,7 +16024,28 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -15760,6 +16058,291 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "totalRemainingUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesTotalRemainingUnitsMin),
   "generatedStrategyCastUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesGeneratedStrategyCastUnitsMin).describe('Quote available before choosing Generated Cast.'),
   "savedStrategyCastUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesSavedStrategyCastUnitsMin).describe('Quote available before choosing Saved Cast.')
+}).describe('Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Remove a scene override so the scene inherits the approved default
+ */
+export const InheritGuidedStoryDefaultBackdropParams = zod.object({
+  "draftId": zod.coerce.number(),
+  "sceneId": zod.coerce.string()
+})
+
+
+
+
+export const InheritGuidedStoryDefaultBackdropBody = zod.object({
+  "revision": zod.number().min(1)
+})
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMin = 15;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMax = 300;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMin = 2;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax = 35;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMin = 3;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax = 2000;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMin = 2;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMax = 4;
+
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMin = 2;
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 4;
+
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMsMin = 0;
+
+
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
+
+
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesMax = 40;
+
+
+export const inheritGuidedStoryDefaultBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const inheritGuidedStoryDefaultBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
+
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsMax = 40;
+
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
+
+export const inheritGuidedStoryDefaultBackdropResponseEstimatesScriptUnitsMin = 0;
+
+export const inheritGuidedStoryDefaultBackdropResponseEstimatesCastAssetUnitsMin = 0;
+
+export const inheritGuidedStoryDefaultBackdropResponseEstimatesPreviewUnitsMin = 0;
+
+export const inheritGuidedStoryDefaultBackdropResponseEstimatesFinalAdditionalUnitsMin = 0;
+
+export const inheritGuidedStoryDefaultBackdropResponseEstimatesTotalRemainingUnitsMin = 0;
+
+export const inheritGuidedStoryDefaultBackdropResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
+
+export const inheritGuidedStoryDefaultBackdropResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
+
+
+export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
+  "id": zod.number(),
+  "revision": zod.number(),
+  "version": zod.number(),
+  "setup": zod.union([zod.object({
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
+  "durationSeconds": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMax),
+  "locale": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
+  "topic": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax),
+  "roleCount": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMax),
+  "brandKitId": zod.number().nullish()
+}).and(zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
+  "width": zod.number(),
+  "height": zod.number(),
+  "safeArea": zod.string()
+})),zod.null()]),
+  "script": zod.union([zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMin).max(inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "startMs": zod.number().min(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesMax),
+  "warnings": zod.array(zod.string())
+}),zod.null()]),
+  "scriptApprovedAt": zod.coerce.date().nullable(),
+  "userRoleId": zod.string().nullable(),
+  "castStrategy": zod.union([zod.literal('generated'),zod.literal('saved'),zod.literal(null)]).nullable(),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+})),
+  "castApprovals": zod.union([zod.object({
+  "version": zod.number(),
+  "draftRevision": zod.number().min(1),
+  "roles": zod.record(zod.string(), zod.object({
+  "roleId": zod.string(),
+  "approvedAt": zod.coerce.date(),
+  "character": zod.object({
+  "referenceImagePath": zod.string(),
+  "sha256": zod.string().regex(inheritGuidedStoryDefaultBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp)
+}),
+  "outfit": zod.object({
+  "referenceImagePath": zod.string(),
+  "sha256": zod.string().regex(inheritGuidedStoryDefaultBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp)
+})
+}))
+}),zod.null()]),
+  "duplicateAssignmentConfirmed": zod.boolean(),
+  "scriptGeneration": zod.object({
+  "revision": zod.number(),
+  "claimedAt": zod.coerce.date()
+}).nullable().describe('Server-authored pre-provider claim for the current script revision.'),
+  "referenceOperations": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number(),
+  "roleId": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "source": zod.enum(['current', 'saved', 'upload', 'generated']),
+  "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
+  "requestKey": zod.string(),
+  "candidate": zod.union([zod.object({
+  "roleId": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "brandKitId": zod.number().nullable(),
+  "voiceId": zod.string(),
+  "character": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}),
+  "outfit": zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().nullable()
+}).nullable(),
+  "voice": zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "provider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+}),
+  "isUserRole": zod.boolean(),
+  "consentGranted": zod.boolean(),
+  "generatedAsset": zod.object({
+  "path": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operationId": zod.number().nullable()
+}).nullish()
+}),zod.null()]),
+  "description": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().nullable()
+})),
+  "visualChoices": zod.object({
+  "logo": zod.object({
+  "path": zod.string().nullable().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "sceneIds": zod.array(zod.string().min(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsItemMin).max(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsItemMax)).max(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsMax)
+}),
+  "location": zod.union([zod.object({
+  "mode": zod.literal("none"),
+  "imagePath": zod.null(),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("image"),
+  "imagePath": zod.string().describe('Canonical tenant-owned \/objects\/{tenant}\/uploads path.'),
+  "description": zod.null()
+}),zod.object({
+  "mode": zod.literal("text"),
+  "imagePath": zod.null(),
+  "description": zod.string().min(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLocationThreeDescriptionMin).max(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLocationThreeDescriptionMax)
+})]),
+  "backdropReference": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "sceneIds": zod.array(zod.string()),
+  "fingerprint": zod.string(),
+  "approvedAt": zod.coerce.date().nullable()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
+}).and(zod.object({
+  "version": zod.number()
+})),
+  "storyboardJobId": zod.number().nullable(),
+  "estimates": zod.object({
+  "scriptUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesScriptUnitsMin),
+  "castAssetUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesCastAssetUnitsMin),
+  "previewUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesPreviewUnitsMin),
+  "finalAdditionalUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesFinalAdditionalUnitsMin),
+  "totalRemainingUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesTotalRemainingUnitsMin),
+  "generatedStrategyCastUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesGeneratedStrategyCastUnitsMin).describe('Quote available before choosing Generated Cast.'),
+  "savedStrategyCastUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesSavedStrategyCastUnitsMin).describe('Quote available before choosing Saved Cast.')
 }).describe('Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -15814,6 +16397,14 @@ export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsMax
 
 export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const finalizeGuidedStoryReferenceResponseEstimatesScriptUnitsMin = 0;
 
@@ -16003,7 +16594,28 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),
@@ -16070,6 +16682,14 @@ export const rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsMax =
 
 export const rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMin = 3;
 export const rejectGuidedStoryReferenceResponseVisualChoicesOneLocationThreeDescriptionMax = 1000;
+
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min = 64;
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max = 64;
+
+
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min = 64;
+export const rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
+
 
 export const rejectGuidedStoryReferenceResponseEstimatesScriptUnitsMin = 0;
 
@@ -16259,7 +16879,28 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "sceneIds": zod.array(zod.string()),
   "fingerprint": zod.string(),
   "approvedAt": zod.coerce.date().nullable()
-})]).optional()
+})]).optional().describe('Legacy shared default; new clients use backdrops.'),
+  "backdrops": zod.object({
+  "version": zod.number(),
+  "default": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Min).max(rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsDefaultTwoImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+})]),
+  "sceneOverrides": zod.record(zod.string(), zod.object({
+  "version": zod.number(),
+  "prompt": zod.string(),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string().min(rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Min).max(rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max),
+  "fingerprint": zod.string(),
+  "revision": zod.number().min(1),
+  "approvedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).and(zod.object({
   "version": zod.number()
 })),

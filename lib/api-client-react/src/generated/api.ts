@@ -16428,8 +16428,8 @@ export const getPrepareGuidedStoryBackdropUrl = (draftId: number,) => {
 }
 
 /**
- * Saves a tenant-owned rendered location plate and prompt as an unapproved revision-bound candidate. Existing preview checkpoints are invalidated only for scenes listed in sceneIds.
- * @summary Prepare a shared backdrop candidate for dedicated review
+ * Saves a tenant-owned rendered location plate and prompt as an unapproved revision-bound candidate. A null sceneId replaces the story default; otherwise only that scene's override and preview are changed.
+ * @summary Prepare the default or one scene backdrop candidate for review
  */
 export const prepareGuidedStoryBackdrop = async (draftId: number,
     guidedStoryBackdropInput: GuidedStoryBackdropInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
@@ -16478,7 +16478,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PrepareGuidedStoryBackdropMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Prepare a shared backdrop candidate for dedicated review
+ * @summary Prepare the default or one scene backdrop candidate for review
  */
 export const usePrepareGuidedStoryBackdrop = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -16500,7 +16500,7 @@ export const getApproveGuidedStoryBackdropUrl = (draftId: number,) => {
 }
 
 /**
- * @summary Freeze the exact shared backdrop candidate
+ * @summary Freeze the exact default or scene backdrop candidate
  */
 export const approveGuidedStoryBackdrop = async (draftId: number,
     guidedStoryBackdropApprovalInput: GuidedStoryBackdropApprovalInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
@@ -16549,7 +16549,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ApproveGuidedStoryBackdropMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Freeze the exact shared backdrop candidate
+ * @summary Freeze the exact default or scene backdrop candidate
  */
 export const useApproveGuidedStoryBackdrop = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryBackdrop>>, TError,{draftId: number;data: BodyType<GuidedStoryBackdropApprovalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -16560,6 +16560,79 @@ export const useApproveGuidedStoryBackdrop = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getApproveGuidedStoryBackdropMutationOptions(options));
+    }
+
+export const getInheritGuidedStoryDefaultBackdropUrl = (draftId: number,
+    sceneId: string,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/backdrop/scenes/${sceneId}`
+}
+
+/**
+ * @summary Remove a scene override so the scene inherits the approved default
+ */
+export const inheritGuidedStoryDefaultBackdrop = async (draftId: number,
+    sceneId: string,
+    guidedStoryRevisionInput: GuidedStoryRevisionInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getInheritGuidedStoryDefaultBackdropUrl(draftId,sceneId),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryRevisionInput)
+  }
+);}
+
+
+
+
+export const getInheritGuidedStoryDefaultBackdropMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inheritGuidedStoryDefaultBackdrop>>, TError,{draftId: number;sceneId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof inheritGuidedStoryDefaultBackdrop>>, TError,{draftId: number;sceneId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext> => {
+
+const mutationKey = ['inheritGuidedStoryDefaultBackdrop'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof inheritGuidedStoryDefaultBackdrop>>, {draftId: number;sceneId: string;data: BodyType<GuidedStoryRevisionInput>}> = (props) => {
+          const {draftId,sceneId,data} = props ?? {};
+
+          return  inheritGuidedStoryDefaultBackdrop(draftId,sceneId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InheritGuidedStoryDefaultBackdropMutationResult = NonNullable<Awaited<ReturnType<typeof inheritGuidedStoryDefaultBackdrop>>>
+    export type InheritGuidedStoryDefaultBackdropMutationBody = BodyType<GuidedStoryRevisionInput>
+    export type InheritGuidedStoryDefaultBackdropMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a scene override so the scene inherits the approved default
+ */
+export const useInheritGuidedStoryDefaultBackdrop = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inheritGuidedStoryDefaultBackdrop>>, TError,{draftId: number;sceneId: string;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof inheritGuidedStoryDefaultBackdrop>>,
+        TError,
+        {draftId: number;sceneId: string;data: BodyType<GuidedStoryRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getInheritGuidedStoryDefaultBackdropMutationOptions(options));
     }
 
 export const getFinalizeGuidedStoryReferenceUrl = (draftId: number,

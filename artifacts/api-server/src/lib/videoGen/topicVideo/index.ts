@@ -1762,7 +1762,12 @@ export async function regenerateStoryboardPreview(params: {
     const visualReferences = [
       ...castReferences as Array<{ label: string; path: string }>,
       ...(backdropReferencePath
-        ? [{ label: "APPROVED SHARED BACKDROP — REUSE EXACTLY", path: backdropReferencePath }]
+        ? [{
+            label: params.scene.guidedStory.visuals.backdropSource === "override"
+              ? "APPROVED SCENE BACKDROP OVERRIDE — REUSE EXACTLY"
+              : "APPROVED DEFAULT BACKDROP — REUSE EXACTLY",
+            path: backdropReferencePath,
+          }]
         : []),
       ...(visualGuidance.locationImagePath
         && visualGuidance.locationImagePath !== backdropReferencePath
@@ -1784,6 +1789,15 @@ export async function regenerateStoryboardPreview(params: {
       if (!expected || actual !== expected) {
         throw new VideoGenProviderError(
           `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} The saved bytes for ${castReferences[index]!.label} no longer match their approval.`,
+        );
+      }
+    }
+    if (backdropReferencePath && visualGuidance.backdropImageSha256) {
+      const backdropIndex = castReferences.length;
+      const actual = createHash("sha256").update(refs[backdropIndex]!.buffer).digest("hex");
+      if (actual !== visualGuidance.backdropImageSha256) {
+        throw new VideoGenProviderError(
+          `Guided scene ${params.scene.id} backdrop bytes no longer match their approval.`,
         );
       }
     }

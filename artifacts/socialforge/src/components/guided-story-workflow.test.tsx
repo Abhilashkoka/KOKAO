@@ -140,25 +140,42 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     usePrepareGuidedStoryBackdrop: () => ({
       isPending: false,
-      mutateAsync: async (vars: any) => ({
-        ...state.draft,
-        revision: state.draft.revision + 1,
-        visualChoices: {
-          ...(state.draft.visualChoices ?? { logo: { path: null, sceneIds: [] }, location: { mode: "none", imagePath: null, description: null } }),
-          backdropReference: {
-            version: 1, prompt: vars.data.prompt, imagePath: vars.data.imagePath,
-            sceneIds: vars.data.sceneIds, fingerprint: "a".repeat(64), approvedAt: null,
+      mutateAsync: async (vars: any) => {
+        const previous = state.draft.visualChoices?.backdrops ?? { version: 1, default: null, sceneOverrides: {} };
+        const candidate = { version: 1, prompt: vars.data.prompt, imagePath: vars.data.imagePath, imageSha256: "a".repeat(64), fingerprint: "a".repeat(64), revision: state.draft.revision + 1, approvedAt: null };
+        return {
+          ...state.draft,
+          revision: state.draft.revision + 1,
+          visualChoices: {
+            ...(state.draft.visualChoices ?? { logo: { path: null, sceneIds: [] }, location: { mode: "none", imagePath: null, description: null } }),
+            backdrops: vars.data.sceneId
+              ? { ...previous, sceneOverrides: { ...previous.sceneOverrides, [vars.data.sceneId]: candidate } }
+              : { ...previous, default: candidate },
           },
-        },
-      }),
+        };
+      },
     }),
     useApproveGuidedStoryBackdrop: mutation((vars) => ({
       ...state.draft,
       visualChoices: {
         ...state.draft.visualChoices,
-        backdropReference: {
-          ...state.draft.visualChoices.backdropReference,
-          approvedAt: "2026-08-30T00:00:00.000Z",
+        backdrops: {
+          ...state.draft.visualChoices.backdrops,
+          default: vars.data.sceneId ? state.draft.visualChoices.backdrops.default : { ...state.draft.visualChoices.backdrops.default, approvedAt: "2026-08-30T00:00:00.000Z" },
+          sceneOverrides: vars.data.sceneId ? { ...state.draft.visualChoices.backdrops.sceneOverrides, [vars.data.sceneId]: { ...state.draft.visualChoices.backdrops.sceneOverrides[vars.data.sceneId], approvedAt: "2026-08-30T00:00:00.000Z" } } : state.draft.visualChoices.backdrops.sceneOverrides,
+        },
+      },
+    })),
+    useInheritGuidedStoryDefaultBackdrop: mutation((vars) => ({
+      ...state.draft,
+      visualChoices: {
+        ...state.draft.visualChoices,
+        backdrops: {
+          ...state.draft.visualChoices.backdrops,
+          sceneOverrides: Object.fromEntries(
+            Object.entries(state.draft.visualChoices.backdrops?.sceneOverrides ?? {})
+              .filter(([sceneId]) => sceneId !== vars.sceneId),
+          ),
         },
       },
     })),
@@ -859,6 +876,35 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.keyboard("{Escape}");
     await userEvent.click(screen.getByTestId("button-guided-change-outfit-r1"));
     expect(screen.getByTestId("dialog-guided-change-outfit")).toBeTruthy();
+  });
+
+  it("shows the approved default beside a scene override and approves only that override", async () => {
+    const defaultBackdrop = { version: 1, prompt: "Warm desk", imagePath: "/objects/99/default.png", imageSha256: "d".repeat(64), fingerprint: "d".repeat(64), revision: 2, approvedAt: "2026-01-01" };
+    const override = { version: 1, prompt: "Night street", imagePath: "/objects/99/street.png", imageSha256: "o".repeat(64), fingerprint: "o".repeat(64), revision: 2, approvedAt: null };
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: { ...draft().visualChoices, backdrops: { version: 1, default: defaultBackdrop, sceneOverrides: { s1: override } } },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect(screen.getByTestId("card-guided-backdrop-default").textContent).toContain("Default for inheriting scenes");
+    expect(screen.getByTestId("card-guided-backdrop-scene-s1").textContent).toContain("Override");
+    await userEvent.click(screen.getByTestId("button-approve-guided-backdrop-s1"));
+    await waitFor(() => expect(screen.getByTestId("button-approve-guided-backdrop-s1").textContent).toBe("Approved"));
+    expect(screen.getByTestId("button-approve-guided-backdrop").textContent).toBe("Approved");
+  });
+
+  it("removes a scene override when inheriting the default", async () => {
+    const approved = { version: 1, prompt: "Warm desk", imagePath: "/objects/99/default.png", imageSha256: "d".repeat(64), fingerprint: "d".repeat(64), revision: 2, approvedAt: "2026-01-01" };
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: { ...draft().visualChoices, backdrops: { version: 1, default: approved, sceneOverrides: { s1: { ...approved, prompt: "Street" } } } },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    await userEvent.click(screen.getByTestId("button-inherit-guided-backdrop-s1"));
+    await waitFor(() => expect(screen.getByTestId("card-guided-backdrop-scene-s1").textContent).toContain("Uses default backdrop"));
   });
 
   it("requires prompt edits to be prepared before approving the backdrop", async () => {

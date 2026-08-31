@@ -17,10 +17,19 @@ export interface GuidedStoryBackdropInput {
   /** Canonical tenant-owned rendered or uploaded image. */
   imagePath: string;
   /**
+     * Null prepares the default; a scene id prepares that scene's override.
+     * @minLength 2
+     * @maxLength 64
+     * @nullable
+     */
+  sceneId?: string | null;
+  /**
+     * Legacy shared-default input; ignored when sceneId is present.
+     * @deprecated
      * @minItems 1
      * @maxItems 40
      * @items.minLength 2
      * @items.maxLength 64
      */
-  sceneIds: string[];
+  sceneIds?: string[];
 }

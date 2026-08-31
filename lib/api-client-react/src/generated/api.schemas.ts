@@ -4555,6 +4555,30 @@ export interface GuidedStoryBackdropReference {
   approvedAt: string | null;
 }
 
+export interface GuidedStorySceneBackdropReference {
+  version: 1;
+  prompt: string;
+  imagePath: string;
+  /**
+     * @minLength 64
+     * @maxLength 64
+     */
+  imageSha256: string;
+  fingerprint: string;
+  /** @minimum 1 */
+  revision: number;
+  /** @nullable */
+  approvedAt: string | null;
+}
+
+export type GuidedStoryBackdropChoicesSceneOverrides = {[key: string]: GuidedStorySceneBackdropReference};
+
+export interface GuidedStoryBackdropChoices {
+  version: 1;
+  default: null | GuidedStorySceneBackdropReference;
+  sceneOverrides: GuidedStoryBackdropChoicesSceneOverrides;
+}
+
 export type GuidedStoryVisualChoicesInputLogo = {
   /**
      * Canonical tenant-owned /objects/{tenant}/uploads path.
@@ -4595,7 +4619,12 @@ export type GuidedStoryVisualChoicesInputLocation = {
 export interface GuidedStoryVisualChoicesInput {
   logo: GuidedStoryVisualChoicesInputLogo;
   location: GuidedStoryVisualChoicesInputLocation;
+  /**
+     * Legacy shared default; new clients use backdrops.
+     * @deprecated
+     */
   backdropReference?: null | GuidedStoryBackdropReference;
+  backdrops?: GuidedStoryBackdropChoices;
 }
 
 export interface GuidedStoryDraftUpdate {
@@ -4617,12 +4646,21 @@ export interface GuidedStoryBackdropInput {
   /** Canonical tenant-owned rendered or uploaded image. */
   imagePath: string;
   /**
+     * Null prepares the default; a scene id prepares that scene's override.
+     * @minLength 2
+     * @maxLength 64
+     * @nullable
+     */
+  sceneId?: string | null;
+  /**
+     * Legacy shared-default input; ignored when sceneId is present.
+     * @deprecated
      * @minItems 1
      * @maxItems 40
      * @items.minLength 2
      * @items.maxLength 64
      */
-  sceneIds: string[];
+  sceneIds?: string[];
 }
 
 export interface GuidedStoryBackdropApprovalInput {
@@ -4633,6 +4671,12 @@ export interface GuidedStoryBackdropApprovalInput {
      * @maxLength 64
      */
   fingerprint: string;
+  /**
+     * @minLength 2
+     * @maxLength 64
+     * @nullable
+     */
+  sceneId?: string | null;
 }
 
 export interface GuidedStorySceneInsertionInput {
