@@ -3,6 +3,12 @@ packages:
   - lib/*
   - lib/integrations/*
 
+allowBuilds:
+  '@clerk/shared': set this to true or false
+  browser-tabs-lock: set this to true or false
+  core-js: set this to true or false
+  esbuild: set this to true or false
+
 autoInstallPeers: false
 
 catalog:

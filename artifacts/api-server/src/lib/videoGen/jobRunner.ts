@@ -62,6 +62,7 @@ import {
   VideoModelResolutionError,
 } from "./index";
 import { generateLipSyncWithReplicate } from "./providers/replicate";
+import { prepareLipSyncSource } from "./lipSyncSource";
 import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
 import { buildWav, parseWav } from "./topicVideo/narration";
 import { composeTopicVideo } from "./topicVideo/compose";
@@ -2532,6 +2533,22 @@ async function produceVideo(
       audio = { buffer: narration.wav, mimeType: "audio/wav" };
     }
 
+    const audioDurationSec = await probeNarrationWavDurationSec(audio.buffer);
+    let preparedSource = source;
+    if (sourcePath) {
+      // Fit uploaded footage to the actual voice-track duration and give the
+      // model enough face pixels before spending on it.
+      onStage("Preparing your video");
+      const prepared = await prepareLipSyncSource(source, audioDurationSec);
+      if (prepared.excessive) {
+        throw new VideoJobInputError(
+          `Your script runs about ${Math.ceil(prepared.overrunSec)}s longer than your video. ` +
+            "Please shorten the script or upload a longer clip.",
+        );
+      }
+      preparedSource = prepared.video;
+    }
+
     // Lip sync is pinned to Replicate — it is the input contract (a face plus
     // audio) that makes this feature, not an interchangeable video model — so
     // the key is resolved directly rather than via provider selection.
@@ -2545,7 +2562,7 @@ async function produceVideo(
       videoPriceCriteria({ hasReferenceVideo: Boolean(sourcePath) }),
     );
     const result = await generateLipSyncWithReplicate(
-      { source, audio, def: lipSyncDef },
+      { source: preparedSource, audio, def: lipSyncDef },
       apiKey,
     );
     const event = await checkpointProviderRender(
@@ -2561,7 +2578,16 @@ async function produceVideo(
       provider: result.provider,
       model: result.model,
       providerEvents: [event],
-      qa: { minDurationSec: 0.5, expectAudio: true, label: "lip-sync video" },
+      qa: {
+        minDurationSec: 0.5,
+        expectAudio: true,
+        // The synced video must be as long as the voice it was synced to. A
+        // model that truncates leaves the end of the script unspoken — which
+        // is the failure the matched lengths above exist to prevent, so it is
+        // asserted rather than assumed.
+        expectedDurationSec: audioDurationSec,
+        label: "lip-sync video",
+      },
     };
   }
 
