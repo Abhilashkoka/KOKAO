@@ -12,6 +12,9 @@ export type VideoStoryboardSceneGuidedStoryLineOwnershipItem = {
   /** @nullable */
   ownerRoleId: string | null;
   kind: VideoStoryboardSceneGuidedStoryLineOwnershipItemKind;
+  text?: string;
+  /** @nullable */
+  englishTranslation?: string | null;
   startMs: number;
   endMs: number;
 };

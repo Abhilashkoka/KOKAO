@@ -260,6 +260,33 @@ function renderWorkflow(options: {
 beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
+  it("shows English meaning beneath Telugu source text without duplicating English stories", async () => {
+    state.draft = draft({
+      setup: { ...draft().setup, locale: "te" },
+      scriptApprovedAt: null,
+      script: {
+        ...script,
+        scenes: [{
+          ...script.scenes[0],
+          lines: [{
+            ...script.scenes[0]!.lines[0]!,
+            text: "ఇది మన ప్రణాళిక.",
+            englishTranslation: "This is our plan.",
+          }],
+        }],
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    expect((await screen.findByTestId("text-guided-line-english-l1")).textContent)
+      .toContain("This is our plan.");
+
+    cleanup();
+    state.draft = draft({ scriptApprovedAt: null });
+    renderWorkflow();
+    expect(screen.queryByTestId("text-guided-line-english-l1")).toBeNull();
+  });
+
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
     renderWorkflow();
     expect((screen.getByTestId("button-guided-create-draft") as HTMLButtonElement).disabled).toBe(true);

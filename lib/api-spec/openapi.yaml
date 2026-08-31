@@ -17244,6 +17244,9 @@ components:
         ownerRoleId: { type: ["string", "null"] }
         kind: { type: string, enum: [dialogue, narration] }
         text: { type: string }
+        englishTranslation:
+          type: ["string", "null"]
+          description: Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.
         startMs: { type: integer, minimum: 0 }
         endMs: { type: integer, minimum: 1 }
     GuidedStoryScene:
@@ -18351,6 +18354,8 @@ components:
                   lineId: { type: string }
                   ownerRoleId: { type: ["string", "null"] }
                   kind: { type: string, enum: [dialogue, narration] }
+                  text: { type: string }
+                  englishTranslation: { type: ["string", "null"] }
                   startMs: { type: integer }
                   endMs: { type: integer }
             cast:

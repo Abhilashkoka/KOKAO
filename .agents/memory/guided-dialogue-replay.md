@@ -7,4 +7,4 @@ Guided Story dialogue replay must be a clean child execution over immutable appr
 
 **Why:** A successful source can otherwise short-circuit to its old final render, and a generic lip-sync model can modify the wrong face in a multi-character approved frame.
 
-**How to apply:** Allowlist replay child options, exclude source storyboard receipts from child settlement, and freeze exact line text, timing, owner, voice, preview, backdrop, and identity paths. On retry, validate every nested audio, plate, lip-sync, clip, preview, backdrop, character, and outfit path for receipt consistency, tenant ownership, and existence before funding.
+**How to apply:** Allowlist replay child options, exclude source storyboard receipts from child settlement, and freeze exact line text, timing, owner, voice, preview, backdrop, and identity paths. English line meanings are display-only metadata and must never enter speech, lip-sync, fingerprints, cues, or replay segments. On retry, validate every nested audio, plate, lip-sync, clip, preview, backdrop, character, and outfit path for receipt consistency, tenant ownership, and existence before funding.

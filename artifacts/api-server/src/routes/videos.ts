@@ -2348,7 +2348,7 @@ router.patch(
         script = validateAndRepairGuidedScript(parsed.data.script, {
           roleCount: manualRoleCount,
           durationSeconds: setup.durationSeconds,
-        });
+        }, setup.locale);
         const nativeScriptWarning = guidedStoryNativeScriptWarning(script, setup.locale);
         if (nativeScriptWarning && !script.warnings.includes(nativeScriptWarning)) {
           script = { ...script, warnings: [...script.warnings, nativeScriptWarning] };
@@ -2461,7 +2461,7 @@ router.post(
       currentScript = validateAndRepairGuidedScript(parsed.data.script, {
         roleCount,
         durationSeconds: row.state.setup.durationSeconds,
-      });
+      }, row.state.setup.locale);
       if (
         parsed.data.insertionIndex < 0 ||
         parsed.data.insertionIndex > currentScript.scenes.length ||

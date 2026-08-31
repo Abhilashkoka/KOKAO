@@ -9586,12 +9586,14 @@ function GuidedStorySceneDetails({
         <div data-testid={`guided-story-lines-${scene.id}`}>
           <p className="font-medium">Line ownership</p>
           {guided.lineOwnership.map((line) => (
-            <p key={line.lineId}>
-              {line.kind === "narration" ? "Narration" : "Dialogue"} ·{" "}
-              {line.ownerRoleId ?? "unassigned narrator"} ·{" "}
-              {Math.round(line.startMs / 100) / 10}–
-              {Math.round(line.endMs / 100) / 10}s
-            </p>
+            <div key={line.lineId} className="mt-2">
+              <p>{line.kind === "narration" ? "Narration" : "Dialogue"} ·{" "}
+                {line.ownerRoleId ?? "unassigned narrator"} ·{" "}
+                {Math.round(line.startMs / 100) / 10}–
+                {Math.round(line.endMs / 100) / 10}s</p>
+              <p className="font-medium">{line.text}</p>
+              {line.englishTranslation && <p className="text-muted-foreground"><span className="font-medium">English meaning:</span> {line.englishTranslation}</p>}
+            </div>
           ))}
         </div>
       )}

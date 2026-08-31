@@ -402,12 +402,34 @@ describe("guided story immutable storyboard adapter", () => {
         lineId: line.id,
         ownerRoleId: line.ownerRoleId,
         kind: line.kind,
+        text: line.text,
+        englishTranslation: line.englishTranslation ?? null,
         startMs: line.startMs,
         endMs: line.endMs,
       })),
     );
     const localized = guidedStoryStoryboard({ ...snapshot, locale: "te" });
     expect(localized.scenes[0]!.guidedStory?.inputFingerprint).not.toBe(
+      first.scenes[0]!.guidedStory?.inputFingerprint,
+    );
+    const translationOnly = {
+      ...snapshot,
+      script: {
+        ...snapshot.script,
+        scenes: snapshot.script.scenes.map((scene) => ({
+          ...scene,
+          lines: scene.lines.map((line) => ({
+            ...line,
+            englishTranslation: "Display-only changed meaning",
+          })),
+        })),
+      },
+    };
+    expect(guidedStorySnapshotFingerprint(translationOnly)).toBe(
+      guidedStorySnapshotFingerprint(snapshot),
+    );
+    const reusedAfterTranslationChange = guidedStoryStoryboard(translationOnly, first);
+    expect(reusedAfterTranslationChange.scenes[0]!.guidedStory?.inputFingerprint).toBe(
       first.scenes[0]!.guidedStory?.inputFingerprint,
     );
     const paid = {
@@ -470,7 +492,7 @@ describe("guided story dialogue replay", () => {
       scenes: fixture.script.scenes.map((scene) => ({
         ...scene,
         lines: [
-          { ...scene.lines[0]!, text: exactDialogue },
+          { ...scene.lines[0]!, text: exactDialogue, englishTranslation: "We must leave now." },
           {
             ...scene.lines[1]!,
             ownerRoleId: null,
@@ -524,6 +546,7 @@ describe("guided story dialogue replay", () => {
         fingerprint: snapshot.backdropReference!.fingerprint,
       },
     });
+    expect("englishTranslation" in segments[0]!).toBe(false);
     expect(segments[1]).toMatchObject({
       text: exactNarration,
       speaker: { type: "offscreen", roleId: null, voice: null },

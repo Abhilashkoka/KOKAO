@@ -13,6 +13,11 @@ export interface GuidedStoryLine {
   ownerRoleId: string | null;
   kind: GuidedStoryLineKind;
   text: string;
+  /**
+     * Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.
+     * @nullable
+     */
+  englishTranslation?: string | null;
   /** @minimum 0 */
   startMs: number;
   /** @minimum 1 */

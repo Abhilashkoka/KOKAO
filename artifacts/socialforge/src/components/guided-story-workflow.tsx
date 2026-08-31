@@ -1529,7 +1529,9 @@ function ScriptReview(props: any) {
                         value={line.text}
                         onChange={(event) => {
                           const lines = scene.lines.map((item, index) =>
-                            index === lineIndex ? { ...item, text: event.target.value } : item,
+                            index === lineIndex
+                              ? { ...item, text: event.target.value, englishTranslation: null }
+                              : item,
                           );
                           const scenes = editedScript.scenes.map((item, index) =>
                             index === sceneIndex ? { ...item, lines } : item,
@@ -1538,6 +1540,12 @@ function ScriptReview(props: any) {
                         }}
                         data-testid={`input-guided-line-${line.id}`}
                       />
+                      {storyLocale?.code !== "en" && (
+                        <div className="col-start-2 rounded-md bg-muted/60 px-3 py-2 text-sm" data-testid={`text-guided-line-english-${line.id}`}>
+                          <span className="font-medium">English meaning: </span>
+                          {line.englishTranslation ?? "Not available for this edited line. Generate the script again to refresh it."}
+                        </div>
+                      )}
                       {spokenLineNeedsNativeScriptWarning(line.text, storyLocale) && (
                         <p
                           className="col-start-2 text-xs text-amber-700 dark:text-amber-300"

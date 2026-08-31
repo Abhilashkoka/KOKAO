@@ -13049,6 +13049,8 @@ export const GenerateVideoResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -13396,6 +13398,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(createGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -13673,6 +13676,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(getGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -13927,6 +13931,7 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(updateGuidedStoryDraftBodyScriptScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -14080,6 +14085,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(updateGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -14364,6 +14370,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(generateGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -14590,6 +14597,7 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(generateGuidedStoryDraftSceneBodyScriptScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -14635,6 +14643,7 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(generateGuidedStoryDraftSceneResponseScriptScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -14755,6 +14764,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(approveGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -15055,6 +15065,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(castGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -15341,6 +15352,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(approveGuidedStoryCastRoleResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -15718,6 +15730,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(prepareGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -16010,6 +16023,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(approveGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -16295,6 +16309,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -16580,6 +16595,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(finalizeGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -16865,6 +16881,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
   "text": zod.string(),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
   "startMs": zod.number().min(rejectGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin),
   "endMs": zod.number().min(1)
 }))
@@ -17378,6 +17395,8 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -17935,6 +17954,8 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -18457,6 +18478,8 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -18990,6 +19013,8 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -19608,6 +19633,8 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -20489,6 +20516,8 @@ export const ListVideoJobsResponseItem = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -21003,6 +21032,8 @@ export const GetVideoJobResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -21517,6 +21548,8 @@ export const CancelVideoJobResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -22031,6 +22064,8 @@ export const RetryVideoJobResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -22545,6 +22580,8 @@ export const RestartVideoJobFreshResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -23063,6 +23100,8 @@ export const RepairVideoJobResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -23604,6 +23643,8 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -24130,6 +24171,8 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -24645,6 +24688,8 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -25172,6 +25217,8 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -25686,6 +25733,8 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -26200,6 +26249,8 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),
@@ -26713,6 +26764,8 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "lineId": zod.string(),
   "ownerRoleId": zod.string().nullable(),
   "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "englishTranslation": zod.string().nullish(),
   "startMs": zod.number(),
   "endMs": zod.number()
 })),

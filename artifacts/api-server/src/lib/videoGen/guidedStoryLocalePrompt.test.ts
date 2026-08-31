@@ -53,14 +53,14 @@ describe("Guided Story locale prompt contract", () => {
         visualDirection: "A two shot",
         roleIds: ["role-1", "role-2"],
         lines: [
-          { id: "line-1", ownerRoleId: "role-1", kind: "dialogue", text: teluguWords, startMs: 0, endMs: 15_000 },
-          { id: "line-2", ownerRoleId: "role-2", kind: "dialogue", text: teluguWords, startMs: 15_000, endMs: 30_000 },
+          { id: "line-1", ownerRoleId: "role-1", kind: "dialogue", text: teluguWords, englishTranslation: "We will go together.", startMs: 0, endMs: 15_000 },
+          { id: "line-2", ownerRoleId: "role-2", kind: "dialogue", text: teluguWords, englishTranslation: "We will return safely.", startMs: 15_000, endMs: 30_000 },
         ],
       }],
       warnings: [],
     }));
 
-    await generateGuidedStoryScript({
+    const result = await generateGuidedStoryScript({
       tenantId: 1,
       tenantAiModel: "test",
       genre: "drama",
@@ -76,6 +76,8 @@ describe("Guided Story locale prompt contract", () => {
     expect(request.messages[1].content).toContain("Governed story policy.");
     expect(request.messages[1].content).toMatch(/Telugu.*native Telugu script/i);
     expect(request.messages[1].content).toMatch(/Do not Romanize/i);
+    expect(request.messages[1].content).toContain("englishTranslation");
+    expect(result.script.scenes[0]!.lines[0]!.englishTranslation).toBe("We will go together.");
   });
 
   it("applies the same native-script rule to scene insertion", async () => {

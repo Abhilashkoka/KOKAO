@@ -4509,6 +4509,11 @@ export interface GuidedStoryLine {
   ownerRoleId: string | null;
   kind: GuidedStoryLineKind;
   text: string;
+  /**
+     * Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.
+     * @nullable
+     */
+  englishTranslation?: string | null;
   /** @minimum 0 */
   startMs: number;
   /** @minimum 1 */
@@ -5537,6 +5542,9 @@ export type VideoStoryboardSceneGuidedStoryLineOwnershipItem = {
   /** @nullable */
   ownerRoleId: string | null;
   kind: VideoStoryboardSceneGuidedStoryLineOwnershipItemKind;
+  text?: string;
+  /** @nullable */
+  englishTranslation?: string | null;
   startMs: number;
   endMs: number;
 };
