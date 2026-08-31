@@ -57,6 +57,22 @@ export function trackProjectEvent(
   }
 }
 
+export function trackStudioLipSyncSelection(
+  workflow: "guided_story" | "topic_character" | "text_to_video" | "animate_photo",
+  enabled: boolean,
+): void {
+  const data = {
+    workflow,
+    outcome: enabled ? "enabled" : "disabled",
+  };
+  try {
+    track("studio_lipsync_toggle_selected", data);
+  } catch {
+    // Analytics must never interrupt the user's selection.
+  }
+  trackProjectEvent("studio_lipsync_toggle_selected", data);
+}
+
 export interface ConsentState {
   analytics: boolean;
   deviceDetails: boolean;

@@ -63,6 +63,10 @@ import {
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
 import { recordServerEvent } from "../lib/analytics";
+import {
+  recordStudioLipSyncEvent,
+  studioLipSyncWorkflow,
+} from "../lib/videoGen/studioLipSyncAnalytics";
 import { spendCredit, refundCredits } from "../lib/credits";
 import { getAiSpendConfig, getAiSpendRates, withFee } from "../lib/aiSpend";
 import {
@@ -8139,6 +8143,41 @@ async function generateVideoHandler(
           eq(guidedStoryDraftsTable.revision, guidedDraft.revision),
         ),
       );
+  }
+  if (options.studioLipSync) {
+    const workflow = studioLipSyncWorkflow(job);
+    const eligibleSceneCount = options.studioLipSync.plan.length;
+    recordStudioLipSyncEvent({
+      name: "studio_lipsync_submission_accepted",
+      tenantId: req.tenantId,
+      workflow,
+      fundingRail: funding,
+      sceneCount: eligibleSceneCount,
+      outcome: "accepted",
+    });
+    recordStudioLipSyncEvent({
+      name: "studio_lipsync_eligibility_evaluated",
+      tenantId: req.tenantId,
+      workflow,
+      fundingRail: funding,
+      sceneCount: eligibleSceneCount,
+      outcome: "eligible",
+    });
+    const skippedSceneCount = Math.max(
+      0,
+      (guidedDraft?.state.script?.scenes.length ?? eligibleSceneCount) -
+        eligibleSceneCount,
+    );
+    if (skippedSceneCount > 0) {
+      recordStudioLipSyncEvent({
+        name: "studio_lipsync_scene_skipped",
+        tenantId: req.tenantId,
+        workflow,
+        fundingRail: funding,
+        sceneCount: skippedSceneCount,
+        outcome: "ineligible",
+      });
+    }
   }
   res.status(201).json(serializeVideoJob(job));
 }

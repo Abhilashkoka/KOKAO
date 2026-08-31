@@ -96,6 +96,7 @@ import {
   trackProjectEvent,
   trackPresetCastEvent,
   trackProtectedOutfitEvent,
+  trackStudioLipSyncSelection,
 } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -6202,6 +6203,14 @@ export function VideoStudioPage() {
                         onCheckedChange={(checked) => {
                           setStudioLipSync(checked);
                           if (!checked) setStudioLipSyncConsent(false);
+                          trackStudioLipSyncSelection(
+                            engine === "topic_to_video"
+                              ? "topic_character"
+                              : engine === "text_to_video"
+                                ? "text_to_video"
+                                : "animate_photo",
+                            checked,
+                          );
                         }}
                         disabled={!compatible}
                         data-testid="switch-studio-lipsync"

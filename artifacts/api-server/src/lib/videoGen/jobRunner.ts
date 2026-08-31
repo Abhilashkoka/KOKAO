@@ -47,6 +47,10 @@ import {
 } from "../wallet";
 import { logger } from "../logger";
 import { recordServerEvent } from "../analytics";
+import {
+  recordStudioLipSyncEvent,
+  studioLipSyncWorkflow,
+} from "./studioLipSyncAnalytics";
 import { ImageGenProviderError } from "../imageGen";
 import {
   generateVideo,
@@ -6000,6 +6004,19 @@ async function executeVideoJob(
       // flip so clients see consistent data the moment the job succeeds.
       ...(localizedResult != null ? { localizedResult } : {}),
     });
+    if (job.options?.studioLipSync) {
+      const recovered = job.options.recovery?.sourceJobId != null;
+      recordStudioLipSyncEvent({
+        name: recovered
+          ? "studio_lipsync_recovery_completed"
+          : "studio_lipsync_finishing_succeeded",
+        tenantId: job.tenantId,
+        workflow: studioLipSyncWorkflow(job),
+        fundingRail: funding,
+        sceneCount: job.options.studioLipSync.plan.length,
+        outcome: recovered ? "recovered" : "succeeded",
+      });
+    }
     if (job.options?.guidedStoryDialogueReplay) {
       const replay = job.options.guidedStoryDialogueReplay;
       void recordServerEvent({
@@ -6282,6 +6299,16 @@ async function executeVideoJob(
           ),
           is_retry: job.options.recovery?.sourceJobId != null,
         },
+      });
+    }
+    if (job.options?.studioLipSync) {
+      recordStudioLipSyncEvent({
+        name: "studio_lipsync_finishing_failed",
+        tenantId: job.tenantId,
+        workflow: studioLipSyncWorkflow(job),
+        fundingRail: funding,
+        sceneCount: job.options.studioLipSync.plan.length,
+        outcome: "failed",
       });
     }
     const reservation = reservationFromRow(job);

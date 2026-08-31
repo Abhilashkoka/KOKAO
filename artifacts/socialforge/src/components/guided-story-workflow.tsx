@@ -32,7 +32,7 @@ import {
   type GuidedStoryVoiceCatalogItem,
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
-import { track } from "@/lib/analytics";
+import { track, trackStudioLipSyncSelection } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -693,8 +693,10 @@ export function GuidedStoryWorkflow({
                 !studioLipSyncCapability.ready
               }
               onCheckedChange={(checked) => {
-                setStudioLipSync(checked === true);
-                if (checked !== true) setStudioLipSyncConsent(false);
+                const enabled = checked === true;
+                setStudioLipSync(enabled);
+                if (!enabled) setStudioLipSyncConsent(false);
+                trackStudioLipSyncSelection("guided_story", enabled);
               }}
               data-testid="checkbox-guided-studio-lipsync"
             />
