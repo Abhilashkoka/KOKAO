@@ -238,6 +238,7 @@ export function GuidedStoryWorkflow({
   const [scriptEditorOpen, setScriptEditorOpen] = useState(false);
   const scriptEditorRef = useRef<HTMLDivElement>(null);
   const durationRef = useRef<HTMLDivElement>(null);
+  const guidedErrorSeenRef = useRef(new WeakSet<Element>());
   const [userRoleId, setUserRoleId] = useState<string | null>(null);
   const [userRoleChoiceMade, setUserRoleChoiceMade] = useState(false);
   const [strategy, setStrategy] = useState<"generated" | "saved">("generated");
@@ -368,6 +369,38 @@ export function GuidedStoryWorkflow({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [editing, runtimeGuidance]);
+  useEffect(() => {
+    const root = scriptEditorRef.current;
+    if (!root) return;
+    const guideToError = (alert: HTMLElement) => {
+      if (guidedErrorSeenRef.current.has(alert)) return;
+      guidedErrorSeenRef.current.add(alert);
+      alert.tabIndex = -1;
+      alert.classList.add("ring-2", "ring-destructive/40", "ring-offset-2");
+      const rect = alert.getBoundingClientRect();
+      const fullyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+      if (!fullyVisible) {
+        alert.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      alert.focus({ preventScroll: true });
+      window.setTimeout(() => {
+        alert.classList.remove("ring-2", "ring-destructive/40", "ring-offset-2");
+      }, 4_000);
+    };
+    const inspect = (node: Node) => {
+      if (!(node instanceof HTMLElement)) return;
+      if (node.matches('[role="alert"]')) guideToError(node);
+      node.querySelectorAll<HTMLElement>('[role="alert"]').forEach(guideToError);
+    };
+    root.querySelectorAll<HTMLElement>('[role="alert"]').forEach((alert) => {
+      guidedErrorSeenRef.current.add(alert);
+    });
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => mutation.addedNodes.forEach(inspect));
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     if (!contract) return;
     if (!contract.durations.includes(duration ?? -1)) setDuration(contract.durations[0] ?? null);
