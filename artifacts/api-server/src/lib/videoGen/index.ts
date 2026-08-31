@@ -370,6 +370,47 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
  * whose key is saved. Offering a model whose provider is unconfigured would
  * be offering a job that preflight is about to refuse.
  */
+export async function isCatalogVideoModelPriced(
+  provider: string,
+  nativeModel: string,
+): Promise<boolean | null> {
+  const matches = VIDEO_MODEL_CATALOG.filter(
+    (model) =>
+      model.provider === provider &&
+      (model.models.text === nativeModel || model.models.image === nativeModel),
+  );
+  if (matches.length === 0) return null;
+
+  for (const model of matches) {
+    for (const mode of ["text", "image"] as const) {
+      if (model.models[mode] !== nativeModel) continue;
+      const qualities = model.hasQuality ? ["basic", "high"] : [null];
+      const audioValues = model.canGenerateAudio ? [false, true] : [null];
+      for (const durationSec of model.durations) {
+        for (const resolution of model.resolutions) {
+          for (const quality of qualities) {
+            for (const generateAudio of audioValues) {
+              if (!(await isVideoModelPriced({
+                provider: model.provider,
+                model: nativeModel,
+                durationSec,
+                variantCriteria: videoPriceCriteria({
+                  resolution,
+                  quality,
+                  generateAudio,
+                }),
+              }).catch(() => false))) {
+                return false;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
 export async function availableVideoModels(
   options: { ignoreAllowlist?: boolean } = {},
 ): Promise<VideoModelDef[]> {
@@ -389,36 +430,15 @@ export async function availableVideoModels(
       configured.get(model.provider) !== true
     ) continue;
     let priced = true;
-    for (const mode of ["text", "image"] as const) {
-      const nativeModel = model.models[mode];
-      if (!nativeModel) continue;
-      const qualities = model.hasQuality ? ["basic", "high"] : [null];
-      const audioValues = model.canGenerateAudio ? [false, true] : [null];
-      for (const durationSec of model.durations) {
-        for (const resolution of model.resolutions) {
-          for (const quality of qualities) {
-            for (const generateAudio of audioValues) {
-              if (!(await isVideoModelPriced({
-                provider: model.provider,
-                model: nativeModel,
-                durationSec,
-                variantCriteria: videoPriceCriteria({
-                  resolution,
-                  quality,
-                  generateAudio,
-                }),
-              }).catch(() => false))) {
-                priced = false;
-                break;
-              }
-            }
-            if (!priced) break;
-          }
-          if (!priced) break;
-        }
-        if (!priced) break;
+    for (const nativeModel of new Set(
+      [model.models.text, model.models.image].filter(
+        (candidate): candidate is string => Boolean(candidate),
+      ),
+    )) {
+      if ((await isCatalogVideoModelPriced(model.provider, nativeModel)) !== true) {
+        priced = false;
+        break;
       }
-      if (!priced) break;
     }
     if (priced) available.push(model);
   }

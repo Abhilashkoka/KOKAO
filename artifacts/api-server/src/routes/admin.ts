@@ -95,6 +95,7 @@ import {
   clearStoredVideoGenKey,
   resolveVideoGenProviderDef,
   availableVideoModels,
+  isCatalogVideoModelPriced,
 } from "../lib/videoGen";
 import {
   VIDEO_MODEL_CATALOG,
@@ -1611,12 +1612,16 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     if (def.id !== "nvidia") {
       const unpriced = [];
       for (const model of [effectiveTextToVideo, effectiveImageToVideo]) {
-        if (!(await isVideoModelPriced({
-          provider: def.id,
-          model,
-          durationSec: 5,
-          variantCriteria: {},
-        }).catch(() => false))) {
+        const catalogPriced = await isCatalogVideoModelPriced(def.id, model);
+        const priced =
+          catalogPriced ??
+          (await isVideoModelPriced({
+            provider: def.id,
+            model,
+            durationSec: 5,
+            variantCriteria: {},
+          }).catch(() => false));
+        if (!priced) {
           unpriced.push(model);
         }
       }

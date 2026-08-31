@@ -98,8 +98,24 @@ vi.mock("../lib/replicateCatalog", () => ({
       model,
       usdPerImage:
         model === "kokaotest/priced-image" || model === "kokaotest/both-image" ? 0.02 : null,
-      usdPerSecond: model === "kokaotest/priced-video" ? 0.4 : null,
+      usdPerSecond:
+        model === "kokaotest/priced-video" || model === "google/veo-3" ? 0.4 : null,
       usdPerVideo: null,
+      entries:
+        model === "google/veo-3"
+          ? [
+              {
+                price: "$0.40",
+                title: "per second of output video",
+                criteria: { generateAudio: true },
+              },
+              {
+                price: "$0.20",
+                title: "per second of output video",
+                criteria: { generateAudio: false },
+              },
+            ]
+          : [],
     }));
   }),
 }));
@@ -533,6 +549,17 @@ describe("PUT /admin/video-gen-settings pricing gate", () => {
       );
     expect(row).toBeTruthy();
     expect(row.usdPerSecond).toBe(0.4);
+  });
+
+  it("activates a catalog model when all of its conditional price variants are synced", async () => {
+    const res = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "replicate",
+      textToVideoModel: "google/veo-3",
+      imageToVideoModel: "google/veo-3",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.textToVideoModel).toBe("google/veo-3");
+    expect(res.body.imageToVideoModel).toBe("google/veo-3");
   });
 
   it("refuses an unpriced video model, naming the engine that lacks pricing", async () => {
