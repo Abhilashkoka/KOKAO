@@ -1404,6 +1404,9 @@ export function VideoGenProviderCard() {
   const [keyInput, setKeyInput] = useState("");
   const [textModelInput, setTextModelInput] = useState<string | null>(null);
   const [imageModelInput, setImageModelInput] = useState<string | null>(null);
+  const [portraitLipSyncModelInput, setPortraitLipSyncModelInput] = useState<
+    string | null
+  >(null);
   const [draftProvider, setDraftProvider] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -1421,6 +1424,7 @@ export function VideoGenProviderCard() {
     setDraftProvider(null);
     setTextModelInput(null);
     setImageModelInput(null);
+    setPortraitLipSyncModelInput(null);
   }, [savedProvider]);
 
   // While drafting a different provider, the saved models belong to the
@@ -1429,14 +1433,27 @@ export function VideoGenProviderCard() {
     draftProvider !== null && settings !== undefined && draftProvider !== settings.provider;
   const textModelValue = textModelInput ?? (isDraft ? "" : (settings?.textToVideoModel ?? ""));
   const imageModelValue = imageModelInput ?? (isDraft ? "" : (settings?.imageToVideoModel ?? ""));
+  const portraitLipSyncModelValue =
+    portraitLipSyncModelInput ?? (settings?.lipSyncPortraitModel ?? "");
 
-  const saveSelection = (provider: string, textModel: string, imageModel: string) => {
+  const saveSelection = (
+    provider: string,
+    textModel: string,
+    imageModel: string,
+    portraitLipSyncModel?: string,
+  ) => {
     updateSettings.mutate(
       {
         data: {
           provider,
           textToVideoModel: textModel.trim() || null,
           imageToVideoModel: imageModel.trim() || null,
+          ...(portraitLipSyncModel === undefined
+            ? {}
+            : {
+                lipSyncPortraitModel:
+                  portraitLipSyncModel.trim() || null,
+              }),
         },
       },
       {
@@ -1445,6 +1462,7 @@ export function VideoGenProviderCard() {
           setDraftProvider(null);
           setTextModelInput(null);
           setImageModelInput(null);
+          setPortraitLipSyncModelInput(null);
           const chosen = result.providers.find((p) => p.id === result.provider);
           toast({
             title: "Video settings updated",
@@ -1724,9 +1742,34 @@ export function VideoGenProviderCard() {
                     </p>
                   )}
                 </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    Portrait Lip-sync model
+                  </p>
+                  <Input
+                    placeholder="owner/model-name or owner/model-name:version"
+                    value={portraitLipSyncModelValue}
+                    onChange={(e) =>
+                      setPortraitLipSyncModelInput(e.target.value)
+                    }
+                    className="w-96"
+                    data-testid="input-video-gen-portrait-lipsync-model"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Replicate model used by Video Studio → Spokesperson → A
+                    photo. Leave empty to disable portrait lip-sync.
+                  </p>
+                </div>
                 <Button
                   size="sm"
-                  onClick={() => saveSelection(effectiveProvider, textModelValue, imageModelValue)}
+                  onClick={() =>
+                    saveSelection(
+                      effectiveProvider,
+                      textModelValue,
+                      imageModelValue,
+                      portraitLipSyncModelValue,
+                    )
+                  }
                   disabled={updateSettings.isPending}
                   data-testid="button-save-video-gen-settings"
                 >

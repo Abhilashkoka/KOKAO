@@ -186,6 +186,7 @@ describe("video provider validation guidance", () => {
       provider: "replicate",
       textToVideoModel: null,
       imageToVideoModel: null,
+      lipSyncPortraitModel: "owner/talking-head:version",
       providers: [
         {
           id: "replicate",
@@ -222,6 +223,13 @@ describe("video provider validation guidance", () => {
     expect(
       screen.getAllByText(/Missing Replicate price — cannot activate/).length,
     ).toBeGreaterThan(0);
+    expect(
+      (
+        screen.getByTestId(
+          "input-video-gen-portrait-lipsync-model",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("owner/talking-head:version");
   });
 });
 
