@@ -8143,6 +8143,9 @@ function StoryboardReview({
   const guidedPreviewRendering =
     guidedPreviewRender?.state === "queued" ||
     guidedPreviewRender?.state === "running";
+  const guidedPreviewOutcomeUncertain =
+    guidedPreviewRender?.state === "failed" &&
+    /uncertain provider outcome/i.test(guidedPreviewRender.error ?? "");
   const guidedCorrectionActive = guidedScenes.some((scene) =>
     (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
       ["queued", "running", "provider_started", "provider_succeeded"].includes(attempt.state)),
@@ -9287,7 +9290,7 @@ function StoryboardReview({
       </Dialog>
 
       <div className="flex flex-wrap items-center gap-2">
-        {guidedStoryboard && missingGuidedPreviewCount > 0 && (
+        {guidedStoryboard && missingGuidedPreviewCount > 0 && !guidedPreviewOutcomeUncertain && (
           <Button
             variant="outline"
             disabled={workingOn || rollingScene !== null || guidedPreviewRendering}
@@ -9359,7 +9362,7 @@ function StoryboardReview({
           }
           data-testid="button-discard-storyboard"
         >
-          <Trash2 className="h-4 w-4 mr-2" /> Discard
+          <Trash2 className="h-4 w-4 mr-2" /> {guidedPreviewOutcomeUncertain ? "Discard uncertain storyboard and rebuild" : "Discard"}
         </Button>
         <p className="text-xs text-muted-foreground">
           Unrendered storyboards are dropped after a day.
@@ -9381,7 +9384,14 @@ function StoryboardReview({
                   : `All ${guidedPreviewRender.total} guided previews are ready to review`}
           </p>
           {guidedPreviewRender.state === "failed" && guidedPreviewRender.error && (
-            <p className="text-destructive">{guidedPreviewRender.error}</p>
+            guidedPreviewOutcomeUncertain ? (
+              <div className="rounded-md border border-amber-500/40 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/20 dark:text-amber-100" role="alert" data-testid="error-guided-preview-uncertain">
+                <p className="font-medium">The image provider did not confirm whether this scene finished.</p>
+                <p className="mt-1">KOKAO will not retry it automatically because that could create and charge for the same scene twice. To continue safely, choose <b>Discard uncertain storyboard and rebuild</b>. Your approved story and references remain available for the new attempt.</p>
+              </div>
+            ) : (
+              <p className="text-destructive" role="alert">{guidedPreviewRender.error}</p>
+            )
           )}
         </div>
       )}

@@ -4512,6 +4512,45 @@ describe("Video Studio", () => {
     );
   });
 
+  it("guides uncertain preview outcomes to the safe rebuild action", async () => {
+    const board = guidedReviewBoard();
+    (board.scenes as any[])[0] = {
+      ...board.scenes[0]!,
+      previewPath: null,
+      previewCheckpoint: {
+        targetPath: "/objects/1/uploads/uncertain.png",
+        status: "provider_started",
+      },
+    };
+    mockState.activeJob = {
+      ...pausedJob(board),
+      guidedPreviewRender: {
+        version: 1,
+        operationId: "guided-preview:11:uncertain",
+        state: "failed",
+        total: board.scenes.length,
+        completed: board.scenes.length - 1,
+        error:
+          "Guided Story scene scene1 has an uncertain provider outcome. It was not regenerated to avoid a duplicate charge.",
+        retryable: true,
+        requestedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      },
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+
+    expect(
+      (await screen.findByTestId("error-guided-preview-uncertain")).textContent,
+    ).toContain("will not retry it automatically");
+    expect(screen.queryByTestId("button-render-missing-guided-previews")).toBeNull();
+    expect(screen.getByTestId("button-discard-storyboard").textContent).toContain(
+      "Discard uncertain storyboard and rebuild",
+    );
+  });
+
   it("does not render stale text when a newer edit arrives during the render save", async () => {
     mockState.activeJob = pausedJob(narratedBoard());
     mockState.jobs = [mockState.activeJob];
