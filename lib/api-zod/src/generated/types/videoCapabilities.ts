@@ -6,9 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CharacterDialogueLocale } from './characterDialogueLocale';
+import type { VideoCapabilitiesStudioLipSync } from './videoCapabilitiesStudioLipSync';
 import type { VideoCostModels } from './videoCostModels';
 
 export interface VideoCapabilities {
   characterDialogueLocales: CharacterDialogueLocale[];
   costModels: VideoCostModels;
+  studioLipSync: VideoCapabilitiesStudioLipSync;
 }

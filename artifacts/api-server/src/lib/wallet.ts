@@ -860,6 +860,10 @@ export async function refundFailedVideoJobWallet(
       .for("update")
       .limit(1);
     if (!job || job.status !== "failed" || job.funding !== "wallet") return;
+    const preserveProvenStudioReceipts =
+      (job.options?.studioLipSync?.checkpoint?.scenes ?? []).some(
+        (scene) => scene.event,
+      ) || Boolean(job.options?.studioLipSync?.checkpoint?.event);
 
     const ownsRef = (refKind: string | null, refId: string | null): boolean =>
       refKind === "videoJob" &&
@@ -970,7 +974,10 @@ export async function refundFailedVideoJobWallet(
             inArray(walletLedgerTable.kind, ["settle", "refund", "true_up"]),
           ),
         );
-      if (!lifecycle.some((row) => row.kind === "refund")) {
+      if (
+        !lifecycle.some((row) => row.kind === "refund") &&
+        !(preserveProvenStudioReceipts && lifecycle.some((row) => row.kind === "settle"))
+      ) {
         const netDelta =
           reserve.amountPaise +
           lifecycle.reduce((sum, row) => sum + row.amountPaise, 0);

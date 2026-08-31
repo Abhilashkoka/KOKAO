@@ -33,6 +33,8 @@ export interface VideoGenSettingsView {
      * @nullable
      */
   lipSyncPortraitModel?: string | null;
+  /** Initial value of the explicit optional Studio lip-sync control. */
+  studioLipSyncDefault: boolean;
   /**
      * The current per-generation model allowlist; null = every catalog model is offered.
      * @nullable

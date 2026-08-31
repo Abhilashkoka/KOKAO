@@ -6453,6 +6453,31 @@ describe("lip-sync (spokesperson) videos", () => {
     expect(textGenState.lastSpokespersonPrompt).toMatch(/Telugu|te-IN/i);
   });
 
+  it("makes optional Studio lip-sync ready only when Replicate is configured and exactly priced", async () => {
+    await newTenant();
+    await db.insert(featureFlagsTable)
+      .values({ feature: "studioLipSync", enabled: true })
+      .onConflictDoUpdate({
+        target: featureFlagsTable.feature,
+        set: { enabled: true },
+      });
+    const restorePrice = await installVideoTestPrice("bytedance/latentsync");
+    try {
+      const response = await request(app).get("/api/ai/video-capabilities");
+      expect(response.status).toBe(200);
+      const configured = await isVideoGenProviderConfigured(
+        getVideoGenProviderDef("replicate")!,
+      );
+      expect(response.body.studioLipSync).toEqual(
+        expect.objectContaining({ enabled: true, ready: configured }),
+      );
+    } finally {
+      await restorePrice();
+      await db.delete(featureFlagsTable)
+        .where(eq(featureFlagsTable.feature, "studioLipSync"));
+    }
+  });
+
   it("rejects a blank or undersized spokesperson topic", async () => {
     await newTenant();
     const res = await request(app)
@@ -7548,7 +7573,19 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, response.body.id)),
     ]);
     expect(sourceAfter[0]?.storyboard).toEqual(immutableSnapshot);
-    expect(child[0]?.storyboard).toEqual(immutableSnapshot);
+    const inheritedSnapshot = structuredClone(immutableSnapshot);
+    for (const scene of inheritedSnapshot.scenes) {
+      if (scene.providerCheckpoint?.event) {
+        scene.providerCheckpoint.event.accounted = true;
+      }
+      if (scene.previewCheckpoint?.event) {
+        scene.previewCheckpoint.event.accounted = true;
+      }
+      for (const event of scene.previewCheckpoint?.events ?? []) {
+        event.accounted = true;
+      }
+    }
+    expect(child[0]?.storyboard).toEqual(inheritedSnapshot);
     expect(child[0]?.storyboard).not.toBe(sourceAfter[0]?.storyboard);
     expect(child[0]?.options?.resolvedVideoModel).toEqual(immutableModel);
     expect(child[0]?.options?.resolvedVideoModel?.model).not.toBe("google/veo-3");
@@ -8429,12 +8466,28 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
     const child = await readJob(retried.body.id);
     expect(child.storyboard?.scenes[1]?.visual).toBe("corrected missing-scene direction");
     expect(child.storyboard?.scenes[0]?.previewPath).toBe(board.scenes[0]!.previewPath);
-    expect(child.storyboard?.scenes[0]?.previewCheckpoint).toEqual(
-      board.scenes[0]!.previewCheckpoint,
-    );
-    expect(child.storyboard?.scenes[0]?.providerCheckpoint).toEqual(
-      board.scenes[0]!.providerCheckpoint,
-    );
+    expect(child.storyboard?.scenes[0]?.previewCheckpoint).toEqual({
+      ...board.scenes[0]!.previewCheckpoint,
+      events: board.scenes[0]!.previewCheckpoint!.events?.map((event) => ({
+        ...event,
+        accounted: true,
+      })),
+      ...(board.scenes[0]!.previewCheckpoint!.event
+        ? {
+            event: {
+              ...board.scenes[0]!.previewCheckpoint!.event,
+              accounted: true,
+            },
+          }
+        : {}),
+    });
+    expect(child.storyboard?.scenes[0]?.providerCheckpoint).toEqual({
+      ...board.scenes[0]!.providerCheckpoint,
+      event: {
+        ...board.scenes[0]!.providerCheckpoint!.event,
+        accounted: true,
+      },
+    });
   });
 
   it("serializes concurrent missing-scene edits so neither correction is lost", async () => {

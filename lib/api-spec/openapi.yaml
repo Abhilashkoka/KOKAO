@@ -17142,6 +17142,12 @@ components:
         consentGranted:
           type: boolean
           description: Fresh confirmation for this generation attempt when the cast includes saved people or voices.
+        studioLipSync:
+          type: boolean
+          description: Explicitly request optional lip-sync for eligible single-speaker scenes.
+        studioLipSyncConsent:
+          type: boolean
+          description: Fresh authorization for the visible likeness and approved voice.
     GuidedStoryLineTranslationInput:
       type: object
       additionalProperties: false
@@ -17939,6 +17945,19 @@ components:
             Replicate's official sync/lipsync-2 model and must have a real
             catalog price before the request can be funded. Portrait lip sync
             and localized dubbing remain on their configured/standard models.
+        studioLipSync:
+          type: boolean
+          description: >-
+            Explicit per-job request for the shared Studio lip-sync finishing
+            stage. The server validates compatibility and consent, then freezes
+            its model, price, speaker and scene plan before funding. Dedicated
+            lip_sync and dialogue_lip_sync modes reject this field.
+        studioLipSyncConsent:
+          type: boolean
+          default: false
+          description: >-
+            Must be true when studioLipSync is true. Confirms authorization for
+            both the visible person's likeness and the job's approved voice.
         localizedTrack:
           $ref: "#/components/schemas/LocalizedDubTrackInput"
           description: >-
@@ -18883,6 +18902,18 @@ components:
             quality: { type: ["string", "null"] }
             generateAudio: { type: ["boolean", "null"] }
             supportsEndFrame: { type: boolean }
+        studioLipSync:
+          type: ["object", "null"]
+          description: Server-resolved optional finishing snapshot; null when not requested.
+          required: [provider, model, estimatedAdditionalPaise, sceneCount, state]
+          properties:
+            provider: { type: string }
+            model: { type: string }
+            estimatedAdditionalPaise: { type: integer, minimum: 0 }
+            sceneCount: { type: integer, minimum: 0 }
+            state:
+              type: string
+              enum: [prepared, provider_succeeded, complete]
         resolution:
           type: ["string", "null"]
           description: The resolution this job was created with, or null.
@@ -19157,7 +19188,7 @@ components:
           enum: [narration, music, captions, scene_timing, audio_visual]
     VideoCapabilities:
       type: object
-      required: [characterDialogueLocales, costModels]
+      required: [characterDialogueLocales, costModels, studioLipSync]
       properties:
         characterDialogueLocales:
           type: array
@@ -19165,6 +19196,19 @@ components:
             $ref: "#/components/schemas/CharacterDialogueLocale"
         costModels:
           $ref: "#/components/schemas/VideoCostModels"
+        studioLipSync:
+          type: object
+          required: [enabled, defaultOn, ready, model, compatibleEngines]
+          properties:
+            enabled: { type: boolean }
+            defaultOn: { type: boolean }
+            ready: { type: boolean }
+            model: { type: string }
+            compatibleEngines:
+              type: array
+              items:
+                type: string
+                enum: [text_to_video, image_to_video, topic_to_video, guided_story]
     VideoCostModels:
       type: object
       description: >-
@@ -19398,7 +19442,7 @@ components:
       type: object
       required:
         [provider, textToVideoModel, imageToVideoModel, providers, stockSources,
-         replicatePricingModels]
+         replicatePricingModels, studioLipSyncDefault]
       properties:
         pricingWarning:
           type: ["string", "null"]
@@ -19419,6 +19463,9 @@ components:
           type: ["string", "null"]
           description: >-
             The configured portrait lip-sync model; null = portrait mode off.
+        studioLipSyncDefault:
+          type: boolean
+          description: Initial value of the explicit optional Studio lip-sync control.
         enabledModelIds:
           type: ["array", "null"]
           description: >-
@@ -20228,6 +20275,9 @@ components:
             is no default: video-mode lip sync is pinned in source, but a
             portrait model has to be chosen deliberately, and a guessed slug
             would 404 on the first paid job.
+        studioLipSyncDefault:
+          type: boolean
+          description: Admin default for new compatible jobs; each job remains an explicit choice.
         enabledModelIds:
           type: ["array", "null"]
           description: >-
@@ -22246,6 +22296,7 @@ components:
           imageLooks,
           providerScoring,
           lipSync,
+          studioLipSync,
         ]
       properties:
         aiStudio:
@@ -22337,6 +22388,8 @@ components:
         providerScoring:
           type: boolean
         lipSync:
+          type: boolean
+        studioLipSync:
           type: boolean
     AiSpendSettingsView:
       type: object

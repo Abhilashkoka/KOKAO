@@ -259,6 +259,13 @@ function durableCheckpointEvents(options: VideoGeneration["options"]): VideoProv
     ...(options?.renderCheckpoint?.providerEvents ?? []),
     ...(options?.recovery?.rendered?.providerEvents ?? []),
     ...(options?.musicCheckpoint?.event ? [options.musicCheckpoint.event] : []),
+    ...(options?.studioLipSync?.checkpoint?.event &&
+    !options.studioLipSync.checkpoint.scenes?.length
+      ? [options.studioLipSync.checkpoint.event]
+      : []),
+    ...(options?.studioLipSync?.checkpoint?.scenes?.flatMap((scene) =>
+      scene.event ? [scene.event] : [],
+    ) ?? []),
   ];
 }
 
@@ -5463,6 +5470,184 @@ async function shouldApplyAppWatermark(tenantId: number): Promise<boolean> {
   return await isFeatureEnabled("freeWatermark").catch(() => true);
 }
 
+async function extractNativeAudio(video: Buffer): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "kokao-studio-lipsync-"));
+  try {
+    await writeFile(join(dir, "base.mp4"), video);
+    await runFfmpeg([
+      "-y",
+      "-i",
+      "base.mp4",
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      "24000",
+      "-c:a",
+      "pcm_s16le",
+      "native.wav",
+    ], dir);
+    return await readLocalFile(join(dir, "native.wav"));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function extractStudioLipSyncSegment(
+  video: Buffer,
+  startSec: number,
+  durationSec: number,
+): Promise<Buffer> {
+  if (startSec <= 0 && !Number.isFinite(durationSec)) return video;
+  const dir = await mkdtemp(join(tmpdir(), "kokao-studio-lipsync-segment-"));
+  try {
+    await writeFile(join(dir, "base.mp4"), video);
+    await runFfmpeg([
+      "-y", "-ss", Math.max(0, startSec).toFixed(3), "-i", "base.mp4",
+      "-t", Math.max(0.1, durationSec).toFixed(3),
+      "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-c:a", "aac",
+      "-movflags", "+faststart", "segment.mp4",
+    ], dir);
+    return await readLocalFile(join(dir, "segment.mp4"));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Shared post-render finishing pass. Its input audio is extracted from the
+ * completed base render, so approved narration/dialogue timing remains the
+ * only timing authority. Dedicated lip-sync engines never enter this stage.
+ */
+async function finishWithStudioLipSync(
+  job: VideoGeneration,
+  base: Buffer,
+  baseEvents: VideoProviderEvent[],
+  onStage: (stage: string) => void,
+): Promise<{ buffer: Buffer; events: VideoProviderEvent[] }> {
+  const snapshot = job.options?.studioLipSync;
+  if (!snapshot) return { buffer: base, events: [] };
+  if (job.engine === "lip_sync" || job.engine === "dialogue_lip_sync") {
+    throw new VideoJobInputError("A dedicated lip-sync job cannot run the optional finishing pass.");
+  }
+  if (snapshot.checkpoint?.state === "complete" && snapshot.checkpoint.outputPath) {
+    return {
+      buffer: (
+        await loadTenantObject(
+          snapshot.checkpoint.outputPath,
+          job.tenantId,
+          MAX_SOURCE_VIDEO_BYTES,
+          "Saved optional lip-sync output",
+        )
+      ).buffer,
+      events: snapshot.checkpoint.scenes?.flatMap((scene) => scene.event ? [scene.event] : []) ??
+        (snapshot.checkpoint.event ? [snapshot.checkpoint.event] : []),
+    };
+  }
+  // Retain the completed base before the optional provider starts. A finishing
+  // failure can therefore be recovered or surfaced without regenerating scenes.
+  const basePath = await uploadToStorage(job.tenantId, base, "video/mp4");
+  const latest = (
+    await db.select({ options: videoGenerationsTable.options })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, job.id))
+      .limit(1)
+  )[0];
+  const preparedOptions = structuredClone(latest?.options ?? job.options!);
+  preparedOptions.renderCheckpoint = {
+    stage: "final",
+    path: basePath,
+    provider: null,
+    model: null,
+    durationSec: snapshot.plan.reduce((sum, scene) => sum + scene.durationSec, 0),
+    providerEvents: baseEvents,
+  };
+  const sceneCheckpoints = new Map(
+    (snapshot.checkpoint?.scenes ?? []).map((scene) => [scene.sceneId, scene]),
+  );
+  preparedOptions.studioLipSync = {
+    ...snapshot,
+    checkpoint: { state: "prepared", scenes: snapshot.plan.map((scene) =>
+      sceneCheckpoints.get(scene.sceneId) ?? { sceneId: scene.sceneId, state: "prepared" },
+    ) },
+  };
+  await setJob(job.id, { options: preparedOptions });
+
+  const clips: Buffer[] = [];
+  let cursor = 0;
+  let latestOptions = preparedOptions;
+  for (const scene of snapshot.plan) {
+    const existing = latestOptions.studioLipSync?.checkpoint?.scenes?.find(
+      (item) => item.sceneId === scene.sceneId,
+    );
+    const startSec = scene.startSec ?? cursor;
+    const endSec = scene.endSec ?? startSec + scene.durationSec;
+    if (startSec > cursor) clips.push(await extractStudioLipSyncSegment(base, cursor, startSec - cursor));
+    if (existing?.state === "complete" && existing.outputPath) {
+      clips.push((await loadTenantObject(existing.outputPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved optional lip-sync scene")).buffer);
+    } else {
+      if (existing?.state === "provider_succeeded") {
+        throw new VideoGenProviderError(`Optional lip-sync scene ${scene.sceneId} succeeded but its output was not retained; it will not be charged twice.`);
+      }
+      // A kill switch is intentionally checked immediately before each paid
+      // dispatch, not only when the job was accepted.
+      if (!(await isFeatureEnabled("studioLipSync"))) {
+        throw new VideoJobInputError("Optional Studio lip-sync was turned off before provider dispatch.");
+      }
+      onStage(`Syncing eligible scene ${scene.sceneId} for video #${job.id}`);
+      const source = await extractStudioLipSyncSegment(base, startSec, endSec - startSec);
+      const audio = await extractNativeAudio(source);
+      const replicateDef = getVideoGenProviderDef("replicate");
+      const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+      const result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
+      // Persist the durable provider receipt before *any* fallible work on the
+      // returned bytes. A QA/upload crash is therefore a hard no-redispatch
+      // barrier for this exact scene.
+      const receiptEvent: VideoProviderEvent = {
+        eventId: videoProviderEventId(job, `studio_lip_sync:${scene.sceneId}`), provider: snapshot.provider, model: snapshot.model,
+        durationSec: scene.durationSec,
+        requestBytes: source.byteLength + audio.byteLength, label: `studio_lip_sync:${scene.sceneId}`,
+        criteria: videoPriceCriteria({ hasReferenceVideo: true }),
+        costPaise: scene.estimatedPricePaise,
+      };
+      const providerScenes = latestOptions.studioLipSync!.checkpoint!.scenes!.map((item) => item.sceneId === scene.sceneId ? { ...item, state: "provider_succeeded" as const, event: receiptEvent } : item);
+      latestOptions = structuredClone(latestOptions);
+      latestOptions.studioLipSync = { ...snapshot, checkpoint: { state: "prepared", scenes: providerScenes } };
+      await setJob(job.id, { options: latestOptions });
+      const durationSec = (await verifyRenderedVideo(result.buffer, { minDurationSec: 0.1, label: "optional Studio lip-sync output" })).durationSec;
+      const event: VideoProviderEvent = {
+        ...receiptEvent,
+        durationSec,
+        // Catalog price is immutable for this job: an admin price edit after
+        // enqueue cannot change this acknowledged provider receipt.
+        costPaise: scene.estimatedPricePaise,
+      };
+      const outputPath = await uploadToStorage(job.tenantId, result.buffer, "video/mp4");
+      latestOptions.studioLipSync!.checkpoint!.scenes = providerScenes.map((item) => item.sceneId === scene.sceneId ? { ...item, state: "complete" as const, outputPath, event } : item);
+      await setJob(job.id, { options: latestOptions });
+      clips.push(result.buffer);
+    }
+    cursor = endSec;
+  }
+  // Guided plans can intentionally skip ambiguous scenes; keep those base
+  // intervals byte-for-byte out of the provider path.
+  const baseDurationSec = Math.max(
+    cursor,
+    job.options?.guidedStory?.platform.durationSeconds ?? 0,
+    (job.durationMs ?? 0) / 1000,
+    ...snapshot.plan.map((scene) => scene.endSec ?? 0),
+  );
+  if (cursor < baseDurationSec) {
+    clips.push(await extractStudioLipSyncSegment(base, cursor, baseDurationSec - cursor));
+  }
+  const output = clips.length === 1 ? clips[0]! : await concatClips(clips);
+  const events = latestOptions.studioLipSync!.checkpoint!.scenes!.flatMap((scene) => scene.event ? [scene.event] : []);
+  const outputPath = await uploadToStorage(job.tenantId, output, "video/mp4");
+  latestOptions.studioLipSync = { ...snapshot, checkpoint: { state: "complete", outputPath, event: events[events.length - 1], scenes: latestOptions.studioLipSync!.checkpoint!.scenes } };
+  await setJob(job.id, { options: latestOptions });
+  return { buffer: output, events };
+}
+
 async function executeVideoJob(
   job: VideoGeneration,
   funding: "quota" | "credit" | "wallet",
@@ -5507,6 +5692,15 @@ async function executeVideoJob(
       !(await isFeatureEnabled(modeFeature).catch(() => true))
     ) {
       throw new VideoJobInputError(VIDEO_MODE_DISABLED_MESSAGES[modeFeature]);
+    }
+    // This is intentionally before produceVideo: an optional snapshot carries
+    // an extra paid operation, so its own emergency switch must prevent even
+    // base provider work from beginning after it is disabled.
+    if (
+      job.options?.studioLipSync &&
+      !(await isFeatureEnabled("studioLipSync").catch(() => true))
+    ) {
+      throw new VideoJobInputError("Optional Studio lip-sync is currently turned off.");
     }
     const savedRender =
       job.options?.renderCheckpoint ??
@@ -5556,7 +5750,7 @@ async function executeVideoJob(
         ) ?? []),
     ].filter((event, index, all) =>
       all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
-    );
+    ).filter((event) => event.accounted !== true);
 
     // The storyboard pause. Nothing is metered and nothing is refunded: the
     // reservation stays reserved against the render the user is about to
@@ -5578,7 +5772,7 @@ async function executeVideoJob(
     // Quality gate: never deliver (or charge for) a broken render. A failure
     // here throws VideoGenProviderError and lands in the refund path below.
     onStage("Running quality checks");
-    const { durationSec: clipDurationSec } = await verifyRenderedVideo(buffer, qa);
+    let { durationSec: clipDurationSec } = await verifyRenderedVideo(buffer, qa);
     // Engines that return one provider render rather than a scene event list
     // still need a durable event before any downstream storage/DB operation.
     // Otherwise an upload failure could refund work the provider completed.
@@ -5616,6 +5810,31 @@ async function executeVideoJob(
         }).catch(() => null),
       }];
     }
+    if (job.options?.studioLipSync) {
+      const finished = await finishWithStudioLipSync(
+        job,
+        buffer,
+        completedProviderEvents,
+        onStage,
+      );
+      buffer = finished.buffer;
+      if (finished.events.length > 0) {
+        completedProviderEvents = [
+          ...completedProviderEvents,
+          ...finished.events,
+        ].filter((event, index, all) =>
+          all.findIndex((candidate) =>
+            candidate.eventId === event.eventId && candidate.label === event.label
+          ) === index
+        );
+      }
+      clipDurationSec = (
+        await verifyRenderedVideo(buffer, {
+          ...qa,
+          label: "optional Studio lip-sync output",
+        })
+      ).durationSec;
+    }
 
     // Plans with the watermark switch ON get a "Made with KOKAO.in" pill in
     // the corner, subject to the platform-wide kill switch. Every step fails
@@ -5626,7 +5845,10 @@ async function executeVideoJob(
     }
 
     onStage("Saving to your library");
-    let videoPath = savedRender?.path ?? null;
+    let videoPath =
+      job.options?.studioLipSync?.checkpoint?.state === "complete"
+        ? (job.options.studioLipSync.checkpoint.outputPath ?? null)
+        : (savedRender?.path ?? null);
     if (!videoPath) {
       videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
       const latest = (
@@ -5896,9 +6118,14 @@ async function executeVideoJob(
             ...previewCheckpointEvents(scene.previewCheckpoint),
           ],
         ) ?? []),
-    ].filter((event, index, all) =>
-      all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
-    );
+    ]
+      // Recovery children inherit durable receipts from their source with
+      // accounted=true. They are reusable checkpoints, not new provider work,
+      // so a failed child must never record or settle them again.
+      .filter((event) => event.accounted !== true)
+      .filter((event, index, all) =>
+        all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
+      );
     const surfacedError = partialWork?.cause ?? error;
     const message =
       surfacedError instanceof ImageGenProviderError
@@ -5986,6 +6213,13 @@ async function executeVideoJob(
         for (const event of failedOptions.renderCheckpoint?.providerEvents ?? []) {
           if (labels.has(event.label)) event.accounted = true;
         }
+        const studioLipSyncEvent = failedOptions.studioLipSync?.checkpoint?.event;
+        if (studioLipSyncEvent && labels.has(studioLipSyncEvent.label)) {
+          studioLipSyncEvent.accounted = true;
+        }
+        for (const scene of failedOptions.studioLipSync?.checkpoint?.scenes ?? []) {
+          if (scene.event && labels.has(scene.event.label)) scene.event.accounted = true;
+        }
         if (failedOptions.musicCheckpoint?.event && labels.has(failedOptions.musicCheckpoint.event.label)) {
           failedOptions.musicCheckpoint.event.accounted = true;
         }
@@ -6027,6 +6261,9 @@ async function executeVideoJob(
         providerRequestId: baseHistory.providerRequestId,
         errorHistory,
         durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
+        ...(failedOptions?.studioLipSync && failedOptions.renderCheckpoint?.path
+          ? { videoPath: failedOptions.renderCheckpoint.path }
+          : {}),
         ...(failedOptions ? { options: failedOptions } : {}),
         ...(failedStoryboard ? { storyboard: failedStoryboard } : {}),
       }).where(eq(videoGenerationsTable.id, jobId));
@@ -6091,6 +6328,41 @@ async function executeVideoJob(
       );
     }
     if (reservation) {
+      // Settle every durable, as-yet-unaccounted receipt (base render,
+      // keyframe/music, and optional Studio scenes alike) before releasing
+      // unused held capacity. A receipt with an unknown catalog cost cannot
+      // be silently invented; its durable settlement retry owns that case.
+      const provenCost = partialEvents.every((event) => event.costPaise !== null)
+        ? partialEvents.reduce((sum, event) => sum + event.costPaise!, 0)
+        : null;
+      if (provenCost !== null && provenCost > 0) {
+        try {
+          const heldReservations = await videoJobWalletReservations(job);
+          let remaining = await exactChargePaise(provenCost);
+          for (const held of heldReservations) {
+            const targetChargePaise = Math.min(held.amountPaise, remaining);
+            await settleWalletDurably(
+              job.tenantId,
+              held,
+              {
+                kind: "video",
+                costPaise: provenCost,
+                provider: partialEvents[0]?.provider ?? "unknown",
+                model: partialEvents[0]?.model ?? "unknown",
+                refKind: "videoJob",
+                refId: String(jobId),
+              },
+              { targetChargePaise },
+            );
+            remaining -= targetChargePaise;
+          }
+          if (remaining > 0) {
+            throw new Error(`Proven Studio receipts exceed reserved funding by ${remaining} paise`);
+          }
+        } catch (err) {
+          logger.error({ err, jobId }, "Failed to settle proven partial video receipts");
+        }
+      }
       await refundFailedVideoJobWallet(jobId, "video generation failed").catch(
         (err) => logger.error({ err, jobId }, "Failed to zero failed video job wallet charge"),
       );

@@ -912,6 +912,9 @@ export function VideoStudioPage() {
   const [stylesOpen, setStylesOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [reviewStoryboard, setReviewStoryboard] = useState(true);
+  const [studioLipSync, setStudioLipSync] = useState(false);
+  const [studioLipSyncConsent, setStudioLipSyncConsent] = useState(false);
+  const studioLipSyncDefaultApplied = useRef(false);
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [boardOpen, setBoardOpen] = useState(false);
@@ -1226,10 +1229,15 @@ export function VideoStudioPage() {
   const { data: videoCapabilities } = useGetVideoCapabilities({
     query: {
       queryKey: getGetVideoCapabilitiesQueryKey(),
-      enabled: flags.lipSync,
+      enabled: true,
       staleTime: Infinity,
     },
   });
+  useEffect(() => {
+    if (!videoCapabilities?.studioLipSync || studioLipSyncDefaultApplied.current) return;
+    setStudioLipSync(videoCapabilities.studioLipSync.defaultOn);
+    studioLipSyncDefaultApplied.current = true;
+  }, [videoCapabilities]);
   const { data: jobs } = useListVideoJobs({
     query: { queryKey: getListVideoJobsQueryKey() },
   });
@@ -1986,8 +1994,19 @@ export function VideoStudioPage() {
     )
     .sort((a, b) => a - b);
 
+  const studioLipSyncEligible =
+    videoCapabilities?.studioLipSync?.enabled === true &&
+    videoCapabilities.studioLipSync.ready &&
+    ((engine === "topic_to_video" &&
+      visuals === "character" &&
+      hasSelectedCast) ||
+      ((engine === "text_to_video" || engine === "image_to_video") &&
+        generateAudio &&
+        hasSelectedCast));
+
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
+    if (studioLipSyncEligible && studioLipSync && !studioLipSyncConsent) return false;
     if (engine === "topic_to_video") {
       if (isHybridCharacterStory && !lipSyncConsent) return false;
       if (visuals === "character") {
@@ -2064,6 +2083,9 @@ export function VideoStudioPage() {
     isHybridCharacterStory,
     templateRequiresPresenterVideo,
     presenterVideo,
+    studioLipSync,
+    studioLipSyncConsent,
+    studioLipSyncEligible,
   ]);
 
   const busy =
@@ -2670,6 +2692,11 @@ export function VideoStudioPage() {
             payloadEngine === "dialogue_lip_sync"
               ? lipSyncQuality
               : undefined,
+          studioLipSync: studioLipSyncEligible && studioLipSync,
+          studioLipSyncConsent:
+            studioLipSyncEligible && studioLipSync
+              ? studioLipSyncConsent
+              : false,
           presenterVideoPath:
             engine === "topic_to_video" &&
             !isCharacterDialogue &&
@@ -3042,6 +3069,14 @@ export function VideoStudioPage() {
       // would be the same misleading flat-rate estimate this replaces.
       return { available: false };
     }
+    if (studioLipSyncEligible && studioLipSync) {
+      components.push({
+        model: costModels.lipSync,
+        operations: 1,
+        totalDurationSec: durationSec,
+        inputMode: "video",
+      });
+    }
 
     const costs = components.map((component) =>
       estimateModelComponent(
@@ -3088,6 +3123,8 @@ export function VideoStudioPage() {
     resolution,
     quality,
     generateAudio,
+    studioLipSync,
+    studioLipSyncEligible,
   ]);
   // Nothing renders while the admin has not set a video rate (a 0 estimate is
   // meaningless) or the workspace is not wallet-billed.
@@ -3375,6 +3412,7 @@ export function VideoStudioPage() {
             setBoardOpen(false);
           }}
           editRequest={guidedStoryEditRequest}
+          studioLipSyncCapability={videoCapabilities?.studioLipSync}
         />
       ) : (
         <Card>
@@ -6121,6 +6159,78 @@ export function VideoStudioPage() {
                 </Button>
               </div>
             )}
+
+            {(() => {
+              const capability = videoCapabilities?.studioLipSync;
+              const compatible =
+                capability?.enabled === true &&
+                capability.ready &&
+                ((engine === "topic_to_video" &&
+                  visuals === "character" &&
+                  hasSelectedCast) ||
+                  ((engine === "text_to_video" ||
+                    engine === "image_to_video") &&
+                    generateAudio &&
+                    hasSelectedCast));
+              const dedicated =
+                engine === "lip_sync" || engine === "dialogue_lip_sync";
+              const explanation = dedicated
+                ? "This workflow already includes dedicated lip-sync; a second pass is never run."
+                : engine === "slideshow" ||
+                    (engine === "topic_to_video" && visuals !== "character")
+                  ? "Stock, scenery, AI b-roll and slideshows have no single bound speaker."
+                  : !capability?.enabled
+                    ? "Optional Studio lip-sync is turned off by an administrator."
+                    : !capability.ready
+                      ? "Optional Studio lip-sync needs a configured, authoritatively priced model."
+                      : "Choose one visible person and native generated narration/audio to enable lip-sync.";
+              if (dedicated) {
+                return (
+                  <p className="text-xs text-muted-foreground" data-testid="text-studio-lipsync-unavailable">
+                    {explanation}
+                  </p>
+                );
+              }
+              return (
+                <div className="space-y-2" data-testid="studio-lipsync-control">
+                  <Label htmlFor="studio-lipsync">Lip-sync generated people</Label>
+                  <div className="space-y-3 rounded-md border px-3 py-2">
+                    <div className="flex items-start gap-3">
+                      <Switch
+                        id="studio-lipsync"
+                        checked={compatible && studioLipSync}
+                        onCheckedChange={(checked) => {
+                          setStudioLipSync(checked);
+                          if (!checked) setStudioLipSyncConsent(false);
+                        }}
+                        disabled={!compatible}
+                        data-testid="switch-studio-lipsync"
+                      />
+                      <div className="text-sm text-muted-foreground">
+                        {compatible
+                          ? `Adds a separate Replicate/${capability!.model} finishing operation for each eligible single-speaker scene, using only native audio timing. Ambiguous scenes are kept unchanged.`
+                          : explanation}
+                      </div>
+                    </div>
+                    {compatible && studioLipSync && (
+                      <label className="flex items-start gap-2 text-sm">
+                        <Checkbox
+                          checked={studioLipSyncConsent}
+                          onCheckedChange={(checked) =>
+                            setStudioLipSyncConsent(checked === true)
+                          }
+                          data-testid="checkbox-studio-lipsync-consent"
+                        />
+                        <span>
+                          I have permission to use this person's likeness and the
+                          approved voice for lip-sync.
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {storyboardAvailable && (
               <div className="space-y-2">

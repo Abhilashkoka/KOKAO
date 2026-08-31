@@ -87,6 +87,10 @@ export interface VideoGenerateRequest {
   lipSyncConsent?: boolean;
   /** Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate's official sync/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured/standard models. */
   lipSyncQuality?: VideoGenerateRequestLipSyncQuality;
+  /** Explicit per-job request for the shared Studio lip-sync finishing stage. The server validates compatibility and consent, then freezes its model, price, speaker and scene plan before funding. Dedicated lip_sync and dialogue_lip_sync modes reject this field. */
+  studioLipSync?: boolean;
+  /** Must be true when studioLipSync is true. Confirms authorization for both the visible person's likeness and the job's approved voice. */
+  studioLipSyncConsent?: boolean;
   /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */
   localizedTrack?: LocalizedDubTrackInput;
   /**

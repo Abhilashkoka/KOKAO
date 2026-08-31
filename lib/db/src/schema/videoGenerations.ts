@@ -190,6 +190,65 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /**
+   * Immutable server-resolved optional finishing contract. Dedicated
+   * lip_sync/dialogue_lip_sync jobs never carry this snapshot.
+   */
+  studioLipSync?: {
+    version: 1;
+    requested: true;
+    provider: "replicate";
+    model: "bytedance/latentsync";
+    consent: {
+      likeness: true;
+      voice: true;
+      source: "tenant_character" | "preset_character" | "uploaded_person" | "guided_cast";
+    };
+    plan: Array<{
+      sceneId: string;
+      speakerId: string;
+      audioSource: "native_narration" | "native_dialogue" | "native_generated_audio";
+      durationSec: number;
+      /** Authoritative catalog amount frozen before funding for this call. */
+      estimatedPricePaise: number;
+      /** Timeline interval in the completed composite, when this is a scene. */
+      startSec?: number;
+      endSec?: number;
+    }>;
+    estimatedAdditionalPaise: number;
+    checkpoint?: {
+      state: "prepared" | "provider_succeeded" | "complete";
+      outputPath?: string;
+      event?: {
+        eventId?: string;
+        provider: string;
+        model: string;
+        durationSec: number | null;
+        requestBytes: number;
+        label: string;
+        costPaise: number | null;
+        criteria?: VideoPriceCriteria;
+        accounted?: boolean;
+      };
+      /** Each optional operation is independently durable and retryable. */
+      scenes?: Array<{
+        sceneId: string;
+        state: "prepared" | "provider_succeeded" | "complete";
+        outputPath?: string;
+        event?: {
+          eventId?: string;
+          provider: string;
+          model: string;
+          durationSec: number | null;
+          requestBytes: number;
+          label: string;
+          costPaise: number | null;
+          criteria?: VideoPriceCriteria;
+          accounted?: boolean;
+        };
+      }>;
+    };
+  } | null;
+  /**
    * Immutable provider contract resolved before funding. Every video provider
    * call made by this job (including approval, retry, and recovery children)
    * must use this exact provider/model pair and these normalized variants.

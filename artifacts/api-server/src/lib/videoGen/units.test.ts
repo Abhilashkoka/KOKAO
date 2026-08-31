@@ -51,6 +51,49 @@ describe("persisted native-template storyboard funding", () => {
   });
 });
 
+describe("optional Studio lip-sync funding", () => {
+  it("adds exactly one independently priced provider operation", () => {
+    const options = {
+      aspectRatio: "9:16",
+      studioLipSync: {
+        version: 1,
+        requested: true,
+        provider: "replicate",
+        model: "bytedance/latentsync",
+        consent: {
+          likeness: true,
+          voice: true,
+          source: "uploaded_person",
+        },
+        plan: [{
+          sceneId: "direct-output",
+          speakerId: "uploaded-person",
+          audioSource: "native_generated_audio",
+          durationSec: 5,
+        }],
+        estimatedAdditionalPaise: 25,
+      },
+    } as any;
+    expect(videoJobFullUnits("image_to_video", options)).toBe(2);
+  });
+
+  it("freezes one provider operation per eligible scene, not per composite", () => {
+    const options = {
+      aspectRatio: "9:16",
+      studioLipSync: {
+        version: 1, requested: true, provider: "replicate", model: "bytedance/latentsync",
+        consent: { likeness: true, voice: true, source: "guided_cast" },
+        estimatedAdditionalPaise: 40,
+        plan: [
+          { sceneId: "approved-a", speakerId: "ari", audioSource: "native_dialogue", durationSec: 4, startSec: 0, endSec: 4 },
+          { sceneId: "approved-c", speakerId: "bo", audioSource: "native_dialogue", durationSec: 4, startSec: 8, endSec: 12 },
+        ],
+      },
+    } as any;
+    expect(videoJobFullUnits("topic_to_video", options)).toBe(3);
+  });
+});
+
 describe("Guided Story dialogue replay units", () => {
   it("uses the frozen owned-line operation estimate and keeps TTS independent", () => {
     const options = {

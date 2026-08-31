@@ -1401,6 +1401,7 @@ async function serializeVideoGenSettings() {
     enabledModelIds: selection.enabledModelIds,
     // null = portrait lip sync is off; video-mode lip sync needs nothing here.
     lipSyncPortraitModel: selection.lipSyncPortraitModel,
+    studioLipSyncDefault: selection.studioLipSyncDefault,
     // The full catalog, so the admin screen can render checkboxes without a
     // second request — including which provider each model needs and what it
     // costs a tenant in video units.
@@ -1672,12 +1673,17 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     ...(parsed.data.lipSyncPortraitModel === undefined
       ? {}
       : { lipSyncPortraitModel: parsed.data.lipSyncPortraitModel }),
+    ...(parsed.data.studioLipSyncDefault === undefined
+      ? {}
+      : { studioLipSyncDefault: parsed.data.studioLipSyncDefault }),
   });
 
   const changed =
     before.provider !== def.id ||
     before.textToVideoModel !== textToVideoModel ||
-    before.imageToVideoModel !== imageToVideoModel;
+    before.imageToVideoModel !== imageToVideoModel ||
+    before.studioLipSyncDefault !==
+      (parsed.data.studioLipSyncDefault ?? before.studioLipSyncDefault);
   if (changed) {
     try {
       await recordAdminAction({
@@ -1686,8 +1692,19 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
         actorEmail: req.tenantEmail,
         targetTenantId: null,
         targetEmail: null,
-        oldValue: `${before.provider}${before.textToVideoModel ? `:${before.textToVideoModel}` : ""}`,
-        newValue: `${def.id}${textToVideoModel ? `:${textToVideoModel}` : ""}`,
+        oldValue: JSON.stringify({
+          provider: before.provider,
+          textToVideoModel: before.textToVideoModel,
+          imageToVideoModel: before.imageToVideoModel,
+          studioLipSyncDefault: before.studioLipSyncDefault,
+        }),
+        newValue: JSON.stringify({
+          provider: def.id,
+          textToVideoModel,
+          imageToVideoModel,
+          studioLipSyncDefault:
+            parsed.data.studioLipSyncDefault ?? before.studioLipSyncDefault,
+        }),
       });
     } catch (error) {
       req.log.error({ err: error }, "Failed to write video-gen settings audit log");

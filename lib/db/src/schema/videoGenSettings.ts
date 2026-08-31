@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, jsonb, boolean } from "drizzle-orm/pg-core";
 
 /**
  * App-level (platform-wide) video generation configuration, stored as a
@@ -42,6 +42,8 @@ export const videoGenSettingsTable = pgTable("video_gen_settings", {
    * source and needs nothing here.
    */
   lipSyncPortraitModel: text("lip_sync_portrait_model"),
+  /** Default offered for the optional, cross-Studio finishing pass. */
+  studioLipSyncDefault: boolean("studio_lip_sync_default").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

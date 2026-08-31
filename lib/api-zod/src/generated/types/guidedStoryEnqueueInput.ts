@@ -11,4 +11,8 @@ export interface GuidedStoryEnqueueInput {
   revision: number;
   /** Fresh confirmation for this generation attempt when the cast includes saved people or voices. */
   consentGranted: boolean;
+  /** Explicitly request optional lip-sync for eligible single-speaker scenes. */
+  studioLipSync?: boolean;
+  /** Fresh authorization for the visible likeness and approved voice. */
+  studioLipSyncConsent?: boolean;
 }

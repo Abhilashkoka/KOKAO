@@ -282,6 +282,12 @@ export const FEATURES = [
       "Turn an uploaded base video of a person into talking clips: AI narrates a script (in the cloned brand voice when one is set up) and redraws the mouth to match. When off, new lip-sync jobs are refused and queued ones fail cleanly with a refund.",
   },
   {
+    id: "studioLipSync",
+    label: "Optional Studio Lip-sync",
+    description:
+      "Allow compatible Studio jobs with one consented speaker and native approved audio to add a shared lip-sync finishing pass. This is independent of the dedicated Spokesperson and AI Dialogue modes.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

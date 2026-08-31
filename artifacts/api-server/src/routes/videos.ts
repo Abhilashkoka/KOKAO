@@ -102,6 +102,7 @@ import {
   getVideoGenSelection,
   resolveVideoModelSnapshot,
   resolveVideoGenProviderDef,
+  isVideoGenProviderConfigured,
   VideoModelResolutionError,
 } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
@@ -223,6 +224,7 @@ import {
   computeTextCostPaise,
   findModelPrice,
   getAiCostConfig,
+  isVideoModelPriced,
   usdToPaise,
 } from "../lib/aiCost";
 import { videoPriceCriteria } from "../lib/videoGen/pricing";
@@ -393,7 +395,10 @@ async function directVideoReservationPrice(
   return {
     provider: snapshot.provider,
     model: snapshot.model,
-    totalCostPaise: oneCall * Math.max(1, units),
+    totalCostPaise:
+      oneCall *
+        Math.max(1, units - (options.studioLipSync?.plan.length ?? 0)) +
+      (options.studioLipSync?.estimatedAdditionalPaise ?? 0),
   };
 }
 
@@ -577,6 +582,137 @@ function supportsSelectableLipSyncQuality(engine: string): boolean {
   return engine === "lip_sync" || engine === "dialogue_lip_sync";
 }
 
+async function resolveStudioLipSyncSnapshot(args: {
+  body: {
+    engine: string;
+    studioLipSync?: boolean;
+    studioLipSyncConsent?: boolean;
+    generateAudio?: boolean | null;
+  };
+  characterId: number | null;
+  presetCharacterId: string | null;
+  guidedDraft: GuidedStoryDraft | null;
+  durationSec: number;
+  visualsSource: string;
+}): Promise<VideoJobOptions["studioLipSync"]> {
+  if (args.body.studioLipSync !== true) return null;
+  if (!(await isFeatureEnabled("studioLipSync"))) {
+    throw new Error("Optional Studio lip-sync is currently turned off.");
+  }
+  const replicateDef = await resolveVideoGenProviderDef("replicate");
+  if (!replicateDef || !(await isVideoGenProviderConfigured(replicateDef))) {
+    throw new Error(
+      "Optional Studio lip-sync needs Replicate configured before generation.",
+    );
+  }
+  if (args.body.engine === "lip_sync" || args.body.engine === "dialogue_lip_sync") {
+    throw new Error(
+      "Spokesperson and AI Dialogue already include lip-sync and cannot add a second pass.",
+    );
+  }
+  if (args.body.engine === "slideshow") {
+    throw new Error(
+      "Photo slideshows have no bound speaking person and cannot be lip-synced.",
+    );
+  }
+  if (args.body.studioLipSyncConsent !== true) {
+    throw new Error(
+      "Confirm permission for both the visible person's likeness and the approved voice before enabling lip-sync.",
+    );
+  }
+
+  let source: NonNullable<VideoJobOptions["studioLipSync"]>["consent"]["source"];
+  let plan: Array<Omit<NonNullable<VideoJobOptions["studioLipSync"]>["plan"][number], "estimatedPricePaise">>;
+  if (args.guidedDraft?.state.script) {
+    source = "guided_cast";
+    plan = args.guidedDraft.state.script.scenes.flatMap((scene) => {
+      const owners = new Set(
+        scene.lines
+          .filter((line) => line.kind === "dialogue" && line.ownerRoleId)
+          .map((line) => line.ownerRoleId!),
+      );
+      const speakerId = owners.size === 1 ? [...owners][0]! : null;
+      return speakerId && scene.roleIds.length === 1 && scene.roleIds[0] === speakerId
+        ? [{
+            sceneId: scene.id,
+            speakerId,
+            audioSource: "native_dialogue" as const,
+            durationSec: Math.max(0.1, (scene.endMs - scene.startMs) / 1000),
+            startSec: scene.startMs / 1000,
+            endSec: scene.endMs / 1000,
+          }]
+        : [];
+    });
+    if (plan.length === 0) {
+      throw new Error(
+        "Optional lip-sync requires at least one Guided Story scene with exactly one visible approved speaker. Multi-person, narration-only and ambiguous scenes are skipped.",
+      );
+    }
+  } else if (
+    args.body.engine === "topic_to_video" &&
+    args.visualsSource === "character" &&
+    (args.characterId != null || args.presetCharacterId != null)
+  ) {
+    source = args.presetCharacterId ? "preset_character" : "tenant_character";
+    plan = [{
+      sceneId: "all-character-scenes",
+      speakerId: args.presetCharacterId ?? `character:${args.characterId}`,
+      audioSource: "native_narration",
+      durationSec: args.durationSec,
+    }];
+  } else if (
+    (args.body.engine === "text_to_video" || args.body.engine === "image_to_video") &&
+    args.body.generateAudio === true &&
+    (args.characterId != null || args.presetCharacterId != null)
+  ) {
+    source = args.characterId != null
+      ? "tenant_character"
+      : args.presetCharacterId
+        ? "preset_character"
+        : "uploaded_person";
+    plan = [{
+      sceneId: "direct-output",
+      speakerId:
+        args.presetCharacterId ??
+        (args.characterId != null ? `character:${args.characterId}` : "uploaded-person"),
+      audioSource: "native_generated_audio",
+      durationSec: args.durationSec,
+    }];
+  } else {
+    throw new Error(
+      "Lip-sync needs one visible person and a native approved audio track. Stock, scenery, silent and ambiguous scenes are not eligible.",
+    );
+  }
+  const frozenPlan: NonNullable<VideoJobOptions["studioLipSync"]>["plan"] = [];
+  for (const scene of plan) {
+    const estimatedPricePaise = await computeVideoCostPaise({
+      provider: "replicate",
+      model: "bytedance/latentsync",
+      durationSec: scene.durationSec,
+      variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
+    });
+    if (!estimatedPricePaise || estimatedPricePaise <= 0) {
+      throw new Error(
+        `Lip-sync model replicate/${LATENT_SYNC.model} has no authoritative price.`,
+      );
+    }
+    frozenPlan.push({ ...scene, estimatedPricePaise });
+  }
+  return {
+    version: 1,
+    requested: true,
+    provider: "replicate",
+    model: "bytedance/latentsync",
+    consent: { likeness: true, voice: true, source },
+    plan: frozenPlan,
+    estimatedAdditionalPaise: frozenPlan.reduce(
+      (sum, scene) => sum + scene.estimatedPricePaise,
+      0,
+    ),
+    checkpoint: { state: "prepared" },
+  };
+}
+
 const VIDEO_MODE_DISABLED_MESSAGES = {
   videoTextToVideo: "Text to Video is currently turned off.",
   videoAnimatePhoto: "Animate Photo is currently turned off.",
@@ -757,6 +893,16 @@ function serializeVideoJob(
       : null,
     modelId: job.options?.modelId ?? null,
     resolvedVideoModel: job.options?.resolvedVideoModel ?? null,
+    studioLipSync: job.options?.studioLipSync
+      ? {
+          provider: job.options.studioLipSync.provider,
+          model: job.options.studioLipSync.model,
+          estimatedAdditionalPaise:
+            job.options.studioLipSync.estimatedAdditionalPaise,
+          sceneCount: job.options.studioLipSync.plan.length,
+          state: job.options.studioLipSync.checkpoint?.state ?? "prepared",
+        }
+      : null,
     resolution: job.options?.resolution ?? null,
     motionPreset: job.options?.motionPreset ?? null,
     cinematography: job.options?.cinematography ?? null,
@@ -1162,12 +1308,17 @@ router.get(
         { kind: "video", provider: "replicate", model: SYNC_LIPSYNC_2.model },
       ]);
     }
-    const [selection, costConfig, spendConfig] = await Promise.all([
+    const [selection, costConfig, spendConfig, studioLipSyncEnabled] = await Promise.all([
       getVideoGenSelection(),
       getAiCostConfig(),
       getAiSpendConfig(),
+      isFeatureEnabled("studioLipSync"),
     ]);
     const provider = await resolveVideoGenProviderDef(selection.provider);
+    const replicateDef = await resolveVideoGenProviderDef("replicate");
+    const replicateConfigured =
+      replicateDef != null &&
+      (await isVideoGenProviderConfigured(replicateDef));
     const common = {
       usdToInrPaise: costConfig.usdToInrPaise,
       feePercent: spendConfig.feePercent,
@@ -1213,10 +1364,31 @@ router.get(
       serializedLipSyncHigh.paisePerSecond > 0
         ? serializedLipSyncHigh
         : null;
+    const studioLipSyncExactlyPriced = await isVideoModelPriced({
+      provider: "replicate",
+      model: LATENT_SYNC.model,
+      durationSec: 1,
+      variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
+    }).catch(() => false);
     res.json(
       GetVideoCapabilitiesResponse.parse({
         characterDialogueLocales: ELEVEN_V3_LOCALES,
         costModels: { textToVideo, imageToVideo, lipSync, lipSyncHigh },
+        studioLipSync: {
+          enabled: studioLipSyncEnabled,
+          defaultOn: selection.studioLipSyncDefault,
+          ready:
+            studioLipSyncEnabled &&
+            replicateConfigured &&
+            studioLipSyncExactlyPriced,
+          model: LATENT_SYNC.model,
+          compatibleEngines: [
+            "text_to_video",
+            "image_to_video",
+            "topic_to_video",
+            "guided_story",
+          ],
+        },
       }),
     );
   },
@@ -6062,7 +6234,12 @@ router.post(
         .json({ error: "This draft changed. Reload it and try again." });
       return;
     }
-    req.body = { engine: "topic_to_video", guidedStoryDraftId: row.id };
+    req.body = {
+      engine: "topic_to_video",
+      guidedStoryDraftId: row.id,
+      studioLipSync: parsed.data.studioLipSync,
+      studioLipSyncConsent: parsed.data.studioLipSyncConsent,
+    };
     res.locals.guidedStoryEnqueue = true;
     await generateVideoHandler(req, res);
     if (res.statusCode >= 400) {
@@ -7451,7 +7628,33 @@ async function generateVideoHandler(
   const approvedGuidedBackdrops = guidedDraft?.state.visualChoices
     ? guidedBackdropChoices(guidedDraft.state.visualChoices)
     : null;
+  let studioLipSync: VideoJobOptions["studioLipSync"] = null;
+  try {
+    studioLipSync = await resolveStudioLipSyncSnapshot({
+      body,
+      characterId,
+      presetCharacterId: requestedPresetId,
+      guidedDraft,
+      durationSec:
+        guidedDraft?.state.script?.runtimeSeconds ??
+        (body.engine === "dialogue_lip_sync"
+          ? minimumDialoguePlateDurationSec(body.dialogue ?? "")
+          : (body.durationSec ?? 5)),
+      visualsSource,
+    });
+  } catch (error) {
+    res.status(
+      error instanceof Error && /turned off/i.test(error.message) ? 403 : 400,
+    ).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Optional Studio lip-sync is not available for this request.",
+    });
+    return;
+  }
   const options: VideoJobOptions = {
+    studioLipSync,
     templateRuntime:
       body.engine === "topic_to_video" &&
       selectedTemplate &&
@@ -8585,6 +8788,31 @@ function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
   let units = videoJobFullUnits(source.engine, options);
 
   const savedRender = options.renderCheckpoint ?? options.recovery?.rendered;
+  // Optional Studio finishing retains the base render separately. A base
+  // `stage: final` checkpoint is only a completed customer output when the
+  // finishing checkpoint itself completed; otherwise recovery must fund the
+  // still-missing Studio provider operation.
+  if (options.studioLipSync && savedRender?.path) {
+    reusable.push("completed base video render");
+    if (options.studioLipSync.checkpoint?.state === "complete") {
+      reusable.push("completed optional Studio lip-sync output");
+      regenerated.push("final thumbnail and job finalization");
+      units = 0;
+    } else if (options.studioLipSync.checkpoint?.event) {
+      reusable.push("proven optional Studio lip-sync provider receipt");
+      regenerated.push("retained-output recovery and job finalization");
+      units = 0;
+    } else {
+      const completedScenes = options.studioLipSync.checkpoint?.scenes?.filter(
+        (scene) => scene.state === "complete" || scene.state === "provider_succeeded",
+      ).length ?? 0;
+      units = Math.max(0, options.studioLipSync.plan.length - completedScenes);
+      regenerated.push(
+        `${units} optional Studio lip-sync finishing operation${units === 1 ? "" : "s"}`,
+      );
+    }
+    return { mode: "resume", reusable, regenerated, units };
+  }
   const hasFinalRender =
     options.renderCheckpoint?.stage === "final" ||
     (!options.renderCheckpoint && Boolean(options.recovery?.rendered?.path));
@@ -8770,6 +8998,28 @@ function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
     regenerated,
     units: Math.max(0, units),
   };
+}
+
+/** Recovery inherits artifacts, never billable work. Every provider receipt
+ * copied from the failed source was settled/accounted by that source attempt. */
+function markInheritedProviderReceiptsAccounted(value: unknown): void {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) markInheritedProviderReceiptsAccounted(item);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.provider === "string" &&
+    typeof record.model === "string" &&
+    typeof record.label === "string" &&
+    "costPaise" in record
+  ) {
+    record.accounted = true;
+  }
+  for (const child of Object.values(record)) {
+    markInheritedProviderReceiptsAccounted(child);
+  }
 }
 
 function isChildOfVideoSource(
@@ -9170,6 +9420,7 @@ router.post(
       const childOptions: VideoJobOptions = structuredClone(
         source.options ?? { aspectRatio: "9:16" as const },
       );
+      markInheritedProviderReceiptsAccounted(childOptions);
       childOptions.resolvedVideoModel = recoveryResolvedVideoModel;
       const chainId =
         source.options?.recovery?.chainId ??
@@ -9233,6 +9484,10 @@ router.post(
           state: "creating",
         };
       }
+      const childStoryboard = source.storyboard
+        ? structuredClone(source.storyboard)
+        : null;
+      markInheritedProviderReceiptsAccounted(childStoryboard);
       child = (
         await tx
           .insert(videoGenerationsTable)
@@ -9242,9 +9497,7 @@ router.post(
             status: "queued",
             prompt: source.prompt,
             sourceImagePaths: structuredClone(source.sourceImagePaths),
-            storyboard: source.storyboard
-              ? structuredClone(source.storyboard)
-              : null,
+            storyboard: childStoryboard,
             options: childOptions,
             provider: childOptions.resolvedVideoModel?.provider ?? source.provider,
             model: childOptions.resolvedVideoModel?.model ?? source.model,
@@ -9304,7 +9557,10 @@ router.post(
     const units = videoJobUnits(childJob.engine, options);
     if (
       units > 0 &&
-      (await isFeatureEnabled("providerResilience").catch(() => true))
+      (
+        options.studioLipSync != null ||
+        (await isFeatureEnabled("providerResilience").catch(() => true))
+      )
     ) {
       const preflight = await preflightVideoJob(childJob.engine, options);
       if (preflight) {

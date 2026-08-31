@@ -4494,6 +4494,10 @@ export interface GuidedStoryEnqueueInput {
   revision: number;
   /** Fresh confirmation for this generation attempt when the cast includes saved people or voices. */
   consentGranted: boolean;
+  /** Explicitly request optional lip-sync for eligible single-speaker scenes. */
+  studioLipSync?: boolean;
+  /** Fresh authorization for the visible likeness and approved voice. */
+  studioLipSyncConsent?: boolean;
 }
 
 export interface GuidedStoryLineTranslationInput {
@@ -5294,6 +5298,15 @@ export type VideoJobResolvedVideoModelDurationPolicy = typeof VideoJobResolvedVi
 export const VideoJobResolvedVideoModelDurationPolicy = {
   exact: 'exact',
   nearest: 'nearest',
+} as const;
+
+export type VideoJobStudioLipSyncState = typeof VideoJobStudioLipSyncState[keyof typeof VideoJobStudioLipSyncState];
+
+
+export const VideoJobStudioLipSyncState = {
+  prepared: 'prepared',
+  provider_succeeded: 'provider_succeeded',
+  complete: 'complete',
 } as const;
 
 export type VideoJobErrorHistoryItemScope = typeof VideoJobErrorHistoryItemScope[keyof typeof VideoJobErrorHistoryItemScope];
@@ -6155,6 +6168,20 @@ export type VideoJobResolvedVideoModel = {
   supportsEndFrame: boolean;
 } | null;
 
+/**
+ * Server-resolved optional finishing snapshot; null when not requested.
+ * @nullable
+ */
+export type VideoJobStudioLipSync = {
+  provider: string;
+  model: string;
+  /** @minimum 0 */
+  estimatedAdditionalPaise: number;
+  /** @minimum 0 */
+  sceneCount: number;
+  state: VideoJobStudioLipSyncState;
+} | null;
+
 export type VideoJobErrorHistoryItem = {
   jobId: number;
   jobNumber: number;
@@ -6279,6 +6306,11 @@ export interface VideoJob {
      * @nullable
      */
   resolvedVideoModel: VideoJobResolvedVideoModel;
+  /**
+     * Server-resolved optional finishing snapshot; null when not requested.
+     * @nullable
+     */
+  studioLipSync?: VideoJobStudioLipSync;
   /**
      * The resolution this job was created with, or null.
      * @nullable
@@ -6706,6 +6738,10 @@ export interface VideoGenerateRequest {
   lipSyncConsent?: boolean;
   /** Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate's official sync/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured/standard models. */
   lipSyncQuality?: VideoGenerateRequestLipSyncQuality;
+  /** Explicit per-job request for the shared Studio lip-sync finishing stage. The server validates compatibility and consent, then freezes its model, price, speaker and scene plan before funding. Dedicated lip_sync and dialogue_lip_sync modes reject this field. */
+  studioLipSync?: boolean;
+  /** Must be true when studioLipSync is true. Confirms authorization for both the visible person's likeness and the job's approved voice. */
+  studioLipSyncConsent?: boolean;
   /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */
   localizedTrack?: LocalizedDubTrackInput;
   /**
@@ -7116,6 +7152,24 @@ export interface RepairVideoRequest {
   reason: RepairVideoRequestReason;
 }
 
+export type VideoCapabilitiesStudioLipSyncCompatibleEnginesItem = typeof VideoCapabilitiesStudioLipSyncCompatibleEnginesItem[keyof typeof VideoCapabilitiesStudioLipSyncCompatibleEnginesItem];
+
+
+export const VideoCapabilitiesStudioLipSyncCompatibleEnginesItem = {
+  text_to_video: 'text_to_video',
+  image_to_video: 'image_to_video',
+  topic_to_video: 'topic_to_video',
+  guided_story: 'guided_story',
+} as const;
+
+export type VideoCapabilitiesStudioLipSync = {
+  enabled: boolean;
+  defaultOn: boolean;
+  ready: boolean;
+  model: string;
+  compatibleEngines: VideoCapabilitiesStudioLipSyncCompatibleEnginesItem[];
+};
+
 export type CharacterDialogueLocaleDirection = typeof CharacterDialogueLocaleDirection[keyof typeof CharacterDialogueLocaleDirection];
 
 
@@ -7189,6 +7243,7 @@ export interface VideoCostModels {
 export interface VideoCapabilities {
   characterDialogueLocales: CharacterDialogueLocale[];
   costModels: VideoCostModels;
+  studioLipSync: VideoCapabilitiesStudioLipSync;
 }
 
 export interface MusicTrack {
@@ -7395,6 +7450,8 @@ export interface VideoGenSettingsView {
      * @nullable
      */
   lipSyncPortraitModel?: string | null;
+  /** Initial value of the explicit optional Studio lip-sync control. */
+  studioLipSyncDefault: boolean;
   /**
      * The current per-generation model allowlist; null = every catalog model is offered.
      * @nullable
@@ -8003,6 +8060,8 @@ export interface UpdateVideoGenSettingsRequest {
      * @nullable
      */
   lipSyncPortraitModel?: string | null;
+  /** Admin default for new compatible jobs; each job remains an explicit choice. */
+  studioLipSyncDefault?: boolean;
   /**
      * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
      * @nullable
@@ -9509,6 +9568,7 @@ export interface FeatureFlags {
   imageLooks: boolean;
   providerScoring: boolean;
   lipSync: boolean;
+  studioLipSync: boolean;
 }
 
 /**

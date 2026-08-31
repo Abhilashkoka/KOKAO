@@ -53,6 +53,7 @@ const ALL_ON: FeatureFlags = {
   imageLooks: true,
   providerScoring: true,
   lipSync: true,
+  studioLipSync: true,
 };
 
 /**

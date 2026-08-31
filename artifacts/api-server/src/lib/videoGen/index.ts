@@ -330,6 +330,8 @@ export interface VideoGenSelection {
   enabledModelIds: string[] | null;
   /** Replicate model for portrait lip sync; null = portrait mode is off. */
   lipSyncPortraitModel: string | null;
+  /** Initial value of the per-job optional Studio control. */
+  studioLipSyncDefault: boolean;
 }
 
 /** The current selection. A missing settings row uses the platform default;
@@ -346,6 +348,7 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
       imageToVideoModel: null,
       enabledModelIds: row?.enabledModelIds ?? null,
       lipSyncPortraitModel: row?.lipSyncPortraitModel ?? null,
+      studioLipSyncDefault: row?.studioLipSyncDefault ?? false,
     };
   }
   return {
@@ -357,6 +360,7 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
     imageToVideoModel: normalizedPersistedModelOverride(id, row?.imageToVideoModel),
     enabledModelIds: row?.enabledModelIds ?? null,
     lipSyncPortraitModel: row?.lipSyncPortraitModel ?? null,
+    studioLipSyncDefault: row?.studioLipSyncDefault ?? false,
   };
 }
 
@@ -571,11 +575,13 @@ export async function resolveVideoModelSnapshot(args: {
  * catalog explicitly.
  */
 export async function setVideoGenSelection(
-  selection: Omit<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel"> &
-    Partial<Pick<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel">>,
+  selection: Omit<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel" | "studioLipSyncDefault"> &
+    Partial<Pick<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel" | "studioLipSyncDefault">>,
 ): Promise<void> {
   const current =
-    selection.enabledModelIds === undefined || selection.lipSyncPortraitModel === undefined
+    selection.enabledModelIds === undefined ||
+    selection.lipSyncPortraitModel === undefined ||
+    selection.studioLipSyncDefault === undefined
       ? await getVideoGenSelection()
       : null;
   const row = {
@@ -590,6 +596,10 @@ export async function setVideoGenSelection(
       selection.lipSyncPortraitModel === undefined
         ? (current?.lipSyncPortraitModel ?? null)
         : (selection.lipSyncPortraitModel?.trim() || null),
+    studioLipSyncDefault:
+      selection.studioLipSyncDefault === undefined
+        ? (current?.studioLipSyncDefault ?? false)
+        : selection.studioLipSyncDefault,
   };
   await db
     .insert(videoGenSettingsTable)

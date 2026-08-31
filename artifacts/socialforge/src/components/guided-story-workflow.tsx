@@ -219,6 +219,7 @@ export function GuidedStoryWorkflow({
   onJobReady,
   onDraftReadyForScript,
   editRequest = null,
+  studioLipSyncCapability,
 }: {
   tenantId?: number;
   characters: Character[];
@@ -227,6 +228,12 @@ export function GuidedStoryWorkflow({
   onJobReady: (jobId: number) => void;
   onDraftReadyForScript?: () => void;
   editRequest?: { key: number; draftId: number; correctionMessage?: string } | null;
+  studioLipSyncCapability?: {
+    enabled: boolean;
+    ready: boolean;
+    defaultOn: boolean;
+    model: string;
+  };
 }) {
   const storageKey = tenantId ? `kokao-guided-story-draft-v1:${tenantId}` : null;
   const [draftId, setDraftId] = useState<number | null>(null);
@@ -248,6 +255,16 @@ export function GuidedStoryWorkflow({
   const [strategy, setStrategy] = useState<"generated" | "saved">("generated");
   const [assignments, setAssignments] = useState<Record<string, Assignment>>({});
   const [consent, setConsent] = useState(false);
+  const [studioLipSync, setStudioLipSync] = useState(
+    studioLipSyncCapability?.defaultOn ?? false,
+  );
+  const [studioLipSyncConsent, setStudioLipSyncConsent] = useState(false);
+  const studioLipSyncDefaultApplied = useRef(false);
+  useEffect(() => {
+    if (!studioLipSyncCapability || studioLipSyncDefaultApplied.current) return;
+    setStudioLipSync(studioLipSyncCapability.defaultOn);
+    studioLipSyncDefaultApplied.current = true;
+  }, [studioLipSyncCapability]);
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
   const [castSaveError, setCastSaveError] = useState<string | null>(null);
   const [enqueueError, setEnqueueError] = useState<string | null>(null);
@@ -286,7 +303,32 @@ export function GuidedStoryWorkflow({
   const approveCastRole = useApproveGuidedStoryCastRole();
   const updateDraft = useUpdateGuidedStoryDraft();
   const castDraft = useCastGuidedStoryDraft();
-  const enqueueDraft = useEnqueueGuidedStoryDraft();
+  const enqueueDraftMutation = useEnqueueGuidedStoryDraft();
+  const studioLipSyncAvailable =
+    studioLipSyncCapability?.enabled === true && studioLipSyncCapability.ready === true;
+  const enqueueDraft = {
+    ...enqueueDraftMutation,
+    mutate: (
+      variables: Parameters<typeof enqueueDraftMutation.mutate>[0],
+      options?: Parameters<typeof enqueueDraftMutation.mutate>[1],
+    ) =>
+      enqueueDraftMutation.mutate(
+        {
+          ...variables,
+          data: {
+            ...variables.data,
+            ...(studioLipSyncCapability
+              ? {
+                  studioLipSync: studioLipSyncAvailable && studioLipSync,
+                  studioLipSyncConsent:
+                    studioLipSyncAvailable && studioLipSync ? studioLipSyncConsent : false,
+                }
+              : {}),
+          },
+        },
+        options,
+      ),
+  };
   const requestUploadUrl = useRequestUploadUrl();
   const draft = draftId === null ? undefined : draftQuery.data;
   const linkedStoryboardJobId =
@@ -335,7 +377,7 @@ export function GuidedStoryWorkflow({
     const frame = window.requestAnimationFrame(() => {
       scriptEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       scriptEditorRef.current
-        ?.querySelector<HTMLElement>("input, textarea, button")
+        ?.querySelector<HTMLElement>('[data-testid="input-guided-script-title"]')
         ?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
@@ -639,6 +681,48 @@ export function GuidedStoryWorkflow({
     <Card>
       <CardHeader><CardTitle>Guided Story</CardTitle><CardDescription>Plan a cast-led story, approve its script, then use the existing storyboard review.</CardDescription></CardHeader>
       <CardContent className="space-y-4" ref={scriptEditorRef}>
+        <div
+          className="space-y-2 rounded-md border p-3"
+          data-testid="guided-studio-lipsync-control"
+        >
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={studioLipSync}
+              disabled={
+                !studioLipSyncCapability?.enabled ||
+                !studioLipSyncCapability.ready
+              }
+              onCheckedChange={(checked) => {
+                setStudioLipSync(checked === true);
+                if (checked !== true) setStudioLipSyncConsent(false);
+              }}
+              data-testid="checkbox-guided-studio-lipsync"
+            />
+            <span>
+              Lip-sync eligible single-speaker scenes
+              <span className="block text-xs text-muted-foreground">
+                Only scenes with exactly one visible approved speaker use their
+                native dialogue timing; narration-only and multi-person scenes
+                stay unchanged.
+              </span>
+            </span>
+          </label>
+          {studioLipSyncAvailable && studioLipSync && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={studioLipSyncConsent}
+                onCheckedChange={(checked) =>
+                  setStudioLipSyncConsent(checked === true)
+                }
+                data-testid="checkbox-guided-studio-lipsync-consent"
+              />
+              <span>
+                I authorize the approved cast likenesses and voices for this
+                lip-sync pass.
+              </span>
+            </label>
+          )}
+        </div>
         {correctionMessage && (
           <div
             role="alert"

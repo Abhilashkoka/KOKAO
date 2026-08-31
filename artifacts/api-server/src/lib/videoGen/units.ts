@@ -92,6 +92,12 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
  * original operation count from which durable checkpoints are deducted.
  */
 export function videoJobFullUnits(engine: string, options: VideoJobOptions | null): number {
+  // Each eligible composite scene is a separate provider operation. This is
+  // deliberately derived from the frozen plan rather than current storyboard
+  // state so recovery cannot bill a newly edited scene.
+  const studioLipSyncUnits = options?.studioLipSync
+    ? Math.max(1, options.studioLipSync.plan.length)
+    : 0;
   if (engine === "dialogue_lip_sync" && options?.guidedStoryDialogueReplay) {
     // Replay TTS is independently settled. The aggregate reservation covers
     // exactly one approved-still animation and one lip-sync per owned line.
@@ -104,7 +110,7 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     // One cast-aware approved keyframe plus one image-to-video operation for
     // every immutable script scene. Generated cast references are funded
     // separately during casting and are not hidden in this number.
-    return (
+    return studioLipSyncUnits + (
       options.guidedStory.script.scenes.length *
       2 *
       videoModelMultiplier(options.modelId)
@@ -113,13 +119,13 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
   if (engine === "topic_to_video" && options?.hybridStory) {
     // One shared TTS track plus animation (keyframe + I2V) or speaking
     // (identity keyframe + plate + lip-sync) for each retained pattern beat.
-    return hybridRequiredUnits({ options });
+    return studioLipSyncUnits + hybridRequiredUnits({ options });
   }
   // Native template topic jobs deliberately begin with one planning unit. Once
   // their board is persisted this frozen total is the source of truth for all
   // settlement/refund/serialization paths.
   if (engine === "topic_to_video" && options?.storyboardFunding) {
-    return Math.max(0, Math.trunc(options.storyboardFunding.fundedUnits));
+    return studioLipSyncUnits + Math.max(0, Math.trunc(options.storyboardFunding.fundedUnits));
   }
   let units = 1;
   if (engine === "dialogue_lip_sync") {
@@ -185,5 +191,5 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
   if (!options?.musicPath && options?.musicPrompt?.trim()) {
     units += 1;
   }
-  return units;
+  return units + studioLipSyncUnits;
 }

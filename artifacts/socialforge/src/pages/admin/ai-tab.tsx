@@ -1407,6 +1407,9 @@ export function VideoGenProviderCard() {
   const [portraitLipSyncModelInput, setPortraitLipSyncModelInput] = useState<
     string | null
   >(null);
+  const [studioLipSyncDefaultInput, setStudioLipSyncDefaultInput] = useState<
+    boolean | null
+  >(null);
   const [draftProvider, setDraftProvider] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -1425,6 +1428,7 @@ export function VideoGenProviderCard() {
     setTextModelInput(null);
     setImageModelInput(null);
     setPortraitLipSyncModelInput(null);
+    setStudioLipSyncDefaultInput(null);
   }, [savedProvider]);
 
   // While drafting a different provider, the saved models belong to the
@@ -1435,12 +1439,15 @@ export function VideoGenProviderCard() {
   const imageModelValue = imageModelInput ?? (isDraft ? "" : (settings?.imageToVideoModel ?? ""));
   const portraitLipSyncModelValue =
     portraitLipSyncModelInput ?? (settings?.lipSyncPortraitModel ?? "");
+  const studioLipSyncDefaultValue =
+    studioLipSyncDefaultInput ?? settings?.studioLipSyncDefault ?? false;
 
   const saveSelection = (
     provider: string,
     textModel: string,
     imageModel: string,
     portraitLipSyncModel?: string,
+    studioLipSyncDefault?: boolean,
   ) => {
     updateSettings.mutate(
       {
@@ -1454,6 +1461,9 @@ export function VideoGenProviderCard() {
                 lipSyncPortraitModel:
                   portraitLipSyncModel.trim() || null,
               }),
+          ...(studioLipSyncDefault === undefined
+            ? {}
+            : { studioLipSyncDefault }),
         },
       },
       {
@@ -1463,6 +1473,7 @@ export function VideoGenProviderCard() {
           setTextModelInput(null);
           setImageModelInput(null);
           setPortraitLipSyncModelInput(null);
+          setStudioLipSyncDefaultInput(null);
           const chosen = result.providers.find((p) => p.id === result.provider);
           toast({
             title: "Video settings updated",
@@ -1760,6 +1771,21 @@ export function VideoGenProviderCard() {
                     photo. Leave empty to disable portrait lip-sync.
                   </p>
                 </div>
+                <div className="flex items-start gap-3 rounded-md border p-3">
+                  <Switch
+                    checked={studioLipSyncDefaultValue}
+                    onCheckedChange={setStudioLipSyncDefaultInput}
+                    data-testid="switch-studio-lipsync-default"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Optional Studio lip-sync default</p>
+                    <p className="text-xs text-muted-foreground">
+                      Starts the compatible per-job control on or off. Users still make an
+                      explicit choice, and the independent Optional Studio Lip-sync feature
+                      switch can stop all new finishing work.
+                    </p>
+                  </div>
+                </div>
                 <Button
                   size="sm"
                   onClick={() =>
@@ -1768,6 +1794,7 @@ export function VideoGenProviderCard() {
                       textModelValue,
                       imageModelValue,
                       portraitLipSyncModelValue,
+                      studioLipSyncDefaultValue,
                     )
                   }
                   disabled={updateSettings.isPending}

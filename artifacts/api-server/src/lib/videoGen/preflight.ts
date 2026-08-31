@@ -381,6 +381,48 @@ export async function preflightVideoJob(
     }
   }
 
+  // Optional Studio finishing is a separately frozen operation. It uses the
+  // snapshot model rather than mutable admin defaults and is checked before
+  // the base job reserves any funding.
+  if (options?.studioLipSync) {
+    const snapshot = options.studioLipSync;
+    if (
+      engine === "lip_sync" ||
+      engine === "dialogue_lip_sync" ||
+      engine === "slideshow" ||
+      snapshot.plan.length === 0 ||
+      !snapshot.consent.likeness ||
+      !snapshot.consent.voice
+    ) {
+      return {
+        status: 400,
+        message: "The optional lip-sync scene plan is incompatible or lacks consent.",
+      };
+    }
+    const replicate = getVideoGenProviderDef("replicate");
+    const configured = replicate ? await isVideoGenProviderConfigured(replicate) : false;
+    const issue = evaluate(
+      configured ? [videoGenHealthKey("replicate")] : [],
+      "Optional Studio lip-sync needs Replicate configured before generation.",
+      `The optional lip-sync provider is not responding right now. ${TRY_AGAIN}`,
+    );
+    if (issue) return issue;
+    const durations = snapshot.plan.map((scene) => scene.durationSec);
+    if (!(await Promise.all(durations.map((durationSec) =>
+      isVideoModelPriced({
+        provider: snapshot.provider,
+        model: snapshot.model,
+        durationSec,
+        variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
+      }).catch(() => false),
+    ))).every(Boolean)) {
+      return {
+        status: 400,
+        message: `Optional lip-sync model ${snapshot.provider}/${snapshot.model} has no authoritative price for every planned scene.`,
+      };
+    }
+  }
+
   // 4c) Localized dub: always needs Replicate (LatentSync lip-sync).
   //     Additionally needs either:
   //       stock      → the selected stock TTS provider (OpenAI or Sarvam)

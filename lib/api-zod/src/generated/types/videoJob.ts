@@ -20,6 +20,7 @@ import type { VideoJobRecovery } from './videoJobRecovery';
 import type { VideoJobRepair } from './videoJobRepair';
 import type { VideoJobResolvedVideoModel } from './videoJobResolvedVideoModel';
 import type { VideoJobStatus } from './videoJobStatus';
+import type { VideoJobStudioLipSync } from './videoJobStudioLipSync';
 import type { VideoStoryboard } from './videoStoryboard';
 
 export interface VideoJob {
@@ -51,6 +52,11 @@ export interface VideoJob {
      * @nullable
      */
   resolvedVideoModel: VideoJobResolvedVideoModel;
+  /**
+     * Server-resolved optional finishing snapshot; null when not requested.
+     * @nullable
+     */
+  studioLipSync?: VideoJobStudioLipSync;
   /**
      * The resolution this job was created with, or null.
      * @nullable

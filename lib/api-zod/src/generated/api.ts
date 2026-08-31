@@ -113,7 +113,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "archivalFootage": zod.boolean(),
   "imageLooks": zod.boolean(),
   "providerScoring": zod.boolean(),
-  "lipSync": zod.boolean()
+  "lipSync": zod.boolean(),
+  "studioLipSync": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -2856,6 +2857,7 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
   "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+  "studioLipSyncDefault": zod.boolean().describe('Initial value of the explicit optional Studio lip-sync control.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -2918,6 +2920,7 @@ export const AdminUpdateVideoGenSettingsBody = zod.object({
   "textToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
   "imageToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
   "lipSyncPortraitModel": zod.string().nullish().describe('Replicate model for PORTRAIT lip sync — \"owner\/name\", or \"owner\/name:version\" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.'),
+  "studioLipSyncDefault": zod.boolean().optional().describe('Admin default for new compatible jobs; each job remains an explicit choice.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.')
 })
 
@@ -2927,6 +2930,7 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
   "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+  "studioLipSyncDefault": zod.boolean().describe('Initial value of the explicit optional Studio lip-sync control.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -3001,6 +3005,7 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
   "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+  "studioLipSyncDefault": zod.boolean().describe('Initial value of the explicit optional Studio lip-sync control.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -3068,6 +3073,7 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
   "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+  "studioLipSyncDefault": zod.boolean().describe('Initial value of the explicit optional Studio lip-sync control.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -3247,6 +3253,7 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
   "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+  "studioLipSyncDefault": zod.boolean().describe('Initial value of the explicit optional Studio lip-sync control.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -3314,6 +3321,7 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
   "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+  "studioLipSyncDefault": zod.boolean().describe('Initial value of the explicit optional Studio lip-sync control.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -12604,6 +12612,7 @@ export const generateVideoBodyCharacterDialogueOneLocaleMax = 35;
 
 export const generateVideoBodyAiPersonConsentDefault = false;
 export const generateVideoBodyLipSyncConsentDefault = false;
+export const generateVideoBodyStudioLipSyncConsentDefault = false;
 export const generateVideoBodyLocalizedTrackVoiceModeDefault = `stock`;
 export const generateVideoBodyLocalizedTrackSpeakerMax = 64;
 
@@ -12669,6 +12678,8 @@ export const GenerateVideoBody = zod.object({
   "audioPath": zod.string().nullish().describe('lip_sync; \/objects\/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.'),
   "lipSyncConsent": zod.boolean().default(generateVideoBodyLipSyncConsentDefault).describe('lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to.'),
   "lipSyncQuality": zod.enum(['standard', 'high']).optional().describe('Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate\'s official sync\/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured\/standard models.'),
+  "studioLipSync": zod.boolean().optional().describe('Explicit per-job request for the shared Studio lip-sync finishing stage. The server validates compatibility and consent, then freezes its model, price, speaker and scene plan before funding. Dedicated lip_sync and dialogue_lip_sync modes reject this field.'),
+  "studioLipSyncConsent": zod.boolean().default(generateVideoBodyStudioLipSyncConsentDefault).describe('Must be true when studioLipSync is true. Confirms authorization for both the visible person\'s likeness and the job\'s approved voice.'),
   "localizedTrack": zod.object({
   "scriptApproved": zod.boolean().describe('Must be true. Confirms the workspace reviewed every cue and approves the script for dubbing. A false value rejects the request before any funding is reserved.'),
   "locale": zod.enum(['te', 'ta', 'hi']).describe('The target language\/script for TTS and subtitle burn-in.'),
@@ -12722,6 +12733,10 @@ export const GenerateVideoBody = zod.object({
   "plan": zod.unknown().optional().describe('Optional edited plan JSON. B-roll shape: {\"style\": \"...\", \"prompts\": [\"...\", ...]}. Character shape: {\"scenes\": [{\"visual\": \"...\", \"outfitId\": 1}, ...]}.')
 }).nullish().describe('topic_to_video \"ai\"\/\"character\" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide \"plan\" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan\'s flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.')
 })
+
+export const generateVideoResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const generateVideoResponseStudioLipSyncSceneCountMin = 0;
 
 
 export const generateVideoResponseErrorHistoryItemRecoveryAttemptMin = 0;
@@ -12846,6 +12861,13 @@ export const GenerateVideoResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(generateVideoResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(generateVideoResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -17379,8 +17401,14 @@ export const EnqueueGuidedStoryDraftParams = zod.object({
 
 export const EnqueueGuidedStoryDraftBody = zod.object({
   "revision": zod.number().min(1),
-  "consentGranted": zod.boolean().describe('Fresh confirmation for this generation attempt when the cast includes saved people or voices.')
+  "consentGranted": zod.boolean().describe('Fresh confirmation for this generation attempt when the cast includes saved people or voices.'),
+  "studioLipSync": zod.boolean().optional().describe('Explicitly request optional lip-sync for eligible single-speaker scenes.'),
+  "studioLipSyncConsent": zod.boolean().optional().describe('Fresh authorization for the visible likeness and approved voice.')
 })
+
+export const enqueueGuidedStoryDraftResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const enqueueGuidedStoryDraftResponseStudioLipSyncSceneCountMin = 0;
 
 
 export const enqueueGuidedStoryDraftResponseErrorHistoryItemRecoveryAttemptMin = 0;
@@ -17505,6 +17533,13 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -17942,6 +17977,10 @@ export const FinalizeGuidedStoryJobReferenceBody = zod.object({
   "replaceCharacterConfirmed": zod.boolean().describe('Must be true when characterId differs from the finalized role. This prevents an uploaded identity from being silently replaced.')
 })
 
+export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const finalizeGuidedStoryJobReferenceResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -18065,6 +18104,13 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -18467,6 +18513,10 @@ export const StartGuidedStoryReferenceOperationBody = zod.object({
   "kind": zod.enum(['character', 'outfit'])
 })
 
+export const startGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const startGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const startGuidedStoryReferenceOperationResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -18590,6 +18640,13 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -19003,6 +19060,10 @@ export const CompleteGuidedStoryReferenceOperationBody = zod.object({
   "error": zod.string().max(completeGuidedStoryReferenceOperationBodyErrorMax).nullish()
 })
 
+export const completeGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const completeGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const completeGuidedStoryReferenceOperationResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -19126,6 +19187,13 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -19605,6 +19673,10 @@ export const ConfirmGuidedStoryDialogueReplayBody = zod.object({
   "idempotencyKey": zod.string().min(confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMin).max(confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMax).describe('Stable client key preventing duplicate replay children.')
 })
 
+export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSceneCountMin = 0;
+
 
 export const confirmGuidedStoryDialogueReplayResponseJobErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -19747,6 +19819,13 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -20292,7 +20371,14 @@ export const GetVideoCapabilitiesResponse = zod.object({
   "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOneVariantsItemPaisePerVideoMin).nullable()
 })).describe('Variant-specific wallet rates. When non-empty, clients must match the current request criteria and must not use the model-level rate.')
 }),zod.null()]).describe('Replicate sync\/lipsync-2 with the current configured price. Null means High Quality cannot be offered until pricing is available.')
-}).describe('Active server-owned video models with approximate tenant-facing INR rates. The platform fee is already included. A null rate means the active model is not priced in that unit, or pricing is unavailable.')
+}).describe('Active server-owned video models with approximate tenant-facing INR rates. The platform fee is already included. A null rate means the active model is not priced in that unit, or pricing is unavailable.'),
+  "studioLipSync": zod.object({
+  "enabled": zod.boolean(),
+  "defaultOn": zod.boolean(),
+  "ready": zod.boolean(),
+  "model": zod.string(),
+  "compatibleEngines": zod.array(zod.enum(['text_to_video', 'image_to_video', 'topic_to_video', 'guided_story']))
+})
 })
 
 
@@ -20508,6 +20594,10 @@ export const ListVideoMotionPresetsResponse = zod.object({
 /**
  * @summary List this workspace's recent video generation jobs (newest first)
  */
+export const listVideoJobsResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const listVideoJobsResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const listVideoJobsResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -20631,6 +20721,13 @@ export const ListVideoJobsResponseItem = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(listVideoJobsResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(listVideoJobsResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -21025,6 +21122,10 @@ export const GetVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const getVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const getVideoJobResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const getVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -21148,6 +21249,13 @@ export const GetVideoJobResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(getVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(getVideoJobResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -21542,6 +21650,10 @@ export const CancelVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const cancelVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const cancelVideoJobResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const cancelVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -21665,6 +21777,13 @@ export const CancelVideoJobResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(cancelVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(cancelVideoJobResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -22059,6 +22178,10 @@ export const RetryVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const retryVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const retryVideoJobResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const retryVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -22182,6 +22305,13 @@ export const RetryVideoJobResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(retryVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(retryVideoJobResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -22576,6 +22706,10 @@ export const RestartVideoJobFreshParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const restartVideoJobFreshResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const restartVideoJobFreshResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const restartVideoJobFreshResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -22699,6 +22833,13 @@ export const RestartVideoJobFreshResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(restartVideoJobFreshResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(restartVideoJobFreshResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -23097,6 +23238,10 @@ export const RepairVideoJobBody = zod.object({
   "reason": zod.enum(['narration', 'music', 'captions', 'scene_timing', 'audio_visual'])
 })
 
+export const repairVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const repairVideoJobResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const repairVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -23220,6 +23365,13 @@ export const RepairVideoJobResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(repairVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(repairVideoJobResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -23641,6 +23793,10 @@ export const UpdateVideoStoryboardBody = zod.object({
 })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
 })
 
+export const updateVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const updateVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const updateVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -23764,6 +23920,13 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(updateVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(updateVideoStoryboardResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -24170,6 +24333,10 @@ export const InsertVideoStoryboardSceneBody = zod.object({
   "visual": zod.string().max(insertVideoStoryboardSceneBodyVisualMax).optional().describe('What the scene shows (a generation prompt). Defaults to the narration text when omitted.')
 })
 
+export const insertVideoStoryboardSceneResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const insertVideoStoryboardSceneResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const insertVideoStoryboardSceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -24293,6 +24460,13 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -24688,6 +24862,10 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
   "sceneId": zod.coerce.string()
 })
 
+export const regenerateStoryboardScenePreviewResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const regenerateStoryboardScenePreviewResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const regenerateStoryboardScenePreviewResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -24811,6 +24989,13 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -25218,6 +25403,10 @@ export const CorrectGuidedStorySceneBody = zod.object({
   "backdropMode": zod.enum(['keep_locked_backdrop', 'scene_only_background', 'replace_shared_backdrop']).describe('Explicit backdrop behavior. replace_shared_backdrop is rejected here with instructions to use the shared backdrop review endpoint.')
 })
 
+export const correctGuidedStorySceneResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const correctGuidedStorySceneResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const correctGuidedStorySceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -25341,6 +25530,13 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -25735,6 +25931,10 @@ export const RenderMissingGuidedStoryPreviewsParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const renderMissingGuidedStoryPreviewsResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -25858,6 +26058,13 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -26252,6 +26459,10 @@ export const ApproveVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const approveVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const approveVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const approveVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -26375,6 +26586,13 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(approveVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(approveVideoStoryboardResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
@@ -26768,6 +26986,10 @@ export const DiscardVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const discardVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const discardVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
+
 
 export const discardVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -26891,6 +27113,13 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "generateAudio": zod.boolean().nullable(),
   "supportsEndFrame": zod.boolean()
 }).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(discardVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(discardVideoStoryboardResponseStudioLipSyncSceneCountMin),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
   "cinematography": zod.union([zod.null(),zod.object({
   "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),

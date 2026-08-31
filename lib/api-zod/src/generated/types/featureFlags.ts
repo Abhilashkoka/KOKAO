@@ -55,4 +55,5 @@ export interface FeatureFlags {
   imageLooks: boolean;
   providerScoring: boolean;
   lipSync: boolean;
+  studioLipSync: boolean;
 }
