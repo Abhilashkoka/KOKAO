@@ -914,7 +914,6 @@ export function VideoStudioPage() {
     key: number;
     draftId: number;
   } | null>(null);
-  const requestedJobFocusRef = useRef<number | null>(null);
   const requestedStoryboardOpenRef = useRef<number | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
   const [repairStartError, setRepairStartError] = useState<string | null>(null);
@@ -1512,30 +1511,16 @@ export function VideoStudioPage() {
   });
 
   const revealActiveJob = useCallback((jobId: number) => {
-    requestedJobFocusRef.current = jobId;
     requestedStoryboardOpenRef.current = jobId;
     setActiveJobId(jobId);
     if (activeJob?.id === jobId && activeJob.storyboard) {
       requestedStoryboardOpenRef.current = null;
       setBoardOpen(true);
     }
-    requestAnimationFrame(() => {
-      document
-        .querySelector('[data-testid="card-active-job"]')
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
   }, [activeJob]);
 
   useEffect(() => {
     if (!activeJob) return;
-    if (requestedJobFocusRef.current === activeJob.id) {
-      requestedJobFocusRef.current = null;
-      requestAnimationFrame(() => {
-        document
-          .querySelector('[data-testid="card-active-job"]')
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    }
     if (
       requestedStoryboardOpenRef.current === activeJob.id &&
       activeJob.storyboard
