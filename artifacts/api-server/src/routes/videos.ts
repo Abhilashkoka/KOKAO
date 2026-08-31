@@ -8283,6 +8283,7 @@ router.post(
     }
     let source: VideoGeneration | null = null;
     let child: VideoGeneration | null = null;
+    let existingRecoveryChild: VideoGeneration | null = null;
     let historicalPrivacyRecovery = false;
     let recoveryError: Awaited<ReturnType<typeof validateRecoveryObjects>> =
       null;
@@ -8325,20 +8326,28 @@ router.post(
       recoveryError = await validateRecoveryObjects(source, lockedInventory);
       if (recoveryError) return;
       const tenantJobs = await tx
-        .select({
-          id: videoGenerationsTable.id,
-          options: videoGenerationsTable.options,
-        })
+        .select()
         .from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.tenantId, req.tenantId));
-      const existingChild = tenantJobs.some(
-        (job) => isChildOfVideoSource(job.options, sourceId),
-      );
+      const recoveryChainId =
+        source.options?.recovery?.chainId ??
+        source.options?.characterDialogue?.retry?.sourceJobId ??
+        source.id;
+      const existingChild = tenantJobs
+        .filter((job) =>
+          job.id !== sourceId &&
+          (
+            isChildOfVideoSource(job.options, sourceId) ||
+            job.options?.recovery?.chainId === recoveryChainId
+          ))
+        .sort((a, b) => b.id - a.id)[0];
       if (
         existingChild ||
         source.options?.characterDialogue?.retry?.childJobId != null
-      )
+      ) {
+        existingRecoveryChild = existingChild ?? null;
         return;
+      }
       const childOptions: VideoJobOptions = structuredClone(
         source.options ?? { aspectRatio: "9:16" as const },
       );
@@ -8439,6 +8448,10 @@ router.post(
     }
     if (!source) {
       res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (existingRecoveryChild) {
+      res.status(200).json(serializeVideoJob(existingRecoveryChild));
       return;
     }
     if (!child) {

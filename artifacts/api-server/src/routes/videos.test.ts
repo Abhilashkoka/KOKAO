@@ -6451,8 +6451,10 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       request(app).post(`/api/ai/video-jobs/${source.id}/retry`),
       request(app).post(`/api/ai/video-jobs/${source.id}/retry`),
     ]);
-    expect(replies.map((reply) => reply.status).sort()).toEqual([201, 409]);
+    expect(replies.map((reply) => reply.status).sort()).toEqual([200, 201]);
     const created = replies.find((reply) => reply.status === 201)!;
+    const existing = replies.find((reply) => reply.status === 200)!;
+    expect(existing.body.id).toBe(created.body.id);
     expect(created.body.units).toBe(2);
     const [child] = await db.select().from(videoGenerationsTable)
       .where(eq(videoGenerationsTable.id, created.body.id));
