@@ -290,6 +290,20 @@ function renderWorkflow(options: {
 beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
+  it("starts a new story without deleting the previously restored draft", async () => {
+    state.draft = draft();
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await screen.findByTestId("button-guided-new-story");
+    await userEvent.click(screen.getByTestId("button-guided-new-story"));
+
+    expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBeNull();
+    expect(screen.queryByTestId("button-guided-new-story")).toBeNull();
+    expect((screen.getByTestId("input-guided-topic") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Create story draft");
+  });
+
   it("shows native text, Romanized pronunciation, then English meaning without duplicating English stories", async () => {
     state.draft = draft({
       setup: { ...draft().setup, locale: "te" },

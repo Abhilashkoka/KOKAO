@@ -478,6 +478,42 @@ export function GuidedStoryWorkflow({
     setConsent(false); // identity consent is per request, never persisted by this component
     if (storageKey) localStorage.setItem(storageKey, String(next.id));
   }, [queryClient, storageKey]);
+  const startNewStory = useCallback(() => {
+    if (storageKey) localStorage.removeItem(storageKey);
+    setDraftId(null);
+    setGenre("action_adventure");
+    setPlatformId("");
+    setDuration(null);
+    setRoleCount(null);
+    setLocale("en");
+    setTopic("");
+    setBrandKitId(null);
+    setEditing(false);
+    setScriptEditorOpen(false);
+    setUserRoleId(null);
+    setUserRoleChoiceMade(false);
+    setStrategy("generated");
+    setAssignments({});
+    setConsent(false);
+    setStudioLipSync(studioLipSyncCapability?.defaultOn ?? false);
+    setStudioLipSyncConsent(false);
+    setDuplicateConfirmed(false);
+    setCastSaveError(null);
+    setEnqueueError(null);
+    setScriptGenerationError(null);
+    setRuntimeGuidance(null);
+    setScriptApprovalError(null);
+    setTranslationError(null);
+    setTranslatingLineId(null);
+    setCastApprovalError(null);
+    setCastBusyRole(null);
+    setCastRetryAttempt(0);
+    setVisualChoices(emptyVisualChoices());
+    setVisualError(null);
+    setVisualUploading(null);
+    mutationLockRef.current = false;
+    setMutationLocked(false);
+  }, [storageKey, studioLipSyncCapability?.defaultOn]);
   const acquireMutation = () => {
     if (mutationLockRef.current) return false;
     mutationLockRef.current = true;
@@ -679,7 +715,23 @@ export function GuidedStoryWorkflow({
     editRequest?.draftId === draft?.id ? editRequest?.correctionMessage : null;
   return <div className="space-y-5" data-testid="guided-story-workflow">
     <Card>
-      <CardHeader><CardTitle>Guided Story</CardTitle><CardDescription>Plan a cast-led story, approve its script, then use the existing storyboard review.</CardDescription></CardHeader>
+      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle>Guided Story</CardTitle>
+          <CardDescription>Plan a cast-led story, approve its script, then use the existing storyboard review.</CardDescription>
+        </div>
+        {draft && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={startNewStory}
+            disabled={mutationLocked}
+            data-testid="button-guided-new-story"
+          >
+            Start new story
+          </Button>
+        )}
+      </CardHeader>
       <CardContent className="space-y-4" ref={scriptEditorRef}>
         <div
           className="space-y-2 rounded-md border p-3"
