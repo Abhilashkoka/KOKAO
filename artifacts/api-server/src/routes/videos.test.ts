@@ -3137,6 +3137,11 @@ describe("guided story route fail-closed regressions", () => {
       .from(videoGenerationsTable)
       .where(eq(videoGenerationsTable.id, response.body.id));
     expect(job!.options!.guidedStory!.locale).toBe("en");
+    expect(job!.options!.resolvedVideoModel).toMatchObject({
+      mode: "image",
+      provider: expect.any(String),
+      model: expect.any(String),
+    });
     expect(
       job!.options!.guidedStory!.cast.every(
         (member) => member.source !== "saved" || member.consentGranted,

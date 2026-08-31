@@ -7746,8 +7746,11 @@ async function generateVideoHandler(
             ? "image"
             : "text"
           : body.engine === "topic_to_video" &&
-              !presenterTemplate &&
-              (visualsSource === "character" || visualsSource === "ai_video")
+              (
+                options.guidedStory != null ||
+                (!presenterTemplate &&
+                  (visualsSource === "character" || visualsSource === "ai_video"))
+              )
             ? "image"
             : null;
   if (resolvedMode) {
