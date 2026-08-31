@@ -1,0 +1,288 @@
+From 9f579b7ceb601fd02c23099487f38a5c21314332 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 31 Aug 2026 19:48:59 +0000
+Subject: [PATCH 4/7] Add narration slicing and exact shot trimming
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two primitives the character lip-sync pass needs, landed on their own
+so they can be tested without it.
+
+sliceNarration cuts one span out of a narration track as a standalone
+WAV. A lip-sync model must receive the audio for exactly the shot it
+is syncing — give it the whole track and the mouth follows words
+belonging to a different shot. Cue timings already come from byte
+offsets into this same PCM, so slicing on those offsets is exact to
+the sample rather than approximate: the audio a shot receives is the
+audio the timeline plays under it. Offsets snap to whole frames,
+out-of-range spans clamp, and an empty or inverted span yields a valid
+silent WAV rather than a malformed file the model would choke on.
+
+trimClipToStart is enforceClipDuration's stricter sibling, for footage
+about to be synced. It drops the tolerance window, because a lip-sync
+model takes video and audio as separate files and assumes they start
+together — the third of a second enforceClipDuration ignores is a
+third of a second of wrong mouth. And it never seeks: providers return
+discrete lengths, so a 3.2s shot arrives as a 5s clip, and the surplus
+comes off the end rather than being sampled from the middle. It is
+deliberately not fail-soft; handing the model a mismatched clip
+produces a confidently desynced result, which is worse than a failed
+job.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../src/lib/videoGen/postprocess.test.ts      | 52 ++++++++++++-
+ .../src/lib/videoGen/postprocess.ts           | 51 +++++++++++++
+ .../src/lib/videoGen/topicVideo/narration.ts  | 24 ++++++
+ .../topicVideo/narrationSlice.test.ts         | 76 +++++++++++++++++++
+ 4 files changed, 201 insertions(+), 2 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/narrationSlice.test.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.test.ts b/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
+index 4ee2d65b..d355b9b3 100644
+--- a/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
+@@ -1,6 +1,9 @@
+ import { describe, it, expect } from "vitest";
+-import { renderSlideshow } from "./slideshow";
+-import { normalizeVideo, fitImageToAspect } from "./postprocess";
++import { renderSlideshow, probeDurationSec } from "./slideshow";
++import { mkdtemp, writeFile, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { normalizeVideo, fitImageToAspect, trimClipToStart } from "./postprocess";
+ import { withRetries, withTimeout } from "./retry";
+ import { VideoGenProviderError } from "./types";
+ 
+@@ -89,3 +92,48 @@ describe("retry helpers", () => {
+     ).rejects.toBeInstanceOf(VideoGenProviderError);
+   });
+ });
++
++describe("trimClipToStart", () => {
++  it("cuts a long clip to exactly the shot length, from the beginning", async () => {
++    const clip = await renderSlideshow({
++      images: [PNG_1PX],
++      aspectRatio: "16:9",
++      slideDurationSec: 5,
++    });
++    const trimmed = await trimClipToStart(clip, 3.2);
++    expect(isMp4(trimmed)).toBe(true);
++    const dir = await mkdtemp(join(tmpdir(), "kokao-trim-test-"));
++    try {
++      await writeFile(join(dir, "t.mp4"), trimmed);
++      const durationSec = await probeDurationSec("t.mp4", dir);
++      // No tolerance window here: a lip-sync model assumes video and audio
++      // start together, so the length has to be right, not close.
++      expect(Math.abs(durationSec! - 3.2)).toBeLessThan(0.12);
++    } finally {
++      await rm(dir, { recursive: true, force: true }).catch(() => {});
++    }
++  }, 180_000);
++
++  it("holds the last frame when the clip is shorter than the shot", async () => {
++    const clip = await renderSlideshow({
++      images: [PNG_1PX],
++      aspectRatio: "16:9",
++      slideDurationSec: 2,
++    });
++    const trimmed = await trimClipToStart(clip, 3);
++    const dir = await mkdtemp(join(tmpdir(), "kokao-trim-test-"));
++    try {
++      await writeFile(join(dir, "t.mp4"), trimmed);
++      const durationSec = await probeDurationSec("t.mp4", dir);
++      expect(Math.abs(durationSec! - 3)).toBeLessThan(0.15);
++    } finally {
++      await rm(dir, { recursive: true, force: true }).catch(() => {});
++    }
++  }, 180_000);
++
++  it("refuses a nonsense length instead of shipping a desynced shot", async () => {
++    await expect(trimClipToStart(Buffer.from("x"), 0)).rejects.toBeInstanceOf(
++      VideoGenProviderError,
++    );
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.ts b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+index 4409e66c..8372bb85 100644
+--- a/artifacts/api-server/src/lib/videoGen/postprocess.ts
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+@@ -129,6 +129,57 @@ export async function normalizeVideo(video: Buffer, aspectRatio: VideoAspect): P
+  *
+  * Fail-soft like its neighbours: any error returns the ORIGINAL buffer.
+  */
++/**
++ * Cut a clip to exactly `targetSec`, always starting at t=0, always
++ * re-encoding.
++ *
++ * This is enforceClipDuration's stricter sibling, for footage about to be
++ * lip-synced. Two differences, both load-bearing:
++ *
++ *  - No tolerance window. enforceClipDuration skips a drift under a third of a
++ *    second because re-encoding costs more quality than the drift costs rhythm.
++ *    A lip-sync model gets video and audio as separate files and assumes they
++ *    start together, so a third of a second of drift is a third of a second of
++ *    wrong mouth.
++ *  - No seeking, ever. The clip and its audio slice both begin at zero.
++ *
++ * Providers return discrete lengths (5s, 8s, 10s), so a 3.2s shot arrives as a
++ * 5s clip; the surplus is dropped from the end rather than sampled from the
++ * middle. NOT fail-soft: handing the model a mismatched clip produces a
++ * confidently desynced result, which is worse than a failed job.
++ */
++export async function trimClipToStart(video: Buffer, targetSec: number): Promise<Buffer> {
++  if (!Number.isFinite(targetSec) || targetSec <= 0) {
++    throw new VideoGenProviderError("A lip-synced shot needs a positive length.");
++  }
++  const dir = await mkdtemp(join(tmpdir(), "kokao-trimstart-"));
++  try {
++    await writeFile(join(dir, "in.mp4"), video);
++    const actualSec = await probeDurationSec("in.mp4", dir);
++    const args = ["-y", "-i", "in.mp4"];
++    if (actualSec !== null && actualSec < targetSec) {
++      args.push("-vf", `tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
++    }
++    args.push(
++      "-t", targetSec.toFixed(3),
++      "-map", "0:v:0",
++      "-an",
++      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
++      "-pix_fmt", "yuv420p",
++      "-movflags", "+faststart",
++      "out.mp4",
++    );
++    await runFfmpeg(args, dir);
++    const out = await readFile(join(dir, "out.mp4"));
++    if (out.length === 0) {
++      throw new VideoGenProviderError("A lip-synced shot could not be cut to length.");
++    }
++    return out;
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
+ export async function enforceClipDuration(video: Buffer, targetSec: number): Promise<Buffer> {
+   if (!Number.isFinite(targetSec) || targetSec <= 0) return video;
+   const dir = await mkdtemp(join(tmpdir(), "kokao-cliplen-"));
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+index 3dae8279..fe8507c4 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+@@ -202,6 +202,30 @@ export interface Narration {
+   totalDurationSec: number;
+ }
+ 
++/**
++ * Cut one span out of a narration track as a standalone WAV.
++ *
++ * A lip-sync model needs the audio for exactly the shot it is syncing, and no
++ * more — hand it the whole track and the mouth follows words that belong to a
++ * different shot. Cue timings come from byte offsets into this same PCM
++ * (see stitchNarration), so slicing on those offsets is exact rather than
++ * approximate: the audio a shot receives lines up with the audio the timeline
++ * plays under it, to the sample.
++ *
++ * Offsets are snapped to whole frames, out-of-range spans are clamped, and an
++ * empty span yields a valid silent WAV rather than a malformed file.
++ */
++export function sliceNarration(wav: Buffer, startSec: number, endSec: number): Buffer {
++  const { format, pcm } = parseWav(wav);
++  const toFrame = (seconds: number): number => {
++    const clamped = Math.max(0, Math.min(seconds, pcm.length / format.byteRate));
++    return Math.round((clamped * format.byteRate) / format.blockAlign) * format.blockAlign;
++  };
++  const from = toFrame(startSec);
++  const to = Math.max(from, toFrame(endSec));
++  return buildWav(format, pcm.subarray(from, to));
++}
++
+ /**
+  * Whether a narration failure is the SPEAKER's fault (429/5xx/network/timeout,
+  * or audio bytes that came back unusable), as opposed to something that would
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/narrationSlice.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/narrationSlice.test.ts
+new file mode 100644
+index 00000000..b0e12f56
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/narrationSlice.test.ts
+@@ -0,0 +1,76 @@
++import { describe, it, expect } from "vitest";
++import { parseWav, buildWav, sliceNarration } from "./narration";
++
++const SAMPLE_RATE = 24_000;
++const CHANNELS = 1;
++const BITS = 16;
++const BLOCK_ALIGN = (CHANNELS * BITS) / 8;
++const BYTE_RATE = SAMPLE_RATE * BLOCK_ALIGN;
++
++const FORMAT = {
++  channels: CHANNELS,
++  sampleRate: SAMPLE_RATE,
++  bitsPerSample: BITS,
++  byteRate: BYTE_RATE,
++  blockAlign: BLOCK_ALIGN,
++};
++
++/**
++ * A track whose sample VALUE encodes its own second, so a slice can be checked
++ * for having come from the right place rather than merely the right length.
++ */
++function rampTrack(seconds: number): Buffer {
++  const pcm = Buffer.alloc(BYTE_RATE * seconds);
++  for (let i = 0; i < pcm.length / BLOCK_ALIGN; i++) {
++    const second = Math.floor(i / SAMPLE_RATE);
++    pcm.writeInt16LE((second + 1) * 1000, i * BLOCK_ALIGN);
++  }
++  return buildWav(FORMAT, pcm);
++}
++
++describe("sliceNarration", () => {
++  it("cuts the requested span to the sample", () => {
++    const slice = sliceNarration(rampTrack(5), 1, 3);
++    const { durationSec, format } = parseWav(slice);
++    expect(Math.abs(durationSec - 2)).toBeLessThan(0.001);
++    expect(format.sampleRate).toBe(SAMPLE_RATE);
++    expect(format.channels).toBe(CHANNELS);
++  });
++
++  it("takes the audio from the right place in the track", () => {
++    // Seconds 2..3 of the ramp carry the value 3000 throughout.
++    const { pcm } = parseWav(sliceNarration(rampTrack(5), 2, 3));
++    expect(pcm.readInt16LE(0)).toBe(3000);
++    expect(pcm.readInt16LE(pcm.length - BLOCK_ALIGN)).toBe(3000);
++  });
++
++  it("slices sum back to the whole track", () => {
++    const track = rampTrack(6);
++    const spans: Array<[number, number]> = [
++      [0, 1.5],
++      [1.5, 4],
++      [4, 6],
++    ];
++    const total = spans.reduce(
++      (sum, [from, to]) => sum + parseWav(sliceNarration(track, from, to)).durationSec,
++      0,
++    );
++    expect(Math.abs(total - 6)).toBeLessThan(0.01);
++  });
++
++  it("clamps a span that runs past the end of the track", () => {
++    const { durationSec } = parseWav(sliceNarration(rampTrack(3), 2, 99));
++    expect(Math.abs(durationSec - 1)).toBeLessThan(0.01);
++  });
++
++  it("returns a valid empty WAV for an inverted or empty span", () => {
++    for (const [from, to] of [
++      [2, 2],
++      [3, 1],
++    ] as Array<[number, number]>) {
++      const slice = sliceNarration(rampTrack(4), from, to);
++      // Still parseable — a malformed file would break the model, not the job.
++      expect(parseWav(slice).durationSec).toBe(0);
++    }
++  });
++});
+-- 
+2.43.0
+

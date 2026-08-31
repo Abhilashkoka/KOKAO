@@ -1,0 +1,397 @@
+From 478d23107dae34ba7423cb0439093918e7417a81 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 31 Aug 2026 19:46:03 +0000
+Subject: [PATCH 2/7] Refuse hopeless lip-sync sources and make the model
+ swappable
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two guards around the lip_sync engine.
+
+RESOLUTION FLOOR. Upscaling rescues a 480p upload; it cannot rescue a
+144p one, because there is no mouth detail to enlarge. Sources below
+MIN_USABLE_HEIGHT are now refused with a message naming the height,
+before the model is called — the job fails into the existing refund
+path having spent nothing on Replicate. The check reuses the probe
+the source-preparation pass already performs, so it costs no extra
+work. It deliberately runs in the runner rather than the route: the
+route would have to load the whole upload a second time to see the
+resolution, and the refund path already makes the user whole.
+
+MODEL OVERRIDE. The lip-sync model was pinned at its call site, which
+made "is LatentSync the ceiling or the bug?" a question only a deploy
+could answer. generateLipSyncWithReplicate now takes an optional model
+reference, resolved from a new video_gen_settings.lip_sync_model
+column, then the LIPSYNC_MODEL environment variable, then the pinned
+default — the same precedence the stored API credentials already use.
+Job rows record the model that actually ran.
+
+Lip sync stays out of VideoGenSelection on purpose: its input contract
+is video + audio rather than a prompt, so it is not one of the
+providers that selection switches between, and keeping it separate
+leaves the admin route, the API spec and the generated clients
+untouched. There is no admin card for it yet — set the column or the
+env var to run a comparison.
+
+Requires: pnpm --filter @workspace/db run push
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../api-server/src/lib/videoGen/index.ts      |  21 ++++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  10 +-
+ .../src/lib/videoGen/lipSyncSource.test.ts    |  19 +++
+ .../src/lib/videoGen/lipSyncSource.ts         |  19 +++
+ .../src/lib/videoGen/providers/replicate.ts   |  19 ++-
+ .../src/lib/videoGen/replicateLipSync.test.ts | 108 +++++++++++++++++-
+ lib/db/src/schema/videoGenSettings.ts         |   8 ++
+ 7 files changed, 196 insertions(+), 8 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index 75ed1b0b..91fc3cfc 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -305,6 +305,27 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
+   };
+ }
+ 
++/**
++ * Which lip-sync model to run. Deliberately NOT part of VideoGenSelection:
++ * lip sync takes video + audio rather than a prompt, so it is not one of the
++ * providers the selection switches between, and giving it its own resolver
++ * keeps the admin route and the generated API clients untouched.
++ *
++ * Order matches the credential pattern used elsewhere: the stored setting
++ * wins, then the environment, then the pinned default inside the provider.
++ * Returning null means "use the pinned default".
++ */
++export async function resolveLipSyncModelRef(): Promise<string | null> {
++  try {
++    const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
++    const stored = row?.lipSyncModel?.trim();
++    if (stored) return stored;
++  } catch (error) {
++    logger.warn({ err: error }, "Lip-sync model lookup failed; using the pinned default");
++  }
++  return process.env.LIPSYNC_MODEL?.trim() || null;
++}
++
+ /** Persist the platform-wide selection (superadmin only; the route validates
+  * the provider id against the catalog). */
+ export async function setVideoGenSelection(selection: VideoGenSelection): Promise<void> {
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 3ca2eec4..4c50a259 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -18,11 +18,12 @@ import {
+   generateVideo,
+   getVideoGenProviderDef,
+   resolveVideoGenApiKey,
++  resolveLipSyncModelRef,
+   VideoGenNotConfiguredError,
+   VideoGenProviderError,
+ } from "./index";
+ import { generateLipSyncWithReplicate } from "./providers/replicate";
+-import { prepareLipSyncSource } from "./lipSyncSource";
++import { prepareLipSyncSource, MIN_USABLE_HEIGHT } from "./lipSyncSource";
+ import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
+ import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
+ import {
+@@ -472,6 +473,12 @@ async function produceVideo(
+     // unsynced, and a 480p upload starved the model's face crop.
+     onStage("Preparing your video");
+     const source = await prepareLipSyncSource(video, narration.totalDurationSec);
++    if (source.tooSmall) {
++      throw new VideoJobInputError(
++        `Your video is only ${source.height}p. Lip sync needs at least ${MIN_USABLE_HEIGHT}p ` +
++          "to redraw a mouth cleanly — please upload a higher-quality clip.",
++      );
++    }
+     if (source.excessive) {
+       throw new VideoJobInputError(
+         `Your script runs about ${Math.ceil(source.overrunSec)}s longer than your video. ` +
+@@ -488,6 +495,7 @@ async function produceVideo(
+     const result = await generateLipSyncWithReplicate(
+       { video: source.video, audio: { buffer: narration.wav, mimeType: "audio/wav" } },
+       apiKey,
++      await resolveLipSyncModelRef(),
+     );
+     return {
+       // The output keeps the base video's own framing, so no aspect
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts b/artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts
+index 5755c2c3..c758ed94 100644
+--- a/artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts
+@@ -8,6 +8,7 @@ import {
+   probeHeight,
+   MIN_SYNC_HEIGHT,
+   MAX_TAIL_HOLD_SEC,
++  MIN_USABLE_HEIGHT,
+ } from "./lipSyncSource";
+ 
+ // 1x1 red PNG — the slideshow renderer scales it to the requested aspect.
+@@ -134,3 +135,21 @@ describe("prepareLipSyncSource", () => {
+     expect(prepared.video.buffer.equals(junk.buffer)).toBe(true);
+   }, 60_000);
+ });
++
++describe("prepareLipSyncSource resolution guard", () => {
++  it("flags a source too small to sync at all", async () => {
++    const upload = await fakeUpload(2, 144);
++    const prepared = await prepareLipSyncSource(upload, 2);
++    expect(prepared.tooSmall).toBe(true);
++    expect(prepared.height!).toBeLessThan(MIN_USABLE_HEIGHT);
++    // Refused before any encode is spent on it.
++    expect(prepared.video.buffer.equals(upload.buffer)).toBe(true);
++  }, 180_000);
++
++  it("accepts a small-but-workable source and upscales it", async () => {
++    const upload = await fakeUpload(2, 360);
++    const prepared = await prepareLipSyncSource(upload, 2);
++    expect(prepared.tooSmall).toBe(false);
++    expect(prepared.upscale).toBeGreaterThan(1);
++  }, 180_000);
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncSource.ts b/artifacts/api-server/src/lib/videoGen/lipSyncSource.ts
+index 3d3bb277..dacc3202 100644
+--- a/artifacts/api-server/src/lib/videoGen/lipSyncSource.ts
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncSource.ts
+@@ -30,6 +30,11 @@ import { logger } from "../logger";
+ 
+ /** Below this height the model's face crop is starved; upscale first. */
+ export const MIN_SYNC_HEIGHT = 720;
++/**
++ * Below this, upscaling cannot save it — there is no mouth detail to enlarge,
++ * and the result is worth neither the money nor the wait. Refused instead.
++ */
++export const MIN_USABLE_HEIGHT = 240;
+ /** Never blow a source up by more than this — past it we are inventing pixels. */
+ const MAX_UPSCALE = 2;
+ /** Length difference small enough that a re-encode costs more than it fixes. */
+@@ -65,6 +70,12 @@ export interface LipSyncSource {
+   excessive: boolean;
+   /** Seconds the narration exceeds the footage by (0 when it does not). */
+   overrunSec: number;
++  /**
++   * True when the source is below MIN_USABLE_HEIGHT — too small for any lip
++   * sync worth shipping. As with `excessive`, this module only measures; the
++   * caller decides.
++   */
++  tooSmall: boolean;
+ }
+ 
+ /** Video height in pixels, or null when it cannot be read. */
+@@ -124,6 +135,7 @@ export async function prepareLipSyncSource(
+     fit: "exact",
+     excessive: false,
+     overrunSec: 0,
++    tooSmall: false,
+   };
+   if (!Number.isFinite(narrationDurationSec) || narrationDurationSec <= 0) return untouched;
+ 
+@@ -137,6 +149,12 @@ export async function prepareLipSyncSource(
+       return { ...untouched, height };
+     }
+ 
++    // Hopeless resolution is refused before the model is called, not after:
++    // the job fails into the existing refund path having spent nothing.
++    if (height !== null && height < MIN_USABLE_HEIGHT) {
++      return { ...untouched, height, sourceDurationSec, tooSmall: true };
++    }
++
+     const overrunSec = Math.max(0, narrationDurationSec - sourceDurationSec);
+     const excessive = overrunSec > MAX_TAIL_HOLD_SEC;
+     const delta = narrationDurationSec - sourceDurationSec;
+@@ -209,6 +227,7 @@ export async function prepareLipSyncSource(
+       fit,
+       excessive: false,
+       overrunSec,
++      tooSmall: false,
+     };
+   } catch (error) {
+     logger.warn({ err: error }, "Base video preparation failed; syncing the upload as-is");
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+index eec11a28..8cf9557a 100644
+--- a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
++++ b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+@@ -148,22 +148,29 @@ export async function generateLipSyncWithReplicate(
+     audio: { buffer: Buffer; mimeType: string };
+   },
+   apiKey: string | null,
++  /**
++   * Model reference to run: "owner/name" or "owner/name:version". Defaults to
++   * the pinned LatentSync build. Overridable so one lip-sync model can be
++   * compared against another on the same footage without a deploy — what
++   * makes this feature is the {video, audio} contract, not which model
++   * honors it.
++   */
++  modelRef?: string | null,
+ ): Promise<VideoGenResult> {
+   if (!apiKey) {
+     throw new VideoGenNotConfiguredError(
+       "Replicate is not configured: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
+     );
+   }
++  const ref = modelRef?.trim() || `${REPLICATE_LIP_SYNC_MODEL}:${REPLICATE_LIP_SYNC_VERSION}`;
+   const [videoUrl, audioUrl] = [
+     await uploadReplicateFile(args.video.buffer, args.video.mimeType, "source-video", apiKey),
+     await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "narration-audio", apiKey),
+   ];
+-  const buffer = await runReplicatePrediction(
+-    `${REPLICATE_LIP_SYNC_MODEL}:${REPLICATE_LIP_SYNC_VERSION}`,
+-    { video: videoUrl, audio: audioUrl },
+-    apiKey,
+-  );
+-  return { buffer, provider: "replicate", model: REPLICATE_LIP_SYNC_MODEL };
++  const buffer = await runReplicatePrediction(ref, { video: videoUrl, audio: audioUrl }, apiKey);
++  // Record the model that actually ran (version suffix stripped) so a job row
++  // names the build that produced the file, not the default it overrode.
++  return { buffer, provider: "replicate", model: ref.split(":")[0] || REPLICATE_LIP_SYNC_MODEL };
+ }
+ 
+ /** Replicate: create a prediction (sync-preferred), poll until done, download the video. */
+diff --git a/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts b/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts
+index a49ceee6..af9627b5 100644
+--- a/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts
+@@ -129,4 +129,110 @@ describe("Replicate LatentSync prediction request", () => {
+       false,
+     );
+   });
+-});
+\ No newline at end of file
++});
++describe("Replicate lip-sync model override", () => {
++  it("runs the configured model instead of the pinned default", async () => {
++    const calls: Array<{ url: string; init?: RequestInit }> = [];
++    let uploadNumber = 0;
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async (url: string | URL, init?: RequestInit) => {
++        const stringUrl = String(url);
++        calls.push({ url: stringUrl, init });
++        if (stringUrl === "https://api.replicate.com/v1/files") {
++          uploadNumber += 1;
++          return new Response(
++            JSON.stringify({
++              urls: { get: `https://api.replicate.com/v1/files/input-${uploadNumber}` },
++            }),
++            { status: 201 },
++          );
++        }
++        if (stringUrl === "https://api.replicate.com/v1/predictions") {
++          return new Response(
++            JSON.stringify({
++              id: "prediction-1",
++              status: "succeeded",
++              output: "https://replicate.delivery/output.mp4",
++            }),
++            { status: 201 },
++          );
++        }
++        if (stringUrl === "https://replicate.delivery/output.mp4") {
++          return new Response(Buffer.from("video-bytes"), { status: 200 });
++        }
++        return new Response("not found", { status: 404 });
++      }),
++    );
++
++    const result = await generateLipSyncWithReplicate(
++      {
++        video: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
++        audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
++      },
++      "test-token",
++      "someone/other-lipsync:abc123",
++    );
++
++    const predictionCall = calls.find(
++      ({ url }) => url === "https://api.replicate.com/v1/predictions",
++    );
++    expect(JSON.parse(String(predictionCall?.init?.body)).version).toBe(
++      "someone/other-lipsync:abc123",
++    );
++    // The job row records what actually ran, version suffix stripped.
++    expect(result.model).toBe("someone/other-lipsync");
++  });
++
++  it("falls back to the pinned build when the override is blank", async () => {
++    const calls: Array<{ url: string; init?: RequestInit }> = [];
++    let uploadNumber = 0;
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async (url: string | URL, init?: RequestInit) => {
++        const stringUrl = String(url);
++        calls.push({ url: stringUrl, init });
++        if (stringUrl === "https://api.replicate.com/v1/files") {
++          uploadNumber += 1;
++          return new Response(
++            JSON.stringify({
++              urls: { get: `https://api.replicate.com/v1/files/input-${uploadNumber}` },
++            }),
++            { status: 201 },
++          );
++        }
++        if (stringUrl === "https://api.replicate.com/v1/predictions") {
++          return new Response(
++            JSON.stringify({
++              id: "prediction-1",
++              status: "succeeded",
++              output: "https://replicate.delivery/output.mp4",
++            }),
++            { status: 201 },
++          );
++        }
++        if (stringUrl === "https://replicate.delivery/output.mp4") {
++          return new Response(Buffer.from("video-bytes"), { status: 200 });
++        }
++        return new Response("not found", { status: 404 });
++      }),
++    );
++
++    const result = await generateLipSyncWithReplicate(
++      {
++        video: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
++        audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
++      },
++      "test-token",
++      "   ",
++    );
++
++    const predictionCall = calls.find(
++      ({ url }) => url === "https://api.replicate.com/v1/predictions",
++    );
++    expect(JSON.parse(String(predictionCall?.init?.body)).version).toBe(
++      `${REPLICATE_LIP_SYNC_MODEL}:${REPLICATE_LIP_SYNC_VERSION}`,
++    );
++    expect(result.model).toBe(REPLICATE_LIP_SYNC_MODEL);
++  });
++});
+diff --git a/lib/db/src/schema/videoGenSettings.ts b/lib/db/src/schema/videoGenSettings.ts
+index 9d5fbf1e..017af233 100644
+--- a/lib/db/src/schema/videoGenSettings.ts
++++ b/lib/db/src/schema/videoGenSettings.ts
+@@ -13,12 +13,20 @@ import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
+  * `textToVideoModel` / `imageToVideoModel` optionally override the
+  * provider's default model per engine (video models are usually distinct
+  * for text-to-video vs image-to-video, unlike image gen's single model).
++ *
++ * `lipSyncModel` overrides the pinned lip-sync model reference
++ * ("owner/name" or "owner/name:version"). Lip sync is not part of the
++ * provider selection above — its input contract is video + audio, not a
++ * prompt — so it carries its own override, and leaving it null keeps the
++ * pinned default. Set it to compare lip-sync models on the same footage
++ * without a deploy.
+  */
+ export const videoGenSettingsTable = pgTable("video_gen_settings", {
+   id: integer("id").primaryKey().default(1),
+   provider: text("provider").notNull().default("replicate"),
+   textToVideoModel: text("text_to_video_model"),
+   imageToVideoModel: text("image_to_video_model"),
++  lipSyncModel: text("lip_sync_model"),
+   updatedAt: timestamp("updated_at", { withTimezone: true })
+     .notNull()
+     .defaultNow()
+-- 
+2.43.0
+

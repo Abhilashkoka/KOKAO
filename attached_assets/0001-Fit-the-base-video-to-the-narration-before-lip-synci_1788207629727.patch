@@ -1,0 +1,492 @@
+From 5b75893a0fdb59943b3ceb8b5fa00c3499614c64 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 31 Aug 2026 19:41:28 +0000
+Subject: [PATCH 1/7] Fit the base video to the narration before lip-syncing
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two production defects in the lip_sync engine, both fixed in one
+re-encode of the uploaded source.
+
+LENGTH. The runner handed the model whatever the upload was and
+whatever the narration turned out to be — nothing probed either.
+A script that ran past the footage left its tail unsynced; a short
+one left footage the audio never reached. The source is now trimmed
+to the narration or holds its last frame to reach it, and a script
+that runs more than MAX_TAIL_HOLD_SEC past the footage is refused
+with a message naming the overrun instead of rendering a frozen
+frame. The refusal path spends no encode.
+
+FACE PIXELS. The model works on a small square crop around the face.
+On a 480p upload that crop is starved before the model starts, and
+the synced mouth returns with a fraction of the surrounding skin's
+detail — measured at roughly a sixth on a real 848x478 sample.
+Sources below MIN_SYNC_HEIGHT are now upscaled (lanczos, capped at
+2x, aspect preserved) so the crop has something to work with. Aspect
+is still not normalized: padding someone's own footage only shrinks
+them.
+
+The QA gate now also asserts the synced video is as long as the
+voice it was synced to, so a truncating model fails the job and
+refunds rather than shipping a half-spoken script.
+
+Fail-soft throughout: an unprobeable or unencodable source is passed
+through for the model to judge rather than failing a job it might
+still handle.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  26 ++-
+ .../src/lib/videoGen/lipSyncSource.test.ts    | 136 +++++++++++
+ .../src/lib/videoGen/lipSyncSource.ts         | 219 ++++++++++++++++++
+ pnpm-workspace.yaml                           |   6 +
+ 4 files changed, 385 insertions(+), 2 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/lipSyncSource.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 81f67bda..3ca2eec4 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -22,6 +22,7 @@ import {
+   VideoGenProviderError,
+ } from "./index";
+ import { generateLipSyncWithReplicate } from "./providers/replicate";
++import { prepareLipSyncSource } from "./lipSyncSource";
+ import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
+ import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
+ import {
+@@ -466,6 +467,18 @@ async function produceVideo(
+       clonedVoice,
+     });
+ 
++    // Fit the footage to the narration and give the model enough face pixels
++    // before spending on it: mismatched lengths left the tail of a long script
++    // unsynced, and a 480p upload starved the model's face crop.
++    onStage("Preparing your video");
++    const source = await prepareLipSyncSource(video, narration.totalDurationSec);
++    if (source.excessive) {
++      throw new VideoJobInputError(
++        `Your script runs about ${Math.ceil(source.overrunSec)}s longer than your video. ` +
++          "Please shorten the script or upload a longer clip.",
++      );
++    }
++
+     // LatentSync is pinned to Replicate — it is the input contract (video +
+     // audio) that makes this feature, not an interchangeable video model —
+     // so the key is resolved directly rather than via provider selection.
+@@ -473,7 +486,7 @@ async function produceVideo(
+     const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+     onStage("Syncing the lips");
+     const result = await generateLipSyncWithReplicate(
+-      { video, audio: { buffer: narration.wav, mimeType: "audio/wav" } },
++      { video: source.video, audio: { buffer: narration.wav, mimeType: "audio/wav" } },
+       apiKey,
+     );
+     return {
+@@ -482,7 +495,16 @@ async function produceVideo(
+       buffer: result.buffer,
+       provider: result.provider,
+       model: result.model,
+-      qa: { minDurationSec: 0.5, expectAudio: true, label: "lip-sync video" },
++      qa: {
++        minDurationSec: 0.5,
++        expectAudio: true,
++        // The synced video must be as long as the voice it was synced to. A
++        // model that truncates leaves the end of the script unspoken — which
++        // is the failure the matched lengths above exist to prevent, so it is
++        // asserted rather than assumed.
++        expectedDurationSec: narration.totalDurationSec,
++        label: "lip-sync video",
++      },
+     };
+   }
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts b/artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts
+new file mode 100644
+index 00000000..5755c2c3
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncSource.test.ts
+@@ -0,0 +1,136 @@
++import { describe, it, expect } from "vitest";
++import { mkdtemp, writeFile, readFile, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { renderSlideshow, probeDurationSec, runFfmpeg } from "./slideshow";
++import {
++  prepareLipSyncSource,
++  probeHeight,
++  MIN_SYNC_HEIGHT,
++  MAX_TAIL_HOLD_SEC,
++} from "./lipSyncSource";
++
++// 1x1 red PNG — the slideshow renderer scales it to the requested aspect.
++const PNG_1PX = Buffer.from(
++  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
++  "base64",
++);
++
++/**
++ * Build a real clip of roughly `seconds` length to stand in for an upload.
++ * `height` shrinks it first, so a test can produce the phone-camera 480p case
++ * the renderer would never make on its own.
++ */
++async function fakeUpload(
++  seconds: number,
++  height?: number,
++): Promise<{ buffer: Buffer; mimeType: string }> {
++  let buffer = await renderSlideshow({
++    images: [PNG_1PX],
++    aspectRatio: "16:9",
++    slideDurationSec: seconds,
++  });
++  if (height) {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-shrink-"));
++    try {
++      await writeFile(join(dir, "big.mp4"), buffer);
++      await runFfmpeg(
++        [
++          "-y", "-i", "big.mp4",
++          "-vf", `scale=-2:${height}`,
++          "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
++          "-an", "small.mp4",
++        ],
++        dir,
++      );
++      buffer = await readFile(join(dir, "small.mp4"));
++    } finally {
++      await rm(dir, { recursive: true, force: true }).catch(() => {});
++    }
++  }
++  return { buffer, mimeType: "video/mp4" };
++}
++
++/** Measure a buffer the way the pipeline does, via a scratch dir. */
++async function measure(buffer: Buffer): Promise<{ durationSec: number | null; height: number | null }> {
++  const dir = await mkdtemp(join(tmpdir(), "kokao-lipsrc-test-"));
++  try {
++    await writeFile(join(dir, "m.mp4"), buffer);
++    return {
++      durationSec: await probeDurationSec("m.mp4", dir),
++      height: await probeHeight("m.mp4", dir),
++    };
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
++describe("prepareLipSyncSource", () => {
++  it("trims footage that outruns the narration", async () => {
++    const upload = await fakeUpload(4);
++    const prepared = await prepareLipSyncSource(upload, 2);
++    expect(prepared.fit).toBe("trimmed");
++    expect(prepared.excessive).toBe(false);
++    const { durationSec } = await measure(prepared.video.buffer);
++    expect(durationSec).not.toBeNull();
++    expect(Math.abs(durationSec! - 2)).toBeLessThan(0.35);
++  }, 180_000);
++
++  it("holds the last frame when the narration runs slightly long", async () => {
++    const upload = await fakeUpload(2);
++    const prepared = await prepareLipSyncSource(upload, 3.5);
++    expect(prepared.fit).toBe("padded");
++    expect(prepared.excessive).toBe(false);
++    const { durationSec } = await measure(prepared.video.buffer);
++    expect(durationSec).not.toBeNull();
++    // The whole point: the model now receives video for every second of voice.
++    expect(Math.abs(durationSec! - 3.5)).toBeLessThan(0.35);
++  }, 180_000);
++
++  it("flags a narration that runs far past the footage instead of freezing on it", async () => {
++    const upload = await fakeUpload(2);
++    const prepared = await prepareLipSyncSource(upload, 2 + MAX_TAIL_HOLD_SEC + 3);
++    expect(prepared.excessive).toBe(true);
++    expect(prepared.overrunSec).toBeGreaterThan(MAX_TAIL_HOLD_SEC);
++    // Nothing was spent re-encoding a job the caller is about to refuse.
++    expect(prepared.video.buffer.equals(upload.buffer)).toBe(true);
++  }, 180_000);
++
++  it("upscales a source too small for the model's face crop", async () => {
++    // 478p, the shape of the real production sample that came back soft.
++    const upload = await fakeUpload(2, 478);
++    const before = await measure(upload.buffer);
++    expect(before.height).not.toBeNull();
++    expect(before.height!).toBeLessThan(MIN_SYNC_HEIGHT);
++
++    const prepared = await prepareLipSyncSource(upload, 2);
++    expect(prepared.upscale).toBeGreaterThan(1);
++    const after = await measure(prepared.video.buffer);
++    expect(after.height!).toBeGreaterThan(before.height!);
++  }, 180_000);
++
++  it("leaves a matching, high-enough source untouched", async () => {
++    // 1080p and already the right length: nothing to fix, so nothing is spent.
++    const upload = await fakeUpload(2);
++    const { durationSec, height } = await measure(upload.buffer);
++    expect(height!).toBeGreaterThanOrEqual(MIN_SYNC_HEIGHT);
++    const prepared = await prepareLipSyncSource(upload, durationSec ?? 2);
++    expect(prepared.fit).toBe("exact");
++    expect(prepared.upscale).toBe(1);
++    expect(prepared.video.buffer.equals(upload.buffer)).toBe(true);
++  }, 180_000);
++
++  it("returns the upload untouched when the narration length is unusable", async () => {
++    const upload = await fakeUpload(1);
++    const prepared = await prepareLipSyncSource(upload, 0);
++    expect(prepared.video.buffer.equals(upload.buffer)).toBe(true);
++    expect(prepared.fit).toBe("exact");
++  }, 60_000);
++
++  it("survives a buffer that is not a video at all", async () => {
++    const junk = { buffer: Buffer.from("not a video"), mimeType: "video/mp4" };
++    const prepared = await prepareLipSyncSource(junk, 3);
++    // Fail-soft: an unprobeable upload is passed through for the model to judge.
++    expect(prepared.video.buffer.equals(junk.buffer)).toBe(true);
++  }, 60_000);
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncSource.ts b/artifacts/api-server/src/lib/videoGen/lipSyncSource.ts
+new file mode 100644
+index 00000000..3d3bb277
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncSource.ts
+@@ -0,0 +1,219 @@
++import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { spawn } from "child_process";
++import { runFfmpeg, probeDurationSec } from "./slideshow";
++import { logger } from "../logger";
++
++/**
++ * Prepare an uploaded base video for the lip-sync model.
++ *
++ * Two things went wrong in production and both are fixed here, in one
++ * re-encode:
++ *
++ * 1. LENGTH. The runner used to hand the model whatever the upload was and
++ *    whatever the narration turned out to be. Nothing probed either, so a
++ *    script that ran long past the footage left the tail unsynced, and a short
++ *    one left footage the audio never reached. Now the video is trimmed to the
++ *    narration, or holds its last frame to reach it, and a script that runs
++ *    absurdly past the footage is refused by the caller instead of rendered.
++ *
++ * 2. FACE PIXELS. The lip-sync model works on a small square crop around the
++ *    face. On a 480p upload that crop is starved before the model even starts,
++ *    and the synced mouth comes back with a fraction of the surrounding skin's
++ *    detail. Sources below MIN_SYNC_HEIGHT are upscaled first so the crop has
++ *    something to work with.
++ *
++ * Aspect is deliberately NOT normalized — padding someone's own footage would
++ * only shrink them, which is the same reason the runner never did it.
++ */
++
++/** Below this height the model's face crop is starved; upscale first. */
++export const MIN_SYNC_HEIGHT = 720;
++/** Never blow a source up by more than this — past it we are inventing pixels. */
++const MAX_UPSCALE = 2;
++/** Length difference small enough that a re-encode costs more than it fixes. */
++const LENGTH_TOLERANCE_SEC = 0.2;
++/**
++ * How far the narration may outrun the footage before we refuse. Past this the
++ * result is a frozen frame staring at the viewer, which is worse than an
++ * honest error asking for a shorter script.
++ */
++export const MAX_TAIL_HOLD_SEC = 2.5;
++/**
++ * Quality floor for the re-encode. Higher than the pipeline's usual 20: this
++ * file is the INPUT to a generative model, so compression artifacts around the
++ * mouth become artifacts in the output.
++ */
++const SOURCE_CRF = "18";
++
++export type LipSyncLengthFit = "exact" | "trimmed" | "padded";
++
++export interface LipSyncSource {
++  video: { buffer: Buffer; mimeType: string };
++  /** Height the model will actually see. */
++  height: number | null;
++  /** Scale factor applied to the source (1 = untouched). */
++  upscale: number;
++  sourceDurationSec: number | null;
++  /** How the video was fitted to the narration. */
++  fit: LipSyncLengthFit;
++  /**
++   * True when the narration outruns the footage by more than MAX_TAIL_HOLD_SEC.
++   * The caller decides what to tell the user — this module only measures.
++   */
++  excessive: boolean;
++  /** Seconds the narration exceeds the footage by (0 when it does not). */
++  overrunSec: number;
++}
++
++/** Video height in pixels, or null when it cannot be read. */
++export function probeHeight(file: string, cwd: string): Promise<number | null> {
++  return new Promise((resolve) => {
++    let proc;
++    try {
++      proc = spawn(
++        "ffprobe",
++        [
++          "-v",
++          "error",
++          "-select_streams",
++          "v:0",
++          "-show_entries",
++          "stream=height",
++          "-of",
++          "default=noprint_wrappers=1:nokey=1",
++          file,
++        ],
++        { cwd },
++      );
++    } catch {
++      resolve(null);
++      return;
++    }
++    let out = "";
++    proc.stdout.on("data", (chunk: Buffer) => {
++      out += chunk.toString();
++    });
++    proc.on("close", () => {
++      const height = Number.parseInt(out.trim(), 10);
++      resolve(Number.isFinite(height) && height > 0 ? height : null);
++    });
++    proc.on("error", () => resolve(null));
++  });
++}
++
++/**
++ * Fit an uploaded base video to the narration and give the model enough face
++ * pixels to work with.
++ *
++ * Fail-soft on measurement: if the source cannot be probed we return it
++ * untouched rather than fail a job the model might still handle. NOT fail-soft
++ * on the re-encode — a half-transformed source is worse than the original, so
++ * a failed encode returns the original too.
++ */
++export async function prepareLipSyncSource(
++  video: { buffer: Buffer; mimeType: string },
++  narrationDurationSec: number,
++): Promise<LipSyncSource> {
++  const untouched: LipSyncSource = {
++    video,
++    height: null,
++    upscale: 1,
++    sourceDurationSec: null,
++    fit: "exact",
++    excessive: false,
++    overrunSec: 0,
++  };
++  if (!Number.isFinite(narrationDurationSec) || narrationDurationSec <= 0) return untouched;
++
++  const dir = await mkdtemp(join(tmpdir(), "kokao-lipsrc-"));
++  try {
++    await writeFile(join(dir, "in.mp4"), video.buffer);
++    const sourceDurationSec = await probeDurationSec("in.mp4", dir);
++    const height = await probeHeight("in.mp4", dir);
++    if (sourceDurationSec === null) {
++      logger.warn("Base video duration could not be probed; syncing it unprepared");
++      return { ...untouched, height };
++    }
++
++    const overrunSec = Math.max(0, narrationDurationSec - sourceDurationSec);
++    const excessive = overrunSec > MAX_TAIL_HOLD_SEC;
++    const delta = narrationDurationSec - sourceDurationSec;
++    const fit: LipSyncLengthFit =
++      Math.abs(delta) <= LENGTH_TOLERANCE_SEC ? "exact" : delta > 0 ? "padded" : "trimmed";
++
++    // Refusal is the caller's call, but there is no point spending an encode on
++    // a job it is about to reject.
++    if (excessive) {
++      return { ...untouched, height, sourceDurationSec, fit, excessive, overrunSec };
++    }
++
++    const upscale =
++      height !== null && height < MIN_SYNC_HEIGHT
++        ? Math.min(MAX_UPSCALE, MIN_SYNC_HEIGHT / height)
++        : 1;
++    if (fit === "exact" && upscale === 1) {
++      return { ...untouched, height, sourceDurationSec, fit };
++    }
++
++    const filters: string[] = [];
++    if (fit === "padded") {
++      filters.push(`tpad=stop_mode=clone:stop_duration=${delta.toFixed(3)}`);
++    }
++    if (upscale > 1) {
++      // -2 keeps the width even (h264 requires it) and preserves the aspect,
++      // so the framing the uploader chose survives untouched.
++      filters.push(`scale=-2:${Math.round((height ?? 0) * upscale)}:flags=lanczos`);
++    }
++
++    const args = ["-y", "-i", "in.mp4"];
++    if (filters.length > 0) args.push("-vf", filters.join(","));
++    args.push(
++      "-t",
++      narrationDurationSec.toFixed(3),
++      "-map",
++      "0:v:0",
++      "-map",
++      "0:a?",
++      "-c:v",
++      "libx264",
++      "-preset",
++      "veryfast",
++      "-crf",
++      SOURCE_CRF,
++      "-pix_fmt",
++      "yuv420p",
++      "-c:a",
++      "aac",
++      "-b:a",
++      "128k",
++      "-movflags",
++      "+faststart",
++      "out.mp4",
++    );
++    await runFfmpeg(args, dir);
++    const out = await readFile(join(dir, "out.mp4"));
++    if (out.length === 0) return { ...untouched, height, sourceDurationSec, fit };
++
++    const preparedHeight = height === null ? null : Math.round(height * upscale);
++    logger.debug(
++      { fit, upscale, sourceDurationSec, narrationDurationSec, height, preparedHeight },
++      "Prepared base video for lip sync",
++    );
++    return {
++      video: { buffer: out, mimeType: "video/mp4" },
++      height: preparedHeight,
++      upscale,
++      sourceDurationSec,
++      fit,
++      excessive: false,
++      overrunSec,
++    };
++  } catch (error) {
++    logger.warn({ err: error }, "Base video preparation failed; syncing the upload as-is");
++    return untouched;
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+index 99dcfc36..1b0ad9f8 100644
+--- a/pnpm-workspace.yaml
++++ b/pnpm-workspace.yaml
+@@ -3,6 +3,12 @@ packages:
+   - lib/*
+   - lib/integrations/*
+ 
++allowBuilds:
++  '@clerk/shared': set this to true or false
++  browser-tabs-lock: set this to true or false
++  core-js: set this to true or false
++  esbuild: set this to true or false
++
+ autoInstallPeers: false
+ 
+ catalog:
+-- 
+2.43.0
+

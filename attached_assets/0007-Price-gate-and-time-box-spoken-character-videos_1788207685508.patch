@@ -1,0 +1,336 @@
+From eb143f53add311bf48ebf9c64e5e72270159386f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 31 Aug 2026 20:09:15 +0000
+Subject: [PATCH 7/7] Price, gate and time-box spoken character videos
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Making character scenes speak doubles what a job costs and how long it
+takes. Four consequences, handled.
+
+PRICE. Every scene now makes a sync call on top of its image-to-video
+call, so a spoken character video costs twice a narrated one: Short 8,
+Medium 16, Long 24. videoJobUnits is the single function behind the
+wallet reserve, the usage record and the refund, so one edit keeps all
+three consistent.
+
+DECIDED AT ENQUEUE. options.characterLipSync records the choice on the
+job row rather than being read from a switch at render time. Reading it
+late would let a switch flipped mid-job make the render disagree with
+what was reserved and refunded.
+
+OFF BY DEFAULT, and deliberately not a feature flag: every entry in
+FEATURES defaults on, so shipping it as one would silently double the
+price of every existing character video on deploy. It is a
+video_gen_settings column (with a CHARACTER_LIPSYNC env fallback),
+off until someone turns it on. The lipSync kill switch still applies on
+top — both paths spend on the same model.
+
+No consent gate, unlike the upload-driven engine: that one redraws a
+real person's mouth, and a generated character is not anyone's
+likeness. If character references ever accept uploaded photos of real
+people, this is the decision to revisit.
+
+PREFLIGHT. A character job that will sync now carries the lip_sync
+engine's Replicate requirement, so it is refused before funding rather
+than after generating every scene.
+
+DEADLINE. CHARACTER_VIDEO_TOTAL_DEADLINE_MS 25 -> 35 minutes. Eight
+scenes of syncing at concurrency three adds roughly 5-8; the sweep's
+40-minute stuck timeout still sits above the new ceiling, which is the
+constraint that matters.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../api-server/src/lib/videoGen/index.ts      | 16 +++++++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  2 +
+ .../api-server/src/lib/videoGen/preflight.ts  |  5 ++-
+ .../src/lib/videoGen/topicVideo/index.ts      | 21 ++++------
+ .../api-server/src/lib/videoGen/units.test.ts | 42 +++++++++++++++++++
+ .../api-server/src/lib/videoGen/units.ts      |  4 ++
+ artifacts/api-server/src/routes/videos.ts     | 16 ++++++-
+ lib/db/src/schema/videoGenSettings.ts         |  9 +++-
+ lib/db/src/schema/videoGenerations.ts         |  7 ++++
+ 9 files changed, 105 insertions(+), 17 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/units.test.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index 91fc3cfc..aa4ad11e 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -326,6 +326,22 @@ export async function resolveLipSyncModelRef(): Promise<string | null> {
+   return process.env.LIPSYNC_MODEL?.trim() || null;
+ }
+ 
++/**
++ * Whether character story videos should speak rather than be narrated over.
++ * OFF unless switched on: it doubles the price of every character video, so it
++ * is not something a deploy should start doing to existing tenants. Same
++ * precedence as the model override — stored setting, then environment.
++ */
++export async function resolveCharacterLipSync(): Promise<boolean> {
++  try {
++    const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
++    if (row?.characterLipSync) return true;
++  } catch (error) {
++    logger.warn({ err: error }, "Character lip-sync lookup failed; leaving it off");
++  }
++  return /^(1|true|on|yes)$/i.test(process.env.CHARACTER_LIPSYNC?.trim() ?? "");
++}
++
+ /** Persist the platform-wide selection (superadmin only; the route validates
+  * the provider id against the catalog). */
+ export async function setVideoGenSelection(selection: VideoGenSelection): Promise<void> {
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 4c50a259..fbf1eb27 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -605,6 +605,7 @@ async function produceVideo(
+       const result = await renderTopicStoryboard({
+         storyboard: board,
+         aspectRatio,
++        characterLipSync: options.characterLipSync === true,
+         subtitles: options.subtitles ?? true,
+         captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+         music,
+@@ -667,6 +668,7 @@ async function produceVideo(
+       music,
+       visualsSource,
+       characterId: options.characterId ?? null,
++      characterLipSync: options.characterLipSync === true,
+       outfitId: options.outfitId ?? null,
+       wardrobeNotes: options.wardrobeNotes ?? null,
+       brandVoice: branding?.voiceHint ?? null,
+diff --git a/artifacts/api-server/src/lib/videoGen/preflight.ts b/artifacts/api-server/src/lib/videoGen/preflight.ts
+index 51e536df..de2d6446 100644
+--- a/artifacts/api-server/src/lib/videoGen/preflight.ts
++++ b/artifacts/api-server/src/lib/videoGen/preflight.ts
+@@ -199,7 +199,10 @@ export async function preflightVideoJob(
+   // 4b) Lip-sync runs on Replicate's LatentSync (pinned — the video+audio
+   //     input contract IS the feature) and speaks the script first, so it
+   //     needs the Replicate token and a narration provider.
+-  if (engine === "lip_sync") {
++  //     Character videos that speak reach the same model, so they carry the
++  //     same requirement — otherwise a job funds, generates every scene, then
++  //     discovers at sync time that there is no token.
++  if (engine === "lip_sync" || options?.characterLipSync === true) {
+     const replicate = getVideoGenProviderDef("replicate");
+     const configured = replicate ? await isVideoGenProviderConfigured(replicate) : false;
+     const issue = evaluate(
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 782a5546..a39228fc 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -73,7 +73,7 @@ export {
+ /** Overall wall-clock budget for one topic video (LLM + TTS + downloads + encode). */
+ export const TOPIC_VIDEO_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
+ /** Character videos generate every scene with AI, so they get a longer leash. */
+-export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 25 * 60 * 1000;
++export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 35 * 60 * 1000;
+ /** AI b-roll generates one image per scene — between the two. */
+ export const AI_BROLL_TOTAL_DEADLINE_MS = 15 * 60 * 1000;
+ 
+@@ -99,6 +99,8 @@ export interface TopicVideoParams {
+    * clips). */
+   visualsSource?: "stock" | "character" | "ai" | "ai_video";
+   characterId?: number | null;
++  /** Lip-sync character scenes to the narration (decided and priced at enqueue). */
++  characterLipSync?: boolean;
+   outfitId?: number | null;
+   wardrobeNotes?: string | null;
+   /** Brand-voice hint injected into the script prompt (brand kit). */
+@@ -361,7 +363,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+       aspectRatio: params.aspectRatio,
+       cues: narration.cues,
+       totalDurationSec: narration.totalDurationSec,
+-      lipSync: (await characterLipSync()) ? { wav: narration.wav } : null,
++      lipSync: params.characterLipSync ? { wav: narration.wav } : null,
+       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
+     });
+     clips = generated.clips;
+@@ -492,17 +494,6 @@ async function planCharacterScenes(params: {
+   return { detail, plan, rawPlan };
+ }
+ 
+-/**
+- * Whether character scenes should be lip-synced rather than narrated over.
+- * Shares the lipSync kill switch with the upload-driven engine: both spend on
+- * the same model, so both stop at the same switch. Fail-open like every other
+- * flag read in this file — a flag service hiccup must not silently change what
+- * a video looks like.
+- */
+-async function characterLipSync(): Promise<boolean> {
+-  return isFeatureEnabled("lipSync").catch(() => true);
+-}
+-
+ /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
+ async function generateCharacterStoryClips(params: {
+   tenantId: number;
+@@ -790,6 +781,8 @@ export async function refreshEditedNarration(params: {
+ export async function renderTopicStoryboard(params: {
+   storyboard: VideoStoryboard;
+   aspectRatio: VideoAspect;
++  /** Lip-sync character scenes to the narration (decided and priced at enqueue). */
++  characterLipSync?: boolean;
+   subtitles: boolean;
+   captionStyle?: "classic" | "dynamic";
+   music?: Buffer | null;
+@@ -855,7 +848,7 @@ export async function renderTopicStoryboard(params: {
+       })),
+       scenes,
+       aspectRatio: params.aspectRatio,
+-      lipSync: (await characterLipSync()) ? { wav: narrationWav } : null,
++      lipSync: params.characterLipSync ? { wav: narrationWav } : null,
+     });
+     clips = animated.clips;
+     sceneMap = animated.sceneMap;
+diff --git a/artifacts/api-server/src/lib/videoGen/units.test.ts b/artifacts/api-server/src/lib/videoGen/units.test.ts
+new file mode 100644
+index 00000000..660b26fa
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/units.test.ts
+@@ -0,0 +1,42 @@
++import { describe, it, expect } from "vitest";
++import { videoJobUnits } from "./units";
++import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
++
++describe("character lip-sync pricing", () => {
++  it("doubles a character video that speaks", () => {
++    const narrated = videoJobUnits("topic_to_video", {
++      visualsSource: "character",
++      paragraphCount: 2,
++    } as never);
++    const spoken = videoJobUnits("topic_to_video", {
++      visualsSource: "character",
++      paragraphCount: 2,
++      characterLipSync: true,
++    } as never);
++    // Every scene gains a sync call on top of its image-to-video call.
++    expect(spoken).toBe(narrated * 2);
++  });
++
++  it("leaves other engines untouched by the flag", () => {
++    for (const visualsSource of ["ai", "ai_video", "stock"] as const) {
++      const base = videoJobUnits("topic_to_video", { visualsSource, paragraphCount: 2 } as never);
++      const flagged = videoJobUnits("topic_to_video", {
++        visualsSource,
++        paragraphCount: 2,
++        characterLipSync: true,
++      } as never);
++      expect(flagged).toBe(base);
++    }
++  });
++
++  it("still counts scenes added during review", () => {
++    expect(
++      videoJobUnits("topic_to_video", {
++        visualsSource: "character",
++        paragraphCount: 1,
++        characterLipSync: true,
++        addedScenes: 3,
++      } as never),
++    ).toBe(CHARACTER_SCENES_PER_PARAGRAPH * 2 + 3);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/units.ts b/artifacts/api-server/src/lib/videoGen/units.ts
+index 244c746e..f170110b 100644
+--- a/artifacts/api-server/src/lib/videoGen/units.ts
++++ b/artifacts/api-server/src/lib/videoGen/units.ts
+@@ -26,6 +26,10 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null):
+   } else if (engine === "topic_to_video" && options?.visualsSource === "character") {
+     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+     units = CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
++    // Lip-syncing adds a second real generation per scene — the sync call on
++    // top of the image-to-video call — so a spoken character video costs twice
++    // a narrated one: Short = 8, Medium = 16, Long = 24.
++    if (options.characterLipSync) units *= 2;
+   } else if (engine === "topic_to_video" && options?.visualsSource === "ai") {
+     // AI b-roll: every scene is a generated image (no image-to-video calls),
+     // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index d3736ca4..c6a38e4c 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -39,7 +39,11 @@ import {
+   refreshStoryboardScenePreview,
+   STORYBOARD_REGENERATIONS_PER_SCENE,
+ } from "../lib/videoGen/jobRunner";
+-import { VideoGenProviderError, compiledClipPrompt } from "../lib/videoGen";
++import {
++  VideoGenProviderError,
++  compiledClipPrompt,
++  resolveCharacterLipSync,
++} from "../lib/videoGen";
+ import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
+ import {
+   clampSceneDuration,
+@@ -488,6 +492,16 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     // self-describing.
+     sourceVideoPath: body.engine === "lip_sync" ? (body.sourceVideoPath ?? null) : null,
+     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
++    // Decided here, once, because it doubles the price: the reserve, the usage
++    // record and the refund all recompute from this row, so a kill switch
++    // flipped after enqueue must not make them disagree. No consent gate — a
++    // generated character is not a real person's likeness, unlike the
++    // upload-driven engine above.
++    characterLipSync:
++      body.engine === "topic_to_video" && visualsSource === "character"
++        ? (await resolveCharacterLipSync()) &&
++          (await isFeatureEnabled("lipSync").catch(() => true))
++        : undefined,
+     stockSource: body.stockSource ?? "auto",
+     subtitles: body.subtitles ?? true,
+     captionStyle: body.captionStyle ?? "classic",
+diff --git a/lib/db/src/schema/videoGenSettings.ts b/lib/db/src/schema/videoGenSettings.ts
+index 017af233..42560157 100644
+--- a/lib/db/src/schema/videoGenSettings.ts
++++ b/lib/db/src/schema/videoGenSettings.ts
+@@ -1,4 +1,4 @@
+-import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
++import { pgTable, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+ 
+ /**
+  * App-level (platform-wide) video generation configuration, stored as a
+@@ -20,6 +20,12 @@ import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
+  * prompt — so it carries its own override, and leaving it null keeps the
+  * pinned default. Set it to compare lip-sync models on the same footage
+  * without a deploy.
++ *
++ * `characterLipSync` makes character story videos speak instead of being
++ * narrated over. OFF by default and deliberately not a feature flag: every
++ * flag in FEATURES defaults on, and this one doubles the price of a character
++ * video, so turning it on has to be an explicit act rather than something a
++ * deploy does to existing tenants.
+  */
+ export const videoGenSettingsTable = pgTable("video_gen_settings", {
+   id: integer("id").primaryKey().default(1),
+@@ -27,6 +33,7 @@ export const videoGenSettingsTable = pgTable("video_gen_settings", {
+   textToVideoModel: text("text_to_video_model"),
+   imageToVideoModel: text("image_to_video_model"),
+   lipSyncModel: text("lip_sync_model"),
++  characterLipSync: boolean("character_lip_sync").notNull().default(false),
+   updatedAt: timestamp("updated_at", { withTimezone: true })
+     .notNull()
+     .defaultNow()
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index c64b0f1c..f0b93d7a 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -50,6 +50,13 @@ export interface VideoJobOptions {
+   /** lip_sync: the user confirmed the footage is their own (or used with
+    * permission). Checked at the route; persisted for the audit trail. */
+   lipSyncConsent?: boolean;
++  /**
++   * Character scenes should be lip-synced to the narration rather than
++   * narrated over. Decided and recorded at enqueue, not read from the flag at
++   * render time: it doubles the job's price, so a flag flipped mid-job must
++   * not make the render disagree with what was reserved and refunded.
++   */
++  characterLipSync?: boolean;
+   /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
+   stockSource?: string;
+   /** topic_to_video: burn per-sentence subtitles (default true). */
+-- 
+2.43.0
+

@@ -1,0 +1,426 @@
+From 6a975008d9c071d342d6998b5c61b2e58b8f7695 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 31 Aug 2026 19:58:59 +0000
+Subject: [PATCH 6/7] Lip-sync character scenes to the narration
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The character engine and the lip-sync engine were disjoint branches of
+the job runner: one generated a talking character who never spoke, the
+other synced footage the pipeline never made. This joins them.
+
+animateSceneKeyframes now optionally cuts each shot to its exact scene
+length and syncs it to that scene's slice of the narration. One speaker
+per shot — which is the only arrangement the identity lock can hold
+anyway, since sceneKeyframePrompt anchors a single face and a second
+face in frame drifts. That constraint is also what makes the whole
+approach work without multi-face lip sync: because every scene is
+generated from its own keyframe, there is never more than one mouth to
+sync.
+
+Scene starts are accumulated from scene durations rather than read off
+cue indices. The storyboard-resume path rebuilds ScriptScene with
+synthetic cue numbers, and slicing on those would hand shots the wrong
+seconds of audio.
+
+The sync runs inside the existing SCENE_CONCURRENCY window, so wall
+clock grows by about one sync per scene divided by three rather than
+one per scene.
+
+Synced shots are flagged in the sceneMap. That flag is load-bearing:
+without it the compositor seeks into, loops, swaps or splits the
+footage, none of which raises an error and all of which desync the
+mouth.
+
+Failure is soft here and nowhere else in this path: the shot already
+exists and has already been paid for, so a failed sync ships the
+unsynced shot, unflagged, instead of failing the job.
+
+lipSyncClip is a thin wrapper, not a provider adapter — the scene
+generators cannot import the job runner without a cycle. Lip sync stays
+pinned to Replicate; giving it the full VideoGenProviderDef treatment
+is its own job, and starting it here would leave two half-migrations.
+
+Gated by the existing lipSync kill switch, shared with the
+upload-driven engine because both spend on the same model.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../src/lib/videoGen/lipSyncClip.ts           |  35 +++++
+ .../topicVideo/characterLipSync.test.ts       | 120 ++++++++++++++++++
+ .../videoGen/topicVideo/characterScenes.ts    |  68 +++++++++-
+ .../src/lib/videoGen/topicVideo/index.ts      |  17 +++
+ 4 files changed, 236 insertions(+), 4 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/lipSyncClip.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncClip.ts b/artifacts/api-server/src/lib/videoGen/lipSyncClip.ts
+new file mode 100644
+index 00000000..780e0e39
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncClip.ts
+@@ -0,0 +1,35 @@
++import { generateLipSyncWithReplicate } from "./providers/replicate";
++import {
++  getVideoGenProviderDef,
++  resolveVideoGenApiKey,
++  resolveLipSyncModelRef,
++} from "./index";
++
++/**
++ * Lip-sync one generated shot to its slice of the narration.
++ *
++ * The lip_sync engine reaches the model through the job runner, which the
++ * scene generators cannot import without a cycle. This is the same call with
++ * the key and model lookups folded in, so a shot can be synced from wherever
++ * it was generated.
++ *
++ * Deliberately thin: it is not a provider adapter. Lip sync is still pinned to
++ * Replicate, because {video, audio} is the contract that makes the feature —
++ * giving it the full VideoGenProviderDef treatment is a separate job, and
++ * doing it here would mean two half-migrations instead of one clean one.
++ */
++export async function lipSyncClip(args: {
++  video: Buffer;
++  audio: Buffer;
++}): Promise<{ buffer: Buffer; provider: string; model: string }> {
++  const def = getVideoGenProviderDef("replicate");
++  const apiKey = def ? await resolveVideoGenApiKey(def) : null;
++  return generateLipSyncWithReplicate(
++    {
++      video: { buffer: args.video, mimeType: "video/mp4" },
++      audio: { buffer: args.audio, mimeType: "audio/wav" },
++    },
++    apiKey,
++    await resolveLipSyncModelRef(),
++  );
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts
+new file mode 100644
+index 00000000..6d1b989b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts
+@@ -0,0 +1,120 @@
++import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
++import { buildWav, parseWav } from "./narration";
++import type { ScriptScene } from "./characterScenes";
++
++const generateVideo = vi.fn();
++const lipSyncClip = vi.fn();
++const trimClipToStart = vi.fn();
++
++vi.mock("../index", () => ({
++  generateVideo: (...args: unknown[]) => generateVideo(...args),
++}));
++vi.mock("../lipSyncClip", () => ({
++  lipSyncClip: (...args: unknown[]) => lipSyncClip(...args),
++}));
++vi.mock("../postprocess", () => ({
++  trimClipToStart: (...args: unknown[]) => trimClipToStart(...args),
++}));
++vi.mock("../motionPrompt", () => ({
++  getMotionInstruction: async () => "Subtle natural motion, cinematic.",
++}));
++
++const FORMAT = {
++  channels: 1,
++  sampleRate: 24_000,
++  bitsPerSample: 16,
++  byteRate: 48_000,
++  blockAlign: 2,
++};
++
++/** Track whose sample value encodes its own second, so slices are traceable. */
++function rampTrack(seconds: number): Buffer {
++  const pcm = Buffer.alloc(FORMAT.byteRate * seconds);
++  for (let i = 0; i < pcm.length / FORMAT.blockAlign; i++) {
++    pcm.writeInt16LE((Math.floor(i / FORMAT.sampleRate) + 1) * 1000, i * FORMAT.blockAlign);
++  }
++  return buildWav(FORMAT, pcm);
++}
++
++const SCENES: ScriptScene[] = [
++  { firstCue: 0, lastCue: 0, durationSec: 2, text: "one" },
++  { firstCue: 1, lastCue: 1, durationSec: 2, text: "two" },
++  { firstCue: 2, lastCue: 2, durationSec: 2, text: "three" },
++];
++
++const PLAN = SCENES.map((_, i) => ({ visual: `scene ${i}`, outfitId: 1 }));
++const KEYFRAMES = SCENES.map((_, i) => Buffer.from(`keyframe-${i}`));
++
++beforeEach(() => {
++  generateVideo.mockReset();
++  lipSyncClip.mockReset();
++  trimClipToStart.mockReset();
++  generateVideo.mockImplementation(async () => ({
++    buffer: Buffer.from("raw-clip"),
++    provider: "replicate",
++    model: "wan-video/wan-2.2-i2v-fast",
++  }));
++  trimClipToStart.mockImplementation(async (video: Buffer) => video);
++  lipSyncClip.mockImplementation(async () => ({
++    buffer: Buffer.from("synced-clip"),
++    provider: "replicate",
++    model: "bytedance/latentsync",
++  }));
++});
++
++afterEach(() => {
++  vi.resetModules();
++});
++
++async function animate(lipSync: { wav: Buffer } | null) {
++  const { animateSceneKeyframes } = await import("./characterScenes");
++  return animateSceneKeyframes({
++    keyframes: KEYFRAMES,
++    plan: PLAN,
++    scenes: SCENES,
++    aspectRatio: "9:16",
++    lipSync,
++  });
++}
++
++describe("character scene lip sync", () => {
++  it("gives each shot only its own span of the narration", async () => {
++    await animate({ wav: rampTrack(6) });
++    expect(lipSyncClip).toHaveBeenCalledTimes(3);
++    // Scenes tile the track in order: 0-2s, 2-4s, 4-6s. The ramp encodes the
++    // second, so the first sample of each slice names where it came from.
++    const seconds = lipSyncClip.mock.calls.map(
++      ([args]) => parseWav((args as { audio: Buffer }).audio).pcm.readInt16LE(0) / 1000,
++    );
++    expect(seconds).toEqual([1, 3, 5]);
++  });
++
++  it("cuts every shot to its scene length before syncing", async () => {
++    await animate({ wav: rampTrack(6) });
++    expect(trimClipToStart.mock.calls.map(([, target]) => target)).toEqual([2, 2, 2]);
++  });
++
++  it("flags synced shots so the compositor will not move them", async () => {
++    const out = await animate({ wav: rampTrack(6) });
++    expect(out.sceneMap.every((scene) => scene.lipSynced === true)).toBe(true);
++    expect(out.clips.every((clip) => clip.toString() === "synced-clip")).toBe(true);
++  });
++
++  it("ships the unsynced shot when the model fails, and does not flag it", async () => {
++    lipSyncClip.mockImplementation(async () => {
++      throw new Error("provider down");
++    });
++    const out = await animate({ wav: rampTrack(6) });
++    // The shot is already generated and already paid for: an unsynced shot
++    // beats failing the whole job.
++    expect(out.clips).toHaveLength(3);
++    expect(out.sceneMap.some((scene) => scene.lipSynced)).toBe(false);
++  });
++
++  it("does nothing when lip sync is off", async () => {
++    const out = await animate(null);
++    expect(lipSyncClip).not.toHaveBeenCalled();
++    expect(trimClipToStart).not.toHaveBeenCalled();
++    expect(out.sceneMap.some((scene) => scene.lipSynced)).toBe(false);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index d36212d1..817aa81a 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -5,9 +5,11 @@ import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
+ import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
+ import { generateVideo } from "../index";
+ import { getMotionInstruction } from "../motionPrompt";
++import { trimClipToStart } from "../postprocess";
++import { lipSyncClip } from "../lipSyncClip";
+ import { VideoGenProviderError, type VideoAspect } from "../types";
+ import { logger } from "../../logger";
+-import type { NarrationCue } from "./narration";
++import { sliceNarration, type NarrationCue } from "./narration";
+ import type { SceneSegment } from "./compose";
+ 
+ /**
+@@ -354,25 +356,60 @@ export async function generateSceneKeyframes(params: {
+   });
+ }
+ 
++/**
++ * Voice the character actually speaks with, when the caller wants the scenes
++ * lip-synced rather than narrated over.
++ */
++export interface SceneLipSync {
++  /** The whole narration track; each shot receives only its own slice. */
++  wav: Buffer;
++}
++
+ /**
+  * The expensive half: image-to-video per keyframe. Each scene retries once; a
+  * scene that fails twice fails the job (the runner refunds the reservation).
++ *
++ * With `lipSync`, each shot is additionally cut to its exact scene length and
++ * synced to that scene's slice of the narration — one speaker per shot, which
++ * is the only arrangement the identity lock can hold anyway (the keyframe
++ * prompt anchors one face; a second face in frame drifts). The sync runs
++ * inside the same concurrency window as the animation, so a job's wall clock
++ * grows by roughly one sync per scene divided by SCENE_CONCURRENCY, not by
++ * one per scene.
++ *
++ * Shots that come back synced are flagged in the sceneMap. The compositor
++ * needs that flag: without it, it will seek into, loop, swap or split the
++ * footage, all of which desync the mouth without raising anything.
+  */
+ export async function animateSceneKeyframes(params: {
+   keyframes: Buffer[];
+   plan: ScenePlanEntry[];
+   scenes: ScriptScene[];
+   aspectRatio: VideoAspect;
++  lipSync?: SceneLipSync | null;
+ }): Promise<CharacterSceneClips> {
+   let provider = "";
+   let model = "";
+   // Governed motion instruction (Prompt Kit `video_motion`), resolved once
+   // per job rather than per scene; fail-open to the built-in wording.
+   const motion = await getMotionInstruction();
++  const lipSync = params.lipSync ?? null;
++  const synced: boolean[] = new Array(params.scenes.length).fill(false);
++  // Scenes tile the narration in order, so a scene's start is the sum of the
++  // scenes before it. Derived here rather than read off cue indices: the
++  // storyboard-resume path rebuilds ScriptScene with synthetic cue numbers,
++  // and those would slice the wrong span.
++  const sceneStartSec: number[] = [];
++  params.scenes.reduce((elapsed, scene) => {
++    sceneStartSec.push(elapsed);
++    return elapsed + scene.durationSec;
++  }, 0);
++
+   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
+     const keyframe = params.keyframes[i];
+     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
+-    const durationSec = clipDurationForScene(params.scenes[i]!.durationSec);
++    const scene = params.scenes[i]!;
++    const durationSec = clipDurationForScene(scene.durationSec);
+     const attempt = async (): Promise<Buffer> => {
+       const clip = await generateVideo({
+         mode: "image",
+@@ -385,11 +422,31 @@ export async function animateSceneKeyframes(params: {
+       model = clip.model;
+       return clip.buffer;
+     };
++    let clip: Buffer;
+     try {
+-      return await attempt();
++      clip = await attempt();
+     } catch (err) {
+       logger.warn({ err, scene: i }, "character scene animation failed; retrying once");
+-      return await attempt();
++      clip = await attempt();
++    }
++    if (!lipSync) return clip;
++
++    // The scene's own span of the track. Providers hand back discrete lengths,
++    // so the clip is cut to the scene first: the model takes video and audio
++    // as separate files and assumes they start together.
++    const startSec = sceneStartSec[i] ?? 0;
++    const audio = sliceNarration(lipSync.wav, startSec, startSec + scene.durationSec);
++    const trimmed = await trimClipToStart(clip, scene.durationSec);
++    try {
++      const result = await lipSyncClip({ video: trimmed, audio });
++      synced[i] = true;
++      return result.buffer;
++    } catch (err) {
++      // Fail-soft, and only here: the shot already exists and is already paid
++      // for, so an unsynced shot beats failing the whole job. It ships without
++      // the flag, so the compositor treats it as ordinary footage.
++      logger.warn({ err, scene: i }, "scene lip sync failed; using the unsynced shot");
++      return trimmed;
+     }
+   });
+ 
+@@ -398,6 +455,7 @@ export async function animateSceneKeyframes(params: {
+     sceneMap: params.scenes.map((scene, i) => ({
+       clipIndex: i,
+       durationSec: scene.durationSec,
++      ...(synced[i] ? { lipSynced: true } : {}),
+     })),
+     provider: provider || "replicate",
+     model: model || "image-to-video",
+@@ -417,6 +475,7 @@ export async function generateCharacterSceneClips(params: {
+   plan: ScenePlanEntry[];
+   scenes: ScriptScene[];
+   aspectRatio: VideoAspect;
++  lipSync?: SceneLipSync | null;
+ }): Promise<CharacterSceneClips> {
+   const keyframes = await generateSceneKeyframes(params);
+   return animateSceneKeyframes({
+@@ -424,5 +483,6 @@ export async function generateCharacterSceneClips(params: {
+     plan: params.plan,
+     scenes: params.scenes,
+     aspectRatio: params.aspectRatio,
++    lipSync: params.lipSync ?? null,
+   });
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 88f33800..782a5546 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -35,6 +35,7 @@ import {
+   animateSceneKeyframes,
+   type ScriptScene,
+   type ScenePlanEntry,
++  type SceneLipSync,
+ } from "./characterScenes";
+ import { assignClipsToScenes } from "./visionRank";
+ import type { SuppliedPlan } from "./suppliedPlan";
+@@ -360,6 +361,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+       aspectRatio: params.aspectRatio,
+       cues: narration.cues,
+       totalDurationSec: narration.totalDurationSec,
++      lipSync: (await characterLipSync()) ? { wav: narration.wav } : null,
+       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
+     });
+     clips = generated.clips;
+@@ -490,6 +492,17 @@ async function planCharacterScenes(params: {
+   return { detail, plan, rawPlan };
+ }
+ 
++/**
++ * Whether character scenes should be lip-synced rather than narrated over.
++ * Shares the lipSync kill switch with the upload-driven engine: both spend on
++ * the same model, so both stop at the same switch. Fail-open like every other
++ * flag read in this file — a flag service hiccup must not silently change what
++ * a video looks like.
++ */
++async function characterLipSync(): Promise<boolean> {
++  return isFeatureEnabled("lipSync").catch(() => true);
++}
++
+ /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
+ async function generateCharacterStoryClips(params: {
+   tenantId: number;
+@@ -504,6 +517,8 @@ async function generateCharacterStoryClips(params: {
+   totalDurationSec: number;
+   /** A saved/edited plan reused instead of asking the model. */
+   suppliedPlan?: unknown;
++  /** Narration track when the character should speak rather than be narrated over. */
++  lipSync?: SceneLipSync | null;
+ }): Promise<{
+   clips: Buffer[];
+   sceneMap: import("./compose").SceneSegment[];
+@@ -522,6 +537,7 @@ async function generateCharacterStoryClips(params: {
+     plan,
+     scenes,
+     aspectRatio: params.aspectRatio,
++    lipSync: params.lipSync ?? null,
+   });
+   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
+ }
+@@ -839,6 +855,7 @@ export async function renderTopicStoryboard(params: {
+       })),
+       scenes,
+       aspectRatio: params.aspectRatio,
++      lipSync: (await characterLipSync()) ? { wav: narrationWav } : null,
+     });
+     clips = animated.clips;
+     sceneMap = animated.sceneMap;
+-- 
+2.43.0
+
