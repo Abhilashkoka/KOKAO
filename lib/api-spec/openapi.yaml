@@ -18715,7 +18715,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedReferenceContext, guidedStoryDraftId, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedStoryDialogueReplay, dialogueReplayOperation, guidedReferenceContext, guidedStoryDraftId, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -18996,6 +18996,20 @@ components:
                 finishedAt:
                   type: ["string", "null"]
                   format: date-time
+        guidedStoryDialogueReplay:
+          description: >-
+            Immutable reviewed dialogue replay snapshot, or null when this is
+            not a Guided Story replay child.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/GuidedStoryDialogueReplaySnapshot"
+        dialogueReplayOperation:
+          description: >-
+            Aggregate replay progress without per-line asset checkpoints, or
+            null when this is not a Guided Story replay child.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/GuidedStoryDialogueReplayOperation"
         chargedRatePaise:
           type: ["integer", "null"]
           description: >-

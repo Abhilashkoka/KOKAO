@@ -6326,6 +6326,10 @@ export interface VideoJob {
   repair: VideoJobRepair;
   /** Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state. */
   guidedPreviewRender: VideoJobGuidedPreviewRender;
+  /** Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child. */
+  guidedStoryDialogueReplay: null | GuidedStoryDialogueReplaySnapshot;
+  /** Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child. */
+  dialogueReplayOperation: null | GuidedStoryDialogueReplayOperation;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable

@@ -46,6 +46,7 @@ import {
   type WalletReservation,
 } from "../wallet";
 import { logger } from "../logger";
+import { recordServerEvent } from "../analytics";
 import { ImageGenProviderError } from "../imageGen";
 import {
   generateVideo,
@@ -5777,6 +5778,21 @@ async function executeVideoJob(
       // flip so clients see consistent data the moment the job succeeds.
       ...(localizedResult != null ? { localizedResult } : {}),
     });
+    if (job.options?.guidedStoryDialogueReplay) {
+      const replay = job.options.guidedStoryDialogueReplay;
+      void recordServerEvent({
+        name: "dialogue_replay_succeeded",
+        tenantId: job.tenantId,
+        params: {
+          line_count: replay.estimates.lineCount,
+          operation_count: replay.estimates.units,
+          funding_rail: funding,
+          has_ownerless_narration: replay.lines.some(
+            (line) => line.speaker.type === "offscreen",
+          ),
+        },
+      });
+    }
     // Wallet: settle the reserved estimate. When the price catalog yields a
     // real cost for this render it settles at actual cost + fee; an
     // uncataloged model settles at the admin display rate and is flagged
@@ -6015,6 +6031,22 @@ async function executeVideoJob(
         ...(failedStoryboard ? { storyboard: failedStoryboard } : {}),
       }).where(eq(videoGenerationsTable.id, jobId));
     }).catch(() => {});
+    if (job.options?.guidedStoryDialogueReplay) {
+      const replay = job.options.guidedStoryDialogueReplay;
+      void recordServerEvent({
+        name: "dialogue_replay_failed",
+        tenantId: job.tenantId,
+        params: {
+          line_count: replay.estimates.lineCount,
+          operation_count: replay.estimates.units,
+          funding_rail: funding,
+          has_ownerless_narration: replay.lines.some(
+            (line) => line.speaker.type === "offscreen",
+          ),
+          is_retry: job.options.recovery?.sourceJobId != null,
+        },
+      });
+    }
     const reservation = reservationFromRow(job);
     if (partialEvents.length > 0) {
       let displayPaiseOverride: number | undefined;

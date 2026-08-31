@@ -169,13 +169,22 @@ Object.defineProperty(navigator, "mediaDevices", {
   value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [] }) },
 });
 
-const { trackPresetCastEventSpy, trackProtectedOutfitEventSpy } = vi.hoisted(() => ({
+const {
+  trackSpy,
+  trackProjectEventSpy,
+  trackPresetCastEventSpy,
+  trackProtectedOutfitEventSpy,
+} = vi.hoisted(() => ({
+  trackSpy: vi.fn(),
+  trackProjectEventSpy: vi.fn(),
   trackPresetCastEventSpy: vi.fn(),
   trackProtectedOutfitEventSpy: vi.fn(),
 }));
 const toastSpy = vi.fn();
 const cancelVideoJobSpy = vi.fn();
 vi.mock("@/lib/analytics", () => ({
+  track: trackSpy,
+  trackProjectEvent: trackProjectEventSpy,
   trackPresetCastEvent: trackPresetCastEventSpy,
   trackProtectedOutfitEvent: trackProtectedOutfitEventSpy,
 }));
@@ -831,6 +840,8 @@ function renderPage() {
 
 beforeEach(() => {
   trackPresetCastEventSpy.mockClear();
+  trackSpy.mockClear();
+  trackProjectEventSpy.mockClear();
   trackProtectedOutfitEventSpy.mockClear();
   mockState.lastGenerateVars = null;
   mockState.generateError = null;
@@ -936,6 +947,19 @@ describe("Video Studio", () => {
       screen.getByText(/1 separate ElevenLabs voice call/),
     ).toBeTruthy();
     expect(screen.getByText(/No images or subtitles will be generated/)).toBeTruthy();
+    expect(trackSpy).toHaveBeenCalledWith("dialogue_replay_review_opened", {
+      line_count: 1,
+      operation_count: 1,
+      has_ownerless_narration: false,
+    });
+    expect(trackProjectEventSpy).toHaveBeenCalledWith(
+      "dialogue_replay_review_opened",
+      {
+        line_count: 1,
+        operation_count: 1,
+        has_ownerless_narration: false,
+      },
+    );
 
     const confirmBtn = screen.getByText("Confirm & Start");
     await act(async () => {
@@ -945,6 +969,14 @@ describe("Video Studio", () => {
     expect(mockState.guidedDialogueConfirms).toHaveLength(1);
     expect(mockState.guidedDialogueConfirms[0].jobId).toBe(500);
     expect(mockState.guidedDialogueConfirms[0].data.confirmationFingerprint).toBe("confirm-123");
+    expect(trackProjectEventSpy).toHaveBeenCalledWith(
+      "dialogue_replay_confirmed",
+      {
+        line_count: 1,
+        operation_count: 1,
+        has_ownerless_narration: false,
+      },
+    );
   });
 
   it("hides only the mode whose individual control is off", async () => {

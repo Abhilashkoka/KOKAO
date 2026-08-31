@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   type VideoJob,
@@ -21,6 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { track, trackProjectEvent } from "@/lib/analytics";
 import { Play, CheckCircle2, User, MicOff, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -40,10 +41,32 @@ export function GuidedStoryReplayDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const confirmReplay = useConfirmGuidedStoryDialogueReplay();
+  const trackedReviewFingerprint = useRef<string | null>(null);
   const idempotencyKey = useMemo(
     () => crypto.randomUUID(),
     [preview?.confirmationFingerprint],
   );
+
+  useEffect(() => {
+    if (
+      !open ||
+      !preview ||
+      trackedReviewFingerprint.current === preview.confirmationFingerprint
+    ) {
+      return;
+    }
+    trackedReviewFingerprint.current = preview.confirmationFingerprint;
+    const ownerlessNarration = preview.lines.some(
+      (line) => line.speaker.type === "offscreen",
+    );
+    const dimensions = {
+      line_count: preview.estimates.lineCount,
+      operation_count: preview.estimates.units,
+      has_ownerless_narration: ownerlessNarration,
+    };
+    track("dialogue_replay_review_opened", dimensions);
+    trackProjectEvent("dialogue_replay_review_opened", dimensions);
+  }, [open, preview]);
 
   if (!preview) return null;
 
@@ -72,6 +95,11 @@ export function GuidedStoryReplayDialog({
           void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
 
           if (res.job) {
+            trackProjectEvent("dialogue_replay_confirmed", {
+              line_count: preview.estimates.lineCount,
+              operation_count: preview.estimates.units,
+              has_ownerless_narration: offscreenLineCount > 0,
+            });
             queryClient.setQueryData(getGetVideoJobQueryKey(res.job.id), res.job);
             toast({
               title: "Dialogue replay started",

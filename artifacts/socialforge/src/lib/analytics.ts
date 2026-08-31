@@ -30,6 +30,33 @@ const MAX_SEND_ATTEMPTS = 3;
 /** Hard cap on buffered events (including re-queued ones); oldest are dropped beyond this. */
 const MAX_BUFFERED = 120;
 
+type ProjectAnalyticsData = Record<string, string | number | boolean>;
+
+declare global {
+  interface Window {
+    umami?: {
+      track(name: string, data?: ProjectAnalyticsData): void;
+    };
+  }
+}
+
+/**
+ * Replit-hosted project analytics is injected only in published web builds.
+ * Keep it separate from the consent-aware product analytics queue, and always
+ * fail closed so a missing or broken tracker cannot affect user actions.
+ */
+export function trackProjectEvent(
+  name: string,
+  data?: ProjectAnalyticsData,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.umami?.track(name, data);
+  } catch {
+    // Analytics must never break the app.
+  }
+}
+
 export interface ConsentState {
   analytics: boolean;
   deviceDetails: boolean;

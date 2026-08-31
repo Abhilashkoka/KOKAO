@@ -12734,6 +12734,24 @@ export const generateVideoResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const generateVideoResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const generateVideoResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const generateVideoResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const generateVideoResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const generateVideoResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const generateVideoResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const generateVideoResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -12906,6 +12924,71 @@ export const GenerateVideoResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(generateVideoResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(generateVideoResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(generateVideoResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(generateVideoResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(generateVideoResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(generateVideoResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -16980,6 +17063,24 @@ export const enqueueGuidedStoryDraftResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const enqueueGuidedStoryDraftResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const enqueueGuidedStoryDraftResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const enqueueGuidedStoryDraftResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const enqueueGuidedStoryDraftResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const enqueueGuidedStoryDraftResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const enqueueGuidedStoryDraftResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const enqueueGuidedStoryDraftResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -17152,6 +17253,71 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(enqueueGuidedStoryDraftResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(enqueueGuidedStoryDraftResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(enqueueGuidedStoryDraftResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(enqueueGuidedStoryDraftResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(enqueueGuidedStoryDraftResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(enqueueGuidedStoryDraftResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -17454,6 +17620,24 @@ export const finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoTotalM
 
 export const finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const finalizeGuidedStoryJobReferenceResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const finalizeGuidedStoryJobReferenceResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const finalizeGuidedStoryJobReferenceResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const finalizeGuidedStoryJobReferenceResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const finalizeGuidedStoryJobReferenceResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const finalizeGuidedStoryJobReferenceResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -17626,6 +17810,71 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(finalizeGuidedStoryJobReferenceResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(finalizeGuidedStoryJobReferenceResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(finalizeGuidedStoryJobReferenceResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(finalizeGuidedStoryJobReferenceResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(finalizeGuidedStoryJobReferenceResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(finalizeGuidedStoryJobReferenceResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -17893,6 +18142,24 @@ export const startGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwoTot
 
 export const startGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const startGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const startGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const startGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const startGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const startGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const startGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -18065,6 +18332,71 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(startGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(startGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(startGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(startGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(startGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(startGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -18343,6 +18675,24 @@ export const completeGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwo
 
 export const completeGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const completeGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const completeGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const completeGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const completeGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const completeGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const completeGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -18515,6 +18865,71 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(completeGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(completeGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(completeGuidedStoryReferenceOperationResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(completeGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(completeGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(completeGuidedStoryReferenceOperationResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -18859,6 +19274,24 @@ export const confirmGuidedStoryDialogueReplayResponseJobGuidedPreviewRenderTwoTo
 
 export const confirmGuidedStoryDialogueReplayResponseJobGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const confirmGuidedStoryDialogueReplayResponseJobGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -19050,6 +19483,71 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -19676,6 +20174,24 @@ export const listVideoJobsResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const listVideoJobsResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const listVideoJobsResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const listVideoJobsResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const listVideoJobsResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const listVideoJobsResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const listVideoJobsResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const listVideoJobsResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -19848,6 +20364,71 @@ export const ListVideoJobsResponseItem = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(listVideoJobsResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(listVideoJobsResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(listVideoJobsResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(listVideoJobsResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(listVideoJobsResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(listVideoJobsResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -20107,6 +20688,24 @@ export const getVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const getVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const getVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const getVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const getVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const getVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const getVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const getVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -20279,6 +20878,71 @@ export const GetVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(getVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(getVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(getVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(getVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(getVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(getVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -20538,6 +21202,24 @@ export const cancelVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const cancelVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const cancelVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const cancelVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const cancelVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const cancelVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const cancelVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const cancelVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -20710,6 +21392,71 @@ export const CancelVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(cancelVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(cancelVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(cancelVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(cancelVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(cancelVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(cancelVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -20969,6 +21716,24 @@ export const retryVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const retryVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const retryVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const retryVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const retryVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const retryVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const retryVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const retryVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -21141,6 +21906,71 @@ export const RetryVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(retryVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(retryVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(retryVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(retryVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(retryVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(retryVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -21400,6 +22230,24 @@ export const restartVideoJobFreshResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const restartVideoJobFreshResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const restartVideoJobFreshResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const restartVideoJobFreshResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const restartVideoJobFreshResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const restartVideoJobFreshResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const restartVideoJobFreshResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const restartVideoJobFreshResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -21572,6 +22420,71 @@ export const RestartVideoJobFreshResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(restartVideoJobFreshResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(restartVideoJobFreshResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(restartVideoJobFreshResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(restartVideoJobFreshResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(restartVideoJobFreshResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(restartVideoJobFreshResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -21835,6 +22748,24 @@ export const repairVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const repairVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const repairVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const repairVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const repairVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const repairVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const repairVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const repairVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -22007,6 +22938,71 @@ export const RepairVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(repairVideoJobResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(repairVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(repairVideoJobResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(repairVideoJobResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(repairVideoJobResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(repairVideoJobResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -22293,6 +23289,24 @@ export const updateVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const updateVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const updateVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const updateVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const updateVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const updateVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const updateVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const updateVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -22465,6 +23479,71 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(updateVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(updateVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(updateVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(updateVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(updateVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(updateVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -22736,6 +23815,24 @@ export const insertVideoStoryboardSceneResponseGuidedPreviewRenderTwoTotalMin = 
 
 export const insertVideoStoryboardSceneResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const insertVideoStoryboardSceneResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const insertVideoStoryboardSceneResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const insertVideoStoryboardSceneResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const insertVideoStoryboardSceneResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const insertVideoStoryboardSceneResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const insertVideoStoryboardSceneResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -22908,6 +24005,71 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(insertVideoStoryboardSceneResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(insertVideoStoryboardSceneResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(insertVideoStoryboardSceneResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(insertVideoStoryboardSceneResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(insertVideoStoryboardSceneResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(insertVideoStoryboardSceneResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -23168,6 +24330,24 @@ export const regenerateStoryboardScenePreviewResponseGuidedPreviewRenderTwoTotal
 
 export const regenerateStoryboardScenePreviewResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const regenerateStoryboardScenePreviewResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const regenerateStoryboardScenePreviewResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const regenerateStoryboardScenePreviewResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const regenerateStoryboardScenePreviewResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const regenerateStoryboardScenePreviewResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const regenerateStoryboardScenePreviewResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -23340,6 +24520,71 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(regenerateStoryboardScenePreviewResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(regenerateStoryboardScenePreviewResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(regenerateStoryboardScenePreviewResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(regenerateStoryboardScenePreviewResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(regenerateStoryboardScenePreviewResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(regenerateStoryboardScenePreviewResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -23612,6 +24857,24 @@ export const correctGuidedStorySceneResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const correctGuidedStorySceneResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const correctGuidedStorySceneResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const correctGuidedStorySceneResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const correctGuidedStorySceneResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const correctGuidedStorySceneResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const correctGuidedStorySceneResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const correctGuidedStorySceneResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -23784,6 +25047,71 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(correctGuidedStorySceneResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(correctGuidedStorySceneResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(correctGuidedStorySceneResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(correctGuidedStorySceneResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(correctGuidedStorySceneResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(correctGuidedStorySceneResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -24043,6 +25371,24 @@ export const renderMissingGuidedStoryPreviewsResponseGuidedPreviewRenderTwoTotal
 
 export const renderMissingGuidedStoryPreviewsResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const renderMissingGuidedStoryPreviewsResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const renderMissingGuidedStoryPreviewsResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const renderMissingGuidedStoryPreviewsResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const renderMissingGuidedStoryPreviewsResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const renderMissingGuidedStoryPreviewsResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const renderMissingGuidedStoryPreviewsResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -24215,6 +25561,71 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(renderMissingGuidedStoryPreviewsResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(renderMissingGuidedStoryPreviewsResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(renderMissingGuidedStoryPreviewsResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(renderMissingGuidedStoryPreviewsResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(renderMissingGuidedStoryPreviewsResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(renderMissingGuidedStoryPreviewsResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -24474,6 +25885,24 @@ export const approveVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const approveVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const approveVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const approveVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const approveVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const approveVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const approveVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const approveVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -24646,6 +26075,71 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(approveVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(approveVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(approveVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(approveVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(approveVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(approveVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -24904,6 +26398,24 @@ export const discardVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const discardVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+export const discardVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const discardVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const discardVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const discardVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const discardVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const discardVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
 
 export const discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
 
@@ -25076,6 +26588,71 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(discardVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(discardVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(discardVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(discardVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(discardVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(discardVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({

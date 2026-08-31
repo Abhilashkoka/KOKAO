@@ -61,6 +61,7 @@ import {
 } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
+import { recordServerEvent } from "../lib/analytics";
 import { spendCredit, refundCredits } from "../lib/credits";
 import { getAiSpendConfig, getAiSpendRates, withFee } from "../lib/aiSpend";
 import {
@@ -7788,6 +7789,20 @@ function guidedReplayReview(source: VideoGeneration) {
   return { lines, estimates, sourceStoryboardFingerprint, confirmationFingerprint };
 }
 
+function guidedReplayAnalyticsParams(
+  replay: NonNullable<VideoJobOptions["guidedStoryDialogueReplay"]>,
+  funding: "quota" | "credit" | "wallet",
+) {
+  return {
+    line_count: replay.estimates.lineCount,
+    operation_count: replay.estimates.units,
+    funding_rail: funding,
+    has_ownerless_narration: replay.lines.some(
+      (line) => line.speaker.type === "offscreen",
+    ),
+  };
+}
+
 router.post(
   "/ai/video-jobs/:jobId/guided-story/dialogue-replay/preview",
   async (req: Request, res: Response) => {
@@ -8038,6 +8053,11 @@ router.post(
       res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
       return;
     }
+    void recordServerEvent({
+      name: "dialogue_replay_confirmed",
+      tenantId: req.tenantId,
+      params: guidedReplayAnalyticsParams(replay, fundedRail),
+    });
     const checkpoint = createdChild.storyboard?.dialogueReplayCheckpoint!;
     const { idempotencyKey: _key, ...responseSnapshot } = replay;
     res.status(201).json({ job: serializeVideoJob(createdChild), snapshot: responseSnapshot, operation: { ...checkpoint, lines: undefined } });
@@ -9049,6 +9069,16 @@ router.post(
         .status(503)
         .json({ error: "Server is restarting. Please retry in a moment." });
       return;
+    }
+    if (childOptions.guidedStoryDialogueReplay) {
+      void recordServerEvent({
+        name: "dialogue_replay_retried",
+        tenantId: req.tenantId,
+        params: guidedReplayAnalyticsParams(
+          childOptions.guidedStoryDialogueReplay,
+          funding,
+        ),
+      });
     }
     res.status(201).json(serializeVideoJob(fundedChild!));
   },

@@ -93,6 +93,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  trackProjectEvent,
   trackPresetCastEvent,
   trackProtectedOutfitEvent,
 } from "@/lib/analytics";
@@ -1521,6 +1522,37 @@ export function VideoStudioPage() {
   const canReplayGuidedStoryDialogue =
     activeJob?.storyboard?.mode === "guided_story" &&
     (activeJob.status === "succeeded" || activeJob.status === "failed");
+  const activeDialogueReplay = activeJob?.guidedStoryDialogueReplay;
+
+  const replayOutcomeTrackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const replay = activeDialogueReplay;
+    if (
+      !activeJob ||
+      !replay ||
+      (activeJob.status !== "succeeded" && activeJob.status !== "failed")
+    ) {
+      return;
+    }
+    const key = `${activeJob.id}:${activeJob.status}`;
+    if (replayOutcomeTrackedRef.current === key) return;
+    replayOutcomeTrackedRef.current = key;
+    trackProjectEvent(
+      activeJob.status === "succeeded"
+        ? "dialogue_replay_succeeded"
+        : "dialogue_replay_failed",
+      {
+        line_count: replay.estimates.lineCount,
+        operation_count: replay.estimates.units,
+        has_ownerless_narration: replay.lines.some(
+          (line) => line.speaker.type === "offscreen",
+        ),
+        is_retry:
+          activeJob.recovery != null &&
+          activeJob.recovery.sourceJobId !== activeJob.id,
+      },
+    );
+  }, [activeDialogueReplay, activeJob]);
 
   const revealActiveJob = useCallback((jobId: number) => {
     requestedStoryboardOpenRef.current = jobId;
@@ -6755,6 +6787,23 @@ export function VideoStudioPage() {
                             { jobId: activeJob.id },
                             {
                               onSuccess: (job) => {
+                                if (activeDialogueReplay) {
+                                  const replay = activeDialogueReplay;
+                                  trackProjectEvent(
+                                    "dialogue_replay_retried",
+                                    {
+                                      line_count:
+                                        replay.estimates.lineCount,
+                                      operation_count:
+                                        job.units ?? replay.estimates.units,
+                                      has_ownerless_narration:
+                                        replay.lines.some(
+                                          (line) =>
+                                            line.speaker.type === "offscreen",
+                                        ),
+                                    },
+                                  );
+                                }
                                 announcedRef.current = null;
                                 setActiveJobId(job.id);
                                 if (activeVideoJobKey) {
