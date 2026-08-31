@@ -568,7 +568,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.cast.assignments.every((item: any) => item.source === "generated")).toBe(true);
   });
 
-  it("opens the existing storyboard job instead of silently re-enqueueing it", async () => {
+  it("removes a linked storyboard draft from the active workspace", async () => {
     state.draft = draft({
       cast: [{ roleId: "lead" }, { roleId: "friend" }],
       storyboardJobId: 43126,
@@ -577,16 +577,12 @@ describe("GuidedStoryWorkflow", () => {
     state.existingJob = { id: 43126, status: "awaiting_review", storyboard: { scenes: [{}] } };
     const { onJobReady } = renderWorkflow();
 
-    expect(screen.getByTestId("button-guided-enqueue").textContent).toBe(
-      "Open existing storyboard job",
+    await waitFor(() =>
+      expect(screen.queryByTestId("button-guided-enqueue")).toBeNull(),
     );
-    expect(screen.queryByTestId("guided-estimates")).toBeNull();
-    expect(
-      screen.getByTestId("status-guided-storyboard-created").textContent,
-    ).toContain("preparation estimate is no longer active");
-    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
-
-    expect(onJobReady).toHaveBeenCalledWith(43126);
+    expect(screen.getByTestId("button-guided-create-draft")).toBeTruthy();
+    expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBeNull();
+    expect(onJobReady).not.toHaveBeenCalled();
     expect(state.enqueued).toBeNull();
   });
 
