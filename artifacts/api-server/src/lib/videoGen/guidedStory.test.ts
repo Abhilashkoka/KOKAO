@@ -289,9 +289,13 @@ describe("guided story platform contracts", () => {
         expect(first).toEqual(second);
         expect(first.allowed.every((count) => count >= 2 && count <= 4)).toBe(true);
         expect(first.allowed).toContain(first.recommended);
-        if (platform.mobileFirst) expect(first.allowed).toEqual([2]);
       }
     }
+    expect(guidedStoryRolePlan("instagram_reels", 15).allowed).toEqual([2]);
+    expect(guidedStoryRolePlan("instagram_reels", 30).allowed).toEqual([2]);
+    expect(guidedStoryRolePlan("instagram_reels", 60).allowed).toEqual([2, 3]);
+    expect(guidedStoryRolePlan("instagram_reels", 90).allowed).toEqual([2, 3]);
+    expect(guidedStoryRolePlan("youtube", 180).allowed).toEqual([2, 3, 4]);
   });
 
   it("rejects illegal platform durations", () => {

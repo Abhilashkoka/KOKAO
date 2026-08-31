@@ -155,7 +155,7 @@ export function guidedStoryRolePlan(platformId: string, durationSeconds: number)
   if (!platform || !platform.durations.includes(durationSeconds)) {
     throw new Error("Unsupported platform or duration.");
   }
-  const maximum = platform.mobileFirst || durationSeconds <= 60
+  const maximum = durationSeconds <= 30
     ? 2
     : durationSeconds <= 120
       ? 3
