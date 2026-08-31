@@ -237,6 +237,7 @@ export function GuidedStoryWorkflow({
   const [editing, setEditing] = useState(false);
   const [scriptEditorOpen, setScriptEditorOpen] = useState(false);
   const scriptEditorRef = useRef<HTMLDivElement>(null);
+  const durationRef = useRef<HTMLDivElement>(null);
   const [userRoleId, setUserRoleId] = useState<string | null>(null);
   const [userRoleChoiceMade, setUserRoleChoiceMade] = useState(false);
   const [strategy, setStrategy] = useState<"generated" | "saved">("generated");
@@ -246,6 +247,7 @@ export function GuidedStoryWorkflow({
   const [castSaveError, setCastSaveError] = useState<string | null>(null);
   const [enqueueError, setEnqueueError] = useState<string | null>(null);
   const [scriptGenerationError, setScriptGenerationError] = useState<string | null>(null);
+  const [runtimeGuidance, setRuntimeGuidance] = useState<string | null>(null);
   const [scriptApprovalError, setScriptApprovalError] = useState<string | null>(null);
   const [castApprovalError, setCastApprovalError] = useState<{ roleId: string; message: string } | null>(null);
   const [castBusyRole, setCastBusyRole] = useState<string | null>(null);
@@ -346,6 +348,26 @@ export function GuidedStoryWorkflow({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [draft?.id, editRequest?.draftId, scriptEditorOpen]);
+  useEffect(() => {
+    if (
+      !draft ||
+      !scriptGenerationError ||
+      !/runtime|speaking rate|word count/i.test(scriptGenerationError)
+    ) return;
+    setRuntimeGuidance(
+      `${scriptGenerationError} Select a different runtime, then save the setup and generate the script again.`,
+    );
+    setEditing(true);
+    setScriptEditorOpen(false);
+  }, [draft, scriptGenerationError]);
+  useEffect(() => {
+    if (!editing || !runtimeGuidance) return;
+    const frame = window.requestAnimationFrame(() => {
+      durationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      durationRef.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing, runtimeGuidance]);
   useEffect(() => {
     if (!contract) return;
     if (!contract.durations.includes(duration ?? -1)) setDuration(contract.durations[0] ?? null);
@@ -531,7 +553,7 @@ export function GuidedStoryWorkflow({
             <div><Label>Brand Kit and voice library (optional)</Label><Select value={brandKitId?.toString() ?? ""} onValueChange={(value) => setBrandKitId(Number(value))}><SelectTrigger data-testid="select-guided-brand-kit"><SelectValue placeholder="No Brand Kit" /></SelectTrigger><SelectContent>{brandKits.map((kit) => <SelectItem key={kit.id} value={String(kit.id)}>{kit.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
-          {contract && <div><Label>Duration</Label><div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => setDuration(value)} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
+          {contract && <div ref={durationRef} className={runtimeGuidance ? "rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : undefined} data-testid="section-guided-duration"><Label>Duration</Label>{runtimeGuidance && <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-runtime">{runtimeGuidance}</p>}<div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => { setDuration(value); setRuntimeGuidance(null); }} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
           {rolePlan && <div data-testid="text-guided-role-plan">Recommended: {rolePlan.recommended} roles. Allowed: {rolePlan.allowed.join(", ")}.<div className="flex gap-2 mt-2">{rolePlan.allowed.map((value) => <Button type="button" size="sm" key={value} variant={roleCount === value ? "default" : "outline"} onClick={() => setRoleCount(value)} data-testid={`button-guided-role-count-${value}`}>{value} roles</Button>)}</div></div>}
           <div className="space-y-1.5">
             <Label>Story language</Label>
