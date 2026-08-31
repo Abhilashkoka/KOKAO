@@ -32,6 +32,14 @@ export interface SceneSegment {
   /** Index into `clips`. */
   clipIndex: number;
   durationSec: number;
+  /**
+   * This clip's frames are married to a specific slice of the narration — a
+   * lip-synced shot. Such a segment may not be seeked into, looped, swapped
+   * for other footage, or split in two: every one of those moves the picture
+   * relative to the words and desyncs the mouth. Nothing reports it, so the
+   * timeline has to know.
+   */
+  lipSynced?: boolean;
 }
 
 export interface ComposeInput {
@@ -108,7 +116,14 @@ export function wrapSubtitleText(text: string, maxCharsPerLine: number): string 
 export function diversifySceneClips(scenes: SceneSegment[], clipCount: number): SceneSegment[] {
   if (clipCount <= 1) return scenes;
   const out = scenes.map((scene) => ({ ...scene }));
+  // Footage carrying a lip-synced performance is off limits in both
+  // directions: a locked scene keeps its own clip, and no other scene may be
+  // handed that clip — either move would put one performance's mouth under
+  // another's words.
+  const locked = new Set<number>();
+  for (const scene of out) if (scene.lipSynced) locked.add(scene.clipIndex);
   for (let i = 1; i < out.length; i++) {
+    if (out[i]!.lipSynced) continue;
     if (out[i]!.clipIndex !== out[i - 1]!.clipIndex) continue;
     const prev = out[i - 1]!.clipIndex;
     const next = i + 1 < out.length ? out[i + 1]!.clipIndex : -1;
@@ -117,7 +132,7 @@ export function diversifySceneClips(scenes: SceneSegment[], clipCount: number): 
     let best = -1;
     let bestPenalty = Infinity;
     for (let c = 0; c < clipCount; c++) {
-      if (c === prev) continue;
+      if (c === prev || locked.has(c)) continue;
       const penalty = (c === next ? 1000 : 0) + (counts[c] ?? 0);
       if (penalty < bestPenalty) {
         best = c;
@@ -199,7 +214,12 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       const scene = scenes[i]!;
       const clipDur = clipDurations.get(scene.clipIndex) ?? null;
       const spare = clipDur !== null ? clipDur - scene.durationSec : 0;
-      const canSeek = clipDur !== null && spare > 0.5;
+      // A lip-synced shot starts where its audio slice starts, full stop.
+      // Seeking would be silently fatal here: providers return discrete
+      // lengths, so a 3s scene almost always has spare time, and the
+      // golden-ratio offset below would land mid-word on every such shot with
+      // nothing raising an error.
+      const canSeek = !scene.lipSynced && clipDur !== null && spare > 0.5;
       const seekSec = canSeek ? ((i * 0.618034) % 1) * (spare - 0.25) : 0;
 
       const fades: string[] = [];
@@ -212,16 +232,25 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         }
       }
 
+      // A short lip-synced clip holds its last frame rather than looping:
+      // replaying it would replay the mouth mid-sentence. Everything else
+      // loops as before.
+      const holdSec =
+        scene.lipSynced && clipDur !== null && clipDur < scene.durationSec
+          ? scene.durationSec - clipDur
+          : 0;
+      const hold = holdSec > 0 ? [`tpad=stop_mode=clone:stop_duration=${holdSec.toFixed(3)}`] : [];
+
       const args = ["-y"];
       if (canSeek) args.push("-ss", seekSec.toFixed(3));
-      else args.push("-stream_loop", "-1");
+      else if (!scene.lipSynced) args.push("-stream_loop", "-1");
       args.push(
         "-i",
         `clip_${scene.clipIndex}.mp4`,
         "-t",
         scene.durationSec.toFixed(3),
         "-vf",
-        [frame, ...fades].join(","),
+        [...hold, frame, ...fades].join(","),
         "-an",
         "-c:v",
         "libx264",

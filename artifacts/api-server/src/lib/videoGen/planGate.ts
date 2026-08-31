@@ -203,20 +203,36 @@ export function resplitLongHolds(
   maxHoldSec: number = LONG_HOLD_SEC,
 ): SceneSegment[] {
   if (clipCount <= 1 || maxHoldSec <= 0) return scenes;
-  if (!scenes.some((scene) => scene.durationSec > maxHoldSec)) return scenes;
+  if (!scenes.some((scene) => scene.durationSec > maxHoldSec && !scene.lipSynced)) return scenes;
+  const lockedClips = new Set<number>();
+  for (const scene of scenes) if (scene.lipSynced) lockedClips.add(scene.clipIndex);
   const out: SceneSegment[] = [];
   for (const scene of scenes) {
-    if (scene.durationSec <= maxHoldSec) {
+    // A lip-synced shot is never split. The split rotates clipIndex forward to
+    // show something new, which on synced footage cuts the performance in half
+    // and swaps the face mid-line. A long take of someone talking is also not
+    // the problem this pass exists to fix.
+    if (scene.durationSec <= maxHoldSec || scene.lipSynced) {
       out.push({ ...scene });
       continue;
     }
     const parts = Math.ceil(scene.durationSec / maxHoldSec);
     const piece = Math.round((scene.durationSec / parts) * 1000) / 1000;
+    // Rotating into footage that carries someone's synced performance would
+    // drop a talking head into the middle of an unrelated hold, so those clips
+    // are skipped when picking what a split cuts to.
+    const rotateTo = (offset: number): number => {
+      let candidate = (scene.clipIndex + offset) % clipCount;
+      for (let attempt = 0; attempt < clipCount && lockedClips.has(candidate); attempt++) {
+        candidate = (candidate + 1) % clipCount;
+      }
+      return candidate;
+    };
     for (let p = 0; p < parts; p++) {
       out.push({
         // Rotate forward from this scene's own clip so the first piece keeps
         // the ranked pick and later pieces bring in something else.
-        clipIndex: (scene.clipIndex + p) % clipCount,
+        clipIndex: p === 0 ? scene.clipIndex : rotateTo(p),
         // The last piece absorbs the rounding remainder, so the summed scene
         // time still equals what the narration expects.
         durationSec:
