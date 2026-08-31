@@ -1101,6 +1101,30 @@ describe("GuidedStoryWorkflow", () => {
     ).toBe(false));
   });
 
+  it("AI-generates the shared backdrop from story context when no input is provided", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: {
+        ...draft().visualChoices,
+        backdropReference: undefined,
+        backdrops: { version: 1, default: null, sceneOverrides: {} },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    const prompt = screen.getByTestId("input-guided-backdrop-prompt") as HTMLTextAreaElement;
+    expect(prompt.value).toBe("");
+    const generateAll = screen.getByTestId("button-prepare-guided-backdrop") as HTMLButtonElement;
+    expect(generateAll.textContent).toBe("AI generate for all scenes");
+    expect(generateAll.disabled).toBe(false);
+    await userEvent.click(generateAll);
+
+    await waitFor(() => expect(state.generatedImageRequest).not.toBeNull());
+    expect(state.generatedImageRequest.prompt).toContain('Guided Story "The plan"');
+    expect(state.generatedImageRequest.prompt).toContain("Scene 1: A desk");
+  });
+
   it("asks for customization approval before regenerating a backdrop", async () => {
     state.draft = draft({
       cast: [{ roleId: "r1" }, { roleId: "r2" }],

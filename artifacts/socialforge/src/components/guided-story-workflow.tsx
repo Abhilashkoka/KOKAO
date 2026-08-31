@@ -754,6 +754,14 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const approve = useApproveGuidedStoryBackdrop();
   const inherit = useInheritGuidedStoryDefaultBackdrop();
   const shown = backdrop ?? legacy;
+  const automaticPrompt = sceneId
+    ? direction?.trim() || `A consistent location for scene ${sceneId} of ${draft.script?.title ?? "this Guided Story"}.`
+    : [
+        `Create the primary shared location for the Guided Story "${draft.script?.title ?? "Untitled story"}".`,
+        draft.script?.logline,
+        ...(draft.script?.scenes ?? []).map((scene, index) =>
+          `Scene ${index + 1}: ${scene.visualDirection}`),
+      ].filter(Boolean).join("\n");
   const [prompt, setPrompt] = useState(shown?.prompt ?? direction ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [enlarged, setEnlarged] = useState(false);
@@ -774,7 +782,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const suffix = sceneId ?? "default";
   const save = async (regenerate = false, replacementPrompt?: string) => {
     try {
-      const selectedPrompt = (replacementPrompt ?? prompt).trim();
+      const selectedPrompt = (replacementPrompt ?? prompt).trim() || automaticPrompt;
       let imagePath: string | undefined;
       if (file) {
         if (!VISUAL_IMAGE_TYPES.includes(file.type) || file.size > MAX_VISUAL_IMAGE_BYTES) throw new Error("Use a PNG, JPEG, or WebP image no larger than 10 MB.");
@@ -792,17 +800,17 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const test = (name: string) => sceneId ? `${name}-${suffix}` : name;
   if (sceneId && !backdrop) return <div className="space-y-2 rounded-md border p-3" data-testid={`card-guided-backdrop-scene-${sceneId}`}>
     <div><b>{label}</b> <span className="text-sm text-muted-foreground">Uses default backdrop</span></div><p className="text-sm text-muted-foreground">{direction}</p>
-    <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} data-testid={test("input-guided-backdrop-prompt")} />
+    <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Optional—leave blank and AI will use this scene’s story direction" data-testid={test("input-guided-backdrop-prompt")} />
     <Input type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid={test("input-guided-backdrop-upload")} />
-    <Button type="button" variant="outline" disabled={prompt.trim().length < 3} onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>{file ? "Use uploaded override" : "Generate scene override"}</Button>
+    <Button type="button" variant="outline" onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>{file ? "Use uploaded override" : "AI generate scene override"}</Button>
     {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
   </div>;
   return <div className="space-y-3 rounded-md border p-3" data-testid={sceneId ? `card-guided-backdrop-scene-${sceneId}` : "card-guided-backdrop-default"}>
     <div><b>{label}</b> <span className="text-sm text-muted-foreground">{sceneId ? "Override" : shown && !backdrop ? "Legacy default (replace to migrate)" : "Default for inheriting scenes"}</span></div>
     {shown && <button type="button" onClick={() => setEnlarged(true)} aria-label={`Enlarge ${label}`} data-testid={test("button-enlarge-guided-backdrop")}><img src={`/api/storage${shown.imagePath}`} alt={`${label} reference`} className="h-32 w-52 rounded-md border object-cover" /></button>}
-    <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} data-testid={test("input-guided-backdrop-prompt")} />
+    <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={sceneId ? "Optional—leave blank and AI will use this scene’s story direction" : "Optional—leave blank and AI will use the approved story and every scene direction"} data-testid={test("input-guided-backdrop-prompt")} />
     <Input type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid={test("input-guided-backdrop-upload")} />
-    <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={prompt.trim().length < 3} onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>{shown ? "Save replacement" : "Generate for review"}</Button>
+    <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={prepare.isPending || generate.isPending} onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>{prepare.isPending || generate.isPending ? "Generating backdrop…" : shown ? "Save replacement" : sceneId ? "AI generate scene override" : "AI generate for all scenes"}</Button>
       {shown && <Button type="button" variant="outline" onClick={() => { setCustomization(prompt); setCustomizing(true); }} data-testid={test("button-regenerate-guided-backdrop")}>Customize &amp; regenerate</Button>}
       {sceneId && <Button type="button" variant="outline" onClick={() => inherit.mutate({ draftId: draft.id, sceneId, data: { revision: draft.revision } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not inherit the default backdrop.")) })} data-testid={test("button-inherit-guided-backdrop")}>Inherit default</Button>}
       <Button type="button" disabled={!backdrop || !!backdrop.approvedAt || unsaved} onClick={() => backdrop && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: backdrop.fingerprint, sceneId } }, { onSuccess: refresh, onError: reportApprovalError })} data-testid={test("button-approve-guided-backdrop")}>{backdrop?.approvedAt ? "Approved" : "Approve backdrop"}</Button></div>
