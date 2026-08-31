@@ -8,9 +8,11 @@ import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
+import { trimClipToStart } from "../postprocess";
+import { lipSyncClip } from "../lipSyncClip";
 import { VideoGenProviderError, type VideoAspect } from "../types";
 import { logger } from "../../logger";
-import type { NarrationCue } from "./narration";
+import { sliceNarration, type NarrationCue } from "./narration";
 import type { SceneSegment } from "./compose";
 import { refineScenePrompts } from "./refineScenePrompts";
 import { imageFingerprint, matchesPriorImage } from "./imageDistinctness";
@@ -400,8 +402,29 @@ export async function generateSceneKeyframes(params: {
 }
 
 /**
+ * Voice the character actually speaks with, when the caller wants the scenes
+ * lip-synced rather than narrated over.
+ */
+export interface SceneLipSync {
+  /** The whole narration track; each shot receives only its own slice. */
+  wav: Buffer;
+}
+
+/**
  * The expensive half: image-to-video per keyframe. Each scene retries once; a
  * scene that fails twice fails the job (the runner refunds the reservation).
+ *
+ * With `lipSync`, each shot is additionally cut to its exact scene length and
+ * synced to that scene's slice of the narration — one speaker per shot, which
+ * is the only arrangement the identity lock can hold anyway (the keyframe
+ * prompt anchors one face; a second face in frame drifts). The sync runs
+ * inside the same concurrency window as the animation, so a job's wall clock
+ * grows by roughly one sync per scene divided by SCENE_CONCURRENCY, not by
+ * one per scene.
+ *
+ * Shots that come back synced are flagged in the sceneMap. The compositor
+ * needs that flag: without it, it will seek into, loop, swap or split the
+ * footage, all of which desync the mouth without raising anything.
  */
 export async function animateSceneKeyframes(params: {
   keyframes: Buffer[];
@@ -418,17 +441,33 @@ export async function animateSceneKeyframes(params: {
   modelOptions?: ResolvedModelOptions;
   savedClips?: Array<Buffer | null>;
   onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
+  lipSync?: SceneLipSync | null;
 }): Promise<CharacterSceneClips> {
   let provider = "";
   let model = "";
   // Motion instruction resolved once per job rather than per scene: a picked
   // preset wins outright, else the governed Prompt Kit wording (fail-open).
-  const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
+  const motion = await getMotionInstruction(
+    params.motionPreset,
+    params.cinematography,
+  );
+  const lipSync = params.lipSync ?? null;
+  const synced: boolean[] = new Array(params.scenes.length).fill(false);
+  // Scenes tile the narration in order, so a scene's start is the sum of the
+  // scenes before it. Derived here rather than read off cue indices: the
+  // storyboard-resume path rebuilds ScriptScene with synthetic cue numbers,
+  // and those would slice the wrong span.
+  const sceneStartSec: number[] = [];
+  params.scenes.reduce((elapsed, scene) => {
+    sceneStartSec.push(elapsed);
+    return elapsed + scene.durationSec;
+  }, 0);
   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
     if (params.savedClips?.[i]) return params.savedClips[i]!;
     const keyframe = params.keyframes[i];
     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
-    const durationSec = clipDurationForScene(params.scenes[i]!.durationSec);
+    const scene = params.scenes[i]!;
+    const durationSec = clipDurationForScene(scene.durationSec);
     const attempt = async (): Promise<Buffer> => {
       const clip = await generateVideo({
         mode: "image",
@@ -449,11 +488,31 @@ export async function animateSceneKeyframes(params: {
       });
       return clip.buffer;
     };
+    let clip: Buffer;
     try {
-      return await attempt();
+      clip = await attempt();
     } catch (err) {
       logger.warn({ err, scene: i }, "character scene animation failed; retrying once");
-      return await attempt();
+      clip = await attempt();
+    }
+    if (!lipSync) return clip;
+
+    // The scene's own span of the track. Providers hand back discrete lengths,
+    // so the clip is cut to the scene first: the model takes video and audio
+    // as separate files and assumes they start together.
+    const startSec = sceneStartSec[i] ?? 0;
+    const audio = sliceNarration(lipSync.wav, startSec, startSec + scene.durationSec);
+    const trimmed = await trimClipToStart(clip, scene.durationSec);
+    try {
+      const result = await lipSyncClip({ video: trimmed, audio });
+      synced[i] = true;
+      return result.buffer;
+    } catch (err) {
+      // Fail-soft, and only here: the shot already exists and is already paid
+      // for, so an unsynced shot beats failing the whole job. It ships without
+      // the flag, so the compositor treats it as ordinary footage.
+      logger.warn({ err, scene: i }, "scene lip sync failed; using the unsynced shot");
+      return trimmed;
     }
   });
 
@@ -462,6 +521,7 @@ export async function animateSceneKeyframes(params: {
     sceneMap: params.scenes.map((scene, i) => ({
       clipIndex: i,
       durationSec: scene.durationSec,
+      ...(synced[i] ? { lipSynced: true } : {}),
     })),
     provider: provider || "replicate",
     model: model || "image-to-video",
@@ -489,6 +549,7 @@ export async function generateCharacterSceneClips(params: {
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
+  lipSync?: SceneLipSync | null;
 }): Promise<CharacterSceneClips> {
   const keyframes = (await generateSceneKeyframes(params)).map((keyframe) => keyframe.buffer);
   return animateSceneKeyframes({
@@ -500,5 +561,6 @@ export async function generateCharacterSceneClips(params: {
     cinematography: params.cinematography ?? null,
     seed: params.seed ?? null,
     modelOptions: params.modelOptions,
+    lipSync: params.lipSync ?? null,
   });
 }

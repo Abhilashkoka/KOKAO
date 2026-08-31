@@ -40,6 +40,7 @@ import {
   animateSceneKeyframes,
   type ScriptScene,
   type ScenePlanEntry,
+  type SceneLipSync,
 } from "./characterScenes";
 import { assignClipsToScenes } from "./visionRank";
 import type { SuppliedPlan } from "./suppliedPlan";
@@ -654,6 +655,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       aspectRatio: params.aspectRatio,
       cues: narration.cues,
       totalDurationSec: narration.totalDurationSec,
+      lipSync: (await characterLipSync()) ? { wav: narration.wav } : null,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
       creativeVisualGuidance: params.creativeVisualGuidance ?? null,
     });
@@ -800,6 +802,17 @@ async function planCharacterScenes(params: {
   return { detail, plan, rawPlan };
 }
 
+/**
+ * Whether character scenes should be lip-synced rather than narrated over.
+ * Shares the lipSync kill switch with the upload-driven engine: both spend on
+ * the same model, so both stop at the same switch. Fail-open like every other
+ * flag read in this file — a flag service hiccup must not silently change what
+ * a video looks like.
+ */
+async function characterLipSync(): Promise<boolean> {
+  return isFeatureEnabled("lipSync").catch(() => true);
+}
+
 /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
 async function generateCharacterStoryClips(params: {
   tenantId: number;
@@ -826,6 +839,8 @@ async function generateCharacterStoryClips(params: {
   modelOptions?: ResolvedModelOptions;
   /** Treatment-only fragment; appended after each planned scene subject. */
   creativeVisualGuidance?: string | null;
+  /** Narration track when the character should speak rather than be narrated over. */
+  lipSync?: SceneLipSync | null;
 }): Promise<{
   clips: Buffer[];
   sceneMap: import("./compose").SceneSegment[];
@@ -855,6 +870,7 @@ async function generateCharacterStoryClips(params: {
     cinematography: params.cinematography ?? null,
     seed: params.seed ?? null,
     modelOptions: params.modelOptions,
+    lipSync: params.lipSync ?? null,
   });
   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
 }
@@ -1640,6 +1656,7 @@ export async function renderTopicStoryboard(params: {
       modelOptions: params.modelOptions,
       savedClips,
       onCheckpoint: params.onCheckpoint,
+      lipSync: (await characterLipSync()) ? { wav: narrationWav } : null,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;
