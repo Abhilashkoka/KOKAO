@@ -32,3 +32,9 @@ Protected-region and canonical-reference equality are mandatory for generated ou
 **Why:** Trusting caller-supplied face rectangles lets clients self-attest identity preservation, while requiring derivative metadata on default outfits breaks ordinary saved-character selection.
 
 **How to apply:** Reject derived outfit generation when the stored reviewed region is absent or differs from the request; recheck the stored region and canonical source during Guided finalization, but allow valid default outfits without derivative metadata.
+
+Reference replacement and confirmation must work in both valid editing phases: before any storyboard job is linked, and while the linked job is awaiting storyboard review. Pre-storyboard finalization updates only the locked draft revision; awaiting-review finalization updates the draft and immutable job snapshot together.
+
+**Why:** The cast-approval UI is shown before storyboard creation. Requiring an awaiting-review job at the API boundary makes “Review selected references” fail with a hidden 409 and prevents confirmation.
+
+**How to apply:** Recheck the same phase under the transaction lock. Never permit a missing linked job when the draft still claims a storyboard job ID, and preserve the stricter preview/correction activity checks for awaiting-review edits.

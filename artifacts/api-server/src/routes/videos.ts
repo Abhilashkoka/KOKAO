@@ -4390,17 +4390,20 @@ router.post(
           eq(videoGenerationsTable.tenantId, req.tenantId),
         )).limit(1)
       : [];
+    const editingBeforeStoryboard = !jobId;
+    const editingAwaitingReview =
+      !!job &&
+      job.status === "awaiting_review" &&
+      job.storyboard?.mode === "guided_story" &&
+      !!job.options?.guidedStory &&
+      job.options.guidedStory.draftRevision === row.revision;
     if (
       row.revision !== input.revision ||
       !member ||
-      !job ||
-      job.status !== "awaiting_review" ||
-      job.storyboard?.mode !== "guided_story" ||
-      !job.options?.guidedStory ||
-      job.options.guidedStory.draftRevision !== row.revision
+      (!editingBeforeStoryboard && !editingAwaitingReview)
     ) {
       res.status(409).json({
-        error: "References can only be changed on the current awaiting-review revision.",
+        error: "References can only be changed before the storyboard or on the current awaiting-review revision.",
       });
       return;
     }
@@ -4414,9 +4417,9 @@ router.post(
       return;
     }
     if (
-      job.options.guidedPreviewRender?.state === "queued" ||
-      job.options.guidedPreviewRender?.state === "running" ||
-      job.storyboard.scenes.some((scene) =>
+      job?.options?.guidedPreviewRender?.state === "queued" ||
+      job?.options?.guidedPreviewRender?.state === "running" ||
+      job?.storyboard?.scenes.some((scene) =>
         (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
           ["queued", "running", "provider_started", "provider_succeeded", "outcome_unknown"].includes(
             attempt.state,
@@ -4490,14 +4493,17 @@ router.post(
           )).for("update").limit(1)
         : [];
       const freshMember = fresh.state.cast.find((item) => item.roleId === input.roleId);
+      const editingFreshBeforeStoryboard = !freshJobId;
+      const editingFreshAwaitingReview =
+        !!freshJob &&
+        freshJob.status === "awaiting_review" &&
+        freshJob.storyboard?.mode === "guided_story" &&
+        !!freshJob.options?.guidedStory &&
+        freshJob.options.guidedStory.draftId === fresh.id &&
+        freshJob.options.guidedStory.draftRevision === fresh.revision;
       if (
         !freshMember ||
-        !freshJob ||
-        freshJob.status !== "awaiting_review" ||
-        freshJob.storyboard?.mode !== "guided_story" ||
-        !freshJob.options?.guidedStory ||
-        freshJob.options.guidedStory.draftId !== fresh.id ||
-        freshJob.options.guidedStory.draftRevision !== fresh.revision
+        (!editingFreshBeforeStoryboard && !editingFreshAwaitingReview)
       ) return null;
       const resumable = Object.values(fresh.state.referenceOperations ?? {}).find(
         (operation) => operation.requestKey === requestKey &&
@@ -5161,20 +5167,23 @@ router.post(
             eq(videoGenerationsTable.tenantId, req.tenantId),
           )).for("update").limit(1)
         : [];
-      if (
-        !job ||
-        job.status !== "awaiting_review" ||
-        job.storyboard?.mode !== "guided_story" ||
-        !job.options?.guidedStory ||
-        job.options.guidedStory.draftRevision !== draft.revision ||
-        job.options.guidedPreviewRender?.state === "queued" ||
-        job.options.guidedPreviewRender?.state === "running" ||
-        job.storyboard.scenes.some((scene) =>
+      const editingBeforeStoryboard = !jobId;
+      const editingAwaitingReview =
+        !!job &&
+        job.status === "awaiting_review" &&
+        job.storyboard?.mode === "guided_story" &&
+        !!job.options?.guidedStory &&
+        job.options.guidedStory.draftRevision === draft.revision &&
+        job.options.guidedPreviewRender?.state !== "queued" &&
+        job.options.guidedPreviewRender?.state !== "running" &&
+        !job.storyboard.scenes.some((scene) =>
           (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
             ["queued", "running", "provider_started", "provider_succeeded", "outcome_unknown"].includes(
               attempt.state,
-            )))
-      ) return { kind: "stale" as const };
+            )));
+      if (!editingBeforeStoryboard && !editingAwaitingReview) {
+        return { kind: "stale" as const };
+      }
       const roleIndex = draft.state.cast.findIndex(
         (member) => member.roleId === operation.roleId,
       );
@@ -5214,6 +5223,22 @@ router.post(
         castApprovals: null,
         referenceOperations,
       };
+      if (editingBeforeStoryboard) {
+        const [savedDraft] = await tx.update(guidedStoryDraftsTable).set({
+          state: nextState,
+          revision: nextRevision,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(guidedStoryDraftsTable.id, draft.id),
+          eq(guidedStoryDraftsTable.revision, draft.revision),
+        )).returning();
+        return savedDraft
+          ? { kind: "saved" as const, draft: savedDraft }
+          : { kind: "stale" as const };
+      }
+      if (!job?.options?.guidedStory || !job.storyboard) {
+        return { kind: "stale" as const };
+      }
       const snapshot = {
         ...job.options.guidedStory,
         draftRevision: nextRevision,

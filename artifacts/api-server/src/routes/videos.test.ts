@@ -3198,6 +3198,85 @@ describe("guided story route fail-closed regressions", () => {
     expect(duplicate.status).toBe(409);
   });
 
+  it("reviews and confirms a saved character replacement before a storyboard exists", async () => {
+    const tenant = await newTenant("pro");
+    const saved = await seedCharacter(tenant.tenantId);
+    await db.update(characterOutfitsTable).set({
+      status: "approved",
+      identityVerified: true,
+      canonicalReferenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+    }).where(eq(characterOutfitsTable.id, saved.gymOutfitId));
+    const script = routeScript();
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const member = (roleId: string): GuidedStoryDraftState["cast"][number] => ({
+      roleId,
+      source: "saved",
+      characterId: saved.characterId,
+      outfitId: saved.outfitId,
+      brandKitId: null,
+      voiceId: roleId === "hero" ? "alloy" : "echo",
+      character: {
+        name: "Maya",
+        description: "cheerful founder",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+      },
+      outfit: {
+        name: "Default",
+        description: "casual",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+      },
+      voice: {
+        id: roleId === "hero" ? "alloy" : "echo",
+        label: roleId,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: true,
+    });
+    await db.update(guidedStoryDraftsTable).set({
+      state: {
+        ...draft.state,
+        scriptApprovedAt: new Date().toISOString(),
+        castStrategy: "saved",
+        cast: [member("hero"), member("friend")],
+        castApprovals: null,
+        storyboardJobId: null,
+      },
+    }).where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const preview = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references`)
+      .send({
+        revision: draft.revision,
+        roleId: "hero",
+        kind: "character",
+        source: "saved",
+        characterId: saved.characterId,
+        outfitId: saved.gymOutfitId,
+        confirmed: true,
+      });
+    expect(preview.status, preview.body.error).toBe(201);
+    expect(preview.body).toMatchObject({
+      status: "ready_to_review",
+      candidate: {
+        characterId: saved.characterId,
+        outfitId: saved.gymOutfitId,
+      },
+    });
+
+    const finalized = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/references/${encodeURIComponent(preview.body.id)}/finalize`)
+      .send({ revision: draft.revision });
+    expect(finalized.status, finalized.body.error).toBe(200);
+    expect(finalized.body.revision).toBe(draft.revision + 1);
+    expect(finalized.body.cast[0]).toMatchObject({
+      characterId: saved.characterId,
+      outfitId: saved.gymOutfitId,
+    });
+    expect(finalized.body.castApprovals).toBeNull();
+  });
+
   it("re-approves a draft after its linked job failed before creating a storyboard", async () => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);
