@@ -1,4 +1,10 @@
-import { findModelPrice, upsertModelPrice, type UpsertModelPriceInput } from "./aiCost";
+import {
+  canonicalVideoVariantKey,
+  findModelPrice,
+  pruneModelPriceVariants,
+  upsertModelPrice,
+  type UpsertModelPriceInput,
+} from "./aiCost";
 import { lookupGeminiPricing } from "./geminiCatalog";
 import { lookupOpenAiPricing } from "./openaiCatalog";
 import { lookupOpenRouterPricing, lookupOpenRouterVideoPricing } from "./openrouterCatalog";
@@ -46,6 +52,21 @@ function hasAnyPrice(p: LookedUpPrices): boolean {
     p.usdPerSecond !== null ||
     p.usdPerVideo !== null
   );
+}
+
+function replicateVideoUnits(entry: {
+  price: string;
+  title: string;
+}): Pick<LookedUpPrices, "usdPerSecond" | "usdPerVideo"> | null {
+  const value = Number(entry.price.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(value)) return null;
+  if (/per second/i.test(entry.title)) {
+    return { usdPerSecond: value, usdPerVideo: null };
+  }
+  if (/per (?:output )?video(?! second)|per run/i.test(entry.title)) {
+    return { usdPerSecond: null, usdPerVideo: value };
+  }
+  return null;
 }
 
 /**
@@ -193,6 +214,54 @@ export async function syncActivatedModelPricing(args: {
   const crossSourced: Array<{ model: string; source: string }> = [];
   const results = await Promise.all(
     models.map(async (model) => {
+      // Replicate video pages can publish conditional tariffs (for example,
+      // Veo with/without generated audio). The aggregate lookup below keeps
+      // only the conservative maximum and would create a visible generic row
+      // that cannot satisfy the variant-aware runtime gate. Persist every
+      // official variant instead.
+      if (args.kind === "video" && args.provider.trim().toLowerCase() === "replicate") {
+        try {
+          const [catalog] = await lookupReplicateUnitPricing([model]);
+          const published = (catalog?.entries ?? [])
+            .map((entry) => ({ entry, units: replicateVideoUnits(entry) }))
+            .filter(
+              (
+                item,
+              ): item is {
+                entry: (typeof catalog.entries)[number];
+                units: NonNullable<ReturnType<typeof replicateVideoUnits>>;
+              } => item.units !== null,
+            );
+          if (published.length > 0) {
+            const existing = await findModelPrice("video", args.provider, model, {
+              exactProviderOnly: true,
+            });
+            for (const { entry, units } of published) {
+              await upsertModelPrice({
+                kind: "video",
+                provider: existing?.provider ?? args.provider,
+                model: existing?.model ?? model,
+                inputUsdPerMtok: null,
+                outputUsdPerMtok: null,
+                usdPerImage: null,
+                ...units,
+                variantCriteria: entry.criteria,
+              });
+            }
+            await pruneModelPriceVariants({
+              kind: "video",
+              provider: args.provider,
+              model,
+              keepVariantKeys: published.map(({ entry }) =>
+                canonicalVideoVariantKey(entry.criteria),
+              ),
+            });
+            return null;
+          }
+        } catch {
+          // Fall through to the normal cross-catalog/manual-row behavior.
+        }
+      }
       const { prices: live, source } = await lookupLive(args.kind, args.provider, model);
       if (hasAnyPrice(live)) {
         if (source && source !== args.provider.trim().toLowerCase()) {

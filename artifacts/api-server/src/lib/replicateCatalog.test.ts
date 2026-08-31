@@ -40,8 +40,8 @@ describe("replicateCatalog", () => {
 
   it("extracts price entries from embedded page JSON", () => {
     expect(extractPriceEntries(VEO_HTML)).toEqual([
-      { price: "$0.40", title: "per second of output video", criteria: { condition: "with_audio" } },
-      { price: "$0.20", title: "per second of output video", criteria: { condition: "without_audio" } },
+      { price: "$0.40", title: "per second of output video", criteria: { generateAudio: true } },
+      { price: "$0.20", title: "per second of output video", criteria: { generateAudio: false } },
     ]);
   });
 

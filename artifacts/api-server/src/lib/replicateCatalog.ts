@@ -1,4 +1,5 @@
 import { platformFetch } from "./platformFetch";
+import type { VideoPriceCriteria } from "@workspace/db";
 
 /**
  * Live pricing for Replicate-hosted video models.
@@ -38,7 +39,7 @@ export function resetReplicateCatalogCache(): void {
 /** Only fetch well-formed public slugs; anything else can't be a model page. */
 const SLUG_RE = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i;
 
-export type ReplicatePriceCriteria = Record<string, string>;
+export type ReplicatePriceCriteria = VideoPriceCriteria;
 
 export interface PriceEntry {
   price: string;
@@ -72,6 +73,13 @@ function addCriterion(criteria: ReplicatePriceCriteria, rawKey: string, rawValue
   if (!value) return;
   const key = normalizedKey(rawKey);
   if (!key) return;
+  // Veo pages publish audio pricing as an unlabelled condition value
+  // (`with_audio` / `without_audio`). Normalize it to the runtime request
+  // field so variant-aware activation and cost lookup can select the row.
+  if (value === "with_audio" || value === "without_audio") {
+    criteria.generateAudio = value === "with_audio";
+    return;
+  }
   // Replicate uses both `input_type` and `input` in its page data.
   if (key === "input" || key === "inputType" || key === "inputMode") {
     if (value === "video_in" || value === "video" || value === "video input") {
