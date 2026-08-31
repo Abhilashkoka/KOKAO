@@ -15,6 +15,7 @@ import { AuditTab } from "./audit-tab";
 import { LandingTab } from "./landing-tab";
 import { SupportTab } from "./support-tab";
 import { VideoTemplatesTab } from "./video-templates-tab";
+import { LipSyncInsightsTab } from "./lip-sync-insights-tab";
 
 export { AuditLogCard } from "./audit-tab";
 
@@ -27,6 +28,7 @@ const TAB_IDS = [
   "ai",
   "prompt-kit",
   "video-templates",
+  "lip-sync-insights",
   "notifications",
   "support",
   "landing",
@@ -122,6 +124,9 @@ export function AdminPage() {
             <TabsTrigger value="video-templates" data-testid="tab-video-templates">
               Video Templates
             </TabsTrigger>
+            <TabsTrigger value="lip-sync-insights" data-testid="tab-lip-sync-insights">
+              Lip-sync Insights
+            </TabsTrigger>
             <TabsTrigger value="notifications" data-testid="tab-notifications">
               Notifications
             </TabsTrigger>
@@ -161,6 +166,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="video-templates" className="mt-6">
           <VideoTemplatesTab />
+        </TabsContent>
+        <TabsContent value="lip-sync-insights" className="mt-6">
+          <LipSyncInsightsTab />
         </TabsContent>
         <TabsContent value="notifications" className="mt-6">
           <NotificationsTab />

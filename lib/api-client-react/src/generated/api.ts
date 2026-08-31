@@ -185,6 +185,7 @@ import type {
   GetLinkedinCampaignTargetingParams,
   GetReliabilityAnalyticsParams,
   GetRevenueAnalyticsParams,
+  GetStudioLipSyncAnalyticsParams,
   GoogleAdCustomerChoice,
   GoogleAdsAppCredentialInput,
   GoogleAdsAppCredentialStatus,
@@ -365,6 +366,7 @@ import type {
   SpokespersonScriptRequest,
   SpokespersonScriptResult,
   StockVoicePreviewRequest,
+  StudioLipSyncAnalytics,
   SummarizeUrlRequest,
   SummarizeUrlResult,
   SupportRequest,
@@ -28640,6 +28642,90 @@ export function useGetFunnelAnalytics<TData = Awaited<ReturnType<typeof getFunne
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetFunnelAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetStudioLipSyncAnalyticsUrl = (params?: GetStudioLipSyncAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/studio-lipsync?${stringifiedParams}` : `/api/analytics/studio-lipsync`
+}
+
+/**
+ * @summary Privacy-suppressed optional Studio lip-sync funnel insight
+ */
+export const getStudioLipSyncAnalytics = async (params?: GetStudioLipSyncAnalyticsParams, options?: RequestInit): Promise<StudioLipSyncAnalytics> => {
+
+  return customFetch<StudioLipSyncAnalytics>(getGetStudioLipSyncAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStudioLipSyncAnalyticsQueryKey = (params?: GetStudioLipSyncAnalyticsParams,) => {
+    return [
+    `/api/analytics/studio-lipsync`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetStudioLipSyncAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getStudioLipSyncAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetStudioLipSyncAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStudioLipSyncAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStudioLipSyncAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStudioLipSyncAnalytics>>> = ({ signal }) => getStudioLipSyncAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStudioLipSyncAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStudioLipSyncAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getStudioLipSyncAnalytics>>>
+export type GetStudioLipSyncAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Privacy-suppressed optional Studio lip-sync funnel insight
+ */
+
+export function useGetStudioLipSyncAnalytics<TData = Awaited<ReturnType<typeof getStudioLipSyncAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetStudioLipSyncAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStudioLipSyncAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStudioLipSyncAnalyticsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

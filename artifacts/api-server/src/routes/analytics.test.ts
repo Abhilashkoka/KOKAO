@@ -474,6 +474,183 @@ describe("GET /analytics/funnels (activation funnel)", () => {
   });
 });
 
+describe("GET /analytics/studio-lipsync", () => {
+  it("groups complete funnel counts and suppresses cohorts below five accepted submissions", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const userId = `test_studio_lipsync_${Date.now()}`;
+    const event = (
+      eventName: string,
+      workflow: string,
+      outcome: string,
+      fundingRail = "wallet",
+      sceneCountBucket = "2_3",
+    ) => ({
+      clerkUserId: userId,
+      eventName,
+      params: {
+        workflow,
+        funding_rail: fundingRail,
+        scene_count_bucket: sceneCountBucket,
+        outcome,
+      },
+    });
+    try {
+      await db.insert(analyticsEventsTable).values([
+        event("studio_lipsync_toggle_selected", "guided_story", "enabled"),
+        ...Array.from({ length: 5 }, () =>
+          event("studio_lipsync_submission_accepted", "guided_story", "accepted"),
+        ),
+        ...Array.from({ length: 4 }, () =>
+          event("studio_lipsync_eligibility_evaluated", "guided_story", "eligible"),
+        ),
+        event("studio_lipsync_scene_skipped", "guided_story", "ineligible"),
+        ...Array.from({ length: 3 }, () =>
+          event("studio_lipsync_finishing_succeeded", "guided_story", "succeeded"),
+        ),
+        event("studio_lipsync_finishing_failed", "guided_story", "failed"),
+        event("studio_lipsync_recovery_completed", "guided_story", "recovered"),
+        ...Array.from({ length: 4 }, () =>
+          event("studio_lipsync_submission_accepted", "animate_photo", "accepted"),
+        ),
+      ]);
+
+      actAs(admin.clerkUserId, "super@example.com");
+      const res = await request(app).get("/api/analytics/studio-lipsync?groupBy=workflow");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("available");
+      expect(res.body.minimumGroupSize).toBe(5);
+      expect(res.body.groups).toEqual(
+        expect.arrayContaining([
+          {
+            group: "guided_story",
+            status: "available",
+            toggleEnabled: 1,
+            accepted: 5,
+            eligible: 4,
+            skipped: 1,
+            succeeded: 3,
+            failed: 1,
+            recovered: 1,
+            finished: 4,
+            finishRate: 0.8,
+          },
+          { group: "animate_photo", status: "suppressed" },
+        ]),
+      );
+    } finally {
+      await cleanupUser(userId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("ranks available groups by finished videos and omits incomparable scene-bucket skips", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const userId = `test_studio_lipsync_rank_${Date.now()}`;
+    const events: Array<{
+      clerkUserId: string;
+      eventName: string;
+      params: Record<string, string>;
+    }> = [];
+    const add = (workflow: string, accepted: number, succeeded: number) => {
+      for (let i = 0; i < accepted; i += 1) {
+        events.push({
+          clerkUserId: userId,
+          eventName: "studio_lipsync_submission_accepted",
+          params: {
+            workflow,
+            funding_rail: "wallet",
+            scene_count_bucket: workflow === "guided_story" ? "1" : "4_6",
+            outcome: "accepted",
+          },
+        });
+      }
+      for (let i = 0; i < succeeded; i += 1) {
+        events.push({
+          clerkUserId: userId,
+          eventName: "studio_lipsync_finishing_succeeded",
+          params: {
+            workflow,
+            funding_rail: "wallet",
+            scene_count_bucket: workflow === "guided_story" ? "1" : "4_6",
+            outcome: "succeeded",
+          },
+        });
+      }
+    };
+    try {
+      add("guided_story", 8, 2);
+      add("text_to_video", 5, 4);
+      events.push({
+        clerkUserId: userId,
+        eventName: "studio_lipsync_scene_skipped",
+        params: {
+          workflow: "guided_story",
+          funding_rail: "wallet",
+          scene_count_bucket: "4_6",
+          outcome: "ineligible",
+        },
+      });
+      await db.insert(analyticsEventsTable).values(events);
+
+      actAs(admin.clerkUserId, "super@example.com");
+      const workflow = await request(app).get(
+        "/api/analytics/studio-lipsync?groupBy=workflow",
+      );
+      expect(workflow.body.groups[0]).toMatchObject({
+        group: "text_to_video",
+        finished: 4,
+      });
+
+      const scenes = await request(app).get(
+        "/api/analytics/studio-lipsync?groupBy=scene_count_bucket",
+      );
+      const availableScene = scenes.body.groups.find(
+        (group: { status: string }) => group.status === "available",
+      );
+      expect(availableScene.skipped).toBeNull();
+    } finally {
+      await cleanupUser(userId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("returns empty and insufficient states without leaking small-group counts", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const userId = `test_studio_lipsync_small_${Date.now()}`;
+    try {
+      actAs(admin.clerkUserId, "super@example.com");
+      const emptyFrom = new Date(Date.now() + 60_000).toISOString();
+      const empty = await request(app).get(
+        `/api/analytics/studio-lipsync?from=${emptyFrom}`,
+      );
+      expect(empty.body).toMatchObject({ status: "empty", groups: [] });
+
+      await db.insert(analyticsEventsTable).values({
+        clerkUserId: userId,
+        eventName: "studio_lipsync_submission_accepted",
+        params: {
+          workflow: "text_to_video",
+          funding_rail: "quota",
+          scene_count_bucket: "1",
+          outcome: "accepted",
+        },
+      });
+      const insufficient = await request(app).get(
+        "/api/analytics/studio-lipsync?groupBy=funding_rail",
+      );
+      expect(insufficient.body.status).toBe("insufficient");
+      expect(insufficient.body.groups).toContainEqual({
+        group: "quota",
+        status: "suppressed",
+      });
+      expect(insufficient.text).not.toContain('"accepted"');
+    } finally {
+      await cleanupUser(userId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
+});
+
 describe("GET /analytics/* (access gating)", () => {
   it("superadmin can read platform analytics", async () => {
     const tenant = await createTenant({ isSuperadmin: true });
@@ -491,6 +668,17 @@ describe("GET /analytics/* (access gating)", () => {
     try {
       actAs(tenant.clerkUserId, "owner@example.com");
       const res = await request(app).get("/api/analytics/audience");
+      expect(res.status).toBe(403);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("workspace owners cannot read Studio lip-sync insights", async () => {
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId, "owner@example.com");
+      const res = await request(app).get("/api/analytics/studio-lipsync");
       expect(res.status).toBe(403);
     } finally {
       await deleteTenant(tenant.tenantId);

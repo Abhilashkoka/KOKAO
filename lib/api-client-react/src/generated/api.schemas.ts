@@ -8809,6 +8809,57 @@ export interface FunnelAnalytics {
   firstPostNudge: FunnelAnalyticsFirstPostNudge;
 }
 
+export type StudioLipSyncAnalyticsStatus = typeof StudioLipSyncAnalyticsStatus[keyof typeof StudioLipSyncAnalyticsStatus];
+
+
+export const StudioLipSyncAnalyticsStatus = {
+  available: 'available',
+  empty: 'empty',
+  insufficient: 'insufficient',
+} as const;
+
+export type StudioLipSyncAnalyticsGroupBy = typeof StudioLipSyncAnalyticsGroupBy[keyof typeof StudioLipSyncAnalyticsGroupBy];
+
+
+export const StudioLipSyncAnalyticsGroupBy = {
+  workflow: 'workflow',
+  funding_rail: 'funding_rail',
+  scene_count_bucket: 'scene_count_bucket',
+} as const;
+
+export type StudioLipSyncAnalyticsGroupsItem = {
+  group: string;
+  status: 'suppressed';
+} | {
+  group: string;
+  status: 'available';
+  /**
+     * Null outside workflow grouping because toggle events do not contain those dimensions.
+     * @nullable
+     */
+  toggleEnabled: number | null;
+  accepted: number;
+  eligible: number;
+  /**
+     * Null for scene-count grouping because skip events bucket skipped scenes, not the accepted render plan.
+     * @nullable
+     */
+  skipped: number | null;
+  succeeded: number;
+  failed: number;
+  recovered: number;
+  /** Successful finishes plus completed recoveries. */
+  finished: number;
+  finishRate: number;
+};
+
+export interface StudioLipSyncAnalytics {
+  status: StudioLipSyncAnalyticsStatus;
+  groupBy: StudioLipSyncAnalyticsGroupBy;
+  minimumGroupSize: number;
+  groups: StudioLipSyncAnalyticsGroupsItem[];
+}
+
 export type EngagementAnalyticsNavigationPathsItem = {
   from: string;
   to: string;
@@ -12183,6 +12234,31 @@ to?: AnalyticsToParameter;
  */
 tenantId?: AnalyticsTenantIdParameter;
 };
+
+export type GetStudioLipSyncAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+groupBy?: GetStudioLipSyncAnalyticsGroupBy;
+};
+
+export type GetStudioLipSyncAnalyticsGroupBy = typeof GetStudioLipSyncAnalyticsGroupBy[keyof typeof GetStudioLipSyncAnalyticsGroupBy];
+
+
+export const GetStudioLipSyncAnalyticsGroupBy = {
+  workflow: 'workflow',
+  funding_rail: 'funding_rail',
+  scene_count_bucket: 'scene_count_bucket',
+} as const;
 
 export type GetEngagementAnalyticsParams = {
 /**

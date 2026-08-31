@@ -30217,6 +30217,41 @@ export const GetFunnelAnalyticsResponse = zod.object({
 
 
 /**
+ * @summary Privacy-suppressed optional Studio lip-sync funnel insight
+ */
+export const getStudioLipSyncAnalyticsQueryGroupByDefault = `workflow`;
+
+export const GetStudioLipSyncAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.'),
+  "groupBy": zod.enum(['workflow', 'funding_rail', 'scene_count_bucket']).default(getStudioLipSyncAnalyticsQueryGroupByDefault)
+})
+
+export const GetStudioLipSyncAnalyticsResponse = zod.object({
+  "status": zod.enum(['available', 'empty', 'insufficient']),
+  "groupBy": zod.enum(['workflow', 'funding_rail', 'scene_count_bucket']),
+  "minimumGroupSize": zod.number(),
+  "groups": zod.array(zod.union([zod.object({
+  "group": zod.string(),
+  "status": zod.enum(['suppressed'])
+}),zod.object({
+  "group": zod.string(),
+  "status": zod.enum(['available']),
+  "toggleEnabled": zod.number().nullable().describe('Null outside workflow grouping because toggle events do not contain those dimensions.'),
+  "accepted": zod.number(),
+  "eligible": zod.number(),
+  "skipped": zod.number().nullable().describe('Null for scene-count grouping because skip events bucket skipped scenes, not the accepted render plan.'),
+  "succeeded": zod.number(),
+  "failed": zod.number(),
+  "recovered": zod.number(),
+  "finished": zod.number().describe('Successful finishes plus completed recoveries.'),
+  "finishRate": zod.number()
+})]))
+})
+
+
+/**
  * @summary Engagement and feature-usage metrics
  */
 export const GetEngagementAnalyticsQueryParams = zod.object({

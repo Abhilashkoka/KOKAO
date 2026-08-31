@@ -141,3 +141,4 @@
 - [Approval snapshot invalidation](approval-snapshot-invalidation.md) — pending replacements must revoke executable snapshot approval atomically and serialize against active workers.
 - [Guided dialogue replay](guided-dialogue-replay.md) — reuse approved inputs only; pin active-speaker lip sync and validate every nested checkpoint artifact before retry funding.
 - [Guided meaning metadata](guided-meaning-metadata.md) — English meanings do not advance source revisions; full-state saves must preserve concurrent meanings for unchanged source lines.
+- [Studio lip-sync insights](studio-lipsync-insights.md) — suppress cohorts by accepted jobs; rank by finished output; never merge incompatible scene-bucket meanings.

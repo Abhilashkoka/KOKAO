@@ -10780,6 +10780,35 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /analytics/studio-lipsync:
+    get:
+      operationId: getStudioLipSyncAnalytics
+      tags: [analytics]
+      summary: Privacy-suppressed optional Studio lip-sync funnel insight
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [workflow, funding_rail, scene_count_bucket]
+            default: workflow
+      responses:
+        "200":
+          description: Grouped Studio lip-sync funnel insight
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudioLipSyncAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /analytics/engagement:
     get:
       operationId: getEngagementAnalytics
@@ -21327,6 +21356,47 @@ components:
               type: number
             conversionRate:
               type: number
+    StudioLipSyncAnalytics:
+      type: object
+      required: [status, groupBy, minimumGroupSize, groups]
+      properties:
+        status:
+          type: string
+          enum: [available, empty, insufficient]
+        groupBy:
+          type: string
+          enum: [workflow, funding_rail, scene_count_bucket]
+        minimumGroupSize:
+          type: integer
+        groups:
+          type: array
+          items:
+            oneOf:
+              - type: object
+                required: [group, status]
+                properties:
+                  group: { type: string }
+                  status: { type: string, enum: [suppressed] }
+              - type: object
+                required: [group, status, toggleEnabled, accepted, eligible, skipped, succeeded, failed, recovered, finished, finishRate]
+                properties:
+                  group: { type: string }
+                  status: { type: string, enum: [available] }
+                  toggleEnabled:
+                    type: [integer, "null"]
+                    description: Null outside workflow grouping because toggle events do not contain those dimensions.
+                  accepted: { type: integer }
+                  eligible: { type: integer }
+                  skipped:
+                    type: [integer, "null"]
+                    description: Null for scene-count grouping because skip events bucket skipped scenes, not the accepted render plan.
+                  succeeded: { type: integer }
+                  failed: { type: integer }
+                  recovered: { type: integer }
+                  finished:
+                    type: integer
+                    description: Successful finishes plus completed recoveries.
+                  finishRate: { type: number }
     EngagementAnalytics:
       type: object
       required: [pageViews, topPages, navigationPaths, search, features, keyActions]

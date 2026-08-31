@@ -78,6 +78,22 @@ function eventConds(scope: Scope, from: Date, to: Date): SQL[] {
 /** Distinct actor: signed-in user id, else anonymous id. */
 const actor = sql<string>`coalesce(${analyticsEventsTable.clerkUserId}, ${analyticsEventsTable.anonymousId})`;
 
+const STUDIO_LIPSYNC_EVENTS = [
+  "studio_lipsync_toggle_selected",
+  "studio_lipsync_submission_accepted",
+  "studio_lipsync_eligibility_evaluated",
+  "studio_lipsync_scene_skipped",
+  "studio_lipsync_finishing_succeeded",
+  "studio_lipsync_finishing_failed",
+  "studio_lipsync_recovery_completed",
+] as const;
+const STUDIO_LIPSYNC_MINIMUM_GROUP_SIZE = 5;
+const STUDIO_LIPSYNC_GROUP_FIELDS = {
+  workflow: "workflow",
+  funding_rail: "funding_rail",
+  scene_count_bucket: "scene_count_bucket",
+} as const;
+
 type Handler = (
   req: Request,
   scope: Scope,
@@ -430,6 +446,103 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
       dismissRate: nudgeShown > 0 ? nudgeDismissed / nudgeShown : 0,
       conversionRate: nudgeShown > 0 ? nudgePublished / nudgeShown : 0,
     },
+  };
+});
+
+analyticsRoute("/analytics/studio-lipsync", async (req, scope, from, to) => {
+  const requestedGroupBy =
+    typeof req.query.groupBy === "string" ? req.query.groupBy : "workflow";
+  const groupBy =
+    requestedGroupBy in STUDIO_LIPSYNC_GROUP_FIELDS
+      ? (requestedGroupBy as keyof typeof STUDIO_LIPSYNC_GROUP_FIELDS)
+      : "workflow";
+  const groupField = STUDIO_LIPSYNC_GROUP_FIELDS[groupBy];
+  // The field is selected from the fixed allowlist above. Keep it as SQL text
+  // so SELECT and GROUP BY use the exact same expression (two bound string
+  // parameters are not considered identical grouping expressions by Postgres).
+  const dimension = sql<string>`coalesce(${analyticsEventsTable.params} ->> ${sql.raw(`'${groupField}'`)}, 'unknown')`;
+  const conds = eventConds(scope, from, to);
+
+  const rows = await db
+    .select({
+      group: dimension,
+      toggleEnabled: sql<number>`count(*) filter (
+        where ${analyticsEventsTable.eventName} = 'studio_lipsync_toggle_selected'
+          and ${analyticsEventsTable.params} ->> 'outcome' = 'enabled'
+      )::int`,
+      accepted: sql<number>`count(*) filter (
+        where ${analyticsEventsTable.eventName} = 'studio_lipsync_submission_accepted'
+      )::int`,
+      eligible: sql<number>`count(*) filter (
+        where ${analyticsEventsTable.eventName} = 'studio_lipsync_eligibility_evaluated'
+          and ${analyticsEventsTable.params} ->> 'outcome' = 'eligible'
+      )::int`,
+      skipped: sql<number>`count(*) filter (
+        where ${analyticsEventsTable.eventName} = 'studio_lipsync_scene_skipped'
+      )::int`,
+      succeeded: sql<number>`count(*) filter (
+        where ${analyticsEventsTable.eventName} = 'studio_lipsync_finishing_succeeded'
+      )::int`,
+      failed: sql<number>`count(*) filter (
+        where ${analyticsEventsTable.eventName} = 'studio_lipsync_finishing_failed'
+      )::int`,
+      recovered: sql<number>`count(*) filter (
+        where ${analyticsEventsTable.eventName} = 'studio_lipsync_recovery_completed'
+      )::int`,
+    })
+    .from(analyticsEventsTable)
+    .where(and(...conds, inArray(analyticsEventsTable.eventName, [...STUDIO_LIPSYNC_EVENTS])))
+    .groupBy(dimension)
+    .orderBy(sql`count(*) DESC`);
+
+  if (rows.length === 0) {
+    return {
+      status: "empty",
+      groupBy,
+      minimumGroupSize: STUDIO_LIPSYNC_MINIMUM_GROUP_SIZE,
+      groups: [],
+    };
+  }
+
+  const groups = rows.map((row) => {
+    if (row.accepted < STUDIO_LIPSYNC_MINIMUM_GROUP_SIZE) {
+      return { group: row.group, status: "suppressed" as const };
+    }
+    const finished = row.succeeded + row.recovered;
+    return {
+      group: row.group,
+      status: "available" as const,
+      // Toggle events only contain workflow. Returning null avoids inventing
+      // attribution for the other two coarse breakdowns.
+      toggleEnabled: groupBy === "workflow" ? row.toggleEnabled : null,
+      accepted: row.accepted,
+      eligible: row.eligible,
+      // The skip event's scene bucket describes skipped scenes, while the
+      // other events describe the accepted render plan. Do not present those
+      // as one cohort when grouping by scene count.
+      skipped: groupBy === "scene_count_bucket" ? null : row.skipped,
+      succeeded: row.succeeded,
+      failed: row.failed,
+      recovered: row.recovered,
+      finished,
+      finishRate: row.accepted > 0 ? finished / row.accepted : 0,
+    };
+  });
+  groups.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "available" ? -1 : 1;
+    if (a.status === "suppressed" || b.status === "suppressed") {
+      return a.group.localeCompare(b.group);
+    }
+    return b.finished - a.finished || a.group.localeCompare(b.group);
+  });
+
+  return {
+    status: groups.some((group) => group.status === "available")
+      ? "available"
+      : "insufficient",
+    groupBy,
+    minimumGroupSize: STUDIO_LIPSYNC_MINIMUM_GROUP_SIZE,
+    groups,
   };
 });
 
