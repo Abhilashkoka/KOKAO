@@ -791,6 +791,14 @@ export interface VideoJobOptions {
       text: string;
     }>;
   } | null;
+  /**
+   * Character scenes should be lip-synced to the narration rather than
+   * narrated over. Decided and recorded at enqueue, not read from the flag at
+   * render time: it doubles the job's price, so a flag flipped mid-job must
+   * not make the render disagree with what was reserved and refunded.
+   */
+  characterLipSync?: boolean;
+  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
   stockSource?: string;
   /** topic_to_video: burn per-sentence subtitles (default true). */
 

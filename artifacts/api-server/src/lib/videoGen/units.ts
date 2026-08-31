@@ -146,6 +146,9 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = options.templateRuntime?.maxSceneCount ??
       CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
+    // Lip-syncing adds a second real generation per scene — the sync call on
+    // top of the image-to-video call.
+    if (options.characterLipSync) units *= 2;
   } else if (
     engine === "topic_to_video" &&
     options?.presenterVideoPath &&

@@ -20,6 +20,12 @@ import { pgTable, text, integer, timestamp, jsonb, boolean } from "drizzle-orm/p
  * prompt — so it carries its own override, and leaving it null keeps the
  * pinned default. Set it to compare lip-sync models on the same footage
  * without a deploy.
+ *
+ * `characterLipSync` makes character story videos speak instead of being
+ * narrated over. OFF by default and deliberately not a feature flag: every
+ * flag in FEATURES defaults on, and this one doubles the price of a character
+ * video, so turning it on has to be an explicit act rather than something a
+ * deploy does to existing tenants.
  */
 export const videoGenSettingsTable = pgTable("video_gen_settings", {
   id: integer("id").primaryKey().default(1),
@@ -52,6 +58,7 @@ export const videoGenSettingsTable = pgTable("video_gen_settings", {
   lipSyncPortraitModel: text("lip_sync_portrait_model"),
   /** Default offered for the optional, cross-Studio finishing pass. */
   studioLipSyncDefault: boolean("studio_lip_sync_default").notNull().default(false),
+  characterLipSync: boolean("character_lip_sync").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

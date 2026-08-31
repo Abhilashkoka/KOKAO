@@ -564,19 +564,57 @@ export async function resolveVideoModelSnapshot(args: {
 }
 
 /**
+ * Resolve the optional model override for standard video lip sync. The stored
+ * setting wins, then the environment; null keeps the pinned model definition.
+ */
+export async function resolveLipSyncModelRef(): Promise<string | null> {
+  try {
+    const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
+    const stored = row?.lipSyncModel?.trim();
+    if (stored) return stored;
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "Lip-sync model lookup failed; using the pinned default",
+    );
+  }
+  return process.env.LIPSYNC_MODEL?.trim() || null;
+}
+
+/**
+ * Whether character story videos should speak rather than be narrated over.
+ * OFF unless switched on: it doubles the price of every character video, so it
+ * is not something a deploy should start doing to existing tenants. Same
+ * precedence as the model override — stored setting, then environment.
+ */
+export async function resolveCharacterLipSync(): Promise<boolean> {
+  try {
+    const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
+    if (row?.characterLipSync) return true;
+  } catch (error) {
+    logger.warn({ err: error }, "Character lip-sync lookup failed; leaving it off");
+  }
+  return /^(1|true|on|yes)$/i.test(process.env.CHARACTER_LIPSYNC?.trim() ?? "");
+}
+
+/**
  * Persist the platform-wide selection (superadmin only; the route validates
  * the provider id against the catalog).
  *
- * `enabledModelIds` is optional because it is a separate concern from which
- * provider serves generations, and the two are edited from different places.
- * OMITTING it keeps whatever is stored — an admin changing the provider must
- * not silently wipe the per-generation model allowlist, and neither must an
- * older client that has never heard of it. Passing null re-opens the whole
- * catalog explicitly.
+ * Omitted optional settings retain their current values so older admin clients
+ * cannot silently clear newer controls.
  */
 export async function setVideoGenSelection(
-  selection: Omit<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel" | "studioLipSyncDefault"> &
-    Partial<Pick<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel" | "studioLipSyncDefault">>,
+  selection: Omit<
+    VideoGenSelection,
+    "enabledModelIds" | "lipSyncPortraitModel" | "studioLipSyncDefault"
+  > &
+    Partial<
+      Pick<
+        VideoGenSelection,
+        "enabledModelIds" | "lipSyncPortraitModel" | "studioLipSyncDefault"
+      >
+    >,
 ): Promise<void> {
   const current =
     selection.enabledModelIds === undefined ||
@@ -601,24 +639,6 @@ export async function setVideoGenSelection(
         ? (current?.studioLipSyncDefault ?? false)
         : selection.studioLipSyncDefault,
   };
-
-/**
- * Resolve the optional model override for standard video lip sync. The stored
- * setting wins, then the environment; null keeps the pinned model definition.
- */
-export async function resolveLipSyncModelRef(): Promise<string | null> {
-  try {
-    const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
-    const stored = row?.lipSyncModel?.trim();
-    if (stored) return stored;
-  } catch (error) {
-    logger.warn(
-      { err: error },
-      "Lip-sync model lookup failed; using the pinned default",
-    );
-  }
-  return process.env.LIPSYNC_MODEL?.trim() || null;
-}
   await db
     .insert(videoGenSettingsTable)
     .values({ id: 1, ...row })

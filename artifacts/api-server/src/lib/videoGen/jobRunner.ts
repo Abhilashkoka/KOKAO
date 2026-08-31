@@ -3599,6 +3599,7 @@ async function produceVideo(
       result = await renderTopicStoryboard({
         storyboard: board,
         aspectRatio,
+        characterLipSync: options.characterLipSync === true,
         subtitles: options.subtitles ?? true,
         captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
         music,
@@ -3844,6 +3845,7 @@ async function produceVideo(
       music,
       visualsSource,
       characterId: options.characterId ?? null,
+      characterLipSync: options.characterLipSync === true,
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
       characterSnapshot: options.characterSnapshot,

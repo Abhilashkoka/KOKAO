@@ -96,7 +96,7 @@ export {
 /** Overall wall-clock budget for one topic video (LLM + TTS + downloads + encode). */
 export const TOPIC_VIDEO_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
 /** Character videos generate every scene with AI, so they get a longer leash. */
-export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 25 * 60 * 1000;
+export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 35 * 60 * 1000;
 /** AI b-roll generates one image per scene — between the two. */
 export const AI_BROLL_TOTAL_DEADLINE_MS = 15 * 60 * 1000;
 
@@ -126,6 +126,8 @@ export interface TopicVideoParams {
    * clips). */
   visualsSource?: "stock" | "character" | "ai" | "ai_video";
   characterId?: number | null;
+  /** Lip-sync character scenes to the narration (decided and priced at enqueue). */
+  characterLipSync?: boolean;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
   characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
@@ -655,7 +657,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       aspectRatio: params.aspectRatio,
       cues: narration.cues,
       totalDurationSec: narration.totalDurationSec,
-      lipSync: (await characterLipSync()) ? { wav: narration.wav } : null,
+      lipSync: params.characterLipSync ? { wav: narration.wav } : null,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
       creativeVisualGuidance: params.creativeVisualGuidance ?? null,
     });
@@ -800,17 +802,6 @@ async function planCharacterScenes(params: {
     suppliedPlan: params.suppliedPlan,
   });
   return { detail, plan, rawPlan };
-}
-
-/**
- * Whether character scenes should be lip-synced rather than narrated over.
- * Shares the lipSync kill switch with the upload-driven engine: both spend on
- * the same model, so both stop at the same switch. Fail-open like every other
- * flag read in this file — a flag service hiccup must not silently change what
- * a video looks like.
- */
-async function characterLipSync(): Promise<boolean> {
-  return isFeatureEnabled("lipSync").catch(() => true);
 }
 
 /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
@@ -1559,6 +1550,8 @@ export async function refreshEditedNarration(params: {
 export async function renderTopicStoryboard(params: {
   storyboard: VideoStoryboard;
   aspectRatio: VideoAspect;
+  /** Lip-sync character scenes to the narration (decided and priced at enqueue). */
+  characterLipSync?: boolean;
   subtitles: boolean;
   captionStyle?: "classic" | "dynamic";
   music?: Buffer | null;
@@ -1656,7 +1649,7 @@ export async function renderTopicStoryboard(params: {
       modelOptions: params.modelOptions,
       savedClips,
       onCheckpoint: params.onCheckpoint,
-      lipSync: (await characterLipSync()) ? { wav: narrationWav } : null,
+      lipSync: params.characterLipSync ? { wav: narrationWav } : null,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;

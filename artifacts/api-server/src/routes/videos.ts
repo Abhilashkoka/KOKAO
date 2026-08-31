@@ -108,6 +108,7 @@ import {
   resolveVideoGenProviderDef,
   isVideoGenProviderConfigured,
   VideoModelResolutionError,
+  resolveCharacterLipSync,
 } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import {
@@ -7863,6 +7864,16 @@ async function generateVideoHandler(
       : (creativeFragments.captionStyle ??
         defaultValue("captionStyle", body.captionStyle, "classic")),
     paragraphCount: defaultValue("paragraphCount", body.paragraphCount, 1),
+    // Decided here, once, because it doubles the price: the reserve, the usage
+    // record and the refund all recompute from this row, so a kill switch
+    // flipped after enqueue must not make them disagree. No consent gate — a
+    // generated character is not a real person's likeness, unlike the
+    // upload-driven engine above.
+    characterLipSync:
+      body.engine === "topic_to_video" && visualsSource === "character"
+        ? (await resolveCharacterLipSync()) &&
+          (await isFeatureEnabled("lipSync").catch(() => true))
+        : undefined,
     visualsSource,
     characterId,
     outfitId,

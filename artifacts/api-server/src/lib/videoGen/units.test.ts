@@ -51,6 +51,45 @@ describe("persisted native-template storyboard funding", () => {
   });
 });
 
+describe("spoken character video units", () => {
+  it.each([
+    [1, 8],
+    [2, 16],
+    [3, 24],
+  ])("charges twice the character visual units for %i paragraph(s)", (paragraphCount, expected) => {
+    expect(
+      videoJobFullUnits("topic_to_video", {
+        visualsSource: "character",
+        paragraphCount,
+        characterLipSync: true,
+      }),
+    ).toBe(expected);
+  });
+
+  it("does not double narrated character videos", () => {
+    expect(
+      videoJobFullUnits("topic_to_video", {
+        visualsSource: "character",
+        paragraphCount: 2,
+        characterLipSync: false,
+      }),
+    ).toBe(8);
+  });
+
+  it("doubles the frozen template scene ceiling", () => {
+    expect(
+      videoJobFullUnits("topic_to_video", {
+        visualsSource: "character",
+        paragraphCount: 1,
+        characterLipSync: true,
+        templateRuntime: {
+          maxSceneCount: 6,
+        } as never,
+      }),
+    ).toBe(12);
+  });
+});
+
 describe("optional Studio lip-sync funding", () => {
   it("adds exactly one independently priced provider operation", () => {
     const options = {
