@@ -3303,6 +3303,10 @@ export function VideoStudioPage() {
           brandKits={brandKits ?? []}
           onManageCharacters={() => setCharactersOpen(true)}
           onJobReady={revealActiveJob}
+          onDraftReadyForScript={() => {
+            setActiveJobId(null);
+            setBoardOpen(false);
+          }}
           editRequest={guidedStoryEditRequest}
         />
       ) : (

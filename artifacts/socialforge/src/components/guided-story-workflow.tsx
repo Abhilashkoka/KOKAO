@@ -216,6 +216,7 @@ export function GuidedStoryWorkflow({
   brandKits,
   onManageCharacters,
   onJobReady,
+  onDraftReadyForScript,
   editRequest = null,
 }: {
   tenantId?: number;
@@ -223,6 +224,7 @@ export function GuidedStoryWorkflow({
   brandKits: BrandKit[];
   onManageCharacters: () => void;
   onJobReady: (jobId: number) => void;
+  onDraftReadyForScript?: () => void;
   editRequest?: { key: number; draftId: number } | null;
 }) {
   const storageKey = tenantId ? `kokao-guided-story-draft-v1:${tenantId}` : null;
@@ -238,6 +240,7 @@ export function GuidedStoryWorkflow({
   const [scriptEditorOpen, setScriptEditorOpen] = useState(false);
   const scriptEditorRef = useRef<HTMLDivElement>(null);
   const durationRef = useRef<HTMLDivElement>(null);
+  const focusGenerateScriptRef = useRef(false);
   const guidedErrorSeenRef = useRef(new WeakSet<Element>());
   const [userRoleId, setUserRoleId] = useState<string | null>(null);
   const [userRoleChoiceMade, setUserRoleChoiceMade] = useState(false);
@@ -370,6 +373,18 @@ export function GuidedStoryWorkflow({
     return () => window.cancelAnimationFrame(frame);
   }, [editing, runtimeGuidance]);
   useEffect(() => {
+    if (!focusGenerateScriptRef.current || !draft || draft.script || editing) return;
+    focusGenerateScriptRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      const button = scriptEditorRef.current?.querySelector<HTMLElement>(
+        '[data-testid="button-guided-generate-script"]',
+      );
+      button?.scrollIntoView({ behavior: "smooth", block: "center" });
+      button?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [draft, editing]);
+  useEffect(() => {
     const root = scriptEditorRef.current;
     if (!root) return;
     const guideToError = (alert: HTMLElement) => {
@@ -455,7 +470,11 @@ export function GuidedStoryWorkflow({
       return;
     }
     createDraft.mutate({ data: setup }, {
-      onSuccess: setAuthoritativeDraft,
+      onSuccess: (next) => {
+        focusGenerateScriptRef.current = true;
+        onDraftReadyForScript?.();
+        setAuthoritativeDraft(next);
+      },
       onSettled: releaseMutation,
     });
   };
