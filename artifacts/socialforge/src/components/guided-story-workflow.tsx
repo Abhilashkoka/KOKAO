@@ -550,7 +550,20 @@ function StoryFlow(props: any) {
   const [roleChoicePrompt, setRoleChoicePrompt] = useState(false);
   const [readyToGenerateCast, setReadyToGenerateCast] = useState(false);
   const step = draftStep(draft);
-  const estimate = <PhaseEstimates draft={draft} />;
+  const estimate = props.existingJobId ? (
+    <div
+      className="rounded-md border bg-muted/30 p-3"
+      data-testid="status-guided-storyboard-created"
+    >
+      <p className="text-sm font-medium">Storyboard already created</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        The preparation estimate is no longer active. This draft stays in your
+        workspace so you can reopen its storyboard or edit and create a new attempt.
+      </p>
+    </div>
+  ) : (
+    <PhaseEstimates draft={draft} />
+  );
   const voiceLanguageNote = (
     <p className="text-sm text-muted-foreground" data-testid="text-guided-voice-language">
       ElevenLabs speaks the exact approved story text in the selected language; voices choose how a character sounds; they are not language-specific.

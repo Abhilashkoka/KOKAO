@@ -580,6 +580,10 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("button-guided-enqueue").textContent).toBe(
       "Open existing storyboard job",
     );
+    expect(screen.queryByTestId("guided-estimates")).toBeNull();
+    expect(
+      screen.getByTestId("status-guided-storyboard-created").textContent,
+    ).toContain("preparation estimate is no longer active");
     await userEvent.click(screen.getByTestId("button-guided-enqueue"));
 
     expect(onJobReady).toHaveBeenCalledWith(43126);
