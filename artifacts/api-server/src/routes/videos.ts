@@ -11361,9 +11361,51 @@ router.post(
         res.status(404).json({ error: "Guided Story draft not found." });
         return;
       }
+      const snapshot = existing.options?.guidedStory;
+      const restoredCast =
+        draft.state.cast.length === 0 && snapshot?.cast?.length
+          ? snapshot.cast
+          : draft.state.cast;
+      const restoredApprovals =
+        draft.state.castApprovals ??
+        (snapshot?.castApprovals && restoredCast.length > 0
+          ? snapshot.castApprovals
+          : null);
+      const nextRevision = draft.revision + 1;
+      const detachedState = {
+        ...draft.state,
+        visualChoices:
+          draft.state.visualChoices ?? emptyGuidedVisualChoices(),
+        cast: restoredCast.map((member) => ({
+          ...member,
+          consentGranted: false,
+        })),
+        castApprovals: restoredApprovals
+          ? { ...restoredApprovals, draftRevision: nextRevision }
+          : null,
+        storyboardJobId: null,
+      };
       if (draft.state.storyboardJobId === null) {
         // A prior click may have completed the detach before navigation was
-        // interrupted. Treat that retry as success so the editor can reopen.
+        // interrupted. Repair any reusable cast snapshot that the first attempt
+        // failed to restore, then treat the retry as success.
+        if (
+          restoredCast.length !== draft.state.cast.length ||
+          (restoredApprovals &&
+            draft.state.castApprovals?.draftRevision !== draft.revision)
+        ) {
+          const repaired = await saveGuidedState(
+            draft,
+            draft.revision,
+            detachedState,
+          );
+          if (!repaired) {
+            res.status(409).json({
+              error: "This story draft changed. Reload it and try again.",
+            });
+            return;
+          }
+        }
         res.json(serializeVideoJob(existing));
         return;
       }
@@ -11373,16 +11415,11 @@ router.post(
         });
         return;
       }
-      const detached = await saveGuidedState(draft, draft.revision, {
-        ...draft.state,
-        visualChoices:
-          draft.state.visualChoices ?? emptyGuidedVisualChoices(),
-        cast: draft.state.cast.map((member) => ({
-          ...member,
-          consentGranted: false,
-        })),
-        storyboardJobId: null,
-      });
+      const detached = await saveGuidedState(
+        draft,
+        draft.revision,
+        detachedState,
+      );
       if (!detached) {
         res.status(409).json({
           error: "This story draft changed. Reload it and try again.",

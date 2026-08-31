@@ -9237,6 +9237,9 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
   ])("detaches a failed Guided Story %s and resets attempt consent", async (_label, withVisualChoices) => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);
+    const approvedHash = "a".repeat(64);
+    const characterReferenceImagePath = "/objects/test/character.png";
+    const outfitReferenceImagePath = "/objects/test/outfit.png";
     const defaultVisualChoices: NonNullable<GuidedStoryDraftState["visualChoices"]> = {
       version: 1,
       logo: { path: null, sceneIds: [] },
@@ -9259,9 +9262,13 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
         character: {
           name: "Test performer",
           description: "A saved test character",
-          referenceImagePath: null,
+          referenceImagePath: characterReferenceImagePath,
         },
-        outfit: null,
+        outfit: {
+          name: "Test outfit",
+          description: "A saved test outfit",
+          referenceImagePath: outfitReferenceImagePath,
+        },
         voice: {
           id: "stock:alloy",
           label: "Alloy",
@@ -9271,6 +9278,24 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
         isUserRole: false,
         consentGranted: true,
       }],
+      castApprovals: {
+        version: 1,
+        draftRevision: 1,
+        roles: {
+          hero: {
+            roleId: "hero",
+            approvedAt: "2026-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: characterReferenceImagePath,
+              sha256: approvedHash,
+            },
+            outfit: {
+              referenceImagePath: outfitReferenceImagePath,
+              sha256: approvedHash,
+            },
+          },
+        },
+      },
       duplicateAssignmentConfirmed: false,
       scriptGeneration: null,
       castOperations: {},
@@ -9317,6 +9342,9 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
       .get(`/api/ai/guided-story/drafts/${draft!.id}`);
     expect(restored.body.storyboardJobId).toBeNull();
     expect(restored.body.cast[0].consentGranted).toBe(false);
+    expect(restored.body.castApprovals.draftRevision).toBe(restored.body.revision);
+    expect(restored.body.castApprovals.roles.hero.character.referenceImagePath)
+      .toBe(characterReferenceImagePath);
     expect(restored.body.visualChoices).toEqual(defaultVisualChoices);
     const historical = await readJob(failedJob!.id);
     expect(historical.status).toBe("failed");
