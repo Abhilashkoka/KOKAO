@@ -406,6 +406,11 @@ describe("guided story immutable storyboard adapter", () => {
     );
     const paid = {
       ...first,
+      narration: {
+        audioPath: "/objects/1/uploads/narration.wav",
+        totalDurationSec: 30,
+        cues: [{ text: first.scenes[0]!.text, startSec: 0, endSec: 30 }],
+      },
       scenes: first.scenes.map((scene) => ({
         ...scene,
         previewPath: "/objects/1/approved.png",
@@ -445,6 +450,7 @@ describe("guided story immutable storyboard adapter", () => {
     const invalidated = guidedStoryStoryboard(changed, paid);
     expect(invalidated.scenes[0]!.previewPath).toBeNull();
     expect(invalidated.scenes[0]!.providerCheckpoint).toBeNull();
+    expect(invalidated.narration).toEqual(paid.narration);
   });
 });
 

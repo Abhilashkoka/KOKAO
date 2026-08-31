@@ -861,8 +861,24 @@ function reusableGuidedNarration(
     existing?.narration &&
     existing.scenes.length === scenes.length &&
     scenes.every((scene, index) =>
-      existing.scenes[index]?.guidedStory?.inputFingerprint ===
-      scene.guidedStory?.inputFingerprint),
+      existing.scenes[index]?.text === scene.text &&
+      existing.scenes[index]?.durationSec === scene.durationSec &&
+      isDeepStrictEqual(
+        existing.scenes[index]?.guidedStory?.lineOwnership,
+        scene.guidedStory?.lineOwnership,
+      ) &&
+      isDeepStrictEqual(
+        existing.scenes[index]?.guidedStory?.cast.map((member) => ({
+          roleId: member.roleId,
+          voiceProvider: member.voiceProvider,
+          providerVoiceId: member.providerVoiceId,
+        })),
+        scene.guidedStory?.cast.map((member) => ({
+          roleId: member.roleId,
+          voiceProvider: member.voiceProvider,
+          providerVoiceId: member.providerVoiceId,
+        })),
+      )),
   );
 }
 

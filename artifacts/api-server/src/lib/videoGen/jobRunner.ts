@@ -94,6 +94,7 @@ import {
   renderTopicStoryboard,
   refreshEditedNarration,
   regenerateStoryboardPreview,
+  synthesizeGuidedNarration,
   NARRATION_VOICES,
   type NarrationVoice,
   resolveNarrationVoice,
@@ -3245,6 +3246,28 @@ async function produceVideo(
           };
           await setJob(job.id, { storyboard: board });
         }
+      }
+      // Legacy and previously rebuilt Guided Story boards may have lost their
+      // narration when only visual references changed. Re-voice from the exact
+      // immutable script/voice snapshot before rendering instead of failing
+      // after final approval.
+      if (board.mode === "guided_story" && !board.narration) {
+        const guidedSnapshot = options.guidedStory;
+        if (!guidedSnapshot) {
+          throw new VideoJobInputError("This Guided Story has no immutable narration snapshot.");
+        }
+        const narration = await synthesizeGuidedNarration({
+          tenantId: job.tenantId,
+          cast: guidedSnapshot.cast,
+          script: guidedSnapshot.script,
+          locale: guidedSnapshot.locale,
+          upload: (bytes, contentType) =>
+            uploadToStorage(job.tenantId, bytes, contentType),
+          fallbackVoice: effectiveVoice,
+          onStage,
+        });
+        board = { ...board, narration };
+        await setJob(job.id, { storyboard: board });
       }
       // Scene texts edited (or scenes added) during review desynced the plan
       // from its recording, so re-voice it first. The refreshed narration and
