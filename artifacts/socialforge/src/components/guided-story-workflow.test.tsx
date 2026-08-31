@@ -275,7 +275,7 @@ function draft(overrides: Record<string, unknown> = {}) {
 function renderWorkflow(options: {
   characters?: any[];
   brandKits?: any[];
-  editRequest?: { key: number; draftId: number } | null;
+  editRequest?: { key: number; draftId: number; correctionMessage?: string } | null;
 } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onJobReady = vi.fn();
@@ -729,7 +729,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.cast.assignments.every((item: any) => item.source === "generated")).toBe(true);
   });
 
-  it("removes a linked storyboard draft from the active workspace", async () => {
+  it("keeps a linked storyboard draft visible and opens its active job", async () => {
     state.draft = draft({
       cast: [{ roleId: "lead" }, { roleId: "friend" }],
       storyboardJobId: 43126,
@@ -738,13 +738,28 @@ describe("GuidedStoryWorkflow", () => {
     state.existingJob = { id: 43126, status: "awaiting_review", storyboard: { scenes: [{}] } };
     const { onJobReady } = renderWorkflow();
 
-    await waitFor(() =>
-      expect(screen.queryByTestId("button-guided-enqueue")).toBeNull(),
-    );
-    expect(screen.getByTestId("button-guided-create-draft")).toBeTruthy();
-    expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBeNull();
-    expect(onJobReady).not.toHaveBeenCalled();
+    const openJob = await screen.findByTestId("button-guided-enqueue");
+    expect(openJob.textContent).toBe("Open existing storyboard job");
+    expect(screen.getByTestId("guided-story-workflow")).toBeTruthy();
+    expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBe("7");
+    await userEvent.click(openJob);
+    expect(onJobReady).toHaveBeenCalledWith(43126);
     expect(state.enqueued).toBeNull();
+  });
+
+  it("highlights the required correction when reopening a failed story", () => {
+    state.draft = draft();
+    renderWorkflow({
+      editRequest: {
+        key: 1,
+        draftId: 7,
+        correctionMessage:
+          "Review Backdrop overview, approve the highlighted backdrop, then rebuild.",
+      },
+    });
+
+    expect(screen.getByTestId("guided-story-correction-required").textContent)
+      .toContain("Review Backdrop overview");
   });
 
   it("returns to the saved draft when the linked job failed before a storyboard existed", async () => {

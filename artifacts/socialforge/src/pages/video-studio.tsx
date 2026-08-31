@@ -918,8 +918,11 @@ export function VideoStudioPage() {
   const [guidedStoryEditRequest, setGuidedStoryEditRequest] = useState<{
     key: number;
     draftId: number;
+    correctionMessage?: string;
   } | null>(null);
   const requestedStoryboardOpenRef = useRef<number | null>(null);
+  const activeJobCardRef = useRef<HTMLDivElement>(null);
+  const focusedActiveJobRef = useRef<number | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
   const [repairStartError, setRepairStartError] = useState<string | null>(null);
   const [repairReason, setRepairReason] = useState<
@@ -1574,6 +1577,19 @@ export function VideoStudioPage() {
     }
   }, [activeJob]);
 
+  useEffect(() => {
+    if (!activeJob || focusedActiveJobRef.current === activeJob.id) return;
+    focusedActiveJobRef.current = activeJob.id;
+    const frame = window.requestAnimationFrame(() => {
+      activeJobCardRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      activeJobCardRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeJob?.id]);
+
   // Recovery children remain selected across reloads and other navigation.
   // The list fallback below still handles another session creating the child.
   const restoredActiveJobKeyRef = useRef<string | null>(null);
@@ -2054,6 +2070,25 @@ export function VideoStudioPage() {
     activeJob != null &&
     activeJob.id === activeJobId &&
     (activeJob.status === "queued" || activeJob.status === "processing");
+  const guidedStoryCorrectionMessage = (() => {
+    const error = activeJob?.error ?? "";
+    if (/backdrop|background|location|reference image/i.test(error)) {
+      return "Review Backdrop overview, replace or approve the highlighted backdrop, then rebuild the storyboard.";
+    }
+    if (/cast|character|outfit|identity|consent/i.test(error)) {
+      return "Review the cast references, character and outfit selections, and consent confirmation, then approve each role again.";
+    }
+    if (/voice|narration|speech|dialogue|audio/i.test(error)) {
+      return "Review the affected dialogue and voice selections. Correct the highlighted line or voice, approve it, then rebuild.";
+    }
+    if (/duration|runtime|timing|word count|speaking rate/i.test(error)) {
+      return "Review the story duration and script length. Select a supported duration or shorten the highlighted dialogue, then rebuild.";
+    }
+    if (/wallet|balance|fund|quota|credit/i.test(error)) {
+      return "Recharge the wallet or restore available generation quota, then retry this job from its saved inputs.";
+    }
+    return "Review the highlighted Guided Story settings and approvals, correct the affected option, then rebuild the storyboard.";
+  })();
 
   // Live elapsed time while the job runs, anchored to the row's createdAt so
   // it survives a reload mid-generation.
@@ -6242,7 +6277,7 @@ export function VideoStudioPage() {
       )}
 
       {activeJob && (
-        <Card data-testid="card-active-job">
+        <Card ref={activeJobCardRef} tabIndex={-1} data-testid="card-active-job">
           <CardContent className="pt-6 space-y-4">
             <div
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2"
@@ -6695,15 +6730,16 @@ export function VideoStudioPage() {
                       storyboard={activeJob.storyboard}
                     />
                   )}
-                {activeJob.storyboard?.mode === "guided_story" && (
-                  <div className="rounded-lg border p-3">
+                {activeJob.guidedStoryDraftId && (
+                  <div className="rounded-lg border-2 border-amber-500/70 bg-amber-50/70 p-3 dark:bg-amber-950/20">
                     <p className="text-sm font-medium">
-                      Want to change the story?
+                      Required action
+                    </p>
+                    <p className="mt-1 text-sm" role="alert" data-testid="guided-story-failure-action">
+                      {guidedStoryCorrectionMessage}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Reopen the Guided Story draft to adjust scenes, dialogue,
-                      cast, logo, or location guidance, then build a new
-                      storyboard. Completed checkpoints remain protected.
+                      Job #{activeJob.id} and all completed checkpoints remain saved.
                     </p>
                     <Button
                       type="button"
@@ -6721,21 +6757,27 @@ export function VideoStudioPage() {
                           return;
                         }
                         const draftId = activeJob.guidedStoryDraftId;
+                        const reopenDraft = async () => {
+                          await queryClient.invalidateQueries({
+                            queryKey: getGetGuidedStoryDraftQueryKey(draftId),
+                          });
+                          setGuidedStoryEditRequest((current) => ({
+                            key: (current?.key ?? 0) + 1,
+                            draftId,
+                            correctionMessage: guidedStoryCorrectionMessage,
+                          }));
+                          setEngine("guided_story");
+                          setActiveJobId(null);
+                          setBoardOpen(false);
+                        };
+                        if (!activeJob.storyboard) {
+                          void reopenDraft();
+                          return;
+                        }
                         detachFailedGuidedStoryboard.mutate(
                           { jobId: activeJob.id },
                           {
-                            onSuccess: async () => {
-                              await queryClient.invalidateQueries({
-                                queryKey: getGetGuidedStoryDraftQueryKey(draftId),
-                              });
-                              setGuidedStoryEditRequest((current) => ({
-                                key: (current?.key ?? 0) + 1,
-                                draftId,
-                              }));
-                              setEngine("guided_story");
-                              setActiveJobId(null);
-                              setBoardOpen(false);
-                            },
+                            onSuccess: reopenDraft,
                             onError: (error) =>
                               toast({
                                 title: "Could not reopen this story",

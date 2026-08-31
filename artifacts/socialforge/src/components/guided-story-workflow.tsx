@@ -226,7 +226,7 @@ export function GuidedStoryWorkflow({
   onManageCharacters: () => void;
   onJobReady: (jobId: number) => void;
   onDraftReadyForScript?: () => void;
-  editRequest?: { key: number; draftId: number } | null;
+  editRequest?: { key: number; draftId: number; correctionMessage?: string } | null;
 }) {
   const storageKey = tenantId ? `kokao-guided-story-draft-v1:${tenantId}` : null;
   const [draftId, setDraftId] = useState<number | null>(null);
@@ -330,25 +330,6 @@ export function GuidedStoryWorkflow({
     setScriptEditorOpen(true);
     if (storageKey) localStorage.setItem(storageKey, String(draft.id));
   }, [draft?.id, draft?.script, editRequest, storageKey]);
-  useEffect(() => {
-    if (
-      !draft?.storyboardJobId ||
-      editRequest?.draftId === draft.id ||
-      existingJobQuery.isLoading ||
-      !existingJobQuery.data ||
-      failedBeforeStoryboard
-    ) return;
-    if (storageKey) localStorage.removeItem(storageKey);
-    setDraftId(null);
-  }, [
-    draft?.id,
-    draft?.storyboardJobId,
-    editRequest?.draftId,
-    existingJobQuery.data,
-    existingJobQuery.isLoading,
-    failedBeforeStoryboard,
-    storageKey,
-  ]);
   useEffect(() => {
     if (!scriptEditorOpen || draft?.id !== editRequest?.draftId) return;
     const frame = window.requestAnimationFrame(() => {
@@ -648,10 +629,23 @@ export function GuidedStoryWorkflow({
 
   if (draftId !== null && draftQuery.isLoading) return <Card><CardContent className="p-6" data-testid="status-guided-story-loading">Restoring your guided story…</CardContent></Card>;
   if (editRequest && draftId === editRequest.draftId && (draftQuery.isError || (!draftQuery.isLoading && !draft))) return <Card><CardContent className="p-6 text-destructive" role="alert" data-testid="error-guided-story-restore">This story draft could not be restored. Return to your video jobs and try again.</CardContent></Card>;
+  const correctionMessage =
+    editRequest?.draftId === draft?.id ? editRequest?.correctionMessage : null;
   return <div className="space-y-5" data-testid="guided-story-workflow">
     <Card>
       <CardHeader><CardTitle>Guided Story</CardTitle><CardDescription>Plan a cast-led story, approve its script, then use the existing storyboard review.</CardDescription></CardHeader>
       <CardContent className="space-y-4" ref={scriptEditorRef}>
+        {correctionMessage && (
+          <div
+            role="alert"
+            tabIndex={-1}
+            className="rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-sm text-amber-950 ring-4 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-100"
+            data-testid="guided-story-correction-required"
+          >
+            <p className="font-semibold">Correction required before rebuilding</p>
+            <p className="mt-1">{correctionMessage}</p>
+          </div>
+        )}
         {!draft || editing ? <>
           <div className="grid gap-2 md:grid-cols-2">{GENRES.map(([id, name, description]) => <Button key={id} type="button" variant={genre === id ? "default" : "outline"} className="h-auto justify-start whitespace-normal p-4 text-left" onClick={() => setGenre(id)} data-testid={`button-guided-genre-${id}`}><span><b>{name}</b><br /><small>{description}</small></span></Button>)}</div>
           <div className="grid gap-4 md:grid-cols-2">
