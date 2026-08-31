@@ -8247,6 +8247,40 @@ router.post(
         return;
       }
     }
+    // Guided Story jobs created before enqueue-time model freezing may still
+    // have a fully approved storyboard but no immutable image-to-video model.
+    // Resolve the current configured selection before taking recovery funding,
+    // then freeze that exact contract onto the child. Rendering must never
+    // guess from mutable platform settings.
+    let recoveryResolvedVideoModel =
+      initial.options?.resolvedVideoModel ?? null;
+    if (initial.options?.guidedStory && !recoveryResolvedVideoModel) {
+      try {
+        recoveryResolvedVideoModel = await resolveVideoModelSnapshot({
+          mode: "image",
+          modelId: initial.options.modelId,
+          durationSec: initial.options.durationSec ?? 5,
+          resolution: initial.options.resolution,
+          quality: initial.options.quality,
+          generateAudio: initial.options.generateAudio,
+          permittedDurationSec: compositeVideoDurations(
+            initial.engine,
+            initial.options,
+          ),
+        });
+      } catch (error) {
+        if (error instanceof VideoModelResolutionError) {
+          res.status(400).json({
+            error: error.message,
+            code: error.code,
+            provider: error.provider,
+            model: error.model,
+          });
+          return;
+        }
+        throw error;
+      }
+    }
     let source: VideoGeneration | null = null;
     let child: VideoGeneration | null = null;
     let historicalPrivacyRecovery = false;
@@ -8308,6 +8342,7 @@ router.post(
       const childOptions: VideoJobOptions = structuredClone(
         source.options ?? { aspectRatio: "9:16" as const },
       );
+      childOptions.resolvedVideoModel = recoveryResolvedVideoModel;
       const chainId =
         source.options?.recovery?.chainId ??
         source.options?.characterDialogue?.retry?.sourceJobId ??

@@ -18,3 +18,9 @@ An approved default backdrop covers every scene unless that scene has its own in
 **Why:** Freezing paths in a job snapshot does not create visual consistency if the provider never receives those images, or if a provider pin silently strips image input.
 
 **How to apply:** Replacing the default invalidates only inheriting scene previews; replacing an override invalidates only its scene. Enqueue, preview, correction, retry, and final-render gates revalidate each effective backdrop, including its stored-byte SHA when available, before reservation or provider dispatch. Final image-to-video work uses the already approved preview still, but still re-hashes the source backdrop bytes immediately before dispatch so mutable storage cannot bypass approval.
+
+Narration reuse is independent from visual-scene reuse. Character, outfit, or backdrop changes invalidate affected previews and render receipts, but preserve narration whenever transcript text, timing, line ownership, and role voice bindings are unchanged.
+
+**Why:** Tying narration reuse to the full visual fingerprint discarded valid paid audio after a cast-reference replacement and made final approval fail before rendering.
+
+**How to apply:** Storyboard rebuilds compare only audio-affecting inputs before retaining narration. Recovery of a legacy board with missing narration must regenerate from its immutable script and voices before rendering. A legacy retry with no model snapshot must resolve and freeze the configured model before funding; the renderer must never infer mutable defaults.
