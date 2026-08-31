@@ -14,6 +14,8 @@ import { LipSyncInsightsTab } from "./lip-sync-insights-tab";
 
 beforeEach(() => {
   cleanup();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-31T12:00:00.000Z"));
   mockHook.mockReset();
   mockHook.mockReturnValue({
     data: {
@@ -57,7 +59,36 @@ describe("LipSyncInsightsTab", () => {
     const trigger = screen.getByRole("tab", { name: "Funding rail" });
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
-    expect(mockHook).toHaveBeenLastCalledWith({ groupBy: "funding_rail" });
+    expect(mockHook).toHaveBeenLastCalledWith({
+      groupBy: "funding_rail",
+      from: "2026-08-01T12:00:00.000Z",
+      to: "2026-08-31T12:00:00.000Z",
+    });
+  });
+
+  it("propagates preset and custom ranges and rejects unsafe custom windows", () => {
+    render(<LipSyncInsightsTab />);
+    fireEvent.click(screen.getByRole("button", { name: "Last 7 days" }));
+    expect(mockHook).toHaveBeenLastCalledWith({
+      groupBy: "workflow",
+      from: "2026-08-24T12:00:00.000Z",
+      to: "2026-08-31T12:00:00.000Z",
+    });
+
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-08-20" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-08-25" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply custom range" }));
+    const latest = mockHook.mock.calls.at(-1)?.[0];
+    expect(latest.groupBy).toBe("workflow");
+    expect(latest.from).toBe(new Date(2026, 7, 20, 0, 0, 0, 0).toISOString());
+    expect(latest.to).toBe(new Date(2026, 7, 25, 23, 59, 59, 999).toISOString());
+
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-08-30" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-08-20" } });
+    expect(
+      (screen.getByRole("button", { name: "Apply custom range" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/Choose dates in order/)).toBeTruthy();
   });
 
   it("explains empty and insufficient data states", () => {

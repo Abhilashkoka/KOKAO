@@ -649,6 +649,47 @@ describe("GET /analytics/studio-lipsync", () => {
       await deleteTenant(admin.tenantId);
     }
   });
+
+  it("applies narrow custom windows while keeping excluded small cohorts private", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const userId = `test_studio_lipsync_window_${Date.now()}`;
+    const inside = new Date("2026-08-20T12:00:00.000Z");
+    const outside = new Date("2026-08-10T12:00:00.000Z");
+    const accepted = (createdAt: Date) => ({
+      clerkUserId: userId,
+      eventName: "studio_lipsync_submission_accepted",
+      createdAt,
+      params: {
+        workflow: "guided_story",
+        funding_rail: "wallet",
+        scene_count_bucket: "2_3",
+        outcome: "accepted",
+      },
+    });
+    try {
+      await db.insert(analyticsEventsTable).values([
+        ...Array.from({ length: 4 }, () => accepted(inside)),
+        ...Array.from({ length: 3 }, () => accepted(outside)),
+      ]);
+
+      actAs(admin.clerkUserId, "super@example.com");
+      const res = await request(app).get(
+        "/api/analytics/studio-lipsync?groupBy=workflow&from=2026-08-20T00%3A00%3A00.000Z&to=2026-08-20T23%3A59%3A59.999Z",
+      );
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        status: "insufficient",
+        groupBy: "workflow",
+        minimumGroupSize: 5,
+        groups: [{ group: "guided_story", status: "suppressed" }],
+      });
+      expect(res.text).not.toContain('"accepted"');
+      expect(res.text).not.toContain('"4"');
+    } finally {
+      await cleanupUser(userId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
 });
 
 describe("GET /analytics/* (access gating)", () => {
