@@ -276,6 +276,21 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.created).toMatchObject({ platform: "instagram_reels", durationSeconds: 30, roleCount: 2 });
   });
 
+  it("creates a story without a Brand Kit", async () => {
+    renderWorkflow({ brandKits: [] });
+    await userEvent.click(screen.getByTestId("select-guided-platform"));
+    await userEvent.click(screen.getByText("instagram reels"));
+    await userEvent.type(screen.getByTestId("input-guided-topic"), "A story without a brand kit");
+
+    expect(screen.getByTestId("status-guided-empty-brand-kit").textContent).toContain(
+      "You can still create the story",
+    );
+    expect((screen.getByTestId("button-guided-create-draft") as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(screen.getByTestId("button-guided-create-draft"));
+
+    expect(state.created).toMatchObject({ brandKitId: null });
+  });
+
   it("uses the server language catalog as the authoritative story-language selector", async () => {
     renderWorkflow();
     await userEvent.click(screen.getByTestId("select-guided-locale"));
