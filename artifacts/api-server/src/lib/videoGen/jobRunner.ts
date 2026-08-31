@@ -57,12 +57,13 @@ import {
   getVideoGenProviderDef,
   getVideoGenSelection,
   resolveVideoGenApiKey,
+  resolveLipSyncModelRef,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
   VideoModelResolutionError,
 } from "./index";
 import { generateLipSyncWithReplicate } from "./providers/replicate";
-import { prepareLipSyncSource } from "./lipSyncSource";
+import { prepareLipSyncSource, MIN_USABLE_HEIGHT } from "./lipSyncSource";
 import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
 import { buildWav, parseWav } from "./topicVideo/narration";
 import { composeTopicVideo } from "./topicVideo/compose";
@@ -2540,6 +2541,12 @@ async function produceVideo(
       // model enough face pixels before spending on it.
       onStage("Preparing your video");
       const prepared = await prepareLipSyncSource(source, audioDurationSec);
+      if (prepared.tooSmall) {
+        throw new VideoJobInputError(
+          `Your video is only ${prepared.height}p. Lip sync needs at least ${MIN_USABLE_HEIGHT}p ` +
+            "to redraw a mouth cleanly — please upload a higher-quality clip.",
+        );
+      }
       if (prepared.excessive) {
         throw new VideoJobInputError(
           `Your script runs about ${Math.ceil(prepared.overrunSec)}s longer than your video. ` +
@@ -2554,16 +2561,23 @@ async function produceVideo(
     // the key is resolved directly rather than via provider selection.
     const replicateDef = getVideoGenProviderDef("replicate");
     const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+    const modelOverride =
+      portraitPath || options.lipSyncQuality === "high"
+        ? null
+        : await resolveLipSyncModelRef();
+    const effectiveLipSyncModel =
+      modelOverride?.split(":")[0] || lipSyncDef.model;
     onStage("Syncing the lips");
     await requirePricedVideoCall(
       "replicate",
-      lipSyncDef.model,
+      effectiveLipSyncModel,
       options.durationSec ?? 5,
       videoPriceCriteria({ hasReferenceVideo: Boolean(sourcePath) }),
     );
     const result = await generateLipSyncWithReplicate(
       { source: preparedSource, audio, def: lipSyncDef },
       apiKey,
+      modelOverride,
     );
     const event = await checkpointProviderRender(
       job,

@@ -8,6 +8,7 @@ import {
   probeHeight,
   MIN_SYNC_HEIGHT,
   MAX_TAIL_HOLD_SEC,
+  MIN_USABLE_HEIGHT,
 } from "./lipSyncSource";
 
 // 1x1 red PNG — the slideshow renderer scales it to the requested aspect.
@@ -133,4 +134,22 @@ describe("prepareLipSyncSource", () => {
     // Fail-soft: an unprobeable upload is passed through for the model to judge.
     expect(prepared.video.buffer.equals(junk.buffer)).toBe(true);
   }, 60_000);
+});
+
+describe("prepareLipSyncSource resolution guard", () => {
+  it("flags a source too small to sync at all", async () => {
+    const upload = await fakeUpload(2, 144);
+    const prepared = await prepareLipSyncSource(upload, 2);
+    expect(prepared.tooSmall).toBe(true);
+    expect(prepared.height!).toBeLessThan(MIN_USABLE_HEIGHT);
+    // Refused before any encode is spent on it.
+    expect(prepared.video.buffer.equals(upload.buffer)).toBe(true);
+  }, 180_000);
+
+  it("accepts a small-but-workable source and upscales it", async () => {
+    const upload = await fakeUpload(2, 360);
+    const prepared = await prepareLipSyncSource(upload, 2);
+    expect(prepared.tooSmall).toBe(false);
+    expect(prepared.upscale).toBeGreaterThan(1);
+  }, 180_000);
 });

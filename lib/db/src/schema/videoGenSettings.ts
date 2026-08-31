@@ -13,12 +13,20 @@ import { pgTable, text, integer, timestamp, jsonb, boolean } from "drizzle-orm/p
  * `textToVideoModel` / `imageToVideoModel` optionally override the
  * provider's default model per engine (video models are usually distinct
  * for text-to-video vs image-to-video, unlike image gen's single model).
+ *
+ * `lipSyncModel` overrides the pinned lip-sync model reference
+ * ("owner/name" or "owner/name:version"). Lip sync is not part of the
+ * provider selection above — its input contract is video + audio, not a
+ * prompt — so it carries its own override, and leaving it null keeps the
+ * pinned default. Set it to compare lip-sync models on the same footage
+ * without a deploy.
  */
 export const videoGenSettingsTable = pgTable("video_gen_settings", {
   id: integer("id").primaryKey().default(1),
   provider: text("provider").notNull().default("replicate"),
   textToVideoModel: text("text_to_video_model"),
   imageToVideoModel: text("image_to_video_model"),
+  lipSyncModel: text("lip_sync_model"),
   /**
    * Which catalog models tenants may pick per generation
    * (lib/videoGen/modelCatalog.ts on the api-server).

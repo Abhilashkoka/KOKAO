@@ -237,4 +237,51 @@ describe("Replicate LatentSync prediction request", () => {
     });
     expect(result.model).toBe("acme/talking-head");
   });
+
+  it("runs a configured standard lip-sync model override", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        const stringUrl = String(url);
+        calls.push({ url: stringUrl, init });
+        if (stringUrl === "https://api.replicate.com/v1/files") {
+          return Response.json({
+            urls: {
+              get: `https://api.replicate.com/v1/files/override-${calls.length}`,
+            },
+          });
+        }
+        if (stringUrl === "https://api.replicate.com/v1/predictions") {
+          return Response.json({
+            id: "pred-override",
+            status: "succeeded",
+            output: "https://replicate.delivery/override-output.mp4",
+          });
+        }
+        if (stringUrl === "https://replicate.delivery/override-output.mp4") {
+          return new Response(Buffer.from("override-video"));
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const result = await generateLipSyncWithReplicate(
+      {
+        source: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
+        audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
+        def: LATENT_SYNC,
+      },
+      "test-token",
+      "someone/other-lipsync:abc123",
+    );
+
+    const predictionCall = calls.find(
+      ({ url }) => url === "https://api.replicate.com/v1/predictions",
+    );
+    expect(JSON.parse(String(predictionCall?.init?.body)).version).toBe(
+      "someone/other-lipsync:abc123",
+    );
+    expect(result.model).toBe("someone/other-lipsync");
+  });
 });

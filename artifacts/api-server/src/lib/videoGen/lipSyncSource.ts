@@ -30,6 +30,11 @@ import { logger } from "../logger";
 
 /** Below this height the model's face crop is starved; upscale first. */
 export const MIN_SYNC_HEIGHT = 720;
+/**
+ * Below this, upscaling cannot save it — there is no mouth detail to enlarge,
+ * and the result is worth neither the money nor the wait. Refused instead.
+ */
+export const MIN_USABLE_HEIGHT = 240;
 /** Never blow a source up by more than this — past it we are inventing pixels. */
 const MAX_UPSCALE = 2;
 /** Length difference small enough that a re-encode costs more than it fixes. */
@@ -65,6 +70,12 @@ export interface LipSyncSource {
   excessive: boolean;
   /** Seconds the narration exceeds the footage by (0 when it does not). */
   overrunSec: number;
+  /**
+   * True when the source is below MIN_USABLE_HEIGHT — too small for any lip
+   * sync worth shipping. As with `excessive`, this module only measures; the
+   * caller decides.
+   */
+  tooSmall: boolean;
 }
 
 /** Video height in pixels, or null when it cannot be read. */
@@ -124,6 +135,7 @@ export async function prepareLipSyncSource(
     fit: "exact",
     excessive: false,
     overrunSec: 0,
+    tooSmall: false,
   };
   if (!Number.isFinite(narrationDurationSec) || narrationDurationSec <= 0) return untouched;
 
@@ -135,6 +147,12 @@ export async function prepareLipSyncSource(
     if (sourceDurationSec === null) {
       logger.warn("Base video duration could not be probed; syncing it unprepared");
       return { ...untouched, height };
+    }
+
+    // Hopeless resolution is refused before the model is called, not after:
+    // the job fails into the existing refund path having spent nothing.
+    if (height !== null && height < MIN_USABLE_HEIGHT) {
+      return { ...untouched, height, sourceDurationSec, tooSmall: true };
     }
 
     const overrunSec = Math.max(0, narrationDurationSec - sourceDurationSec);
@@ -209,6 +227,7 @@ export async function prepareLipSyncSource(
       fit,
       excessive: false,
       overrunSec,
+      tooSmall: false,
     };
   } catch (error) {
     logger.warn({ err: error }, "Base video preparation failed; syncing the upload as-is");

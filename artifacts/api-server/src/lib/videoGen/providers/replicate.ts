@@ -207,6 +207,14 @@ export async function generateLipSyncWithReplicate(
     def: LipSyncModelDef;
   },
   apiKey: string | null,
+  /**
+   * Model reference to run: "owner/name" or "owner/name:version". Defaults to
+   * the pinned LatentSync build. Overridable so one lip-sync model can be
+   * compared against another on the same footage without a deploy — what
+   * makes this feature is the {video, audio} contract, not which model
+   * honors it.
+   */
+  modelRef?: string | null,
 ): Promise<VideoGenResult> {
   if (!apiKey) {
     throw new VideoGenNotConfiguredError(
@@ -214,6 +222,8 @@ export async function generateLipSyncWithReplicate(
     );
   }
   const { def } = args;
+  const defaultRef = def.version ? `${def.model}:${def.version}` : def.model;
+  const ref = modelRef?.trim() || defaultRef;
   const [sourceUrl, audioUrl] = [
     await uploadReplicateFile(
       args.source.buffer,
@@ -224,11 +234,13 @@ export async function generateLipSyncWithReplicate(
     await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "voice-audio", apiKey),
   ];
   const buffer = await runReplicatePrediction(
-    def.version ? `${def.model}:${def.version}` : def.model,
+    ref,
     { [def.sourceField]: sourceUrl, [def.audioField]: audioUrl },
     apiKey,
   );
-  return { buffer, provider: "replicate", model: def.model };
+  // Record the model that actually ran (version suffix stripped) so a job row
+  // names the build that produced the file, not the default it overrode.
+  return { buffer, provider: "replicate", model: ref.split(":")[0] || REPLICATE_LIP_SYNC_MODEL };
 }
 
 /** Replicate: create a prediction (sync-preferred), poll until done, download the video. */

@@ -601,6 +601,24 @@ export async function setVideoGenSelection(
         ? (current?.studioLipSyncDefault ?? false)
         : selection.studioLipSyncDefault,
   };
+
+/**
+ * Resolve the optional model override for standard video lip sync. The stored
+ * setting wins, then the environment; null keeps the pinned model definition.
+ */
+export async function resolveLipSyncModelRef(): Promise<string | null> {
+  try {
+    const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
+    const stored = row?.lipSyncModel?.trim();
+    if (stored) return stored;
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "Lip-sync model lookup failed; using the pinned default",
+    );
+  }
+  return process.env.LIPSYNC_MODEL?.trim() || null;
+}
   await db
     .insert(videoGenSettingsTable)
     .values({ id: 1, ...row })
