@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { renderSlideshow } from "./slideshow";
-import { normalizeVideo, fitImageToAspect } from "./postprocess";
+import { renderSlideshow, probeDurationSec } from "./slideshow";
+import { mkdtemp, writeFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { normalizeVideo, fitImageToAspect, trimClipToStart } from "./postprocess";
 import { withRetries, withTimeout } from "./retry";
 import { VideoGenProviderError } from "./types";
 
@@ -87,5 +90,50 @@ describe("retry helpers", () => {
     await expect(
       withTimeout(() => new Promise(() => {}), 50, "Test"),
     ).rejects.toBeInstanceOf(VideoGenProviderError);
+  });
+});
+
+describe("trimClipToStart", () => {
+  it("cuts a long clip to exactly the shot length, from the beginning", async () => {
+    const clip = await renderSlideshow({
+      images: [PNG_1PX],
+      aspectRatio: "16:9",
+      slideDurationSec: 5,
+    });
+    const trimmed = await trimClipToStart(clip, 3.2);
+    expect(isMp4(trimmed)).toBe(true);
+    const dir = await mkdtemp(join(tmpdir(), "kokao-trim-test-"));
+    try {
+      await writeFile(join(dir, "t.mp4"), trimmed);
+      const durationSec = await probeDurationSec("t.mp4", dir);
+      // No tolerance window here: a lip-sync model assumes video and audio
+      // start together, so the length has to be right, not close.
+      expect(Math.abs(durationSec! - 3.2)).toBeLessThan(0.12);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 180_000);
+
+  it("holds the last frame when the clip is shorter than the shot", async () => {
+    const clip = await renderSlideshow({
+      images: [PNG_1PX],
+      aspectRatio: "16:9",
+      slideDurationSec: 2,
+    });
+    const trimmed = await trimClipToStart(clip, 3);
+    const dir = await mkdtemp(join(tmpdir(), "kokao-trim-test-"));
+    try {
+      await writeFile(join(dir, "t.mp4"), trimmed);
+      const durationSec = await probeDurationSec("t.mp4", dir);
+      expect(Math.abs(durationSec! - 3)).toBeLessThan(0.15);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 180_000);
+
+  it("refuses a nonsense length instead of shipping a desynced shot", async () => {
+    await expect(trimClipToStart(Buffer.from("x"), 0)).rejects.toBeInstanceOf(
+      VideoGenProviderError,
+    );
   });
 });

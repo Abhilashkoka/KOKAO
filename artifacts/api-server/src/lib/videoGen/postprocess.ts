@@ -195,6 +195,57 @@ export async function normalizeVideo(
  *
  * Fail-soft like its neighbours: any error returns the ORIGINAL buffer.
  */
+/**
+ * Cut a clip to exactly `targetSec`, always starting at t=0, always
+ * re-encoding.
+ *
+ * This is enforceClipDuration's stricter sibling, for footage about to be
+ * lip-synced. Two differences, both load-bearing:
+ *
+ *  - No tolerance window. enforceClipDuration skips a drift under a third of a
+ *    second because re-encoding costs more quality than the drift costs rhythm.
+ *    A lip-sync model gets video and audio as separate files and assumes they
+ *    start together, so a third of a second of drift is a third of a second of
+ *    wrong mouth.
+ *  - No seeking, ever. The clip and its audio slice both begin at zero.
+ *
+ * Providers return discrete lengths (5s, 8s, 10s), so a 3.2s shot arrives as a
+ * 5s clip; the surplus is dropped from the end rather than sampled from the
+ * middle. NOT fail-soft: handing the model a mismatched clip produces a
+ * confidently desynced result, which is worse than a failed job.
+ */
+export async function trimClipToStart(video: Buffer, targetSec: number): Promise<Buffer> {
+  if (!Number.isFinite(targetSec) || targetSec <= 0) {
+    throw new VideoGenProviderError("A lip-synced shot needs a positive length.");
+  }
+  const dir = await mkdtemp(join(tmpdir(), "kokao-trimstart-"));
+  try {
+    await writeFile(join(dir, "in.mp4"), video);
+    const actualSec = await probeDurationSec("in.mp4", dir);
+    const args = ["-y", "-i", "in.mp4"];
+    if (actualSec !== null && actualSec < targetSec) {
+      args.push("-vf", `tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
+    }
+    args.push(
+      "-t", targetSec.toFixed(3),
+      "-map", "0:v:0",
+      "-an",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+      "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      "out.mp4",
+    );
+    await runFfmpeg(args, dir);
+    const out = await readFile(join(dir, "out.mp4"));
+    if (out.length === 0) {
+      throw new VideoGenProviderError("A lip-synced shot could not be cut to length.");
+    }
+    return out;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export async function enforceClipDuration(video: Buffer, targetSec: number): Promise<Buffer> {
   if (!Number.isFinite(targetSec) || targetSec <= 0) return video;
   const dir = await mkdtemp(join(tmpdir(), "kokao-cliplen-"));

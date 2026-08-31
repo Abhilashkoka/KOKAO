@@ -225,6 +225,30 @@ export interface Narration {
 }
 
 /**
+ * Cut one span out of a narration track as a standalone WAV.
+ *
+ * A lip-sync model needs the audio for exactly the shot it is syncing, and no
+ * more — hand it the whole track and the mouth follows words that belong to a
+ * different shot. Cue timings come from byte offsets into this same PCM
+ * (see stitchNarration), so slicing on those offsets is exact rather than
+ * approximate: the audio a shot receives lines up with the audio the timeline
+ * plays under it, to the sample.
+ *
+ * Offsets are snapped to whole frames, out-of-range spans are clamped, and an
+ * empty span yields a valid silent WAV rather than a malformed file.
+ */
+export function sliceNarration(wav: Buffer, startSec: number, endSec: number): Buffer {
+  const { format, pcm } = parseWav(wav);
+  const toFrame = (seconds: number): number => {
+    const clamped = Math.max(0, Math.min(seconds, pcm.length / format.byteRate));
+    return Math.round((clamped * format.byteRate) / format.blockAlign) * format.blockAlign;
+  };
+  const from = toFrame(startSec);
+  const to = Math.max(from, toFrame(endSec));
+  return buildWav(format, pcm.subarray(from, to));
+}
+
+/**
  * Whether a narration failure is the SPEAKER's fault (429/5xx/network/timeout,
  * or audio bytes that came back unusable), as opposed to something that would
  * fail identically on every provider.
