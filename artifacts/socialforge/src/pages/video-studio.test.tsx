@@ -71,6 +71,10 @@ const mockState: {
   repairedJobs: Array<{ jobId: number; reason: string }>;
   repairError: unknown;
   lastOutfitVars: any;
+  guidedDialoguePreviews: any[];
+  guidedDialogueConfirms: any[];
+  guidedDialoguePreviewError: any;
+  guidedDialogueConfirmError: any;
   createdOutfitCharacter: any;
 } = {
   lastGenerateVars: null,
@@ -131,6 +135,10 @@ const mockState: {
   repairedJobs: [],
   repairError: null,
   lastOutfitVars: null,
+  guidedDialoguePreviews: [],
+  guidedDialogueConfirms: [],
+  guidedDialoguePreviewError: null,
+  guidedDialogueConfirmError: null,
   createdOutfitCharacter: null,
 };
 
@@ -473,6 +481,57 @@ vi.mock("@workspace/api-client-react", async () => {
             );
         }
         opts?.onSuccess?.(mockState.guidedDraft);
+      },
+    }),
+    usePreviewGuidedStoryDialogueReplay: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.guidedDialoguePreviews.push(vars);
+        if (mockState.guidedDialoguePreviewError) {
+          opts?.onError?.(mockState.guidedDialoguePreviewError);
+          return;
+        }
+        opts?.onSuccess?.({
+          version: 1,
+          sourceJobId: vars.jobId,
+          sourceStoryboardFingerprint: "fingerprint",
+          locale: "te",
+          subtitles: false,
+          lines: [
+            {
+              sceneId: "scene-1",
+              lineId: "line-1",
+              kind: "dialogue",
+              text: "Hello world in Telugu",
+              startMs: 0,
+              endMs: 3000,
+              speaker: { type: "role", roleId: "hero", voice: { provider: "elevenlabs", providerVoiceId: "123" } },
+              preview: { path: "/test.png", inputFingerprint: "1" },
+              backdrop: { path: "/backdrop.png", fingerprint: "2" },
+            }
+          ],
+          estimates: { lineCount: 1, durationSeconds: 3, units: 1 },
+          confirmationFingerprint: "confirm-123",
+        });
+      },
+    }),
+    useConfirmGuidedStoryDialogueReplay: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.guidedDialogueConfirms.push(vars);
+        if (mockState.guidedDialogueConfirmError) {
+          opts?.onError?.(mockState.guidedDialogueConfirmError);
+          return;
+        }
+        opts?.onSuccess?.({
+          job: {
+            ...mockState.activeJob,
+            id: vars.jobId + 100,
+            status: "queued",
+          },
+          snapshot: {},
+          operation: {}
+        });
       },
     }),
     useApproveVideoStoryboard: () => ({
@@ -829,6 +888,10 @@ beforeEach(() => {
   mockState.repairedJobs = [];
   mockState.repairError = null;
   mockState.lastOutfitVars = null;
+  mockState.guidedDialoguePreviews = [];
+  mockState.guidedDialogueConfirms = [];
+  mockState.guidedDialoguePreviewError = null;
+  mockState.guidedDialogueConfirmError = null;
   mockState.createdOutfitCharacter = null;
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
@@ -837,6 +900,53 @@ beforeEach(() => {
 });
 
 describe("Video Studio", () => {
+  it("reviews and explicitly confirms replay for a failed Guided Story", async () => {
+    mockState.featureFlags = { videoGen: true, videoTopicToVideo: true };
+    mockState.activeJob = {
+      ...pausedJob(guidedReviewBoard()),
+      id: 500,
+      engine: "topic_to_video",
+      status: "failed",
+      error: "Original render failed after its approved previews were saved.",
+    };
+    // Make it a guided story by setting storyboard mode
+    mockState.activeJob.storyboard.mode = "guided_story";
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-500"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("button-replay-guided-story")).toBeTruthy();
+    });
+    const replayBtn = screen.getByTestId("button-replay-guided-story");
+
+    await act(async () => {
+      fireEvent.click(replayBtn);
+    });
+
+    expect(mockState.guidedDialoguePreviews).toHaveLength(1);
+    expect(mockState.guidedDialoguePreviews[0].jobId).toBe(500);
+
+    await waitFor(() => {
+      expect(screen.getByText("Replay Native Dialogue")).toBeTruthy();
+    });
+    expect(screen.getByText("No")).toBeTruthy();
+    expect(screen.getByText("ElevenLabs voice: 123")).toBeTruthy();
+    expect(
+      screen.getByText(/1 separate ElevenLabs voice call/),
+    ).toBeTruthy();
+    expect(screen.getByText(/No images or subtitles will be generated/)).toBeTruthy();
+
+    const confirmBtn = screen.getByText("Confirm & Start");
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    expect(mockState.guidedDialogueConfirms).toHaveLength(1);
+    expect(mockState.guidedDialogueConfirms[0].jobId).toBe(500);
+    expect(mockState.guidedDialogueConfirms[0].data.confirmationFingerprint).toBe("confirm-123");
+  });
+
   it("hides only the mode whose individual control is off", async () => {
     const modeCases = [
       ["videoTextToVideo", "tab-text-to-video"],

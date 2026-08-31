@@ -682,6 +682,225 @@ export function guidedStorySceneImmutableInputsMatch(
   );
 }
 
+export type GuidedStoryDialogueReplaySegment = {
+  sceneId: string;
+  lineId: string;
+  kind: "dialogue" | "narration";
+  startMs: number;
+  endMs: number;
+  text: string;
+  speaker:
+    | {
+        type: "role";
+        roleId: string;
+        identity: {
+          name: string;
+          characterDescription: string;
+          outfitDescription: string | null;
+          characterReferencePath: string;
+          outfitReferencePath: string;
+        };
+        voice: {
+          provider: "elevenlabs";
+          providerVoiceId: string;
+        };
+      }
+    | {
+        type: "offscreen";
+        roleId: null;
+        voice: null;
+      };
+  preview: {
+    path: string;
+    inputFingerprint: string;
+  };
+  backdrop: {
+    path: string;
+    fingerprint: string;
+  };
+};
+
+/**
+ * Fail-closed validation for dialogue replay. This is intentionally pure: it
+ * accepts only the immutable job snapshot and the board the user approved.
+ */
+export function validateGuidedStoryDialogueReplayInputs(
+  snapshot: NonNullable<VideoJobOptions["guidedStory"]>,
+  storyboard: VideoStoryboard,
+): void {
+  if (snapshot.locale !== "te") {
+    throw new Error("Guided Story dialogue replay requires an approved Telugu snapshot.");
+  }
+  if (!Number.isFinite(Date.parse(snapshot.scriptApprovedAt))) {
+    throw new Error("Guided Story dialogue replay requires script approval.");
+  }
+  if (!guidedCastApprovalsMatch({
+    draftRevision: snapshot.draftRevision,
+    cast: snapshot.cast,
+    approvals: snapshot.castApprovals,
+  })) {
+    throw new Error("Guided Story dialogue replay requires exact cast approvals.");
+  }
+  if (!guidedStoryBackdropsAreApproved(snapshot)) {
+    throw new Error("Guided Story dialogue replay requires approved backdrop references.");
+  }
+  if (
+    storyboard.mode !== "guided_story" ||
+    storyboard.timelineLocked !== true
+  ) {
+    throw new Error("Guided Story dialogue replay requires a locked Guided Story storyboard.");
+  }
+
+  const expected = guidedStoryStoryboard(snapshot);
+  if (storyboard.scenes.length !== expected.scenes.length) {
+    throw new Error("Guided Story dialogue replay storyboard scene count does not match.");
+  }
+  const castByRole = new Map(snapshot.cast.map((member) => [member.roleId, member]));
+  if (castByRole.size !== snapshot.cast.length) {
+    throw new Error("Guided Story dialogue replay cast role IDs must be unique.");
+  }
+  const lineIds = new Set<string>();
+  let priorSceneEnd = 0;
+
+  snapshot.script.scenes.forEach((scriptScene, sceneIndex) => {
+    const actual = storyboard.scenes[sceneIndex];
+    const expectedScene = expected.scenes[sceneIndex]!;
+    if (
+      !actual ||
+      !guidedStorySceneImmutableInputsMatch(actual, expectedScene) ||
+      actual.guidedStory?.inputFingerprint !==
+        expectedScene.guidedStory?.inputFingerprint
+    ) {
+      throw new Error(
+        `Guided Story dialogue replay scene "${scriptScene.id}" does not match its approved fingerprint.`,
+      );
+    }
+    const guidedScene = actual.guidedStory;
+    if (!guidedScene) {
+      throw new Error(
+        `Guided Story dialogue replay scene "${scriptScene.id}" has no immutable assignment.`,
+      );
+    }
+    if (
+      guidedScene.inconsistencyFlags.length > 0 ||
+      !actual.previewPath ||
+      actual.previewCheckpoint?.status !== "complete" ||
+      actual.previewCheckpoint.targetPath !== actual.previewPath
+    ) {
+      throw new Error(
+        `Guided Story dialogue replay scene "${scriptScene.id}" has no approved preview.`,
+      );
+    }
+    if (
+      !guidedScene.visuals.backdropReferencePath ||
+      !guidedScene.visuals.backdropReferenceFingerprint
+    ) {
+      throw new Error(
+        `Guided Story dialogue replay scene "${scriptScene.id}" has no approved backdrop reference.`,
+      );
+    }
+    if (
+      scriptScene.startMs !== priorSceneEnd ||
+      scriptScene.endMs <= scriptScene.startMs
+    ) {
+      throw new Error("Guided Story dialogue replay scene timing is invalid.");
+    }
+    let priorLineEnd = scriptScene.startMs;
+    for (const line of scriptScene.lines) {
+      if (
+        lineIds.has(line.id) ||
+        line.startMs < priorLineEnd ||
+        line.endMs <= line.startMs ||
+        line.endMs > scriptScene.endMs
+      ) {
+        throw new Error(
+          `Guided Story dialogue replay line "${line.id}" has invalid identity or timing.`,
+        );
+      }
+      lineIds.add(line.id);
+      priorLineEnd = line.endMs;
+      if (line.ownerRoleId === null) {
+        if (line.kind !== "narration") {
+          throw new Error(
+            `Guided Story dialogue replay dialogue "${line.id}" has no role owner.`,
+          );
+        }
+        continue;
+      }
+      const member = castByRole.get(line.ownerRoleId);
+      if (
+        !member ||
+        member.voice.provider.toLowerCase() !== "elevenlabs" ||
+        !member.voice.providerVoiceId?.trim()
+      ) {
+        throw new Error(
+          `Guided Story dialogue replay role "${line.ownerRoleId}" requires an approved ElevenLabs voice.`,
+        );
+      }
+    }
+    priorSceneEnd = scriptScene.endMs;
+  });
+}
+
+/**
+ * Produce one deterministic replay segment per approved line. Text and timing
+ * are copied from the immutable script without trimming, translation, or
+ * retiming; ownerless narration remains explicitly offscreen.
+ */
+export function planGuidedStoryDialogueReplay(
+  snapshot: NonNullable<VideoJobOptions["guidedStory"]>,
+  storyboard: VideoStoryboard,
+): GuidedStoryDialogueReplaySegment[] {
+  validateGuidedStoryDialogueReplayInputs(snapshot, storyboard);
+  const castByRole = new Map(snapshot.cast.map((member) => [member.roleId, member]));
+  return snapshot.script.scenes.flatMap((scene, sceneIndex) => {
+    const approvedScene = storyboard.scenes[sceneIndex]!;
+    const guided = approvedScene.guidedStory!;
+    const previewPath = approvedScene.previewPath!;
+    const backdropPath = guided.visuals.backdropReferencePath!;
+    const backdropFingerprint = guided.visuals.backdropReferenceFingerprint!;
+    return scene.lines.map((line): GuidedStoryDialogueReplaySegment => {
+      const member = line.ownerRoleId === null
+        ? null
+        : castByRole.get(line.ownerRoleId)!;
+      return {
+        sceneId: scene.id,
+        lineId: line.id,
+        kind: line.kind,
+        startMs: line.startMs,
+        endMs: line.endMs,
+        text: line.text,
+        speaker: member
+          ? {
+              type: "role",
+              roleId: member.roleId,
+              identity: {
+                name: member.character.name,
+                characterDescription: member.character.description,
+                outfitDescription: member.outfit?.description ?? null,
+                characterReferencePath:
+                  member.character.referenceImagePath!,
+                outfitReferencePath: member.outfit?.referenceImagePath!,
+              },
+              voice: {
+                provider: "elevenlabs",
+                providerVoiceId: member.voice.providerVoiceId!,
+              },
+            }
+          : { type: "offscreen", roleId: null, voice: null },
+        preview: {
+          path: previewPath,
+          inputFingerprint: guided.inputFingerprint,
+        },
+        backdrop: {
+          path: backdropPath,
+          fingerprint: backdropFingerprint,
+        },
+      };
+    });
+  });
+}
+
 /**
  * Adapts the immutable guided snapshot into the existing storyboard contract.
  * It deliberately does no replanning: scene ids, boundaries, line ownership,

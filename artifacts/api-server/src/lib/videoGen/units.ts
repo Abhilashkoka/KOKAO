@@ -92,6 +92,14 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
  * original operation count from which durable checkpoints are deducted.
  */
 export function videoJobFullUnits(engine: string, options: VideoJobOptions | null): number {
+  if (engine === "dialogue_lip_sync" && options?.guidedStoryDialogueReplay) {
+    // Replay TTS is independently settled. The aggregate reservation covers
+    // exactly one approved-still animation and one lip-sync per owned line.
+    return Math.max(
+      0,
+      Math.trunc(options.guidedStoryDialogueReplay.estimates.units),
+    );
+  }
   if (engine === "topic_to_video" && options?.guidedStory) {
     // One cast-aware approved keyframe plus one image-to-video operation for
     // every immutable script scene. Generated cast references are funded

@@ -12,6 +12,9 @@ import {
   type VideoPriceCriteria,
 } from "@workspace/db";
 import { createHash } from "node:crypto";
+import { mkdtemp, readFile as readLocalFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { getUsage, recordUsage } from "../usage";
@@ -76,7 +79,9 @@ import {
   loopVideoPlateToDuration,
   concatClips,
 } from "./postprocess";
-import { composeCharacterDialogue, probeNarrationWavDurationSec, trimCharacterDialogueClipStrict } from "./characterDialogueCompose";
+import { composeApprovedStillAudioClip, composeCharacterDialogue, probeNarrationWavDurationSec, trimCharacterDialogueClipStrict } from "./characterDialogueCompose";
+import { planAudioFit } from "../localization/dub";
+import { probeDurationSec, runFfmpeg } from "./slideshow";
 import {
   characterDialogueStoryboard,
   lipSyncSourcePlatePrompt,
@@ -1384,6 +1389,40 @@ function hybridCueRanges(board: VideoStoryboard): Array<{ start: number; end: nu
   });
 }
 
+/**
+ * Keep immutable dialogue slots intact without asking a provider to reread or
+ * rewrite approved text.  The localized-dub fit contract permits at most 8%
+ * acceleration, then appends silence; a remaining overrun is terminal.
+ */
+async function fitGuidedReplayWavToSlot(wav: Buffer, targetMs: number): Promise<Buffer> {
+  const actualMs = Math.round((await probeNarrationWavDurationSec(wav)) * 1000);
+  const fit = planAudioFit(actualMs, targetMs);
+  if (fit.overrunMs > 0) {
+    throw new VideoGenProviderError(
+      `Guided Story dialogue exceeds its frozen slot by ${fit.overrunMs}ms after the maximum audio fit.`,
+    );
+  }
+  const dir = await mkdtemp(join(tmpdir(), "kokao-guided-dialogue-fit-"));
+  try {
+    await writeFile(join(dir, "source.wav"), wav);
+    const filters = [
+      ...(fit.tempo === 1 ? [] : [`atempo=${fit.tempo}`]),
+      `apad=pad_dur=${(fit.padMs / 1000).toFixed(3)}`,
+    ];
+    await runFfmpeg([
+      "-y", "-i", "source.wav", "-af", filters.join(","),
+      "-t", (targetMs / 1000).toFixed(3), "-c:a", "pcm_s16le", "fitted.wav",
+    ], dir);
+    const fittedMs = Math.round((await probeDurationSec("fitted.wav", dir) ?? 0) * 1000);
+    if (!fittedMs || Math.abs(fittedMs - targetMs) > 100) {
+      throw new VideoGenProviderError("Guided Story dialogue audio could not be fitted to its frozen slot.");
+    }
+    return await readLocalFile(join(dir, "fitted.wav"));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function produceVideo(
   job: VideoGeneration,
   onStage: (stage: string) => void,
@@ -1619,6 +1658,216 @@ async function produceVideo(
       throw new VideoJobInputError(
         "This job is missing the recorded AI-person likeness consent, so it was not generated.",
       );
+    }
+    const dialogueReplay = options.guidedStoryDialogueReplay;
+    if (dialogueReplay) {
+      if (dialogueReplay.locale !== "te" || dialogueReplay.subtitles !== false || !dialogueReplay.lines.length) {
+        throw new VideoJobInputError("Guided Story dialogue replay has an invalid immutable snapshot.");
+      }
+      if (!job.storyboard) {
+        throw new VideoJobInputError("Guided Story dialogue replay is missing its cloned approved storyboard.");
+      }
+      const replayStoryboard = job.storyboard;
+      const targetDurationSec = dialogueReplay.lines.reduce(
+        (total, line) => total + (line.endMs - line.startMs) / 1000,
+        0,
+      );
+      if (Math.abs(targetDurationSec - dialogueReplay.estimates.durationSeconds) > 0.1) {
+        throw new VideoJobInputError("Guided Story dialogue replay duration no longer matches its frozen lines.");
+      }
+      const checkpoint = job.storyboard?.dialogueReplayCheckpoint;
+      const saved = new Map((checkpoint?.lines ?? []).map((line) => [line.lineId, line]));
+      const replayLines = [...(checkpoint?.lines ?? [])];
+      const events: VideoProviderEvent[] = [];
+      const clips: Buffer[] = [];
+      const save = async (state: NonNullable<typeof checkpoint>["state"], currentLineId: string | null, error: string | null = null) => {
+        const board: VideoStoryboard = {
+          ...replayStoryboard,
+          dialogueReplayCheckpoint: {
+            version: 1, operationId: `guided-dialogue-replay:${job.id}`, state,
+            totalLines: dialogueReplay.lines.length, completedLines: replayLines.filter((line) => Boolean(line.clipPath || line.lipSyncPath)).length,
+            estimates: dialogueReplay.estimates, currentLineId, error,
+            requestedAt: checkpoint?.requestedAt ?? new Date().toISOString(),
+            startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+            finishedAt: state === "succeeded" || state === "failed" ? new Date().toISOString() : null,
+            lines: replayLines,
+          },
+        };
+        await setJob(job.id, { storyboard: board });
+      };
+      try {
+        for (const [index, line] of dialogueReplay.lines.entries()) {
+          const frozenDurationSec = (line.endMs - line.startMs) / 1000;
+          if (frozenDurationSec <= 0) throw new VideoJobInputError(`Guided Story line ${line.lineId} has an invalid frozen duration.`);
+          let receipt = saved.get(line.lineId);
+          if (receipt?.lipSyncPath || receipt?.clipPath) {
+            const path = receipt.lipSyncPath ?? receipt.clipPath!;
+            clips.push((await loadTenantObject(path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved Guided Story line")).buffer);
+            for (const event of [receipt.animationEvent, receipt.lipSyncEvent]) if (event && !event.accounted) events.push(event);
+            continue;
+          }
+          await save("synthesizing", line.lineId);
+          // Each exact snapshot line is deliberately a separate TTS operation.
+          const narration = receipt?.audioPath
+            ? (await loadTenantObject(
+                receipt.audioPath, job.tenantId, MAX_NARRATION_BYTES, "Saved Guided Story line narration",
+              )).buffer
+            : await (async () => {
+                const rawNarration = line.speaker.type === "role"
+                  ? await speakLocalizedBrandVoiceCue({
+                      tenantId: job.tenantId, jobId: job.id, cueIndex: index,
+                      voice: { provider: "elevenlabs", voiceId: line.speaker.voice.providerVoiceId },
+                      text: line.text, modelId: "eleven_v3", languageCode: "te",
+                    })
+                  // The child options retain the source's frozen stock
+                  // narrator selection. Ownerless replay never picks a role.
+                  : (await synthesizeNarration(
+                      [line.text], resolveNarrationVoice(options.voice, "alloy"),
+                    )).wav;
+                return fitGuidedReplayWavToSlot(rawNarration, Math.round(frozenDurationSec * 1000));
+              })();
+          const measuredSec = await probeNarrationWavDurationSec(narration);
+          if (Math.abs(measuredSec - frozenDurationSec) > 0.02) {
+            throw new VideoGenProviderError(`Saved Guided Story line ${line.lineId} audio no longer matches its frozen slot.`);
+          }
+          if (!receipt) {
+            receipt = { lineId: line.lineId, audioPath: await uploadToStorage(job.tenantId, narration, "audio/wav"),
+              durationMs: Math.round(measuredSec * 1000), provider: line.speaker.type === "role" ? "elevenlabs" : "stock",
+              model: line.speaker.type === "role" ? "eleven_v3" : "stock" };
+            replayLines.push(receipt);
+          }
+          await save("composing", line.lineId);
+          const approvedPreview = await loadTenantObject(
+            line.preview.path, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Approved Guided Story preview",
+          );
+          if (!ALLOWED_IMAGE_TYPES.has(approvedPreview.mimeType)) {
+            throw new VideoJobInputError("Approved Guided Story preview is not a supported image.");
+          }
+          const still: SourceImage = { buffer: approvedPreview.buffer, mimeType: approvedPreview.mimeType };
+          if (line.speaker.type === "offscreen") {
+            const clip = await composeApprovedStillAudioClip(still.buffer, narration, frozenDurationSec);
+            receipt.clipPath = await uploadToStorage(job.tenantId, clip, "video/mp4");
+            clips.push(clip);
+            await save("composing", line.lineId);
+            continue;
+          }
+          if (receipt.animationEvent && !receipt.platePath) {
+            throw new VideoGenProviderError(
+              `Guided Story line ${line.lineId} has an animation receipt without a saved plate; provider outcome is unknown.`,
+            );
+          }
+          if (receipt.lipSyncEvent && !receipt.lipSyncPath) {
+            throw new VideoGenProviderError(
+              `Guided Story line ${line.lineId} has a lip-sync receipt without saved output; provider outcome is unknown.`,
+            );
+          }
+          // Animate the approved preview only; this is image-to-video, never image generation.
+          let plate: Buffer;
+          let animationEvent: VideoProviderEvent;
+          if (receipt.platePath) {
+            plate = (await loadTenantObject(
+              receipt.platePath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved Guided Story animation plate",
+            )).buffer;
+            animationEvent = receipt.animationEvent!;
+          } else {
+            const permittedDurations = options.resolvedVideoModel?.permittedDurationSec ?? [];
+            const animationDurationSec = permittedDurations
+              .filter((duration) => duration >= frozenDurationSec)
+              .sort((a, b) => a - b)[0] ?? model.durationSec;
+            if (animationDurationSec < frozenDurationSec) {
+              throw new VideoJobInputError(`No frozen image-to-video duration can cover Guided Story line ${line.lineId}.`);
+            }
+            const animationModel = { ...model, durationSec: animationDurationSec };
+            const identity = line.speaker.identity;
+            const speakerPrompt = [
+              "Animate this exact approved composition without reframing, replacing, or moving any character.",
+              `Only ${identity.name} (${line.speaker.roleId}) is the active speaker for this shot.`,
+              `Match the approved identity exactly: ${identity.characterDescription}.`,
+              identity.outfitDescription
+                ? `Keep the approved outfit unchanged: ${identity.outfitDescription}.`
+                : null,
+              "The active speaker makes natural speech mouth movements while every other visible character remains silent with lips closed and face stable.",
+              "Keep the backdrop, camera, lighting, body positions, and all non-speaking faces stable. Do not add text or subtitles.",
+            ].filter((part): part is string => Boolean(part)).join(" ");
+            const animated = await generateVideo({
+              mode: "image",
+              prompt: speakerPrompt,
+              aspectRatio,
+              image: still,
+              ...animationModel,
+            });
+            const animatedDurationSec = (await verifyRenderedVideo(animated.buffer, {
+              minDurationSec: 0.1, label: "Guided Story approved-preview animation",
+            })).durationSec;
+            animationEvent = {
+              eventId: videoProviderEventId(job, `guided_animation:${line.lineId}`), provider: animated.provider, model: animated.model,
+              durationSec: animatedDurationSec, requestBytes: 0, label: `guided_animation:${line.lineId}`,
+              criteria: jobVideoPriceCriteria(job), costPaise: await computeVideoCostPaise({
+                provider: animated.provider, model: animated.model, durationSec: animatedDurationSec,
+                variantCriteria: jobVideoPriceCriteria(job),
+              }).catch(() => null),
+            };
+            receipt.animationEvent = animationEvent;
+            await save("composing", line.lineId);
+            plate = animated.buffer;
+            receipt.platePath = await uploadToStorage(job.tenantId, plate, "video/mp4");
+          }
+          await save("composing", line.lineId);
+          const synced = await generateLipSyncWithReplicate({
+            source: { buffer: await loopVideoPlateToDuration(plate, frozenDurationSec), mimeType: "video/mp4" },
+            // Replay plates deliberately animate only the approved owner. Sync
+            // Lipsync 2 then uses its active-speaker detection to select that
+            // moving face in multi-character frames. LatentSync has no such
+            // selector and is never safe for this replay mode.
+            audio: { buffer: narration, mimeType: "audio/wav" }, def: SYNC_LIPSYNC_2,
+          }, (await (async () => { const def = getVideoGenProviderDef("replicate"); return def ? resolveVideoGenApiKey(def) : null; })()));
+          const syncedDurationSec = (await verifyRenderedVideo(synced.buffer, {
+            minDurationSec: 0.1, label: "Guided Story lip-sync provider output",
+          })).durationSec;
+          receipt.lipSyncEvent = {
+            eventId: videoProviderEventId(job, `guided_lip_sync:${line.lineId}`), provider: synced.provider, model: synced.model,
+            durationSec: syncedDurationSec, requestBytes: narration.length, label: `guided_lip_sync:${line.lineId}`,
+            criteria: videoPriceCriteria({ hasReferenceVideo: true }), costPaise: await computeVideoCostPaise({
+              provider: synced.provider, model: synced.model, durationSec: syncedDurationSec,
+              variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
+            }).catch(() => null),
+          };
+          // The lip-sync receipt follows the same fail-closed ordering.
+          await save("composing", line.lineId);
+          const clip = await trimCharacterDialogueClipStrict(await normalizeVideo(synced.buffer, aspectRatio), frozenDurationSec, narration);
+          receipt.lipSyncPath = await uploadToStorage(job.tenantId, clip, "video/mp4");
+          clips.push(clip);
+          events.push(animationEvent, receipt.lipSyncEvent);
+          await save("composing", line.lineId);
+        }
+        const joined = await concatClips(clips);
+        const music = await resolveMusic(job, options, targetDurationSec, onStage);
+        const buffer = music ? await mixMusicIntoVideo(joined, music) : joined;
+        await save("succeeded", null);
+        return { buffer, provider: null, model: null, providerEvents: events,
+          qa: { expectedDurationSec: targetDurationSec, expectAudio: true, label: "Guided Story dialogue replay" } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await save(
+          /provider outcome is unknown/i.test(message) ? "outcome_unknown" : "failed",
+          null,
+          message,
+        );
+        const completed = replayLines.flatMap((line) =>
+          [line.animationEvent, line.lipSyncEvent].filter(
+            (event): event is VideoProviderEvent => Boolean(event && !event.accounted),
+          ),
+        );
+        const labels = new Set<string>();
+        throw new PartialVideoProviderWorkError(
+          events.concat(completed).filter((event) => {
+            if (labels.has(event.label)) return false;
+            labels.add(event.label);
+            return true;
+          }),
+          error,
+        );
+      }
     }
     const visualPrompt = job.prompt?.trim();
     if (!visualPrompt) throw new VideoJobInputError("No AI-person visual prompt provided.");
@@ -5296,12 +5545,14 @@ async function executeVideoJob(
     completedProviderEvents = [
       ...completedProviderEvents,
       ...durableCheckpointEvents(currentCheckpointRow?.options),
-      ...(currentCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
+      ...(job.options?.guidedStoryDialogueReplay
+        ? []
+        : currentCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
           [
             ...(scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : []),
             ...previewCheckpointEvents(scene.previewCheckpoint),
           ],
-      ) ?? []),
+        ) ?? []),
     ].filter((event, index, all) =>
       all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
     );
@@ -5621,12 +5872,14 @@ async function executeVideoJob(
     const partialEvents: VideoProviderEvent[] = [
       ...(partialWork ? partialWork.providerEvents : completedProviderEvents),
       ...durableCheckpointEvents(latestCheckpointRow?.options),
-      ...(latestCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
+      ...(job.options?.guidedStoryDialogueReplay
+        ? []
+        : latestCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
           [
             ...(scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : []),
             ...previewCheckpointEvents(scene.previewCheckpoint),
           ],
-      ) ?? []),
+        ) ?? []),
     ].filter((event, index, all) =>
       all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
     );
@@ -5722,6 +5975,24 @@ async function executeVideoJob(
         }
         if (failedStoryboard) {
           failedStoryboard = structuredClone(failedStoryboard);
+          if (failedStoryboard.dialogueReplayCheckpoint) {
+            for (const line of Object.values(
+              failedStoryboard.dialogueReplayCheckpoint.lines,
+            )) {
+              if (
+                line.animationEvent &&
+                labels.has(line.animationEvent.label)
+              ) {
+                line.animationEvent.accounted = true;
+              }
+              if (
+                line.lipSyncEvent &&
+                labels.has(line.lipSyncEvent.label)
+              ) {
+                line.lipSyncEvent.accounted = true;
+              }
+            }
+          }
           for (const scene of failedStoryboard.scenes) {
             const event = scene.providerCheckpoint?.event;
             if (event && labels.has(event.label)) event.accounted = true;

@@ -5025,6 +5025,1338 @@ export interface GuidedStoryReferenceOperation {
   finalizedAt: string | null;
 }
 
+/**
+ * Intentionally empty. Locale, text, timing, visuals, and role voices are all read from the completed source job's immutable approved snapshot.
+ */
+export interface GuidedStoryDialogueReplayPreviewRequest { [key: string]: unknown }
+
+export type GuidedStoryDialogueReplaySpeaker = {
+  type: 'role';
+  roleId: string;
+  identity: {
+  name: string;
+  characterDescription: string;
+  /** @nullable */
+  outfitDescription: string | null;
+  characterReferencePath: string;
+  outfitReferencePath: string;
+};
+  voice: {
+  provider: 'elevenlabs';
+  /** @minLength 1 */
+  providerVoiceId: string;
+};
+} | {
+  type: 'offscreen';
+  /** @nullable */
+  roleId: null;
+  /** @nullable */
+  voice: null;
+};
+
+export type GuidedStoryDialogueReplayLineKind = typeof GuidedStoryDialogueReplayLineKind[keyof typeof GuidedStoryDialogueReplayLineKind];
+
+
+export const GuidedStoryDialogueReplayLineKind = {
+  dialogue: 'dialogue',
+  narration: 'narration',
+} as const;
+
+export type GuidedStoryDialogueReplayLinePreview = {
+  path: string;
+  inputFingerprint: string;
+};
+
+export type GuidedStoryDialogueReplayLineBackdrop = {
+  path: string;
+  fingerprint: string;
+};
+
+export interface GuidedStoryDialogueReplayLine {
+  sceneId: string;
+  lineId: string;
+  kind: GuidedStoryDialogueReplayLineKind;
+  /** Exact approved Telugu source text; it is never translated or rewritten. */
+  text: string;
+  /** @minimum 0 */
+  startMs: number;
+  /** @minimum 1 */
+  endMs: number;
+  speaker: GuidedStoryDialogueReplaySpeaker;
+  preview: GuidedStoryDialogueReplayLinePreview;
+  backdrop: GuidedStoryDialogueReplayLineBackdrop;
+}
+
+export interface GuidedStoryDialogueReplayEstimate {
+  /** @minimum 1 */
+  lineCount: number;
+  /** @minimum 0 */
+  durationSeconds: number;
+  /**
+     * Estimated product units reserved on confirmation.
+     * @minimum 0
+     */
+  units: number;
+}
+
+export interface GuidedStoryDialogueReplayPreview {
+  version: 1;
+  sourceJobId: number;
+  /** Hash of the immutable source review material, not mutable draft state. */
+  sourceStoryboardFingerprint: string;
+  locale: 'te';
+  subtitles: false;
+  /** @minItems 1 */
+  lines: GuidedStoryDialogueReplayLine[];
+  estimates: GuidedStoryDialogueReplayEstimate;
+  /** Binds confirmation to this source, line order, timing, and voice resolution. */
+  confirmationFingerprint: string;
+}
+
+export interface GuidedStoryDialogueReplayConfirmRequest {
+  /**
+     * Exact fingerprint returned by preview. The server reconstructs and verifies the source snapshot instead of trusting replay material resubmitted by the client.
+     * @minLength 1
+     */
+  confirmationFingerprint: string;
+  /**
+     * Stable client key preventing duplicate replay children.
+     * @minLength 8
+     * @maxLength 200
+     */
+  idempotencyKey: string;
+}
+
+export interface GuidedStoryDialogueReplaySnapshot {
+  version: 1;
+  sourceJobId: number;
+  sourceStoryboardFingerprint: string;
+  locale: 'te';
+  subtitles: false;
+  confirmedAt: string;
+  /** @minItems 1 */
+  lines: GuidedStoryDialogueReplayLine[];
+  estimates: GuidedStoryDialogueReplayEstimate;
+}
+
+export interface GuidedStoryDialogueReplayLineCheckpoint {
+  lineId: string;
+  audioPath: string;
+  /** @minimum 0 */
+  durationMs: number;
+  provider: string;
+  model: string;
+  eventId?: string;
+}
+
+export type GuidedStoryDialogueReplayOperationState = typeof GuidedStoryDialogueReplayOperationState[keyof typeof GuidedStoryDialogueReplayOperationState];
+
+
+export const GuidedStoryDialogueReplayOperationState = {
+  queued: 'queued',
+  synthesizing: 'synthesizing',
+  composing: 'composing',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export interface GuidedStoryDialogueReplayOperation {
+  version: 1;
+  operationId: string;
+  state: GuidedStoryDialogueReplayOperationState;
+  estimates: GuidedStoryDialogueReplayEstimate;
+  /** @minimum 1 */
+  totalLines: number;
+  /** @minimum 0 */
+  completedLines: number;
+  /** @nullable */
+  currentLineId: string | null;
+  /** @nullable */
+  error: string | null;
+  requestedAt: string;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  finishedAt: string | null;
+}
+
+export type GuidedStoryDialogueReplayCheckpoint = GuidedStoryDialogueReplayOperation & {
+  lines: GuidedStoryDialogueReplayLineCheckpoint[];
+};
+
+export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
+
+
+export const VideoJobEngine = {
+  text_to_video: 'text_to_video',
+  image_to_video: 'image_to_video',
+  slideshow: 'slideshow',
+  topic_to_video: 'topic_to_video',
+  lip_sync: 'lip_sync',
+  dialogue_lip_sync: 'dialogue_lip_sync',
+  localized_dub: 'localized_dub',
+} as const;
+
+/**
+ * awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.
+ */
+export type VideoJobStatus = typeof VideoJobStatus[keyof typeof VideoJobStatus];
+
+
+export const VideoJobStatus = {
+  queued: 'queued',
+  processing: 'processing',
+  awaiting_review: 'awaiting_review',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export type VideoJobGuidedReferenceContextOperationsKind = typeof VideoJobGuidedReferenceContextOperationsKind[keyof typeof VideoJobGuidedReferenceContextOperationsKind];
+
+
+export const VideoJobGuidedReferenceContextOperationsKind = {
+  character: 'character',
+  outfit: 'outfit',
+} as const;
+
+export type VideoJobGuidedReferenceContextOperationsState = typeof VideoJobGuidedReferenceContextOperationsState[keyof typeof VideoJobGuidedReferenceContextOperationsState];
+
+
+export const VideoJobGuidedReferenceContextOperationsState = {
+  queued: 'queued',
+  running: 'running',
+  ready_to_review: 'ready_to_review',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export type VideoJobResolvedVideoModelSource = typeof VideoJobResolvedVideoModelSource[keyof typeof VideoJobResolvedVideoModelSource];
+
+
+export const VideoJobResolvedVideoModelSource = {
+  explicit: 'explicit',
+  default: 'default',
+} as const;
+
+export type VideoJobResolvedVideoModelMode = typeof VideoJobResolvedVideoModelMode[keyof typeof VideoJobResolvedVideoModelMode];
+
+
+export const VideoJobResolvedVideoModelMode = {
+  text: 'text',
+  image: 'image',
+} as const;
+
+/**
+ * Composite scenes use nearest; equal-distance ties choose the shorter duration.
+ */
+export type VideoJobResolvedVideoModelDurationPolicy = typeof VideoJobResolvedVideoModelDurationPolicy[keyof typeof VideoJobResolvedVideoModelDurationPolicy];
+
+
+export const VideoJobResolvedVideoModelDurationPolicy = {
+  exact: 'exact',
+  nearest: 'nearest',
+} as const;
+
+export type VideoJobErrorHistoryItemScope = typeof VideoJobErrorHistoryItemScope[keyof typeof VideoJobErrorHistoryItemScope];
+
+
+export const VideoJobErrorHistoryItemScope = {
+  scene: 'scene',
+  job: 'job',
+} as const;
+
+export type VideoJobErrorHistoryItemOutcome = typeof VideoJobErrorHistoryItemOutcome[keyof typeof VideoJobErrorHistoryItemOutcome];
+
+
+export const VideoJobErrorHistoryItemOutcome = {
+  continued: 'continued',
+  stopped: 'stopped',
+  not_attempted: 'not_attempted',
+} as const;
+
+/**
+ * Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.
+ */
+export type VideoJobRecoveryMode = typeof VideoJobRecoveryMode[keyof typeof VideoJobRecoveryMode];
+
+
+export const VideoJobRecoveryMode = {
+  resume: 'resume',
+  saved_inputs: 'saved_inputs',
+} as const;
+
+export type VideoJobFreshRestartVersion = typeof VideoJobFreshRestartVersion[keyof typeof VideoJobFreshRestartVersion];
+
+
+export const VideoJobFreshRestartVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type VideoJobPrivacyRecoveryCapabilityCode = typeof VideoJobPrivacyRecoveryCapabilityCode[keyof typeof VideoJobPrivacyRecoveryCapabilityCode];
+
+
+export const VideoJobPrivacyRecoveryCapabilityCode = {
+  InputImageSensitiveContentDetectedPrivacyInformation: 'InputImageSensitiveContentDetected.PrivacyInformation',
+} as const;
+
+export type VideoJobRepairReason = typeof VideoJobRepairReason[keyof typeof VideoJobRepairReason];
+
+
+export const VideoJobRepairReason = {
+  narration: 'narration',
+  music: 'music',
+  captions: 'captions',
+  scene_timing: 'scene_timing',
+  audio_visual: 'audio_visual',
+} as const;
+
+export type VideoJobGuidedPreviewRenderVersion = typeof VideoJobGuidedPreviewRenderVersion[keyof typeof VideoJobGuidedPreviewRenderVersion];
+
+
+export const VideoJobGuidedPreviewRenderVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type VideoJobGuidedPreviewRenderState = typeof VideoJobGuidedPreviewRenderState[keyof typeof VideoJobGuidedPreviewRenderState];
+
+
+export const VideoJobGuidedPreviewRenderState = {
+  queued: 'queued',
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+export type VideoStoryboardVersion = typeof VideoStoryboardVersion[keyof typeof VideoStoryboardVersion];
+
+
+export const VideoStoryboardVersion = {
+  NUMBER_1: 1,
+} as const;
+
+/**
+ * Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.
+ */
+export type VideoStoryboardMode = typeof VideoStoryboardMode[keyof typeof VideoStoryboardMode];
+
+
+export const VideoStoryboardMode = {
+  standard: 'standard',
+  character_story: 'character_story',
+  guided_story: 'guided_story',
+  hybrid_character_story: 'hybrid_character_story',
+  character_dialogue: 'character_dialogue',
+  presenter_broll: 'presenter_broll',
+} as const;
+
+/**
+ * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
+ */
+export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
+
+
+export const VideoStoryboardVisualsSource = {
+  character: 'character',
+  ai: 'ai',
+  ai_video: 'ai_video',
+  prompt: 'prompt',
+  photo: 'photo',
+  slide: 'slide',
+} as const;
+
+export type VideoStoryboardSceneGuidedStoryLineOwnershipItemKind = typeof VideoStoryboardSceneGuidedStoryLineOwnershipItemKind[keyof typeof VideoStoryboardSceneGuidedStoryLineOwnershipItemKind];
+
+
+export const VideoStoryboardSceneGuidedStoryLineOwnershipItemKind = {
+  dialogue: 'dialogue',
+  narration: 'narration',
+} as const;
+
+export type VideoStoryboardSceneGuidedStoryCastItemSource = typeof VideoStoryboardSceneGuidedStoryCastItemSource[keyof typeof VideoStoryboardSceneGuidedStoryCastItemSource];
+
+
+export const VideoStoryboardSceneGuidedStoryCastItemSource = {
+  saved: 'saved',
+  generated: 'generated',
+} as const;
+
+export type VideoStoryboardSceneGuidedStoryVisualsLocationMode = typeof VideoStoryboardSceneGuidedStoryVisualsLocationMode[keyof typeof VideoStoryboardSceneGuidedStoryVisualsLocationMode];
+
+
+export const VideoStoryboardSceneGuidedStoryVisualsLocationMode = {
+  none: 'none',
+  image: 'image',
+  text: 'text',
+} as const;
+
+export type VideoStoryboardSceneGuidedStoryCorrectionsVersion = typeof VideoStoryboardSceneGuidedStoryCorrectionsVersion[keyof typeof VideoStoryboardSceneGuidedStoryCorrectionsVersion];
+
+
+export const VideoStoryboardSceneGuidedStoryCorrectionsVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type GuidedSceneCorrectionAttemptCategory = typeof GuidedSceneCorrectionAttemptCategory[keyof typeof GuidedSceneCorrectionAttemptCategory];
+
+
+export const GuidedSceneCorrectionAttemptCategory = {
+  character: 'character',
+  costume: 'costume',
+  location: 'location',
+  logo: 'logo',
+  other: 'other',
+} as const;
+
+export type GuidedSceneCorrectionAttemptState = typeof GuidedSceneCorrectionAttemptState[keyof typeof GuidedSceneCorrectionAttemptState];
+
+
+export const GuidedSceneCorrectionAttemptState = {
+  queued: 'queued',
+  running: 'running',
+  provider_started: 'provider_started',
+  provider_succeeded: 'provider_succeeded',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export type GuidedSceneCorrectionAttemptFunding = typeof GuidedSceneCorrectionAttemptFunding[keyof typeof GuidedSceneCorrectionAttemptFunding];
+
+
+export const GuidedSceneCorrectionAttemptFunding = {
+  quota: 'quota',
+  credit: 'credit',
+  wallet: 'wallet',
+} as const;
+
+/**
+ * @nullable
+ */
+export type GuidedSceneCorrectionAttemptWalletReservation = {
+  id: number;
+  amountPaise: number;
+  units: number;
+} | null;
+
+export interface GuidedSceneCorrectionAttempt {
+  id: string;
+  /** @minimum 1 */
+  version: number;
+  category: GuidedSceneCorrectionAttemptCategory;
+  note: string;
+  state: GuidedSceneCorrectionAttemptState;
+  inputFingerprint: string;
+  originalPreviewPath: string;
+  /** @nullable */
+  replacementPath: string | null;
+  funding: GuidedSceneCorrectionAttemptFunding;
+  /** @nullable */
+  walletReservation?: GuidedSceneCorrectionAttemptWalletReservation;
+  /** @nullable */
+  walletOperationId?: number | null;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  knownCostPaise: number | null;
+  /** @nullable */
+  actualCostPaise: number | null;
+  /** @nullable */
+  error: string | null;
+  requestedAt: string;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  finishedAt: string | null;
+}
+
+/**
+ * Hybrid storyboard render type: a lip-synced character beat or story animation.
+ * @nullable
+ */
+export type VideoStoryboardSceneBeatType = typeof VideoStoryboardSceneBeatType[keyof typeof VideoStoryboardSceneBeatType] | null;
+
+
+export const VideoStoryboardSceneBeatType = {
+  character_speaking: 'character_speaking',
+  story_animation: 'story_animation',
+} as const;
+
+/**
+ * Immutable hybrid template role used to enforce opening/closing and beat order.
+ * @nullable
+ */
+export type VideoStoryboardSceneHybridRole = typeof VideoStoryboardSceneHybridRole[keyof typeof VideoStoryboardSceneHybridRole] | null;
+
+
+export const VideoStoryboardSceneHybridRole = {
+  character_opening: 'character_opening',
+  story_animation: 'story_animation',
+  character_interlude: 'character_interlude',
+  character_closing: 'character_closing',
+} as const;
+
+export type VideoStoryboardPreviewCheckpointStatus = typeof VideoStoryboardPreviewCheckpointStatus[keyof typeof VideoStoryboardPreviewCheckpointStatus];
+
+
+export const VideoStoryboardPreviewCheckpointStatus = {
+  prepared: 'prepared',
+  provider_started: 'provider_started',
+  provider_succeeded: 'provider_succeeded',
+  complete: 'complete',
+} as const;
+
+export interface VideoProviderEventReceipt {
+  eventId?: string;
+  provider: string;
+  model: string;
+  /** @nullable */
+  durationSec: number | null;
+  requestBytes: number;
+  label: string;
+  /** @nullable */
+  costPaise: number | null;
+  accounted?: boolean;
+  unitWeight?: number;
+}
+
+export interface VideoStoryboardPreviewCheckpoint {
+  targetPath: string;
+  status: VideoStoryboardPreviewCheckpointStatus;
+  selectedEventId?: string;
+  events?: VideoProviderEventReceipt[];
+  /** Legacy single-attempt provider receipt. */
+  event?: VideoProviderEventReceipt;
+}
+
+export type VideoStoryboardSceneGuidedStoryLineOwnershipItem = {
+  lineId: string;
+  /** @nullable */
+  ownerRoleId: string | null;
+  kind: VideoStoryboardSceneGuidedStoryLineOwnershipItemKind;
+  startMs: number;
+  endMs: number;
+};
+
+export type VideoStoryboardSceneGuidedStoryCastItem = {
+  roleId: string;
+  characterName: string;
+  source: VideoStoryboardSceneGuidedStoryCastItemSource;
+  /** @nullable */
+  characterId: number | null;
+  /** @nullable */
+  outfitId: number | null;
+  /** @nullable */
+  referenceImagePath: string | null;
+  /** @nullable */
+  outfitReferenceImagePath: string | null;
+  voiceProvider: string;
+  /** @nullable */
+  providerVoiceId: string | null;
+};
+
+export type VideoStoryboardSceneGuidedStoryVisuals = {
+  /** @nullable */
+  logoPath: string | null;
+  locationMode: VideoStoryboardSceneGuidedStoryVisualsLocationMode;
+  /** @nullable */
+  locationImagePath: string | null;
+  /** @nullable */
+  locationDescription: string | null;
+};
+
+export type VideoStoryboardSceneGuidedStoryCorrections = {
+  version: VideoStoryboardSceneGuidedStoryCorrectionsVersion;
+  attempts: GuidedSceneCorrectionAttempt[];
+};
+
+/**
+ * Immutable role/cast mapping and scene reuse identity for Guided Story review.
+ * @nullable
+ */
+export type VideoStoryboardSceneGuidedStory = {
+  scriptSceneId: string;
+  startMs: number;
+  endMs: number;
+  roleIds: string[];
+  lineOwnership: VideoStoryboardSceneGuidedStoryLineOwnershipItem[];
+  cast: VideoStoryboardSceneGuidedStoryCastItem[];
+  inconsistencyFlags: string[];
+  inputFingerprint: string;
+  visuals: VideoStoryboardSceneGuidedStoryVisuals;
+  corrections?: VideoStoryboardSceneGuidedStoryCorrections;
+} | null;
+
+export interface VideoStoryboardScene {
+  /**
+     * Immutable role/cast mapping and scene reuse identity for Guided Story review.
+     * @nullable
+     */
+  guidedStory?: VideoStoryboardSceneGuidedStory;
+  /**
+     * Hybrid storyboard render type: a lip-synced character beat or story animation.
+     * @nullable
+     */
+  beatType?: VideoStoryboardSceneBeatType;
+  /**
+     * Immutable hybrid template role used to enforce opening/closing and beat order.
+     * @nullable
+     */
+  hybridRole?: VideoStoryboardSceneHybridRole;
+  /**
+     * Immutable source position in the hybrid beat pattern.
+     * @nullable
+     */
+  patternIndex?: number | null;
+  /** Stable scene address for edits ("s1", "s2", ...). */
+  id: string;
+  /** The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script. */
+  text: string;
+  /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
+  visual: string;
+  /**
+     * Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent/null when the selected workflow has no supporting B-roll layer.
+     * @nullable
+     */
+  brollVisual?: string | null;
+  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
+  durationSec: number;
+  /**
+     * /objects/... preview still; serve via /api/storage{previewPath}. Null when the preview failed to store, and on "prompt" plans, which generate no still at all. On "photo" and "slide" plans this is the user's own uploaded photo.
+     * @nullable
+     */
+  previewPath: string | null;
+  /** Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry. */
+  previewCheckpoint?: VideoStoryboardPreviewCheckpoint;
+  /**
+     * Character mode; the outfit worn in this scene.
+     * @nullable
+     */
+  outfitId: number | null;
+  /**
+     * "prompt" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent/null when no polish was stored (older jobs, or plans that render `visual` as approved).
+     * @nullable
+     */
+  renderVisual?: string | null;
+  /**
+     * Camera move for THIS shot, overriding the job's. Absent/null means the shot inherits the job's motionPreset. Only meaningful on plans that run an AI model — a "slide" scene ignores it.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent/null means the shot inherits the job's seed.
+     * @nullable
+     */
+  seed?: number | null;
+}
+
+/**
+ * Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).
+ */
+export type VideoStoryboardAiPlanFlow = typeof VideoStoryboardAiPlanFlow[keyof typeof VideoStoryboardAiPlanFlow];
+
+
+export const VideoStoryboardAiPlanFlow = {
+  broll: 'broll',
+  character: 'character',
+} as const;
+
+/**
+ * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
+ * @nullable
+ */
+export type VideoStoryboardDurationBounds = {
+  minSec: number;
+  maxSec: number;
+} | null;
+
+export type VideoStoryboardNarrationCuesItem = {
+  text: string;
+  startSec: number;
+  endSec: number;
+};
+
+/**
+ * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
+ * @nullable
+ */
+export type VideoStoryboardNarration = {
+  audioPath: string;
+  totalDurationSec: number;
+  /** Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them. */
+  cues: VideoStoryboardNarrationCuesItem[];
+} | null;
+
+/**
+ * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.
+ * @nullable
+ */
+export type VideoStoryboardAiPlan = {
+  /** Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}). */
+  flow: VideoStoryboardAiPlanFlow;
+  raw: unknown;
+  capturedAt: string;
+} | null;
+
+export interface VideoStoryboard {
+  version: VideoStoryboardVersion;
+  /** Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards. */
+  mode?: VideoStoryboardMode;
+  /** True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed. */
+  presenterBroll?: boolean;
+  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
+  visualsSource: VideoStoryboardVisualsSource;
+  /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
+  timelineLocked: boolean;
+  /**
+     * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
+     * @nullable
+     */
+  durationBounds?: VideoStoryboardDurationBounds;
+  /** @nullable */
+  model?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  /** Preview regenerations spent so far; capped server-side. */
+  regenerations: number;
+  /**
+     * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
+     * @nullable
+     */
+  narration: VideoStoryboardNarration;
+  /** Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs. */
+  dialogueReplayCheckpoint?: null | GuidedStoryDialogueReplayCheckpoint;
+  scenes: VideoStoryboardScene[];
+  /**
+     * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.
+     * @nullable
+     */
+  aiPlan?: VideoStoryboardAiPlan;
+}
+
+export type CreativeDirectionNarrativeHookStyle = typeof CreativeDirectionNarrativeHookStyle[keyof typeof CreativeDirectionNarrativeHookStyle];
+
+
+export const CreativeDirectionNarrativeHookStyle = {
+  direct_claim: 'direct_claim',
+  question: 'question',
+  problem_first: 'problem_first',
+  demonstration: 'demonstration',
+  myth_bust: 'myth_bust',
+  story: 'story',
+} as const;
+
+export type CreativeDirectionNarrativeTone = typeof CreativeDirectionNarrativeTone[keyof typeof CreativeDirectionNarrativeTone];
+
+
+export const CreativeDirectionNarrativeTone = {
+  authoritative: 'authoritative',
+  conversational: 'conversational',
+  warm: 'warm',
+  playful: 'playful',
+  urgent: 'urgent',
+  inspirational: 'inspirational',
+  skeptical: 'skeptical',
+} as const;
+
+export type CreativeDirectionNarrativePacing = typeof CreativeDirectionNarrativePacing[keyof typeof CreativeDirectionNarrativePacing];
+
+
+export const CreativeDirectionNarrativePacing = {
+  slow: 'slow',
+  measured: 'measured',
+  brisk: 'brisk',
+  rapid: 'rapid',
+} as const;
+
+export type CreativeDirectionNarrativeCtaStyle = typeof CreativeDirectionNarrativeCtaStyle[keyof typeof CreativeDirectionNarrativeCtaStyle];
+
+
+export const CreativeDirectionNarrativeCtaStyle = {
+  none: 'none',
+  soft: 'soft',
+  direct: 'direct',
+} as const;
+
+export type CreativeDirectionEvidenceRuleKind = typeof CreativeDirectionEvidenceRuleKind[keyof typeof CreativeDirectionEvidenceRuleKind];
+
+
+export const CreativeDirectionEvidenceRuleKind = {
+  demonstration: 'demonstration',
+  example: 'example',
+  source: 'source',
+  data: 'data',
+  qualification: 'qualification',
+} as const;
+
+export interface CreativeDirectionEvidenceRule {
+  kind: CreativeDirectionEvidenceRuleKind;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  instruction: string;
+}
+
+export interface CreativeDirectionNarrative {
+  hookStyle?: CreativeDirectionNarrativeHookStyle;
+  tone?: CreativeDirectionNarrativeTone;
+  pacing?: CreativeDirectionNarrativePacing;
+  ctaStyle?: CreativeDirectionNarrativeCtaStyle;
+  /**
+     * @minLength 1
+     * @maxLength 800
+     */
+  guidance?: string;
+  /**
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  requiredVocabulary?: string[];
+  /**
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  forbiddenVocabulary?: string[];
+  /** @maxItems 8 */
+  evidenceRules?: CreativeDirectionEvidenceRule[];
+}
+
+export interface CreativeDirectionSceneCount {
+  /**
+     * @minimum 1
+     * @maximum 31
+     */
+  min: number;
+  /**
+     * @minimum 1
+     * @maximum 31
+     */
+  max: number;
+}
+
+export type CreativeDirectionBeatPurpose = typeof CreativeDirectionBeatPurpose[keyof typeof CreativeDirectionBeatPurpose];
+
+
+export const CreativeDirectionBeatPurpose = {
+  hook: 'hook',
+  context: 'context',
+  problem: 'problem',
+  demonstration: 'demonstration',
+  evidence: 'evidence',
+  solution: 'solution',
+  payoff: 'payoff',
+  cta: 'cta',
+} as const;
+
+export interface CreativeDirectionBeat {
+  purpose: CreativeDirectionBeatPurpose;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  instruction: string;
+  /**
+     * @maximum 10
+     * @exclusiveMinimum 0
+     */
+  weight?: number;
+}
+
+export interface CreativeDirectionStructure {
+  sceneCount?: CreativeDirectionSceneCount;
+  /** @maxItems 12 */
+  beats?: CreativeDirectionBeat[];
+}
+
+export type CreativeDirectionVisualStyle = typeof CreativeDirectionVisualStyle[keyof typeof CreativeDirectionVisualStyle];
+
+
+export const CreativeDirectionVisualStyle = {
+  documentary: 'documentary',
+  editorial: 'editorial',
+  cinematic: 'cinematic',
+  commercial: 'commercial',
+  graphic: 'graphic',
+  natural: 'natural',
+} as const;
+
+export type CreativeDirectionVisualLighting = typeof CreativeDirectionVisualLighting[keyof typeof CreativeDirectionVisualLighting];
+
+
+export const CreativeDirectionVisualLighting = {
+  natural: 'natural',
+  soft: 'soft',
+  high_key: 'high_key',
+  low_key: 'low_key',
+  dramatic: 'dramatic',
+} as const;
+
+export type CreativeDirectionVisualColorGrade = typeof CreativeDirectionVisualColorGrade[keyof typeof CreativeDirectionVisualColorGrade];
+
+
+export const CreativeDirectionVisualColorGrade = {
+  natural: 'natural',
+  warm: 'warm',
+  cool: 'cool',
+  vibrant: 'vibrant',
+  muted: 'muted',
+  high_contrast: 'high_contrast',
+} as const;
+
+export type CreativeDirectionVisualComposition = typeof CreativeDirectionVisualComposition[keyof typeof CreativeDirectionVisualComposition];
+
+
+export const CreativeDirectionVisualComposition = {
+  centered: 'centered',
+  left_aligned: 'left_aligned',
+  rule_of_thirds: 'rule_of_thirds',
+  close_detail: 'close_detail',
+  wide_context: 'wide_context',
+  presenter_overlay: 'presenter_overlay',
+} as const;
+
+export type CreativeDirectionVisualMotion = typeof CreativeDirectionVisualMotion[keyof typeof CreativeDirectionVisualMotion];
+
+
+export const CreativeDirectionVisualMotion = {
+  locked: 'locked',
+  subtle: 'subtle',
+  handheld: 'handheld',
+  dynamic: 'dynamic',
+} as const;
+
+export interface CreativeDirectionVisual {
+  style?: CreativeDirectionVisualStyle;
+  lighting?: CreativeDirectionVisualLighting;
+  colorGrade?: CreativeDirectionVisualColorGrade;
+  composition?: CreativeDirectionVisualComposition;
+  motion?: CreativeDirectionVisualMotion;
+  /**
+     * @maxItems 9
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  palette?: string[];
+  /**
+     * @maxItems 16
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  negativeTerms?: string[];
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  subjectRule?: string;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  stockQueryGuidance?: string;
+}
+
+export type CreativeDirectionSonicMood = typeof CreativeDirectionSonicMood[keyof typeof CreativeDirectionSonicMood];
+
+
+export const CreativeDirectionSonicMood = {
+  none: 'none',
+  calm: 'calm',
+  optimistic: 'optimistic',
+  playful: 'playful',
+  dramatic: 'dramatic',
+  tense: 'tense',
+} as const;
+
+export type CreativeDirectionSonicRhythm = typeof CreativeDirectionSonicRhythm[keyof typeof CreativeDirectionSonicRhythm];
+
+
+export const CreativeDirectionSonicRhythm = {
+  minimal: 'minimal',
+  sparse: 'sparse',
+  steady: 'steady',
+  driving: 'driving',
+} as const;
+
+export interface CreativeDirectionSonic {
+  mood?: CreativeDirectionSonicMood;
+  /**
+     * @minimum 1
+     * @maximum 5
+     */
+  energy?: number;
+  rhythm?: CreativeDirectionSonicRhythm;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  guidance?: string;
+}
+
+export type CreativeDirectionCaptionsRhythm = typeof CreativeDirectionCaptionsRhythm[keyof typeof CreativeDirectionCaptionsRhythm];
+
+
+export const CreativeDirectionCaptionsRhythm = {
+  sentence: 'sentence',
+  phrase: 'phrase',
+  word_group: 'word_group',
+} as const;
+
+export type CreativeDirectionCaptionsEmphasis = typeof CreativeDirectionCaptionsEmphasis[keyof typeof CreativeDirectionCaptionsEmphasis];
+
+
+export const CreativeDirectionCaptionsEmphasis = {
+  none: 'none',
+  keywords: 'keywords',
+  numbers: 'numbers',
+} as const;
+
+export interface CreativeDirectionCaptions {
+  rhythm?: CreativeDirectionCaptionsRhythm;
+  emphasis?: CreativeDirectionCaptionsEmphasis;
+}
+
+export interface CreativeDirection {
+  version: 1;
+  narrative?: CreativeDirectionNarrative;
+  structure?: CreativeDirectionStructure;
+  visual?: CreativeDirectionVisual;
+  sonic?: CreativeDirectionSonic;
+  captions?: CreativeDirectionCaptions;
+}
+
+export type CreativeDirectionSource = typeof CreativeDirectionSource[keyof typeof CreativeDirectionSource];
+
+
+export const CreativeDirectionSource = {
+  format: 'format',
+  template: 'template',
+  vertical: 'vertical',
+  brand: 'brand',
+  user: 'user',
+} as const;
+
+export interface CreativeDirectionProvenanceEntry {
+  source: CreativeDirectionSource;
+  /** Stable database/version reference; never an object path. */
+  reference?: string;
+  fields: string[];
+}
+
+export interface CreativeDirectionClamp {
+  field: string;
+  reason: string;
+  source: CreativeDirectionSource;
+}
+
+export interface ResolvedCreativeBrief {
+  version: 1;
+  direction: CreativeDirection;
+  /** @maxLength 1000 */
+  topic?: string;
+  provenance: CreativeDirectionProvenanceEntry[];
+  clamps: CreativeDirectionClamp[];
+}
+
+export type VideoJobGuidedReferenceContextOperations = {[key: string]: {
+  revision: number;
+  operationKey: string;
+  kind: VideoJobGuidedReferenceContextOperationsKind;
+  state: VideoJobGuidedReferenceContextOperationsState;
+  /** @nullable */
+  characterId?: number | null;
+  /** @nullable */
+  outfitId?: number | null;
+  /** @nullable */
+  error?: string | null;
+  updatedAt: string;
+}};
+
+/**
+ * Revision identity for the compatibility Guided Story reference API.
+ * @nullable
+ */
+export type VideoJobGuidedReferenceContext = {
+  draftId: number;
+  revision: number;
+  operations?: VideoJobGuidedReferenceContextOperations;
+} | null;
+
+/**
+ * Immutable provider/model execution contract frozen before funding.
+ * @nullable
+ */
+export type VideoJobResolvedVideoModel = {
+  version: 1;
+  source: VideoJobResolvedVideoModelSource;
+  mode: VideoJobResolvedVideoModelMode;
+  provider: string;
+  model: string;
+  /** @nullable */
+  catalogModelId: string | null;
+  durationSec: number;
+  /** Every scene/provider-call duration priced before this job was funded. */
+  permittedDurationSec?: number[];
+  /** Composite scenes use nearest; equal-distance ties choose the shorter duration. */
+  durationPolicy?: VideoJobResolvedVideoModelDurationPolicy;
+  /** @nullable */
+  resolution: string | null;
+  /** @nullable */
+  quality: string | null;
+  /** @nullable */
+  generateAudio: boolean | null;
+  supportsEndFrame: boolean;
+} | null;
+
+export type VideoJobErrorHistoryItem = {
+  jobId: number;
+  jobNumber: number;
+  scope: VideoJobErrorHistoryItemScope;
+  /** @nullable */
+  sceneNumber: number | null;
+  /** @nullable */
+  displayNumber: number | null;
+  operation: string;
+  occurredAt: string;
+  /** @nullable */
+  sceneId: string | null;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  providerRequestId: string | null;
+  /** @nullable */
+  code: string | null;
+  message: string;
+  /** @minimum 1 */
+  attempt: number;
+  /** @minimum 0 */
+  recoveryAttempt: number;
+  outcome: VideoJobErrorHistoryItemOutcome;
+  fingerprint: string;
+};
+
+/**
+ * Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.
+ */
+export type VideoJobRecovery = {
+  /** Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work. */
+  mode: VideoJobRecoveryMode;
+  chainId: number;
+  sourceJobId: number;
+  reusable: string[];
+  regenerated: string[];
+} | null;
+
+/**
+ * Audit-only source link for a clean-room restart; never a recovery chain.
+ */
+export type VideoJobFreshRestart = {
+  version: VideoJobFreshRestartVersion;
+  /** @nullable */
+  sourceJobId: number | null;
+  /** @nullable */
+  childJobId: number | null;
+} | null;
+
+/**
+ * Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.
+ */
+export type VideoJobPrivacyRecoveryCapability = {
+  eligible: boolean;
+  code: VideoJobPrivacyRecoveryCapabilityCode;
+  /** @nullable */
+  sceneId: string | null;
+  /** @nullable */
+  reason: string | null;
+} | null;
+
+/**
+ * Local repair lineage and mismatch reason; null for original jobs.
+ */
+export type VideoJobRepair = {
+  chainId: number;
+  sourceJobId: number;
+  reason: VideoJobRepairReason;
+} | null;
+
+/**
+ * Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.
+ */
+export type VideoJobGuidedPreviewRender = {
+  version: VideoJobGuidedPreviewRenderVersion;
+  operationId: string;
+  state: VideoJobGuidedPreviewRenderState;
+  /** @minimum 0 */
+  total: number;
+  /** @minimum 0 */
+  completed: number;
+  /** @nullable */
+  error: string | null;
+  /** True when another click will claim a new attempt for remaining previews. */
+  retryable: boolean;
+  requestedAt: string;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  finishedAt: string | null;
+} | null;
+
+export interface VideoJob {
+  id: number;
+  engine: VideoJobEngine;
+  /** awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way. */
+  status: VideoJobStatus;
+  /** @nullable */
+  prompt?: string | null;
+  /**
+     * The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.
+     * @nullable
+     */
+  aiPrompt?: string | null;
+  sourceImagePaths: string[];
+  aspectRatio: string;
+  /**
+     * Revision identity for the compatibility Guided Story reference API.
+     * @nullable
+     */
+  guidedReferenceContext: VideoJobGuidedReferenceContext;
+  /**
+     * The catalog model explicitly picked, or null when the mode-specific admin default was resolved.
+     * @nullable
+     */
+  modelId: string | null;
+  /**
+     * Immutable provider/model execution contract frozen before funding.
+     * @nullable
+     */
+  resolvedVideoModel: VideoJobResolvedVideoModel;
+  /**
+     * The resolution this job was created with, or null.
+     * @nullable
+     */
+  resolution?: string | null;
+  /** The optics this job was created with, or null. */
+  cinematography?: null | Cinematography;
+  /**
+     * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * The sampling seed this job was created with. Null when the provider chose one.
+     * @nullable
+     */
+  seed?: number | null;
+  /**
+     * Immutable output produced by this job; serve via /api/storage{videoPath}.
+     * @nullable
+     */
+  videoPath?: string | null;
+  /**
+     * Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source's immutable videoPath.
+     * @nullable
+     */
+  currentVideoPath: string | null;
+  /**
+     * Tenant-scoped Guided Story draft backing this job, when applicable.
+     * @nullable
+     */
+  guidedStoryDraftId: number | null;
+  /**
+     * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
+     * @nullable
+     */
+  savedContentItemId: number | null;
+  /**
+     * Poster-frame PNG path (best effort; may be null).
+     * @nullable
+     */
+  thumbnailPath?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /**
+     * Human-readable failure reason when status is failed.
+     * @nullable
+     */
+  error?: string | null;
+  /**
+     * Safe provider request correlation id when the provider supplied one.
+     * @nullable
+     */
+  providerRequestId?: string | null;
+  /** Append-only durable failure history. Error text is sanitized. */
+  errorHistory?: VideoJobErrorHistoryItem[];
+  /**
+     * What the pipeline is doing right now (e.g. "Writing the script", "Composing the video"). Only meaningful while status is processing; null otherwise.
+     * @nullable
+     */
+  stage?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /**
+     * How many video units this job charges. 1 for a simple single generation; multi-shot clips, character/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.
+     * @minimum 0
+     */
+  units?: number;
+  /**
+     * Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.
+     * @minimum 0
+     */
+  requiredUnits?: number;
+  /** True when this failed video engine supports recovery from its saved inputs. */
+  retryable: boolean;
+  /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
+  recovery: VideoJobRecovery;
+  /** Audit-only source link for a clean-room restart; never a recovery chain. */
+  freshRestart?: VideoJobFreshRestart;
+  /** Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically. */
+  privacyRecoveryCapability: VideoJobPrivacyRecoveryCapability;
+  /** True when this completed job has every saved asset required for no-charge local recomposition. */
+  repairable: boolean;
+  /** Local repair lineage and mismatch reason; null for original jobs. */
+  repair: VideoJobRepair;
+  /** Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state. */
+  guidedPreviewRender: VideoJobGuidedPreviewRender;
+  /**
+     * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
+     * @nullable
+     */
+  chargedRatePaise?: number | null;
+  /**
+     * The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto this job's usage events when it settled (all units summed) — the job's REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.
+     * @nullable
+     */
+  spendPaise?: number | null;
+  /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
+  storyboard?: VideoStoryboard | null;
+  /**
+     * When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.
+     * @nullable
+     */
+  storyboardExpiresAt?: string | null;
+  /** Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds. */
+  localizedResult?: LocalizedDubResult | null;
+  /** Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs. */
+  resolvedCreativeBrief?: ResolvedCreativeBrief | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GuidedStoryDialogueReplayConfirmation {
+  job: VideoJob;
+  snapshot: GuidedStoryDialogueReplaySnapshot;
+  operation: GuidedStoryDialogueReplayOperation;
+}
+
 export type GuidedStorySetupAspectRatio = typeof GuidedStorySetupAspectRatio[keyof typeof GuidedStorySetupAspectRatio];
 
 
@@ -5621,412 +6953,6 @@ export interface SpokespersonScriptResult {
   meta?: ScriptMeta;
 }
 
-export interface VideoProviderEventReceipt {
-  eventId?: string;
-  provider: string;
-  model: string;
-  /** @nullable */
-  durationSec: number | null;
-  requestBytes: number;
-  label: string;
-  /** @nullable */
-  costPaise: number | null;
-  accounted?: boolean;
-  unitWeight?: number;
-}
-
-export type VideoStoryboardPreviewCheckpointStatus = typeof VideoStoryboardPreviewCheckpointStatus[keyof typeof VideoStoryboardPreviewCheckpointStatus];
-
-
-export const VideoStoryboardPreviewCheckpointStatus = {
-  prepared: 'prepared',
-  provider_started: 'provider_started',
-  provider_succeeded: 'provider_succeeded',
-  complete: 'complete',
-} as const;
-
-export interface VideoStoryboardPreviewCheckpoint {
-  targetPath: string;
-  status: VideoStoryboardPreviewCheckpointStatus;
-  selectedEventId?: string;
-  events?: VideoProviderEventReceipt[];
-  /** Legacy single-attempt provider receipt. */
-  event?: VideoProviderEventReceipt;
-}
-
-export type VideoStoryboardSceneGuidedStoryLineOwnershipItemKind = typeof VideoStoryboardSceneGuidedStoryLineOwnershipItemKind[keyof typeof VideoStoryboardSceneGuidedStoryLineOwnershipItemKind];
-
-
-export const VideoStoryboardSceneGuidedStoryLineOwnershipItemKind = {
-  dialogue: 'dialogue',
-  narration: 'narration',
-} as const;
-
-export type VideoStoryboardSceneGuidedStoryLineOwnershipItem = {
-  lineId: string;
-  /** @nullable */
-  ownerRoleId: string | null;
-  kind: VideoStoryboardSceneGuidedStoryLineOwnershipItemKind;
-  startMs: number;
-  endMs: number;
-};
-
-export type VideoStoryboardSceneGuidedStoryCastItemSource = typeof VideoStoryboardSceneGuidedStoryCastItemSource[keyof typeof VideoStoryboardSceneGuidedStoryCastItemSource];
-
-
-export const VideoStoryboardSceneGuidedStoryCastItemSource = {
-  saved: 'saved',
-  generated: 'generated',
-} as const;
-
-export type VideoStoryboardSceneGuidedStoryCastItem = {
-  roleId: string;
-  characterName: string;
-  source: VideoStoryboardSceneGuidedStoryCastItemSource;
-  /** @nullable */
-  characterId: number | null;
-  /** @nullable */
-  outfitId: number | null;
-  /** @nullable */
-  referenceImagePath: string | null;
-  /** @nullable */
-  outfitReferenceImagePath: string | null;
-  voiceProvider: string;
-  /** @nullable */
-  providerVoiceId: string | null;
-};
-
-export type VideoStoryboardSceneGuidedStoryVisualsLocationMode = typeof VideoStoryboardSceneGuidedStoryVisualsLocationMode[keyof typeof VideoStoryboardSceneGuidedStoryVisualsLocationMode];
-
-
-export const VideoStoryboardSceneGuidedStoryVisualsLocationMode = {
-  none: 'none',
-  image: 'image',
-  text: 'text',
-} as const;
-
-export type VideoStoryboardSceneGuidedStoryVisuals = {
-  /** @nullable */
-  logoPath: string | null;
-  locationMode: VideoStoryboardSceneGuidedStoryVisualsLocationMode;
-  /** @nullable */
-  locationImagePath: string | null;
-  /** @nullable */
-  locationDescription: string | null;
-};
-
-export type VideoStoryboardSceneGuidedStoryCorrectionsVersion = typeof VideoStoryboardSceneGuidedStoryCorrectionsVersion[keyof typeof VideoStoryboardSceneGuidedStoryCorrectionsVersion];
-
-
-export const VideoStoryboardSceneGuidedStoryCorrectionsVersion = {
-  NUMBER_1: 1,
-} as const;
-
-export type GuidedSceneCorrectionAttemptCategory = typeof GuidedSceneCorrectionAttemptCategory[keyof typeof GuidedSceneCorrectionAttemptCategory];
-
-
-export const GuidedSceneCorrectionAttemptCategory = {
-  character: 'character',
-  costume: 'costume',
-  location: 'location',
-  logo: 'logo',
-  other: 'other',
-} as const;
-
-export type GuidedSceneCorrectionAttemptState = typeof GuidedSceneCorrectionAttemptState[keyof typeof GuidedSceneCorrectionAttemptState];
-
-
-export const GuidedSceneCorrectionAttemptState = {
-  queued: 'queued',
-  running: 'running',
-  provider_started: 'provider_started',
-  provider_succeeded: 'provider_succeeded',
-  succeeded: 'succeeded',
-  failed: 'failed',
-  outcome_unknown: 'outcome_unknown',
-} as const;
-
-export type GuidedSceneCorrectionAttemptFunding = typeof GuidedSceneCorrectionAttemptFunding[keyof typeof GuidedSceneCorrectionAttemptFunding];
-
-
-export const GuidedSceneCorrectionAttemptFunding = {
-  quota: 'quota',
-  credit: 'credit',
-  wallet: 'wallet',
-} as const;
-
-/**
- * @nullable
- */
-export type GuidedSceneCorrectionAttemptWalletReservation = {
-  id: number;
-  amountPaise: number;
-  units: number;
-} | null;
-
-export interface GuidedSceneCorrectionAttempt {
-  id: string;
-  /** @minimum 1 */
-  version: number;
-  category: GuidedSceneCorrectionAttemptCategory;
-  note: string;
-  state: GuidedSceneCorrectionAttemptState;
-  inputFingerprint: string;
-  originalPreviewPath: string;
-  /** @nullable */
-  replacementPath: string | null;
-  funding: GuidedSceneCorrectionAttemptFunding;
-  /** @nullable */
-  walletReservation?: GuidedSceneCorrectionAttemptWalletReservation;
-  /** @nullable */
-  walletOperationId?: number | null;
-  /** @nullable */
-  provider: string | null;
-  /** @nullable */
-  model: string | null;
-  /** @nullable */
-  knownCostPaise: number | null;
-  /** @nullable */
-  actualCostPaise: number | null;
-  /** @nullable */
-  error: string | null;
-  requestedAt: string;
-  /** @nullable */
-  startedAt: string | null;
-  /** @nullable */
-  finishedAt: string | null;
-}
-
-export type VideoStoryboardSceneGuidedStoryCorrections = {
-  version: VideoStoryboardSceneGuidedStoryCorrectionsVersion;
-  attempts: GuidedSceneCorrectionAttempt[];
-};
-
-/**
- * Immutable role/cast mapping and scene reuse identity for Guided Story review.
- * @nullable
- */
-export type VideoStoryboardSceneGuidedStory = {
-  scriptSceneId: string;
-  startMs: number;
-  endMs: number;
-  roleIds: string[];
-  lineOwnership: VideoStoryboardSceneGuidedStoryLineOwnershipItem[];
-  cast: VideoStoryboardSceneGuidedStoryCastItem[];
-  inconsistencyFlags: string[];
-  inputFingerprint: string;
-  visuals: VideoStoryboardSceneGuidedStoryVisuals;
-  corrections?: VideoStoryboardSceneGuidedStoryCorrections;
-} | null;
-
-/**
- * Hybrid storyboard render type: a lip-synced character beat or story animation.
- * @nullable
- */
-export type VideoStoryboardSceneBeatType = typeof VideoStoryboardSceneBeatType[keyof typeof VideoStoryboardSceneBeatType] | null;
-
-
-export const VideoStoryboardSceneBeatType = {
-  character_speaking: 'character_speaking',
-  story_animation: 'story_animation',
-} as const;
-
-/**
- * Immutable hybrid template role used to enforce opening/closing and beat order.
- * @nullable
- */
-export type VideoStoryboardSceneHybridRole = typeof VideoStoryboardSceneHybridRole[keyof typeof VideoStoryboardSceneHybridRole] | null;
-
-
-export const VideoStoryboardSceneHybridRole = {
-  character_opening: 'character_opening',
-  story_animation: 'story_animation',
-  character_interlude: 'character_interlude',
-  character_closing: 'character_closing',
-} as const;
-
-export interface VideoStoryboardScene {
-  /**
-     * Immutable role/cast mapping and scene reuse identity for Guided Story review.
-     * @nullable
-     */
-  guidedStory?: VideoStoryboardSceneGuidedStory;
-  /**
-     * Hybrid storyboard render type: a lip-synced character beat or story animation.
-     * @nullable
-     */
-  beatType?: VideoStoryboardSceneBeatType;
-  /**
-     * Immutable hybrid template role used to enforce opening/closing and beat order.
-     * @nullable
-     */
-  hybridRole?: VideoStoryboardSceneHybridRole;
-  /**
-     * Immutable source position in the hybrid beat pattern.
-     * @nullable
-     */
-  patternIndex?: number | null;
-  /** Stable scene address for edits ("s1", "s2", ...). */
-  id: string;
-  /** The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script. */
-  text: string;
-  /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
-  visual: string;
-  /**
-     * Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent/null when the selected workflow has no supporting B-roll layer.
-     * @nullable
-     */
-  brollVisual?: string | null;
-  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
-  durationSec: number;
-  /**
-     * /objects/... preview still; serve via /api/storage{previewPath}. Null when the preview failed to store, and on "prompt" plans, which generate no still at all. On "photo" and "slide" plans this is the user's own uploaded photo.
-     * @nullable
-     */
-  previewPath: string | null;
-  /** Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry. */
-  previewCheckpoint?: VideoStoryboardPreviewCheckpoint;
-  /**
-     * Character mode; the outfit worn in this scene.
-     * @nullable
-     */
-  outfitId: number | null;
-  /**
-     * "prompt" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent/null when no polish was stored (older jobs, or plans that render `visual` as approved).
-     * @nullable
-     */
-  renderVisual?: string | null;
-  /**
-     * Camera move for THIS shot, overriding the job's. Absent/null means the shot inherits the job's motionPreset. Only meaningful on plans that run an AI model — a "slide" scene ignores it.
-     * @nullable
-     */
-  motionPreset?: string | null;
-  /**
-     * Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent/null means the shot inherits the job's seed.
-     * @nullable
-     */
-  seed?: number | null;
-}
-
-export type VideoStoryboardVersion = typeof VideoStoryboardVersion[keyof typeof VideoStoryboardVersion];
-
-
-export const VideoStoryboardVersion = {
-  NUMBER_1: 1,
-} as const;
-
-/**
- * Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.
- */
-export type VideoStoryboardMode = typeof VideoStoryboardMode[keyof typeof VideoStoryboardMode];
-
-
-export const VideoStoryboardMode = {
-  standard: 'standard',
-  character_story: 'character_story',
-  guided_story: 'guided_story',
-  hybrid_character_story: 'hybrid_character_story',
-  character_dialogue: 'character_dialogue',
-  presenter_broll: 'presenter_broll',
-} as const;
-
-/**
- * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
- */
-export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
-
-
-export const VideoStoryboardVisualsSource = {
-  character: 'character',
-  ai: 'ai',
-  ai_video: 'ai_video',
-  prompt: 'prompt',
-  photo: 'photo',
-  slide: 'slide',
-} as const;
-
-/**
- * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
- * @nullable
- */
-export type VideoStoryboardDurationBounds = {
-  minSec: number;
-  maxSec: number;
-} | null;
-
-export type VideoStoryboardNarrationCuesItem = {
-  text: string;
-  startSec: number;
-  endSec: number;
-};
-
-/**
- * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
- * @nullable
- */
-export type VideoStoryboardNarration = {
-  audioPath: string;
-  totalDurationSec: number;
-  /** Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them. */
-  cues: VideoStoryboardNarrationCuesItem[];
-} | null;
-
-/**
- * Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).
- */
-export type VideoStoryboardAiPlanFlow = typeof VideoStoryboardAiPlanFlow[keyof typeof VideoStoryboardAiPlanFlow];
-
-
-export const VideoStoryboardAiPlanFlow = {
-  broll: 'broll',
-  character: 'character',
-} as const;
-
-/**
- * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.
- * @nullable
- */
-export type VideoStoryboardAiPlan = {
-  /** Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}). */
-  flow: VideoStoryboardAiPlanFlow;
-  raw: unknown;
-  capturedAt: string;
-} | null;
-
-export interface VideoStoryboard {
-  version: VideoStoryboardVersion;
-  /** Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards. */
-  mode?: VideoStoryboardMode;
-  /** True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed. */
-  presenterBroll?: boolean;
-  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
-  visualsSource: VideoStoryboardVisualsSource;
-  /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
-  timelineLocked: boolean;
-  /**
-     * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
-     * @nullable
-     */
-  durationBounds?: VideoStoryboardDurationBounds;
-  /** @nullable */
-  model?: string | null;
-  /** @nullable */
-  provider?: string | null;
-  /** Preview regenerations spent so far; capped server-side. */
-  regenerations: number;
-  /**
-     * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
-     * @nullable
-     */
-  narration: VideoStoryboardNarration;
-  scenes: VideoStoryboardScene[];
-  /**
-     * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.
-     * @nullable
-     */
-  aiPlan?: VideoStoryboardAiPlan;
-}
-
 export type UpdateStoryboardRequestScenesItem = {
   id: string;
   /**
@@ -6127,764 +7053,6 @@ export interface InsertStoryboardSceneRequest {
      * @maxLength 1000
      */
   visual?: string;
-}
-
-export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
-
-
-export const VideoJobEngine = {
-  text_to_video: 'text_to_video',
-  image_to_video: 'image_to_video',
-  slideshow: 'slideshow',
-  topic_to_video: 'topic_to_video',
-  lip_sync: 'lip_sync',
-  dialogue_lip_sync: 'dialogue_lip_sync',
-  localized_dub: 'localized_dub',
-} as const;
-
-/**
- * awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.
- */
-export type VideoJobStatus = typeof VideoJobStatus[keyof typeof VideoJobStatus];
-
-
-export const VideoJobStatus = {
-  queued: 'queued',
-  processing: 'processing',
-  awaiting_review: 'awaiting_review',
-  succeeded: 'succeeded',
-  failed: 'failed',
-  cancelled: 'cancelled',
-} as const;
-
-export type VideoJobGuidedReferenceContextOperationsKind = typeof VideoJobGuidedReferenceContextOperationsKind[keyof typeof VideoJobGuidedReferenceContextOperationsKind];
-
-
-export const VideoJobGuidedReferenceContextOperationsKind = {
-  character: 'character',
-  outfit: 'outfit',
-} as const;
-
-export type VideoJobGuidedReferenceContextOperationsState = typeof VideoJobGuidedReferenceContextOperationsState[keyof typeof VideoJobGuidedReferenceContextOperationsState];
-
-
-export const VideoJobGuidedReferenceContextOperationsState = {
-  queued: 'queued',
-  running: 'running',
-  ready_to_review: 'ready_to_review',
-  failed: 'failed',
-  outcome_unknown: 'outcome_unknown',
-} as const;
-
-export type VideoJobGuidedReferenceContextOperations = {[key: string]: {
-  revision: number;
-  operationKey: string;
-  kind: VideoJobGuidedReferenceContextOperationsKind;
-  state: VideoJobGuidedReferenceContextOperationsState;
-  /** @nullable */
-  characterId?: number | null;
-  /** @nullable */
-  outfitId?: number | null;
-  /** @nullable */
-  error?: string | null;
-  updatedAt: string;
-}};
-
-/**
- * Revision identity for the compatibility Guided Story reference API.
- * @nullable
- */
-export type VideoJobGuidedReferenceContext = {
-  draftId: number;
-  revision: number;
-  operations?: VideoJobGuidedReferenceContextOperations;
-} | null;
-
-export type VideoJobResolvedVideoModelSource = typeof VideoJobResolvedVideoModelSource[keyof typeof VideoJobResolvedVideoModelSource];
-
-
-export const VideoJobResolvedVideoModelSource = {
-  explicit: 'explicit',
-  default: 'default',
-} as const;
-
-export type VideoJobResolvedVideoModelMode = typeof VideoJobResolvedVideoModelMode[keyof typeof VideoJobResolvedVideoModelMode];
-
-
-export const VideoJobResolvedVideoModelMode = {
-  text: 'text',
-  image: 'image',
-} as const;
-
-/**
- * Composite scenes use nearest; equal-distance ties choose the shorter duration.
- */
-export type VideoJobResolvedVideoModelDurationPolicy = typeof VideoJobResolvedVideoModelDurationPolicy[keyof typeof VideoJobResolvedVideoModelDurationPolicy];
-
-
-export const VideoJobResolvedVideoModelDurationPolicy = {
-  exact: 'exact',
-  nearest: 'nearest',
-} as const;
-
-/**
- * Immutable provider/model execution contract frozen before funding.
- * @nullable
- */
-export type VideoJobResolvedVideoModel = {
-  version: 1;
-  source: VideoJobResolvedVideoModelSource;
-  mode: VideoJobResolvedVideoModelMode;
-  provider: string;
-  model: string;
-  /** @nullable */
-  catalogModelId: string | null;
-  durationSec: number;
-  /** Every scene/provider-call duration priced before this job was funded. */
-  permittedDurationSec?: number[];
-  /** Composite scenes use nearest; equal-distance ties choose the shorter duration. */
-  durationPolicy?: VideoJobResolvedVideoModelDurationPolicy;
-  /** @nullable */
-  resolution: string | null;
-  /** @nullable */
-  quality: string | null;
-  /** @nullable */
-  generateAudio: boolean | null;
-  supportsEndFrame: boolean;
-} | null;
-
-export type VideoJobErrorHistoryItemScope = typeof VideoJobErrorHistoryItemScope[keyof typeof VideoJobErrorHistoryItemScope];
-
-
-export const VideoJobErrorHistoryItemScope = {
-  scene: 'scene',
-  job: 'job',
-} as const;
-
-export type VideoJobErrorHistoryItemOutcome = typeof VideoJobErrorHistoryItemOutcome[keyof typeof VideoJobErrorHistoryItemOutcome];
-
-
-export const VideoJobErrorHistoryItemOutcome = {
-  continued: 'continued',
-  stopped: 'stopped',
-  not_attempted: 'not_attempted',
-} as const;
-
-export type VideoJobErrorHistoryItem = {
-  jobId: number;
-  jobNumber: number;
-  scope: VideoJobErrorHistoryItemScope;
-  /** @nullable */
-  sceneNumber: number | null;
-  /** @nullable */
-  displayNumber: number | null;
-  operation: string;
-  occurredAt: string;
-  /** @nullable */
-  sceneId: string | null;
-  /** @nullable */
-  provider: string | null;
-  /** @nullable */
-  model: string | null;
-  /** @nullable */
-  providerRequestId: string | null;
-  /** @nullable */
-  code: string | null;
-  message: string;
-  /** @minimum 1 */
-  attempt: number;
-  /** @minimum 0 */
-  recoveryAttempt: number;
-  outcome: VideoJobErrorHistoryItemOutcome;
-  fingerprint: string;
-};
-
-/**
- * Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.
- */
-export type VideoJobRecoveryMode = typeof VideoJobRecoveryMode[keyof typeof VideoJobRecoveryMode];
-
-
-export const VideoJobRecoveryMode = {
-  resume: 'resume',
-  saved_inputs: 'saved_inputs',
-} as const;
-
-/**
- * Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.
- */
-export type VideoJobRecovery = {
-  /** Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work. */
-  mode: VideoJobRecoveryMode;
-  chainId: number;
-  sourceJobId: number;
-  reusable: string[];
-  regenerated: string[];
-} | null;
-
-export type VideoJobFreshRestartVersion = typeof VideoJobFreshRestartVersion[keyof typeof VideoJobFreshRestartVersion];
-
-
-export const VideoJobFreshRestartVersion = {
-  NUMBER_1: 1,
-} as const;
-
-/**
- * Audit-only source link for a clean-room restart; never a recovery chain.
- */
-export type VideoJobFreshRestart = {
-  version: VideoJobFreshRestartVersion;
-  /** @nullable */
-  sourceJobId: number | null;
-  /** @nullable */
-  childJobId: number | null;
-} | null;
-
-export type VideoJobPrivacyRecoveryCapabilityCode = typeof VideoJobPrivacyRecoveryCapabilityCode[keyof typeof VideoJobPrivacyRecoveryCapabilityCode];
-
-
-export const VideoJobPrivacyRecoveryCapabilityCode = {
-  InputImageSensitiveContentDetectedPrivacyInformation: 'InputImageSensitiveContentDetected.PrivacyInformation',
-} as const;
-
-/**
- * Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.
- */
-export type VideoJobPrivacyRecoveryCapability = {
-  eligible: boolean;
-  code: VideoJobPrivacyRecoveryCapabilityCode;
-  /** @nullable */
-  sceneId: string | null;
-  /** @nullable */
-  reason: string | null;
-} | null;
-
-export type VideoJobRepairReason = typeof VideoJobRepairReason[keyof typeof VideoJobRepairReason];
-
-
-export const VideoJobRepairReason = {
-  narration: 'narration',
-  music: 'music',
-  captions: 'captions',
-  scene_timing: 'scene_timing',
-  audio_visual: 'audio_visual',
-} as const;
-
-/**
- * Local repair lineage and mismatch reason; null for original jobs.
- */
-export type VideoJobRepair = {
-  chainId: number;
-  sourceJobId: number;
-  reason: VideoJobRepairReason;
-} | null;
-
-export type VideoJobGuidedPreviewRenderVersion = typeof VideoJobGuidedPreviewRenderVersion[keyof typeof VideoJobGuidedPreviewRenderVersion];
-
-
-export const VideoJobGuidedPreviewRenderVersion = {
-  NUMBER_1: 1,
-} as const;
-
-export type VideoJobGuidedPreviewRenderState = typeof VideoJobGuidedPreviewRenderState[keyof typeof VideoJobGuidedPreviewRenderState];
-
-
-export const VideoJobGuidedPreviewRenderState = {
-  queued: 'queued',
-  running: 'running',
-  succeeded: 'succeeded',
-  failed: 'failed',
-} as const;
-
-/**
- * Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.
- */
-export type VideoJobGuidedPreviewRender = {
-  version: VideoJobGuidedPreviewRenderVersion;
-  operationId: string;
-  state: VideoJobGuidedPreviewRenderState;
-  /** @minimum 0 */
-  total: number;
-  /** @minimum 0 */
-  completed: number;
-  /** @nullable */
-  error: string | null;
-  /** True when another click will claim a new attempt for remaining previews. */
-  retryable: boolean;
-  requestedAt: string;
-  /** @nullable */
-  startedAt: string | null;
-  /** @nullable */
-  finishedAt: string | null;
-} | null;
-
-export type CreativeDirectionNarrativeHookStyle = typeof CreativeDirectionNarrativeHookStyle[keyof typeof CreativeDirectionNarrativeHookStyle];
-
-
-export const CreativeDirectionNarrativeHookStyle = {
-  direct_claim: 'direct_claim',
-  question: 'question',
-  problem_first: 'problem_first',
-  demonstration: 'demonstration',
-  myth_bust: 'myth_bust',
-  story: 'story',
-} as const;
-
-export type CreativeDirectionNarrativeTone = typeof CreativeDirectionNarrativeTone[keyof typeof CreativeDirectionNarrativeTone];
-
-
-export const CreativeDirectionNarrativeTone = {
-  authoritative: 'authoritative',
-  conversational: 'conversational',
-  warm: 'warm',
-  playful: 'playful',
-  urgent: 'urgent',
-  inspirational: 'inspirational',
-  skeptical: 'skeptical',
-} as const;
-
-export type CreativeDirectionNarrativePacing = typeof CreativeDirectionNarrativePacing[keyof typeof CreativeDirectionNarrativePacing];
-
-
-export const CreativeDirectionNarrativePacing = {
-  slow: 'slow',
-  measured: 'measured',
-  brisk: 'brisk',
-  rapid: 'rapid',
-} as const;
-
-export type CreativeDirectionNarrativeCtaStyle = typeof CreativeDirectionNarrativeCtaStyle[keyof typeof CreativeDirectionNarrativeCtaStyle];
-
-
-export const CreativeDirectionNarrativeCtaStyle = {
-  none: 'none',
-  soft: 'soft',
-  direct: 'direct',
-} as const;
-
-export type CreativeDirectionEvidenceRuleKind = typeof CreativeDirectionEvidenceRuleKind[keyof typeof CreativeDirectionEvidenceRuleKind];
-
-
-export const CreativeDirectionEvidenceRuleKind = {
-  demonstration: 'demonstration',
-  example: 'example',
-  source: 'source',
-  data: 'data',
-  qualification: 'qualification',
-} as const;
-
-export interface CreativeDirectionEvidenceRule {
-  kind: CreativeDirectionEvidenceRuleKind;
-  /**
-     * @minLength 1
-     * @maxLength 240
-     */
-  instruction: string;
-}
-
-export interface CreativeDirectionNarrative {
-  hookStyle?: CreativeDirectionNarrativeHookStyle;
-  tone?: CreativeDirectionNarrativeTone;
-  pacing?: CreativeDirectionNarrativePacing;
-  ctaStyle?: CreativeDirectionNarrativeCtaStyle;
-  /**
-     * @minLength 1
-     * @maxLength 800
-     */
-  guidance?: string;
-  /**
-     * @maxItems 24
-     * @items.minLength 1
-     * @items.maxLength 64
-     */
-  requiredVocabulary?: string[];
-  /**
-     * @maxItems 24
-     * @items.minLength 1
-     * @items.maxLength 64
-     */
-  forbiddenVocabulary?: string[];
-  /** @maxItems 8 */
-  evidenceRules?: CreativeDirectionEvidenceRule[];
-}
-
-export interface CreativeDirectionSceneCount {
-  /**
-     * @minimum 1
-     * @maximum 31
-     */
-  min: number;
-  /**
-     * @minimum 1
-     * @maximum 31
-     */
-  max: number;
-}
-
-export type CreativeDirectionBeatPurpose = typeof CreativeDirectionBeatPurpose[keyof typeof CreativeDirectionBeatPurpose];
-
-
-export const CreativeDirectionBeatPurpose = {
-  hook: 'hook',
-  context: 'context',
-  problem: 'problem',
-  demonstration: 'demonstration',
-  evidence: 'evidence',
-  solution: 'solution',
-  payoff: 'payoff',
-  cta: 'cta',
-} as const;
-
-export interface CreativeDirectionBeat {
-  purpose: CreativeDirectionBeatPurpose;
-  /**
-     * @minLength 1
-     * @maxLength 240
-     */
-  instruction: string;
-  /**
-     * @maximum 10
-     * @exclusiveMinimum 0
-     */
-  weight?: number;
-}
-
-export interface CreativeDirectionStructure {
-  sceneCount?: CreativeDirectionSceneCount;
-  /** @maxItems 12 */
-  beats?: CreativeDirectionBeat[];
-}
-
-export type CreativeDirectionVisualStyle = typeof CreativeDirectionVisualStyle[keyof typeof CreativeDirectionVisualStyle];
-
-
-export const CreativeDirectionVisualStyle = {
-  documentary: 'documentary',
-  editorial: 'editorial',
-  cinematic: 'cinematic',
-  commercial: 'commercial',
-  graphic: 'graphic',
-  natural: 'natural',
-} as const;
-
-export type CreativeDirectionVisualLighting = typeof CreativeDirectionVisualLighting[keyof typeof CreativeDirectionVisualLighting];
-
-
-export const CreativeDirectionVisualLighting = {
-  natural: 'natural',
-  soft: 'soft',
-  high_key: 'high_key',
-  low_key: 'low_key',
-  dramatic: 'dramatic',
-} as const;
-
-export type CreativeDirectionVisualColorGrade = typeof CreativeDirectionVisualColorGrade[keyof typeof CreativeDirectionVisualColorGrade];
-
-
-export const CreativeDirectionVisualColorGrade = {
-  natural: 'natural',
-  warm: 'warm',
-  cool: 'cool',
-  vibrant: 'vibrant',
-  muted: 'muted',
-  high_contrast: 'high_contrast',
-} as const;
-
-export type CreativeDirectionVisualComposition = typeof CreativeDirectionVisualComposition[keyof typeof CreativeDirectionVisualComposition];
-
-
-export const CreativeDirectionVisualComposition = {
-  centered: 'centered',
-  left_aligned: 'left_aligned',
-  rule_of_thirds: 'rule_of_thirds',
-  close_detail: 'close_detail',
-  wide_context: 'wide_context',
-  presenter_overlay: 'presenter_overlay',
-} as const;
-
-export type CreativeDirectionVisualMotion = typeof CreativeDirectionVisualMotion[keyof typeof CreativeDirectionVisualMotion];
-
-
-export const CreativeDirectionVisualMotion = {
-  locked: 'locked',
-  subtle: 'subtle',
-  handheld: 'handheld',
-  dynamic: 'dynamic',
-} as const;
-
-export interface CreativeDirectionVisual {
-  style?: CreativeDirectionVisualStyle;
-  lighting?: CreativeDirectionVisualLighting;
-  colorGrade?: CreativeDirectionVisualColorGrade;
-  composition?: CreativeDirectionVisualComposition;
-  motion?: CreativeDirectionVisualMotion;
-  /**
-     * @maxItems 9
-     * @items.minLength 1
-     * @items.maxLength 64
-     */
-  palette?: string[];
-  /**
-     * @maxItems 16
-     * @items.minLength 1
-     * @items.maxLength 64
-     */
-  negativeTerms?: string[];
-  /**
-     * @minLength 1
-     * @maxLength 240
-     */
-  subjectRule?: string;
-  /**
-     * @minLength 1
-     * @maxLength 240
-     */
-  stockQueryGuidance?: string;
-}
-
-export type CreativeDirectionSonicMood = typeof CreativeDirectionSonicMood[keyof typeof CreativeDirectionSonicMood];
-
-
-export const CreativeDirectionSonicMood = {
-  none: 'none',
-  calm: 'calm',
-  optimistic: 'optimistic',
-  playful: 'playful',
-  dramatic: 'dramatic',
-  tense: 'tense',
-} as const;
-
-export type CreativeDirectionSonicRhythm = typeof CreativeDirectionSonicRhythm[keyof typeof CreativeDirectionSonicRhythm];
-
-
-export const CreativeDirectionSonicRhythm = {
-  minimal: 'minimal',
-  sparse: 'sparse',
-  steady: 'steady',
-  driving: 'driving',
-} as const;
-
-export interface CreativeDirectionSonic {
-  mood?: CreativeDirectionSonicMood;
-  /**
-     * @minimum 1
-     * @maximum 5
-     */
-  energy?: number;
-  rhythm?: CreativeDirectionSonicRhythm;
-  /**
-     * @minLength 1
-     * @maxLength 240
-     */
-  guidance?: string;
-}
-
-export type CreativeDirectionCaptionsRhythm = typeof CreativeDirectionCaptionsRhythm[keyof typeof CreativeDirectionCaptionsRhythm];
-
-
-export const CreativeDirectionCaptionsRhythm = {
-  sentence: 'sentence',
-  phrase: 'phrase',
-  word_group: 'word_group',
-} as const;
-
-export type CreativeDirectionCaptionsEmphasis = typeof CreativeDirectionCaptionsEmphasis[keyof typeof CreativeDirectionCaptionsEmphasis];
-
-
-export const CreativeDirectionCaptionsEmphasis = {
-  none: 'none',
-  keywords: 'keywords',
-  numbers: 'numbers',
-} as const;
-
-export interface CreativeDirectionCaptions {
-  rhythm?: CreativeDirectionCaptionsRhythm;
-  emphasis?: CreativeDirectionCaptionsEmphasis;
-}
-
-export interface CreativeDirection {
-  version: 1;
-  narrative?: CreativeDirectionNarrative;
-  structure?: CreativeDirectionStructure;
-  visual?: CreativeDirectionVisual;
-  sonic?: CreativeDirectionSonic;
-  captions?: CreativeDirectionCaptions;
-}
-
-export type CreativeDirectionSource = typeof CreativeDirectionSource[keyof typeof CreativeDirectionSource];
-
-
-export const CreativeDirectionSource = {
-  format: 'format',
-  template: 'template',
-  vertical: 'vertical',
-  brand: 'brand',
-  user: 'user',
-} as const;
-
-export interface CreativeDirectionProvenanceEntry {
-  source: CreativeDirectionSource;
-  /** Stable database/version reference; never an object path. */
-  reference?: string;
-  fields: string[];
-}
-
-export interface CreativeDirectionClamp {
-  field: string;
-  reason: string;
-  source: CreativeDirectionSource;
-}
-
-export interface ResolvedCreativeBrief {
-  version: 1;
-  direction: CreativeDirection;
-  /** @maxLength 1000 */
-  topic?: string;
-  provenance: CreativeDirectionProvenanceEntry[];
-  clamps: CreativeDirectionClamp[];
-}
-
-export interface VideoJob {
-  id: number;
-  engine: VideoJobEngine;
-  /** awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way. */
-  status: VideoJobStatus;
-  /** @nullable */
-  prompt?: string | null;
-  /**
-     * The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.
-     * @nullable
-     */
-  aiPrompt?: string | null;
-  sourceImagePaths: string[];
-  aspectRatio: string;
-  /**
-     * Revision identity for the compatibility Guided Story reference API.
-     * @nullable
-     */
-  guidedReferenceContext: VideoJobGuidedReferenceContext;
-  /**
-     * The catalog model explicitly picked, or null when the mode-specific admin default was resolved.
-     * @nullable
-     */
-  modelId: string | null;
-  /**
-     * Immutable provider/model execution contract frozen before funding.
-     * @nullable
-     */
-  resolvedVideoModel: VideoJobResolvedVideoModel;
-  /**
-     * The resolution this job was created with, or null.
-     * @nullable
-     */
-  resolution?: string | null;
-  /** The optics this job was created with, or null. */
-  cinematography?: null | Cinematography;
-  /**
-     * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
-     * @nullable
-     */
-  motionPreset?: string | null;
-  /**
-     * The sampling seed this job was created with. Null when the provider chose one.
-     * @nullable
-     */
-  seed?: number | null;
-  /**
-     * Immutable output produced by this job; serve via /api/storage{videoPath}.
-     * @nullable
-     */
-  videoPath?: string | null;
-  /**
-     * Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source's immutable videoPath.
-     * @nullable
-     */
-  currentVideoPath: string | null;
-  /**
-     * Tenant-scoped Guided Story draft backing this job, when applicable.
-     * @nullable
-     */
-  guidedStoryDraftId: number | null;
-  /**
-     * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
-     * @nullable
-     */
-  savedContentItemId: number | null;
-  /**
-     * Poster-frame PNG path (best effort; may be null).
-     * @nullable
-     */
-  thumbnailPath?: string | null;
-  /** @nullable */
-  provider?: string | null;
-  /** @nullable */
-  model?: string | null;
-  /**
-     * Human-readable failure reason when status is failed.
-     * @nullable
-     */
-  error?: string | null;
-  /**
-     * Safe provider request correlation id when the provider supplied one.
-     * @nullable
-     */
-  providerRequestId?: string | null;
-  /** Append-only durable failure history. Error text is sanitized. */
-  errorHistory?: VideoJobErrorHistoryItem[];
-  /**
-     * What the pipeline is doing right now (e.g. "Writing the script", "Composing the video"). Only meaningful while status is processing; null otherwise.
-     * @nullable
-     */
-  stage?: string | null;
-  /** @nullable */
-  durationMs?: number | null;
-  /**
-     * How many video units this job charges. 1 for a simple single generation; multi-shot clips, character/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.
-     * @minimum 0
-     */
-  units?: number;
-  /**
-     * Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.
-     * @minimum 0
-     */
-  requiredUnits?: number;
-  /** True when this failed video engine supports recovery from its saved inputs. */
-  retryable: boolean;
-  /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
-  recovery: VideoJobRecovery;
-  /** Audit-only source link for a clean-room restart; never a recovery chain. */
-  freshRestart?: VideoJobFreshRestart;
-  /** Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically. */
-  privacyRecoveryCapability: VideoJobPrivacyRecoveryCapability;
-  /** True when this completed job has every saved asset required for no-charge local recomposition. */
-  repairable: boolean;
-  /** Local repair lineage and mismatch reason; null for original jobs. */
-  repair: VideoJobRepair;
-  /** Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state. */
-  guidedPreviewRender: VideoJobGuidedPreviewRender;
-  /**
-     * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
-     * @nullable
-     */
-  chargedRatePaise?: number | null;
-  /**
-     * The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto this job's usage events when it settled (all units summed) — the job's REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.
-     * @nullable
-     */
-  spendPaise?: number | null;
-  /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
-  storyboard?: VideoStoryboard | null;
-  /**
-     * When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.
-     * @nullable
-     */
-  storyboardExpiresAt?: string | null;
-  /** Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds. */
-  localizedResult?: LocalizedDubResult | null;
-  /** Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs. */
-  resolvedCreativeBrief?: ResolvedCreativeBrief | null;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export type RepairVideoRequestReason = typeof RepairVideoRequestReason[keyof typeof RepairVideoRequestReason];

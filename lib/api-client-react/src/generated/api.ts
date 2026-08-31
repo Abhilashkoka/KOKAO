@@ -197,6 +197,10 @@ import type {
   GuidedStoryBackdropInput,
   GuidedStoryCastInput,
   GuidedStoryCastRoleApprovalInput,
+  GuidedStoryDialogueReplayConfirmRequest,
+  GuidedStoryDialogueReplayConfirmation,
+  GuidedStoryDialogueReplayPreview,
+  GuidedStoryDialogueReplayPreviewRequest,
   GuidedStoryDraft,
   GuidedStoryDraftUpdate,
   GuidedStoryPlatformContract,
@@ -17141,6 +17145,150 @@ export const useCompleteGuidedStoryReferenceOperation = <TError = ErrorType<Erro
         TContext
       > => {
       return useMutation(getCompleteGuidedStoryReferenceOperationMutationOptions(options));
+    }
+
+export const getPreviewGuidedStoryDialogueReplayUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/guided-story/dialogue-replay/preview`
+}
+
+/**
+ * Returns an immutable view of the source job's approved lines, their resolved per-line Telugu voices, and the operation estimate. This is a read-only quote: it does not mutate the source job, reserve funds, call a provider, or create a replay job. Lines without an owner are always represented as offscreen.
+ * @summary Review a Telugu dialogue replay before creating a job
+ */
+export const previewGuidedStoryDialogueReplay = async (jobId: number,
+    guidedStoryDialogueReplayPreviewRequest: GuidedStoryDialogueReplayPreviewRequest, options?: RequestInit): Promise<GuidedStoryDialogueReplayPreview> => {
+
+  return customFetch<GuidedStoryDialogueReplayPreview>(getPreviewGuidedStoryDialogueReplayUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryDialogueReplayPreviewRequest)
+  }
+);}
+
+
+
+
+export const getPreviewGuidedStoryDialogueReplayMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewGuidedStoryDialogueReplay>>, TError,{jobId: number;data: BodyType<GuidedStoryDialogueReplayPreviewRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewGuidedStoryDialogueReplay>>, TError,{jobId: number;data: BodyType<GuidedStoryDialogueReplayPreviewRequest>}, TContext> => {
+
+const mutationKey = ['previewGuidedStoryDialogueReplay'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewGuidedStoryDialogueReplay>>, {jobId: number;data: BodyType<GuidedStoryDialogueReplayPreviewRequest>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  previewGuidedStoryDialogueReplay(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewGuidedStoryDialogueReplayMutationResult = NonNullable<Awaited<ReturnType<typeof previewGuidedStoryDialogueReplay>>>
+    export type PreviewGuidedStoryDialogueReplayMutationBody = BodyType<GuidedStoryDialogueReplayPreviewRequest>
+    export type PreviewGuidedStoryDialogueReplayMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Review a Telugu dialogue replay before creating a job
+ */
+export const usePreviewGuidedStoryDialogueReplay = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewGuidedStoryDialogueReplay>>, TError,{jobId: number;data: BodyType<GuidedStoryDialogueReplayPreviewRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewGuidedStoryDialogueReplay>>,
+        TError,
+        {jobId: number;data: BodyType<GuidedStoryDialogueReplayPreviewRequest>},
+        TContext
+      > => {
+      return useMutation(getPreviewGuidedStoryDialogueReplayMutationOptions(options));
+    }
+
+export const getConfirmGuidedStoryDialogueReplayUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/guided-story/dialogue-replay/confirm`
+}
+
+/**
+ * Atomically verifies the preview fingerprint, snapshots the source lines and per-line voices into a new child job, and starts its durable operation. The completed source job and its storyboard remain immutable. Replay subtitles are always false.
+ * @summary Confirm and enqueue the reviewed Telugu dialogue replay
+ */
+export const confirmGuidedStoryDialogueReplay = async (jobId: number,
+    guidedStoryDialogueReplayConfirmRequest: GuidedStoryDialogueReplayConfirmRequest, options?: RequestInit): Promise<GuidedStoryDialogueReplayConfirmation> => {
+
+  return customFetch<GuidedStoryDialogueReplayConfirmation>(getConfirmGuidedStoryDialogueReplayUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryDialogueReplayConfirmRequest)
+  }
+);}
+
+
+
+
+export const getConfirmGuidedStoryDialogueReplayMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmGuidedStoryDialogueReplay>>, TError,{jobId: number;data: BodyType<GuidedStoryDialogueReplayConfirmRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmGuidedStoryDialogueReplay>>, TError,{jobId: number;data: BodyType<GuidedStoryDialogueReplayConfirmRequest>}, TContext> => {
+
+const mutationKey = ['confirmGuidedStoryDialogueReplay'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmGuidedStoryDialogueReplay>>, {jobId: number;data: BodyType<GuidedStoryDialogueReplayConfirmRequest>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  confirmGuidedStoryDialogueReplay(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmGuidedStoryDialogueReplayMutationResult = NonNullable<Awaited<ReturnType<typeof confirmGuidedStoryDialogueReplay>>>
+    export type ConfirmGuidedStoryDialogueReplayMutationBody = BodyType<GuidedStoryDialogueReplayConfirmRequest>
+    export type ConfirmGuidedStoryDialogueReplayMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Confirm and enqueue the reviewed Telugu dialogue replay
+ */
+export const useConfirmGuidedStoryDialogueReplay = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmGuidedStoryDialogueReplay>>, TError,{jobId: number;data: BodyType<GuidedStoryDialogueReplayConfirmRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmGuidedStoryDialogueReplay>>,
+        TError,
+        {jobId: number;data: BodyType<GuidedStoryDialogueReplayConfirmRequest>},
+        TContext
+      > => {
+      return useMutation(getConfirmGuidedStoryDialogueReplayMutationOptions(options));
     }
 
 export const getGetVideoCapabilitiesUrl = () => {

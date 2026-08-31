@@ -12735,6 +12735,16 @@ export const generateVideoResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const generateVideoResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -12920,6 +12930,32 @@ export const GenerateVideoResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(generateVideoResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -16945,6 +16981,16 @@ export const enqueueGuidedStoryDraftResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const enqueueGuidedStoryDraftResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -17130,6 +17176,32 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(enqueueGuidedStoryDraftResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -17383,6 +17455,16 @@ export const finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoTotalM
 export const finalizeGuidedStoryJobReferenceResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -17568,6 +17650,32 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(finalizeGuidedStoryJobReferenceResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -17786,6 +17894,16 @@ export const startGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwoTot
 export const startGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -17971,6 +18089,32 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(startGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -18200,6 +18344,16 @@ export const completeGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwo
 export const completeGuidedStoryReferenceOperationResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -18385,6 +18539,32 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(completeGuidedStoryReferenceOperationResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -18572,6 +18752,607 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
 }),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Returns an immutable view of the source job's approved lines, their resolved per-line Telugu voices, and the operation estimate. This is a read-only quote: it does not mutate the source job, reserve funds, call a provider, or create a replay job. Lines without an owner are always represented as offscreen.
+ * @summary Review a Telugu dialogue replay before creating a job
+ */
+export const PreviewGuidedStoryDialogueReplayParams = zod.object({
+  "jobId": zod.coerce.number().describe('Tenant-owned, completed Guided Story source job.')
+})
+
+export const PreviewGuidedStoryDialogueReplayBody = zod.object({
+
+}).describe('Intentionally empty. Locale, text, timing, visuals, and role voices are all read from the completed source job\'s immutable approved snapshot.')
+
+export const previewGuidedStoryDialogueReplayResponseLinesItemStartMsMin = 0;
+
+
+
+
+
+export const previewGuidedStoryDialogueReplayResponseEstimatesDurationSecondsMin = 0;
+
+export const previewGuidedStoryDialogueReplayResponseEstimatesUnitsMin = 0;
+
+
+
+export const PreviewGuidedStoryDialogueReplayResponse = zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string().describe('Hash of the immutable source review material, not mutable draft state.'),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(previewGuidedStoryDialogueReplayResponseLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(previewGuidedStoryDialogueReplayResponseEstimatesDurationSecondsMin),
+  "units": zod.number().min(previewGuidedStoryDialogueReplayResponseEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "confirmationFingerprint": zod.string().describe('Binds confirmation to this source, line order, timing, and voice resolution.')
+})
+
+
+/**
+ * Atomically verifies the preview fingerprint, snapshots the source lines and per-line voices into a new child job, and starts its durable operation. The completed source job and its storyboard remain immutable. Replay subtitles are always false.
+ * @summary Confirm and enqueue the reviewed Telugu dialogue replay
+ */
+export const ConfirmGuidedStoryDialogueReplayParams = zod.object({
+  "jobId": zod.coerce.number().describe('Tenant-owned source job reviewed by the preview endpoint.')
+})
+
+
+export const confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMin = 8;
+export const confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMax = 200;
+
+
+
+export const ConfirmGuidedStoryDialogueReplayBody = zod.object({
+  "confirmationFingerprint": zod.string().min(1).describe('Exact fingerprint returned by preview. The server reconstructs and verifies the source snapshot instead of trusting replay material resubmitted by the client.'),
+  "idempotencyKey": zod.string().min(confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMin).max(confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMax).describe('Stable client key preventing duplicate replay children.')
+})
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobErrorHistoryItemRecoveryAttemptMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobUnitsMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobRequiredUnitsMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobGuidedPreviewRenderTwoTotalMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobGuidedPreviewRenderTwoCompletedMin = 0;
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneTopicMax = 1000;
+
+export const confirmGuidedStoryDialogueReplayResponseSnapshotLinesItemStartMsMin = 0;
+
+
+
+
+
+export const confirmGuidedStoryDialogueReplayResponseSnapshotEstimatesDurationSecondsMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseSnapshotEstimatesUnitsMin = 0;
+
+
+export const confirmGuidedStoryDialogueReplayResponseOperationEstimatesDurationSecondsMin = 0;
+
+export const confirmGuidedStoryDialogueReplayResponseOperationEstimatesUnitsMin = 0;
+
+
+export const confirmGuidedStoryDialogueReplayResponseOperationCompletedLinesMin = 0;
+
+
+
+export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
+  "job": zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "guidedReferenceContext": zod.object({
+  "draftId": zod.number(),
+  "revision": zod.number(),
+  "operations": zod.record(zod.string(), zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "state": zod.enum(['queued', 'running', 'ready_to_review', 'failed', 'outcome_unknown']),
+  "characterId": zod.number().nullish(),
+  "outfitId": zod.number().nullish(),
+  "error": zod.string().nullish(),
+  "updatedAt": zod.coerce.date()
+})).optional()
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+  "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
+  "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "units": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
+  "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
+  "repair": zod.union([zod.null(),zod.object({
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reason": zod.enum(['narration', 'music', 'captions', 'scene_timing', 'audio_visual'])
+})]).describe('Local repair lineage and mismatch reason; null for original jobs.'),
+  "guidedPreviewRender": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'running', 'succeeded', 'failed']),
+  "total": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobGuidedPreviewRenderTwoTotalMin),
+  "completed": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobGuidedPreviewRenderTwoCompletedMin),
+  "error": zod.string().nullable(),
+  "retryable": zod.boolean().describe('True when another click will claim a new attempt for remaining previews.'),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
+  "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "durationBounds": zod.object({
+  "minSec": zod.number(),
+  "maxSec": zod.number()
+}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
+  "scenes": zod.array(zod.object({
+  "guidedStory": zod.object({
+  "scriptSceneId": zod.string(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "roleIds": zod.array(zod.string()),
+  "lineOwnership": zod.array(zod.object({
+  "lineId": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "startMs": zod.number(),
+  "endMs": zod.number()
+})),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "characterName": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "referenceImagePath": zod.string().nullable(),
+  "outfitReferenceImagePath": zod.string().nullable(),
+  "voiceProvider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+})),
+  "inconsistencyFlags": zod.array(zod.string()),
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
+}).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
+  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
+  "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_started', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "localizedResult": zod.union([zod.object({
+  "locale": zod.enum(['te', 'ta', 'hi']).describe('Target locale that was spoken and burned in.'),
+  "voiceMode": zod.enum(['stock', 'brand_voice', 'source_voice']).describe('Voice mode that was used.'),
+  "provider": zod.string().nullish().describe('TTS provider that synthesised the track (null for source_voice path).'),
+  "model": zod.string().nullish().describe('TTS model used (null for source_voice path).'),
+  "finalCues": zod.array(zod.object({
+  "index": zod.number(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "text": zod.string()
+})).describe('Final cue list as burned into the video. Text may differ from the approved track when source_voice dubbing was used.'),
+  "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
+  "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
+}).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(confirmGuidedStoryDialogueReplayResponseJobResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),
+  "snapshot": zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(confirmGuidedStoryDialogueReplayResponseSnapshotLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(confirmGuidedStoryDialogueReplayResponseSnapshotEstimatesDurationSecondsMin),
+  "units": zod.number().min(confirmGuidedStoryDialogueReplayResponseSnapshotEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+}),
+  "operation": zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(confirmGuidedStoryDialogueReplayResponseOperationEstimatesDurationSecondsMin),
+  "units": zod.number().min(confirmGuidedStoryDialogueReplayResponseOperationEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(confirmGuidedStoryDialogueReplayResponseOperationCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})
 })
 
 
@@ -18896,6 +19677,16 @@ export const listVideoJobsResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const listVideoJobsResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -19081,6 +19872,32 @@ export const ListVideoJobsResponseItem = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(listVideoJobsResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -19291,6 +20108,16 @@ export const getVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const getVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -19476,6 +20303,32 @@ export const GetVideoJobResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(getVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -19686,6 +20539,16 @@ export const cancelVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const cancelVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -19871,6 +20734,32 @@ export const CancelVideoJobResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(cancelVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -20081,6 +20970,16 @@ export const retryVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const retryVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -20266,6 +21165,32 @@ export const RetryVideoJobResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(retryVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -20476,6 +21401,16 @@ export const restartVideoJobFreshResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const restartVideoJobFreshResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -20661,6 +21596,32 @@ export const RestartVideoJobFreshResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(restartVideoJobFreshResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -20875,6 +21836,16 @@ export const repairVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const repairVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const repairVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const repairVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -21060,6 +22031,32 @@ export const RepairVideoJobResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(repairVideoJobResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -21297,6 +22294,16 @@ export const updateVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const updateVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -21482,6 +22489,32 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(updateVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -21704,6 +22737,16 @@ export const insertVideoStoryboardSceneResponseGuidedPreviewRenderTwoTotalMin = 
 export const insertVideoStoryboardSceneResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -21889,6 +22932,32 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(insertVideoStoryboardSceneResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -22100,6 +23169,16 @@ export const regenerateStoryboardScenePreviewResponseGuidedPreviewRenderTwoTotal
 export const regenerateStoryboardScenePreviewResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -22285,6 +23364,32 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(regenerateStoryboardScenePreviewResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -22508,6 +23613,16 @@ export const correctGuidedStorySceneResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const correctGuidedStorySceneResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -22693,6 +23808,32 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(correctGuidedStorySceneResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -22903,6 +24044,16 @@ export const renderMissingGuidedStoryPreviewsResponseGuidedPreviewRenderTwoTotal
 export const renderMissingGuidedStoryPreviewsResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -23088,6 +24239,32 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(renderMissingGuidedStoryPreviewsResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -23298,6 +24475,16 @@ export const approveVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const approveVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -23483,6 +24670,32 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(approveVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
@@ -23692,6 +24905,16 @@ export const discardVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 export const discardVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
 
+export const discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -23877,6 +25100,32 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "endSec": zod.number()
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(discardVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),

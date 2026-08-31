@@ -6397,6 +6397,95 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /ai/video-jobs/{jobId}/guided-story/dialogue-replay/preview:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        description: Tenant-owned, completed Guided Story source job.
+        schema: { type: integer }
+    post:
+      operationId: previewGuidedStoryDialogueReplay
+      tags: [ai]
+      summary: Review a Telugu dialogue replay before creating a job
+      description: >-
+        Returns an immutable view of the source job's approved lines, their
+        resolved per-line Telugu voices, and the operation estimate. This is a
+        read-only quote: it does not mutate the source job, reserve funds, call
+        a provider, or create a replay job. Lines without an owner are always
+        represented as offscreen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryDialogueReplayPreviewRequest"
+      responses:
+        "200":
+          description: Immutable source review and replay estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDialogueReplayPreview"
+        "400":
+          description: Source is not a replayable Guided Story or a voice assignment is invalid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Tenant-owned source job not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /ai/video-jobs/{jobId}/guided-story/dialogue-replay/confirm:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        description: Tenant-owned source job reviewed by the preview endpoint.
+        schema: { type: integer }
+    post:
+      operationId: confirmGuidedStoryDialogueReplay
+      tags: [ai]
+      summary: Confirm and enqueue the reviewed Telugu dialogue replay
+      description: >-
+        Atomically verifies the preview fingerprint, snapshots the source lines
+        and per-line voices into a new child job, and starts its durable
+        operation. The completed source job and its storyboard remain immutable.
+        Replay subtitles are always false.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryDialogueReplayConfirmRequest"
+      responses:
+        "201":
+          description: Replay child and durable operation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDialogueReplayConfirmation"
+        "400":
+          description: Invalid or unsupported replay contract
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "402":
+          description: Replay operation could not be funded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Tenant-owned source job not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: Preview fingerprint is stale or this confirmation was already accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /ai/video-capabilities:
     get:
       operationId: getVideoCapabilities
@@ -17399,6 +17488,192 @@ components:
             provider: { type: string }
             model: { type: string }
             operationId: { type: ["integer", "null"] }
+    GuidedStoryDialogueReplayPreviewRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Intentionally empty. Locale, text, timing, visuals, and role voices are
+        all read from the completed source job's immutable approved snapshot.
+    GuidedStoryDialogueReplaySpeaker:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type, roleId, identity, voice]
+          properties:
+            type: { type: string, const: role }
+            roleId: { type: string }
+            identity:
+              type: object
+              additionalProperties: false
+              required: [name, characterDescription, outfitDescription, characterReferencePath, outfitReferencePath]
+              properties:
+                name: { type: string }
+                characterDescription: { type: string }
+                outfitDescription: { type: ["string", "null"] }
+                characterReferencePath: { type: string }
+                outfitReferencePath: { type: string }
+            voice:
+              type: object
+              additionalProperties: false
+              required: [provider, providerVoiceId]
+              properties:
+                provider: { type: string, const: elevenlabs }
+                providerVoiceId: { type: string, minLength: 1 }
+        - type: object
+          additionalProperties: false
+          required: [type, roleId, voice]
+          properties:
+            type: { type: string, const: offscreen }
+            roleId: { type: "null" }
+            voice: { type: "null" }
+    GuidedStoryDialogueReplayLine:
+      type: object
+      additionalProperties: false
+      required: [sceneId, lineId, kind, text, startMs, endMs, speaker, preview, backdrop]
+      properties:
+        sceneId: { type: string }
+        lineId: { type: string }
+        kind: { type: string, enum: [dialogue, narration] }
+        text:
+          type: string
+          description: Exact approved Telugu source text; it is never translated or rewritten.
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 1 }
+        speaker:
+          $ref: "#/components/schemas/GuidedStoryDialogueReplaySpeaker"
+        preview:
+          type: object
+          additionalProperties: false
+          required: [path, inputFingerprint]
+          properties:
+            path: { type: string }
+            inputFingerprint: { type: string }
+        backdrop:
+          type: object
+          additionalProperties: false
+          required: [path, fingerprint]
+          properties:
+            path: { type: string }
+            fingerprint: { type: string }
+    GuidedStoryDialogueReplayEstimate:
+      type: object
+      additionalProperties: false
+      required: [lineCount, durationSeconds, units]
+      properties:
+        lineCount: { type: integer, minimum: 1 }
+        durationSeconds: { type: number, minimum: 0 }
+        units:
+          type: integer
+          minimum: 0
+          description: Estimated product units reserved on confirmation.
+    GuidedStoryDialogueReplayPreview:
+      type: object
+      additionalProperties: false
+      required: [version, sourceJobId, sourceStoryboardFingerprint, locale, subtitles, lines, estimates, confirmationFingerprint]
+      properties:
+        version: { type: integer, const: 1 }
+        sourceJobId: { type: integer }
+        sourceStoryboardFingerprint:
+          type: string
+          description: Hash of the immutable source review material, not mutable draft state.
+        locale: { type: string, const: te }
+        subtitles: { type: boolean, const: false }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/GuidedStoryDialogueReplayLine"
+        estimates:
+          $ref: "#/components/schemas/GuidedStoryDialogueReplayEstimate"
+        confirmationFingerprint:
+          type: string
+          description: Binds confirmation to this source, line order, timing, and voice resolution.
+    GuidedStoryDialogueReplayConfirmRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmationFingerprint, idempotencyKey]
+      properties:
+        confirmationFingerprint:
+          type: string
+          minLength: 1
+          description: >-
+            Exact fingerprint returned by preview. The server reconstructs and
+            verifies the source snapshot instead of trusting replay material
+            resubmitted by the client.
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 200
+          description: Stable client key preventing duplicate replay children.
+    GuidedStoryDialogueReplaySnapshot:
+      type: object
+      additionalProperties: false
+      required: [version, sourceJobId, sourceStoryboardFingerprint, locale, subtitles, confirmedAt, lines, estimates]
+      properties:
+        version: { type: integer, const: 1 }
+        sourceJobId: { type: integer }
+        sourceStoryboardFingerprint: { type: string }
+        locale: { type: string, const: te }
+        subtitles: { type: boolean, const: false }
+        confirmedAt: { type: string, format: date-time }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/GuidedStoryDialogueReplayLine"
+        estimates:
+          $ref: "#/components/schemas/GuidedStoryDialogueReplayEstimate"
+    GuidedStoryDialogueReplayLineCheckpoint:
+      type: object
+      additionalProperties: false
+      required: [lineId, audioPath, durationMs, provider, model]
+      properties:
+        lineId: { type: string }
+        audioPath: { type: string }
+        durationMs: { type: integer, minimum: 0 }
+        provider: { type: string }
+        model: { type: string }
+        eventId: { type: string }
+    GuidedStoryDialogueReplayOperation:
+      type: object
+      additionalProperties: false
+      required: [version, operationId, state, estimates, totalLines, completedLines, currentLineId, error, requestedAt, startedAt, finishedAt]
+      properties:
+        version: { type: integer, const: 1 }
+        operationId: { type: string }
+        state:
+          type: string
+          enum: [queued, synthesizing, composing, succeeded, failed, outcome_unknown]
+        estimates:
+          $ref: "#/components/schemas/GuidedStoryDialogueReplayEstimate"
+        totalLines: { type: integer, minimum: 1 }
+        completedLines: { type: integer, minimum: 0 }
+        currentLineId: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        requestedAt: { type: string, format: date-time }
+        startedAt: { type: ["string", "null"], format: date-time }
+        finishedAt: { type: ["string", "null"], format: date-time }
+    GuidedStoryDialogueReplayCheckpoint:
+      allOf:
+        - $ref: "#/components/schemas/GuidedStoryDialogueReplayOperation"
+        - type: object
+          required: [lines]
+          properties:
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/GuidedStoryDialogueReplayLineCheckpoint"
+    GuidedStoryDialogueReplayConfirmation:
+      type: object
+      additionalProperties: false
+      required: [job, snapshot, operation]
+      properties:
+        job:
+          $ref: "#/components/schemas/VideoJob"
+        snapshot:
+          $ref: "#/components/schemas/GuidedStoryDialogueReplaySnapshot"
+        operation:
+          $ref: "#/components/schemas/GuidedStoryDialogueReplayOperation"
     GuidedStorySetup:
       allOf:
         - $ref: "#/components/schemas/GuidedStorySetupInput"
@@ -18272,6 +18547,14 @@ components:
                     type: number
                   endSec:
                     type: number
+        dialogueReplayCheckpoint:
+          description: >-
+            Durable Telugu dialogue replay progress on a replay child
+            storyboard. Absent or null on the immutable source job and all
+            unrelated video jobs.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/GuidedStoryDialogueReplayCheckpoint"
         scenes:
           type: array
           items:

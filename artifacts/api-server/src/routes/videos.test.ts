@@ -2448,6 +2448,239 @@ describe("guided story route fail-closed regressions", () => {
     );
   }
 
+  async function seedReplayableGuidedSource(
+    tenant: TestTenant,
+    status: "succeeded" | "failed" = "succeeded",
+  ) {
+    const script = structuredClone(routeScript());
+    script.scenes[0]!.lines.push({
+      id: "offscreen-line",
+      ownerRoleId: null,
+      kind: "narration",
+      text: "The town listened as the rain finally began to soften.",
+      startMs: 20_000,
+      endMs: 30_000,
+    });
+    const cast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved" as const,
+      characterId: index + 101,
+      outfitId: index + 201,
+      brandKitId: null,
+      voiceId: `voice-${role.id}`,
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/${tenant.tenantId}/replay-character-${role.id}.png`,
+      },
+      outfit: {
+        name: "Approved",
+        description: "Approved",
+        referenceImagePath: `/objects/${tenant.tenantId}/replay-outfit-${role.id}.png`,
+      },
+      voice: {
+        id: `voice-${role.id}`,
+        label: role.name,
+        provider: "elevenlabs",
+        providerVoiceId: `eleven-${role.id}`,
+      },
+      isUserRole: index === 0,
+      consentGranted: true,
+    }));
+    const backdropInput = {
+      prompt: "A rain-soaked town square",
+      imagePath: `/objects/${tenant.tenantId}/replay-backdrop.png`,
+      sceneIds: script.scenes.map((scene) => scene.id),
+    };
+    const snapshot = {
+      version: 1 as const,
+      draftId: 991,
+      draftRevision: 1,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      locale: "te" as const,
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080, height: 1920, safeArea: "center", durationSeconds: 30,
+      },
+      script,
+      cast,
+      castApprovals: castApprovals(cast, 1),
+      backdropReference: {
+        version: 1 as const,
+        ...backdropInput,
+        fingerprint: guidedBackdropFingerprint(backdropInput),
+        approvedAt: "2025-01-01T00:00:00.000Z",
+      },
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes = storyboard.scenes.map((scene) => ({
+      ...scene,
+      previewPath: `/objects/${tenant.tenantId}/replay-${scene.id}.png`,
+      previewCheckpoint: {
+        targetPath: `/objects/${tenant.tenantId}/replay-${scene.id}.png`,
+        status: "complete" as const,
+      },
+    }));
+    const [inserted] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "topic_to_video",
+      status,
+      funding: "quota",
+      options: { aspectRatio: "9:16", subtitles: true, guidedStory: snapshot },
+      storyboard,
+    }).returning();
+    // Rebuild from PostgreSQL's jsonb-normalized snapshot. Replay deliberately
+    // validates this exact persisted immutable representation, not the
+    // insertion-order object used to seed the fixture.
+    const persistedStoryboard = guidedStoryStoryboard(inserted!.options!.guidedStory!);
+    persistedStoryboard.scenes = persistedStoryboard.scenes.map((scene) => ({
+      ...scene,
+      previewPath: `/objects/${tenant.tenantId}/replay-${scene.id}.png`,
+      previewCheckpoint: {
+        targetPath: `/objects/${tenant.tenantId}/replay-${scene.id}.png`,
+        status: "complete" as const,
+      },
+    }));
+    const [source] = await db.update(videoGenerationsTable).set({
+      storyboard: persistedStoryboard,
+    }).where(eq(videoGenerationsTable.id, inserted!.id)).returning();
+    return source!;
+  }
+
+  it("reviews immutable Telugu dialogue lines without funding or creating a child", async () => {
+    const tenant = await newTenant("pro");
+    const source = await seedReplayableGuidedSource(tenant);
+    const before = structuredClone(source);
+
+    const preview = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/preview`)
+      .send({});
+
+    expect(preview.status, preview.body.error).toBe(200);
+    expect(preview.body.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        lineId: "line-one",
+        text: source.options!.guidedStory!.script.scenes[0]!.lines[0]!.text,
+        speaker: expect.objectContaining({
+          type: "role",
+          roleId: "hero",
+          voice: { provider: "elevenlabs", providerVoiceId: "eleven-hero" },
+        }),
+      }),
+      expect.objectContaining({
+        lineId: "offscreen-line",
+        speaker: { type: "offscreen", roleId: null, voice: null },
+      }),
+    ]));
+    expect(preview.body.estimates).toMatchObject({ lineCount: 3, units: 4 });
+    expect(runnerState.calls).toEqual([]);
+    const rows = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.options).toEqual(before.options);
+    expect(rows[0]!.storyboard).toEqual(before.storyboard);
+  });
+
+  it("hides a foreign Guided Story source with a tenant-scoped 404", async () => {
+    const owner = await newTenant("pro");
+    const source = await seedReplayableGuidedSource(owner);
+    const other = await newTenant("pro");
+    actAs(other.clerkUserId);
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/preview`).send({});
+    expect(response.status).toBe(404);
+  });
+
+  it("confirms a reviewed failed source once, preserves it, and rejects stale reviews", async () => {
+    const tenant = await newTenant("pro");
+    const source = await seedReplayableGuidedSource(tenant, "failed");
+    const original = structuredClone(source);
+    const preview = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/preview`).send({});
+    expect(preview.status, preview.body.error).toBe(200);
+
+    const stale = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/confirm`)
+      .send({ confirmationFingerprint: "stale-review", idempotencyKey: "replay-key-1102" });
+    expect(stale.status).toBe(409);
+
+    const confirmed = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/confirm`)
+      .send({ confirmationFingerprint: preview.body.confirmationFingerprint, idempotencyKey: "replay-key-1102" });
+    expect(confirmed.status).toBe(201);
+    expect(confirmed.body.job.id).not.toBe(source.id);
+    expect(confirmed.body.snapshot.subtitles).toBe(false);
+    expect(confirmed.body.operation).toMatchObject({ state: "queued", totalLines: 3, completedLines: 0 });
+    await waitForPendingJobs();
+    expect(runnerState.calls).toContainEqual({ jobId: confirmed.body.job.id, funding: "quota" });
+
+    const [savedSource, child] = await Promise.all([
+      db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, source.id)),
+      db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, confirmed.body.job.id)),
+    ]);
+    expect(savedSource[0]!.status).toBe("failed");
+    expect(savedSource[0]!.options).toEqual(original.options);
+    expect(savedSource[0]!.storyboard).toEqual(original.storyboard);
+    expect(child[0]!.engine).toBe("dialogue_lip_sync");
+    expect(child[0]!.options!.subtitles).toBe(false);
+    expect(child[0]!.options!.lipSyncQuality).toBe("high");
+    expect(child[0]!.options!.guidedStory).toEqual(original.options!.guidedStory);
+    expect(child[0]!.storyboard!.scenes).toEqual(original.storyboard!.scenes);
+
+    const repeated = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/confirm`)
+      .send({ confirmationFingerprint: preview.body.confirmationFingerprint, idempotencyKey: "replay-key-1102" });
+    expect(repeated.status).toBe(201);
+    expect(repeated.body.job.id).toBe(confirmed.body.job.id);
+  });
+
+  it("never inherits a successful source render or recovery checkpoint", async () => {
+    const tenant = await newTenant("pro");
+    const source = await seedReplayableGuidedSource(tenant, "succeeded");
+    const sourceOptions = structuredClone(source.options!);
+    sourceOptions.renderCheckpoint = {
+      stage: "final",
+      path: `/objects/${tenant.tenantId}/old-final.mp4`,
+      provider: "replicate",
+      model: "old-model",
+      durationSec: 30,
+      providerEvents: [],
+    };
+    sourceOptions.recovery = {
+      version: 1,
+      chainId: source.id,
+      sourceJobId: source.id,
+      fundedUnits: 0,
+      mode: "resume",
+      state: "queued",
+      reusable: ["old render"],
+      regenerated: [],
+      privacyRecovery: null,
+      rendered: sourceOptions.renderCheckpoint,
+    };
+    await db.update(videoGenerationsTable).set({ options: sourceOptions })
+      .where(eq(videoGenerationsTable.id, source.id));
+
+    const preview = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/preview`)
+      .send({});
+    expect(preview.status, preview.body.error).toBe(200);
+    const confirmed = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/guided-story/dialogue-replay/confirm`)
+      .send({
+        confirmationFingerprint: preview.body.confirmationFingerprint,
+        idempotencyKey: "successful-source-replay",
+      });
+    expect(confirmed.status, confirmed.body.error).toBe(201);
+    const [child] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, confirmed.body.job.id));
+    expect(child!.options!.renderCheckpoint).toBeUndefined();
+    expect(child!.options!.recovery).toBeUndefined();
+    expect(child!.options!.lipSyncQuality).toBe("high");
+    expect(child!.storyboard!.scenes).toEqual(source.storyboard!.scenes);
+  });
+
   it("approves one role by hashing the exact tenant-owned character and outfit bytes", async () => {
     const tenant = await newTenant("pro");
     const script = routeScript();
@@ -6521,6 +6754,130 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     const invalidResponse = await request(app).post(`/api/ai/video-jobs/${invalid!.id}/retry`);
     expect(invalidResponse.status).toBe(410);
     expect(invalidResponse.body.code).toBe("recovery_checkpoint_invalid");
+  });
+
+  it("rejects missing and cross-tenant replay line artifacts before creating a retry", async () => {
+    const tenant = await newTenant("pro");
+    const insertReplay = async (audioPath: string, suffix: string) => {
+      const scenePreviewPath =
+        `/objects/${tenant.tenantId}/uploads/replay-scene-${suffix}.png`;
+      const clipPath =
+        `/objects/${tenant.tenantId}/uploads/replay-clip-${suffix}.mp4`;
+      const [source] = await db.insert(videoGenerationsTable).values({
+        tenantId: tenant.tenantId,
+        engine: "dialogue_lip_sync",
+        status: "failed",
+        funding: "quota",
+        error: "Interrupted",
+        options: {
+          aspectRatio: "9:16",
+          guidedStoryDialogueReplay: {
+            version: 1,
+            sourceJobId: 47_182,
+            sourceStoryboardFingerprint: "frozen",
+            locale: "te",
+            subtitles: false,
+            confirmedAt: "2026-08-31T00:00:00.000Z",
+            estimates: {
+              lineCount: 1,
+              durationSeconds: 4,
+              units: 0,
+            },
+            lines: [{
+              lineId: `line-${suffix}`,
+              sceneId: `scene-${suffix}`,
+              kind: "narration",
+              text: "Exact ownerless Telugu narration",
+              startMs: 0,
+              endMs: 4_000,
+              speaker: {
+                type: "offscreen",
+                roleId: null,
+                voice: null,
+              },
+              preview: {
+                path: scenePreviewPath,
+                inputFingerprint: "approved-preview",
+              },
+              backdrop: {
+                path: scenePreviewPath,
+                fingerprint: "approved-backdrop",
+              },
+            }],
+          },
+        },
+        storyboard: {
+          version: 1,
+          visualsSource: "ai",
+          timelineLocked: true,
+          model: null,
+          provider: null,
+          regenerations: 0,
+          narration: null,
+          scenes: [{
+            id: `scene-${suffix}`,
+            text: "Exact ownerless Telugu narration",
+            visual: "Approved frame",
+            durationSec: 4,
+            previewPath: scenePreviewPath,
+            outfitId: null,
+          }],
+          dialogueReplayCheckpoint: {
+            version: 1,
+            operationId: `operation-${suffix}`,
+            state: "failed",
+            totalLines: 1,
+            completedLines: 1,
+            estimates: {
+              lineCount: 1,
+              durationSeconds: 4,
+              units: 0,
+            },
+            currentLineId: null,
+            error: "Interrupted",
+            requestedAt: "2026-08-31T00:00:00.000Z",
+            startedAt: "2026-08-31T00:00:00.000Z",
+            finishedAt: null,
+            lines: [{
+              lineId: `line-${suffix}`,
+              audioPath,
+              clipPath,
+              durationMs: 4_000,
+              provider: "elevenlabs",
+              model: "eleven_v3",
+            }],
+          },
+        },
+      }).returning();
+      return source!;
+    };
+
+    const missingPath =
+      `/objects/${tenant.tenantId}/uploads/missing-replay-audio.wav`;
+    const missing = await insertReplay(missingPath, "missing");
+    objectStorageState.missingPaths.add(missingPath);
+    const missingResponse = await request(app)
+      .post(`/api/ai/video-jobs/${missing.id}/retry`);
+    expect(missingResponse.status).toBe(410);
+    expect(missingResponse.body.code).toBe("recovery_asset_missing");
+
+    const foreign = await insertReplay(
+      `/objects/${tenant.tenantId + 1}/uploads/foreign-replay-audio.wav`,
+      "foreign",
+    );
+    const foreignResponse = await request(app)
+      .post(`/api/ai/video-jobs/${foreign.id}/retry`);
+    expect(foreignResponse.status).toBe(410);
+    expect(foreignResponse.body.code).toBe("recovery_asset_forbidden");
+
+    const children = (await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId)))
+      .filter((row) =>
+        [missing.id, foreign.id].includes(
+          row.options?.recovery?.sourceJobId ?? -1,
+        ),
+      );
+    expect(children).toHaveLength(0);
   });
 
   it("does not deduct a paid receipt whose provider artifact never uploaded", async () => {

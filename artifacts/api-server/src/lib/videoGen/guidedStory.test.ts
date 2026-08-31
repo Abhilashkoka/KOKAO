@@ -21,7 +21,9 @@ import {
   guidedStoryNativeScriptWarning,
   invalidateGuidedStoryDownstream,
   normalizeGuidedStoryLocale,
+  planGuidedStoryDialogueReplay,
   validateAndRepairGuidedScript,
+  validateGuidedStoryDialogueReplayInputs,
   validateGuidedStoryGeneratedSpeech,
   validateGuidedResumableCastOperation,
 } from "./guidedStory";
@@ -451,6 +453,159 @@ describe("guided story immutable storyboard adapter", () => {
     expect(invalidated.scenes[0]!.previewPath).toBeNull();
     expect(invalidated.scenes[0]!.providerCheckpoint).toBeNull();
     expect(invalidated.narration).toEqual(paid.narration);
+  });
+});
+
+describe("guided story dialogue replay", () => {
+  function replayFixture() {
+    const fixture = approvalFixture();
+    const exactDialogue = "  మనం ఇప్పుడే కలిసి బయలుదేరాలి.  ";
+    const exactNarration = "వాళ్లు వెలుతురు వైపు నిశ్శబ్దంగా నడిచారు.";
+    const script = {
+      ...fixture.script,
+      scenes: fixture.script.scenes.map((scene) => ({
+        ...scene,
+        lines: [
+          { ...scene.lines[0]!, text: exactDialogue },
+          {
+            ...scene.lines[1]!,
+            ownerRoleId: null,
+            kind: "narration" as const,
+            text: exactNarration,
+          },
+        ],
+      })),
+    };
+    const snapshot = {
+      ...fixture.snapshot,
+      locale: "te" as const,
+      script,
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes = storyboard.scenes.map((scene) => ({
+      ...scene,
+      previewPath: `/objects/1/${scene.id}-approved.png`,
+      previewCheckpoint: {
+        targetPath: `/objects/1/${scene.id}-approved.png`,
+        status: "complete" as const,
+      },
+    }));
+    return { snapshot, storyboard, exactDialogue, exactNarration };
+  }
+
+  it("plans exact ordered role and offscreen segments from approved inputs", () => {
+    const { snapshot, storyboard, exactDialogue, exactNarration } = replayFixture();
+    const segments = planGuidedStoryDialogueReplay(snapshot, storyboard);
+
+    expect(segments.map(({ sceneId, lineId, startMs, endMs, text }) => ({
+      sceneId, lineId, startMs, endMs, text,
+    }))).toEqual(snapshot.script.scenes.flatMap((scene) =>
+      scene.lines.map((line) => ({
+        sceneId: scene.id,
+        lineId: line.id,
+        startMs: line.startMs,
+        endMs: line.endMs,
+        text: line.text,
+      }))));
+    expect(segments[0]).toMatchObject({
+      text: exactDialogue,
+      speaker: {
+        type: "role",
+        roleId: "role-1",
+        voice: { provider: "elevenlabs", providerVoiceId: "provider-0" },
+      },
+      preview: { path: "/objects/1/scene-1-approved.png" },
+      backdrop: {
+        path: snapshot.backdropReference!.imagePath,
+        fingerprint: snapshot.backdropReference!.fingerprint,
+      },
+    });
+    expect(segments[1]).toMatchObject({
+      text: exactNarration,
+      speaker: { type: "offscreen", roleId: null, voice: null },
+    });
+  });
+
+  it("accepts and preserves legacy approved Romanized Telugu dialogue exactly", () => {
+    const { snapshot, storyboard } = replayFixture();
+    const romanized = "  Manam ippude kalisi bayaluderali.  ";
+    const legacySnapshot = {
+      ...snapshot,
+      script: {
+        ...snapshot.script,
+        scenes: snapshot.script.scenes.map((scene) => ({
+          ...scene,
+          lines: scene.lines.map((line, index) =>
+            index === 0 ? { ...line, text: romanized } : line),
+        })),
+      },
+    };
+    const legacyStoryboard = guidedStoryStoryboard(legacySnapshot);
+    legacyStoryboard.scenes = legacyStoryboard.scenes.map((scene) => ({
+      ...scene,
+      previewPath: `/objects/1/${scene.id}-approved.png`,
+      previewCheckpoint: {
+        targetPath: `/objects/1/${scene.id}-approved.png`,
+        status: "complete" as const,
+      },
+    }));
+
+    expect(planGuidedStoryDialogueReplay(legacySnapshot, legacyStoryboard)[0]!.text)
+      .toBe(romanized);
+  });
+
+  it("rejects non-Telugu, unapproved voices, fingerprint drift, and missing previews", () => {
+    const { snapshot, storyboard } = replayFixture();
+    expect(() =>
+      validateGuidedStoryDialogueReplayInputs(
+        { ...snapshot, locale: "en" },
+        storyboard,
+      ),
+    ).toThrow(/Telugu snapshot/);
+    const snapshotWithStockVoice = {
+      ...snapshot,
+      cast: snapshot.cast.map((member, index) =>
+        index === 0
+          ? { ...member, voice: { ...member.voice, provider: "stock" } }
+          : member),
+    };
+    const boardWithStockVoice = guidedStoryStoryboard(snapshotWithStockVoice);
+    boardWithStockVoice.scenes = boardWithStockVoice.scenes.map((scene) => ({
+      ...scene,
+      previewPath: `/objects/1/${scene.id}-approved.png`,
+      previewCheckpoint: {
+        targetPath: `/objects/1/${scene.id}-approved.png`,
+        status: "complete" as const,
+      },
+    }));
+    expect(() =>
+      validateGuidedStoryDialogueReplayInputs(
+        snapshotWithStockVoice,
+        boardWithStockVoice,
+      ),
+    ).toThrow(/approved ElevenLabs voice/);
+    expect(() =>
+      validateGuidedStoryDialogueReplayInputs(snapshot, {
+        ...storyboard,
+        scenes: storyboard.scenes.map((scene, index) =>
+          index === 0
+            ? {
+                ...scene,
+                guidedStory: {
+                  ...scene.guidedStory!,
+                  inputFingerprint: "tampered",
+                },
+              }
+            : scene),
+      }),
+    ).toThrow(/approved fingerprint/);
+    expect(() =>
+      validateGuidedStoryDialogueReplayInputs(snapshot, {
+        ...storyboard,
+        scenes: storyboard.scenes.map((scene, index) =>
+          index === 0 ? { ...scene, previewPath: null } : scene),
+      }),
+    ).toThrow(/approved preview/);
   });
 });
 

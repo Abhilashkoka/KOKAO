@@ -51,6 +51,41 @@ describe("persisted native-template storyboard funding", () => {
   });
 });
 
+describe("Guided Story dialogue replay units", () => {
+  it("uses the frozen owned-line operation estimate and keeps TTS independent", () => {
+    const options = {
+      aspectRatio: "9:16" as const,
+      guidedStoryDialogueReplay: {
+        version: 1 as const,
+        sourceJobId: 47182,
+        sourceStoryboardFingerprint: "approved",
+        locale: "te" as const,
+        subtitles: false as const,
+        confirmedAt: "2026-08-31T00:00:00.000Z",
+        lines: [],
+        estimates: { lineCount: 7, durationSeconds: 28, units: 12 },
+      },
+    };
+    expect(videoJobFullUnits("dialogue_lip_sync", options)).toBe(12);
+    expect(videoJobUnits("dialogue_lip_sync", options)).toBe(12);
+    expect(videoJobUnits("dialogue_lip_sync", {
+      ...options,
+      recovery: {
+        version: 1,
+        chainId: 50,
+        sourceJobId: 51,
+        fundedUnits: 3,
+        mode: "resume",
+        state: "queued",
+        reusable: [],
+        regenerated: [],
+        privacyRecovery: null,
+        rendered: null,
+      },
+    })).toBe(3);
+  });
+});
+
 describe("hybrid character story units", () => {
   it("reserves the shared narration once plus every immutable beat operation", () => {
     expect(videoJobFullUnits("topic_to_video", {

@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryDialogueReplayCheckpoint } from './guidedStoryDialogueReplayCheckpoint';
 import type { VideoStoryboardAiPlan } from './videoStoryboardAiPlan';
 import type { VideoStoryboardDurationBounds } from './videoStoryboardDurationBounds';
 import type { VideoStoryboardMode } from './videoStoryboardMode';
@@ -39,6 +40,8 @@ export interface VideoStoryboard {
      * @nullable
      */
   narration: VideoStoryboardNarration;
+  /** Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs. */
+  dialogueReplayCheckpoint?: null | GuidedStoryDialogueReplayCheckpoint;
   scenes: VideoStoryboardScene[];
   /**
      * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.

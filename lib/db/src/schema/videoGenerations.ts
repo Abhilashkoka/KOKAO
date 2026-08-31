@@ -64,6 +64,129 @@ export interface VideoTemplateRuntimeSettings {
   visualStrategy: VideoVisualStrategy;
 }
 
+/**
+ * Immutable, confirmation-time contract for replaying a completed Guided
+ * Story's dialogue. The source job remains the review record; a replay child
+ * copies the exact lines and resolved voices here rather than reading mutable
+ * draft/cast data while it runs.
+ */
+export interface GuidedStoryDialogueReplaySnapshot {
+  version: 1;
+  sourceJobId: number;
+  sourceStoryboardFingerprint: string;
+  locale: "te";
+  /** Replay is dialogue-only; captions must not be introduced by defaults. */
+  subtitles: false;
+  confirmedAt: string;
+  lines: Array<{
+    sceneId: string;
+    lineId: string;
+    kind: "dialogue" | "narration";
+    text: string;
+    startMs: number;
+    endMs: number;
+    /** Owned lines freeze their role voice; ownerless narration stays offscreen. */
+    speaker:
+      | {
+          type: "role";
+          roleId: string;
+        identity: {
+          name: string;
+          characterDescription: string;
+          outfitDescription: string | null;
+          characterReferencePath: string;
+          outfitReferencePath: string;
+        };
+          voice: {
+            provider: "elevenlabs";
+            providerVoiceId: string;
+          };
+        }
+      | {
+          type: "offscreen";
+          roleId: null;
+          voice: null;
+        };
+    preview: {
+      path: string;
+      inputFingerprint: string;
+    };
+    backdrop: {
+      path: string;
+      fingerprint: string;
+    };
+  }>;
+  estimates: {
+    lineCount: number;
+    durationSeconds: number;
+    units: number;
+  };
+}
+
+/** Durable line-level replay progress; additive on replay storyboards only. */
+export interface GuidedStoryDialogueReplayCheckpoint {
+  version: 1;
+  operationId: string;
+  state:
+    | "queued"
+    | "synthesizing"
+    | "composing"
+    | "succeeded"
+    | "failed"
+    | "outcome_unknown";
+  totalLines: number;
+  completedLines: number;
+  estimates: {
+    lineCount: number;
+    durationSeconds: number;
+    units: number;
+  };
+  currentLineId: string | null;
+  error: string | null;
+  requestedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lines: Array<{
+    lineId: string;
+    audioPath: string;
+    durationMs: number;
+    provider: string;
+    model: string;
+    eventId?: string;
+    /** Owner lines retain the approved-still animation and lip-sync receipts. */
+    platePath?: string;
+    animationEvent?: {
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      criteria?: VideoPriceCriteria;
+      costPaise: number | null;
+      accounted?: boolean;
+      unitWeight?: number;
+      accountingMode?: "aggregate" | "unmetered" | "independently_settled";
+    };
+    lipSyncPath?: string;
+    lipSyncEvent?: {
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      criteria?: VideoPriceCriteria;
+      costPaise: number | null;
+      accounted?: boolean;
+      unitWeight?: number;
+      accountingMode?: "aggregate" | "unmetered" | "independently_settled";
+    };
+    /** Ownerless narration is a local approved-still clip, never lip-synced. */
+    clipPath?: string;
+  }>;
+}
+
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /**
@@ -115,6 +238,8 @@ export interface VideoJobOptions {
     startedAt: string | null;
     finishedAt: string | null;
   } | null;
+  /** Exact source review and Telugu voice resolution accepted at confirmation. */
+  guidedStoryDialogueReplay?: GuidedStoryDialogueReplaySnapshot | null;
   /**
    * A clean-room restart is deliberately not a recovery chain: it retains only
    * the immutable request/configuration snapshot and starts with no generated
@@ -1052,6 +1177,11 @@ export interface VideoStoryboard {
    * the underlying claim is revised.
    */
   verificationFindings?: string[];
+  /**
+   * Mutable execution receipt for a confirmed dialogue replay. The source
+   * Guided Story storyboard is never modified; this exists only on its child.
+   */
+  dialogueReplayCheckpoint?: GuidedStoryDialogueReplayCheckpoint | null;
   scenes: VideoStoryboardScene[];
   /** The scene-planning JSON exactly as the AI returned it, captured when the
    * plan was first made and kept for the life of the job (audit + later

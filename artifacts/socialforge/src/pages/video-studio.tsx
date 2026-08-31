@@ -21,6 +21,7 @@ import {
   useApproveGuidedStoryCastRole,
   useApproveVideoStoryboard,
   useDiscardVideoStoryboard,
+  usePreviewGuidedStoryDialogueReplay,
   useGetGoogleDriveStatus,
   useDisconnectGoogleDrive,
   useListGoogleDriveFiles,
@@ -88,6 +89,7 @@ import {
   type BrandKit,
   type GuidedStoryDraft,
   type GuidedStoryReferenceOperation,
+  type GuidedStoryDialogueReplayPreview,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -159,6 +161,7 @@ import {
   ScrollText,
   RotateCcw,
   Wrench,
+  Speech,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
@@ -178,6 +181,7 @@ import {
   type FeatureId,
 } from "@/lib/features";
 import { GuidedStoryWorkflow } from "@/components/guided-story-workflow";
+import { GuidedStoryReplayDialog } from "@/components/guided-story-replay-dialog";
 
 type Engine =
   | "text_to_video"
@@ -920,6 +924,10 @@ export function VideoStudioPage() {
   const [repairReason, setRepairReason] = useState<
     "narration" | "music" | "captions" | "scene_timing" | "audio_visual"
   >("audio_visual");
+  const [replayDialogOpen, setReplayDialogOpen] = useState(false);
+  const [replayPreview, setReplayPreview] = useState<GuidedStoryDialogueReplayPreview | null>(null);
+  const previewReplay = usePreviewGuidedStoryDialogueReplay();
+
   const activeVideoJobKey = me?.tenant?.id
     ? `kokao-active-video-job-v1:${me.tenant.id}`
     : null;
@@ -1509,6 +1517,10 @@ export function VideoStudioPage() {
       },
     },
   });
+
+  const canReplayGuidedStoryDialogue =
+    activeJob?.storyboard?.mode === "guided_story" &&
+    (activeJob.status === "succeeded" || activeJob.status === "failed");
 
   const revealActiveJob = useCallback((jobId: number) => {
     requestedStoryboardOpenRef.current = jobId;
@@ -6513,6 +6525,40 @@ export function VideoStudioPage() {
                   )}
               </div>
             )}
+            {canReplayGuidedStoryDialogue && (
+              <Button
+                variant="outline"
+                disabled={previewReplay.isPending}
+                onClick={() => {
+                  previewReplay.mutate(
+                    { jobId: activeJob.id, data: {} },
+                    {
+                      onSuccess: (preview) => {
+                        setReplayPreview(preview);
+                        setReplayDialogOpen(true);
+                      },
+                      onError: (error) =>
+                        toast({
+                          title: "Could not preview replay",
+                          description: apiErrorMessage(
+                            error,
+                            "Please try again.",
+                          ),
+                          variant: "destructive",
+                        }),
+                    },
+                  );
+                }}
+                data-testid="button-replay-guided-story"
+              >
+                {previewReplay.isPending ? (
+                  <RippleSpinner className="mr-2 h-4 w-4" />
+                ) : (
+                  <Speech className="mr-2 h-4 w-4" />
+                )}
+                Replay as native dialogue
+              </Button>
+            )}
             {activeJob.status === "failed" && activeJob.repair && (
               <div className="space-y-3">
                 <div className="flex items-start gap-3 text-destructive">
@@ -6806,6 +6852,38 @@ export function VideoStudioPage() {
                         )}
                         Fresh restart
                       </Button>}
+
+                      {canReplayGuidedStoryDialogue && (
+                        <Button
+                          variant="outline"
+                          disabled={previewReplay.isPending}
+                          onClick={() => {
+                            previewReplay.mutate(
+                              { jobId: activeJob.id, data: {} },
+                              {
+                                onSuccess: (preview) => {
+                                  setReplayPreview(preview);
+                                  setReplayDialogOpen(true);
+                                },
+                                onError: (error) =>
+                                  toast({
+                                    title: "Could not preview replay",
+                                    description: apiErrorMessage(error, "Please try again."),
+                                    variant: "destructive",
+                                  }),
+                              }
+                            );
+                          }}
+                          data-testid="button-replay-guided-story"
+                        >
+                          {previewReplay.isPending ? (
+                            <RippleSpinner className="mr-2 h-4 w-4" />
+                          ) : (
+                            <Speech className="mr-2 h-4 w-4" />
+                          )}
+                          Replay as native dialogue
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         onClick={() => {
@@ -6995,6 +7073,20 @@ export function VideoStudioPage() {
           )}
         </DialogContent>
       </Dialog>
+
+
+      {activeJob && replayPreview && (
+        <GuidedStoryReplayDialog
+          open={replayDialogOpen}
+          onOpenChange={setReplayDialogOpen}
+          job={activeJob}
+          preview={replayPreview}
+          onSuccess={(childJobId) => {
+            setActiveJobId(childJobId);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
+      )}
 
       {jobs && jobs.some((job: VideoJob) => !job.savedContentItemId) && (
         <div className="space-y-3">

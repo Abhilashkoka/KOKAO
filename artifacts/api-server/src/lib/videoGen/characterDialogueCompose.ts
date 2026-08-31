@@ -167,3 +167,32 @@ export async function trimCharacterDialogueClipStrict(
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }
+
+/** Build an offscreen-narration clip from an already-approved still. No image provider is involved. */
+export async function composeApprovedStillAudioClip(
+  image: Buffer,
+  narration: Buffer,
+  targetSec: number,
+): Promise<Buffer> {
+  if (!Number.isFinite(targetSec) || targetSec <= 0) {
+    throw new VideoGenProviderError("Guided dialogue line has an invalid frozen duration.");
+  }
+  const dir = await mkdtemp(join(tmpdir(), "kokao-guided-dialogue-still-"));
+  try {
+    await writeFile(join(dir, "still.png"), image);
+    await writeFile(join(dir, "narration.wav"), narration);
+    await runFfmpeg([
+      "-y", "-loop", "1", "-i", "still.png", "-i", "narration.wav",
+      "-map", "0:v:0", "-map", "1:a:0", "-t", targetSec.toFixed(3),
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-movflags", "+faststart", "clip.mp4",
+    ], dir, encodeBudgetMs(targetSec));
+    const duration = await probeDurationSec("clip.mp4", dir);
+    if (!duration || Math.abs(duration - targetSec) > 0.1) {
+      throw new VideoGenProviderError("Approved still clip could not be fitted to its frozen line duration.");
+    }
+    return await readFile(join(dir, "clip.mp4"));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}

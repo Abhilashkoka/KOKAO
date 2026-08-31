@@ -47,6 +47,7 @@ const state = vi.hoisted(() => ({
   sourceDubs: [] as string[],
   clonedSamples: [] as Buffer[],
   clonedSpeech: [] as string[],
+  clonedSpeechDetails: [] as Array<{ text: string; model?: string; language?: string }>,
   removedVoiceIds: [] as string[],
   dubOrchestrationCalls: [] as {
     cueTexts: string[];
@@ -84,6 +85,18 @@ const state = vi.hoisted(() => ({
   guidedPreviewProviderCalls: 0,
   guidedPreviewGenerationEnabled: false,
 }));
+
+function pcmWav(seconds = 2): Buffer {
+  const rate = 8_000;
+  const pcm = Buffer.alloc(rate * 2 * seconds);
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0); header.writeUInt32LE(36 + pcm.length, 4); header.write("WAVE", 8);
+  header.write("fmt ", 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22); header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34); header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
 
 vi.mock("../featureFlags", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../featureFlags")>();
@@ -333,7 +346,7 @@ vi.mock("./topicVideo/narration", async (importOriginal) => {
     synthesizeNarration: vi.fn(async (sentences: string[]) => {
       state.dialogueSpeech.push(sentences.join(" "));
       return {
-        wav: Buffer.from("dialogue-wav"),
+        wav: pcmWav(),
         cues: [],
         totalDurationSec: 4,
       };
@@ -349,6 +362,7 @@ vi.mock("./slideshow", async (importOriginal) => ({
 
 vi.mock("./postprocess", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./postprocess")>()),
+  concatClips: vi.fn(async () => Buffer.from("concatenated-replay")),
   normalizeVideo: vi.fn(async (video: Buffer) => {
     if (state.normalizeError) throw state.normalizeError;
     return video;
@@ -366,6 +380,7 @@ vi.mock("./characterDialogueCompose", async (importOriginal) => ({
     state.dialogueStrictTrimDurations.push(durationSec);
     return video;
   }),
+  composeApprovedStillAudioClip: vi.fn(async () => Buffer.from("approved-still-clip")),
   composeCharacterDialogue: vi.fn(async (input: {
     clips: Buffer[];
     scenes: Array<{ text: string; narrationDurationSec: number }>;
@@ -653,11 +668,13 @@ vi.mock("../voiceClone", async (importOriginal) => {
       _voice: unknown,
       text: string,
       _onReceipt?: unknown,
-      _modelId?: string,
+      modelId?: string,
+      languageCode?: string,
     ) => {
       state.clonedSpeech.push(text);
+      state.clonedSpeechDetails.push({ text, model: modelId, language: languageCode });
       return {
-        audio: Buffer.from("spoken-wav"),
+        audio: pcmWav(),
         receipt: { providerCredits: null, requestId: null, traceId: null },
       };
     }),
@@ -672,7 +689,7 @@ vi.mock("../voiceClone", async (importOriginal) => {
         }),
         speak: vi.fn(async ({ text }: { text: string }) => {
           state.clonedSpeech.push(text);
-          return Buffer.from("spoken-wav");
+          return pcmWav();
         }),
         remove: vi.fn(async ({ voiceId }: { voiceId: string }) => {
           state.removedVoiceIds.push(voiceId);
@@ -720,7 +737,7 @@ vi.mock("../objectStorage", async (importOriginal) => {
       download: () => Promise<[Buffer]>;
     }> {
       return {
-        getMetadata: async () => [{ size: 1024, contentType: "video/mp4" }],
+        getMetadata: async () => [{ size: 1024, contentType: _objectPath.endsWith(".png") ? "image/png" : "video/mp4" }],
         download: async () => [Buffer.from("fake-video-bytes")],
       };
     }
@@ -817,6 +834,7 @@ beforeEach(() => {
   state.sourceDubs.length = 0;
   state.clonedSamples.length = 0;
   state.clonedSpeech.length = 0;
+  state.clonedSpeechDetails.length = 0;
   state.removedVoiceIds.length = 0;
   state.dubOrchestrationCalls.length = 0;
   state.presenterPlans = 0;
@@ -2208,6 +2226,119 @@ describe("dialogue_lip_sync runner", () => {
       },
     };
   }
+
+  function guidedReplayOptions(): VideoJobOptions {
+    return {
+      aspectRatio: "9:16", aiPersonConsent: true, reviewStoryboard: false,
+      guidedStoryDialogueReplay: {
+        version: 1, sourceJobId: 901, sourceStoryboardFingerprint: "approved-board",
+        locale: "te", subtitles: false, confirmedAt: "2026-01-01T00:00:00.000Z",
+          estimates: { lineCount: 2, durationSeconds: 8, units: 2 },
+        lines: [
+          {
+            sceneId: "s1", lineId: "owned", kind: "dialogue", text: "ఖచ్చితమైన యజమాని వాక్యం",
+            startMs: 0, endMs: 4_000,
+            speaker: {
+              type: "role",
+              roleId: "host",
+              identity: {
+                name: "Approved Host",
+                characterDescription: "The approved presenter",
+                outfitDescription: "The approved blue jacket",
+                characterReferencePath: "/objects/1/uploads/host.png",
+                outfitReferencePath: "/objects/1/uploads/host-outfit.png",
+              },
+              voice: { provider: "elevenlabs", providerVoiceId: "approved-host" },
+            },
+            preview: { path: "/objects/1/uploads/approved-owned.png", inputFingerprint: "a" },
+            backdrop: { path: "/objects/1/uploads/backdrop.png", fingerprint: "b" },
+          },
+          {
+            sceneId: "s2", lineId: "offscreen", kind: "narration", text: "ఖచ్చితమైన ఆఫ్‌స్క్రీన్ వాక్యం",
+            startMs: 4_000, endMs: 8_000,
+            speaker: { type: "offscreen", roleId: null, voice: null },
+            preview: { path: "/objects/1/uploads/approved-offscreen.png", inputFingerprint: "c" },
+            backdrop: { path: "/objects/1/uploads/backdrop.png", fingerprint: "b" },
+          },
+        ],
+      },
+    };
+  }
+
+  function guidedReplayBoard(): VideoStoryboard {
+    return {
+      version: 1, mode: "guided_story", visualsSource: "character", timelineLocked: true,
+      model: "approved-model", provider: "approved-provider", regenerations: 0, narration: null,
+      scenes: [{ id: "s1", text: "unchanged source scene", visual: "approved", durationSec: 4, previewPath: "/objects/1/uploads/approved-owned.png", outfitId: null }],
+    };
+  }
+
+  it("replays exact owned Telugu text separately, keeps ownerless audio offscreen, and only animates approved previews", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    // The raw fixtures are two seconds; the fitter pads each to its frozen
+    // four-second slot, then the post-fit verification sees four seconds.
+    state.dialogueNarrationDurations.push(2, 4, 2, 4);
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", prompt: null, options: guidedReplayOptions(), storyboard: guidedReplayBoard(),
+    });
+    await runVideoGenerationJob(job.id, "quota");
+    const completed = await readJob(job.id);
+    expect(
+      completed.status,
+      JSON.stringify({
+        error: completed.error,
+        history: completed.errorHistory,
+        checkpoint: completed.storyboard?.dialogueReplayCheckpoint,
+      }),
+    ).toBe("succeeded");
+    expect(state.clonedSpeechDetails).toEqual([{
+      text: "ఖచ్చితమైన యజమాని వాక్యం", model: "eleven_v3", language: "te",
+    }]);
+    expect(state.dialogueSpeech).toEqual(["ఖచ్చితమైన ఆఫ్‌స్క్రీన్ వాక్యం"]);
+    expect(state.lipSyncCalls).toBe(1);
+    expect(state.lipSyncModels).toEqual(["sync/lipsync-2"]);
+    expect(state.videoRequests).toHaveLength(1);
+    expect(state.videoRequests[0]?.mode).toBe("image");
+    expect(state.dialogueVisuals).toHaveLength(1);
+    expect(state.dialogueVisuals[0]).toContain(
+      "Only Approved Host (host) is the active speaker",
+    );
+    expect(state.dialogueVisuals[0]).toContain(
+      "every other visible character remains silent with lips closed",
+    );
+    expect(completed.storyboard?.scenes).toEqual(guidedReplayBoard().scenes);
+    expect(completed.storyboard?.dialogueReplayCheckpoint?.state).toBe("succeeded");
+  });
+
+  it("fails closed with an outcome_unknown checkpoint rather than redispatching an uncertain replay receipt", async () => {
+    const tenant = await newTenant();
+    const options = guidedReplayOptions();
+    const board = guidedReplayBoard();
+    board.dialogueReplayCheckpoint = {
+      version: 1, operationId: "prior", state: "composing", totalLines: 2, completedLines: 0,
+      estimates: options.guidedStoryDialogueReplay!.estimates, currentLineId: "owned", error: null,
+      requestedAt: "2026-01-01T00:00:00.000Z", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: null,
+      lines: [{ lineId: "owned", audioPath: "/objects/1/uploads/fitted.wav", durationMs: 4000,
+        provider: "elevenlabs", model: "eleven_v3", animationEvent: {
+          provider: "replicate", model: "visual-model", durationSec: 4, requestBytes: 0, label: "guided_animation:owned", costPaise: null,
+        } }],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", prompt: null, options, storyboard: board,
+    });
+    await runVideoGenerationJob(job.id, "quota");
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.storyboard?.dialogueReplayCheckpoint?.state).toBe("outcome_unknown");
+    expect(
+      failed.storyboard?.dialogueReplayCheckpoint?.lines[0]?.animationEvent
+        ?.accounted,
+    ).toBe(true);
+    expect(state.videoRequests).toHaveLength(0);
+    expect(state.lipSyncCalls).toBe(0);
+    expect(state.clonedSpeech).toHaveLength(0);
+  });
 
   it("pauses a saved-character dialogue before any provider work", async () => {
     const tenant = await newTenant();

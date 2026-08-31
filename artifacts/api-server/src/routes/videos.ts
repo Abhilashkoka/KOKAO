@@ -257,6 +257,7 @@ import {
   guidedBackdropCoversEveryScriptScene,
   guidedBackdropChoices,
   guidedStoryBackdropsAreApproved,
+  planGuidedStoryDialogueReplay,
 } from "../lib/videoGen/guidedStory";
 
 const router: IRouter = Router();
@@ -767,6 +768,16 @@ function serializeVideoJob(
       retryableOverride ??
       (job.status === "failed" &&
         RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
+        !(
+          job.options?.guidedStoryDialogueReplay &&
+          Object.values(
+            job.storyboard?.dialogueReplayCheckpoint?.lines ?? {},
+          ).some(
+            (line) =>
+              (line.animationEvent && !line.platePath) ||
+              (line.lipSyncEvent && !line.lipSyncPath),
+          )
+        ) &&
         legacyRetry?.childJobId == null),
     privacyRecoveryCapability,
     recovery:
@@ -792,6 +803,21 @@ function serializeVideoJob(
       ? {
           ...job.options.guidedPreviewRender,
           retryable: job.options.guidedPreviewRender.state === "failed",
+        }
+      : null,
+    guidedStoryDialogueReplay: job.options?.guidedStoryDialogueReplay
+      ? (() => {
+          const { idempotencyKey: _idempotencyKey, ...snapshot } =
+            job.options.guidedStoryDialogueReplay as NonNullable<
+              VideoJobOptions["guidedStoryDialogueReplay"]
+            > & { idempotencyKey?: string };
+          return snapshot;
+        })()
+      : null,
+    dialogueReplayOperation: job.storyboard?.dialogueReplayCheckpoint
+      ? {
+          ...job.storyboard.dialogueReplayCheckpoint,
+          lines: undefined,
         }
       : null,
     // Per-unit display rate frozen at charge time; null on legacy rows,
@@ -2374,6 +2400,8 @@ router.patch(
     res.json(serializeGuidedDraft(saved));
   },
 );
+
+const GUIDED_REPLAY_CONFIRM_LOCK_NS = 1_077_102;
 
 router.post(
   "/ai/guided-story/drafts/:draftId/scenes/generate",
@@ -7701,6 +7729,318 @@ async function loadJob(req: Request): Promise<VideoGeneration | undefined> {
   )[0];
 }
 
+/** Canonical JSON keeps a review token stable across request object ordering. */
+function guidedReplayFingerprint(value: unknown): string {
+  const canonicalize = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(canonicalize);
+    if (input && typeof input === "object") {
+      return Object.fromEntries(
+        Object.entries(input as Record<string, unknown>)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, item]) => [key, canonicalize(item)]),
+      );
+    }
+    return input;
+  };
+  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
+}
+
+function guidedReplayReview(source: VideoGeneration) {
+  const snapshot = source.options?.guidedStory;
+  if (
+    !snapshot ||
+    !source.storyboard ||
+    source.engine !== "topic_to_video" ||
+    source.storyboard.mode !== "guided_story" ||
+    !["succeeded", "failed"].includes(source.status)
+  ) {
+    throw new Error("This job is not an immutable completed Guided Story source.");
+  }
+  if (snapshot.locale !== "te") {
+    throw new Error("Guided Story dialogue replay is currently available only for Telugu stories.");
+  }
+  const lines = planGuidedStoryDialogueReplay(snapshot, source.storyboard);
+  const sourceStoryboardFingerprint = guidedReplayFingerprint({
+    sourceJobId: source.id,
+    guidedStory: snapshot,
+    storyboard: source.storyboard,
+    lines,
+  });
+  const estimates = {
+    lineCount: lines.length,
+    durationSeconds: lines.reduce((total, line) => total + line.endMs - line.startMs, 0) / 1000,
+    // Owned TTS settles independently. Reserve only the animation and
+    // lip-sync operations; offscreen narration has no remote visual work.
+    units: lines.reduce((total, line) => total + (line.speaker.type === "role" ? 2 : 0), 0),
+  };
+  const confirmationFingerprint = guidedReplayFingerprint({
+    version: 1,
+    sourceJobId: source.id,
+    sourceStoryboardFingerprint,
+    locale: "te",
+    subtitles: false,
+    lines,
+    estimates,
+  });
+  return { lines, estimates, sourceStoryboardFingerprint, confirmationFingerprint };
+}
+
+router.post(
+  "/ai/video-jobs/:jobId/guided-story/dialogue-replay/preview",
+  async (req: Request, res: Response) => {
+    // The generated OpenAPI request contract is a strict empty object.
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body) || Object.keys(req.body).length) {
+      res.status(400).json({ error: "Invalid request." });
+      return;
+    }
+    const source = await loadJob(req);
+    if (!source) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    try {
+      const review = guidedReplayReview(source);
+      res.json({
+        version: 1,
+        sourceJobId: source.id,
+        sourceStoryboardFingerprint: review.sourceStoryboardFingerprint,
+        locale: "te",
+        subtitles: false,
+        lines: review.lines,
+        estimates: review.estimates,
+        confirmationFingerprint: review.confirmationFingerprint,
+      });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid replay source." });
+    }
+  },
+);
+
+router.post(
+  "/ai/video-jobs/:jobId/guided-story/dialogue-replay/confirm",
+  async (req: Request, res: Response) => {
+    const body = req.body as { confirmationFingerprint?: unknown; idempotencyKey?: unknown };
+    if (
+      !body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).length !== 2 ||
+      typeof body.confirmationFingerprint !== "string" || !body.confirmationFingerprint.trim() ||
+      typeof body.idempotencyKey !== "string" || body.idempotencyKey.length < 8 || body.idempotencyKey.length > 200
+    ) {
+      res.status(400).json({ error: "Invalid request." });
+      return;
+    }
+    const source = await loadJob(req);
+    if (!source) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    let review: ReturnType<typeof guidedReplayReview>;
+    try {
+      review = guidedReplayReview(source);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid replay source." });
+      return;
+    }
+    if (body.confirmationFingerprint !== review.confirmationFingerprint) {
+      res.status(409).json({ error: "The replay review has changed. Preview it again before confirming." });
+      return;
+    }
+    const [existing] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(and(
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+        sql`${videoGenerationsTable.options}->'guidedStoryDialogueReplay'->>'sourceJobId' = ${String(source.id)}`,
+        sql`${videoGenerationsTable.options}->'guidedStoryDialogueReplay'->>'idempotencyKey' = ${body.idempotencyKey}`,
+      ))
+      .limit(1);
+    if (existing) {
+      const replay = existing.options?.guidedStoryDialogueReplay!;
+      const operation = existing.storyboard?.dialogueReplayCheckpoint!;
+      res.status(201).json({
+        job: serializeVideoJob(existing),
+        snapshot: (() => {
+          const { idempotencyKey: _key, ...snapshot } = replay as typeof replay & { idempotencyKey?: string };
+          return snapshot;
+        })(),
+        operation: { ...operation, lines: undefined },
+      });
+      return;
+    }
+    const [tenant] = await db.select().from(tenantsTable)
+      .where(eq(tenantsTable.id, req.tenantId)).limit(1);
+    if (!tenant) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const now = new Date();
+    const confirmedAt = now.toISOString();
+    const replay = {
+      version: 1 as const,
+      sourceJobId: source.id,
+      sourceStoryboardFingerprint: review.sourceStoryboardFingerprint,
+      locale: "te" as const,
+      subtitles: false as const,
+      confirmedAt,
+      lines: review.lines,
+      estimates: review.estimates,
+      idempotencyKey: body.idempotencyKey,
+    };
+    const sourceOptions = source.options!;
+    const reusableMusicPath =
+      sourceOptions.musicPath ??
+      sourceOptions.musicCheckpoint?.path ??
+      sourceOptions.presenterMusicCheckpoint?.path ??
+      null;
+    const longestLineSeconds = Math.max(
+      0.1,
+      ...review.lines.map((line) => (line.endMs - line.startMs) / 1000),
+    );
+    const options = {
+      aspectRatio: sourceOptions.aspectRatio,
+      guidedStory: structuredClone(sourceOptions.guidedStory!),
+      resolvedVideoModel: structuredClone(sourceOptions.resolvedVideoModel),
+      modelId: sourceOptions.modelId,
+      durationSec: longestLineSeconds,
+      resolution: sourceOptions.resolution,
+      quality: sourceOptions.quality,
+      generateAudio: false,
+      ...(reusableMusicPath ? { musicPath: reusableMusicPath } : {}),
+      subtitles: false,
+      // Cast approval on the immutable Guided Story is the authorization for
+      // this child to animate the already-approved reference frames.
+      aiPersonConsent: true,
+      // Sync Lipsync 2 actively detects the only moving speaker in the
+      // owner-directed animation plate, so a multi-person approved frame does
+      // not fall back to LatentSync's arbitrary full-frame face selection.
+      lipSyncQuality: "high" as const,
+      guidedStoryDialogueReplay: replay,
+    } as unknown as VideoJobOptions;
+    const preflight = await preflightVideoJob("dialogue_lip_sync", options);
+    if (preflight) {
+      res.status(preflight.status).json({
+        error: preflight.message,
+        code: "dialogue_replay_provider_unavailable",
+      });
+      return;
+    }
+    const storyboard = structuredClone(source.storyboard!);
+    const operationId = randomUUID();
+    storyboard.dialogueReplayCheckpoint = {
+      version: 1,
+      operationId,
+      state: "queued",
+      totalLines: review.lines.length,
+      completedLines: 0,
+      estimates: review.estimates,
+      currentLineId: null,
+      error: null,
+      requestedAt: confirmedAt,
+      startedAt: null,
+      finishedAt: null,
+      lines: [],
+    };
+    const units = review.estimates.units;
+    let funding: "quota" | "credit" | "wallet" = "quota";
+    let reservation: WalletReservation | null = null;
+    const walletFunded = units > 0 && await isWalletFunded(req.tenantId);
+    let quotaAvailable = true;
+    if (units > 0 && !walletFunded) {
+      const [limits, usage] = await Promise.all([getPlanLimits(tenant.plan), getUsage(req.tenantId)]);
+      quotaAvailable = limits.videos === -1 || usage.videos + units <= limits.videos;
+    }
+    let child: VideoGeneration | null = null;
+    let concurrentDuplicate: VideoGeneration | null = null;
+    let fundingError: "wallet" | "credit" | null = null;
+    const chargedRatePaise = (await getAiSpendRates()).videoPaise;
+    await db.transaction(async (tx) => {
+      // A process-local lookup is not enough: two API replicas can confirm the
+      // same reviewed operation at once. Serialize child creation by source job
+      // and re-check the persisted idempotency key under the database lock.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(${GUIDED_REPLAY_CONFIRM_LOCK_NS}, ${source.id})`,
+      );
+      concurrentDuplicate = (
+        await tx
+          .select()
+          .from(videoGenerationsTable)
+          .where(and(
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            sql`${videoGenerationsTable.options}->'guidedStoryDialogueReplay'->>'sourceJobId' = ${String(source.id)}`,
+            sql`${videoGenerationsTable.options}->'guidedStoryDialogueReplay'->>'idempotencyKey' = ${body.idempotencyKey}`,
+          ))
+          .limit(1)
+      )[0] ?? null;
+      if (concurrentDuplicate) return;
+      if (units > 0 && walletFunded) {
+        reservation = await reserveWallet(
+          req.tenantId,
+          "video",
+          {},
+          units,
+          undefined,
+          tx,
+        );
+        if (!reservation) {
+          fundingError = "wallet";
+          return;
+        }
+        funding = "wallet";
+      } else if (units > 0 && !quotaAvailable) {
+        if (!(await spendCredit(req.tenantId, "video", units, tx))) {
+          fundingError = "credit";
+          return;
+        }
+        funding = "credit";
+      }
+      child = (
+        await tx.insert(videoGenerationsTable).values({
+          tenantId: req.tenantId, engine: "dialogue_lip_sync", status: "queued",
+          prompt: null, options, storyboard, funding,
+          walletReservationId: reservation?.id ?? null, walletReservedPaise: reservation?.amountPaise ?? null,
+          walletReservedUnits: units, chargedRatePaise,
+        }).returning()
+      )[0]!;
+    });
+    const duplicate = concurrentDuplicate as VideoGeneration | null;
+    if (duplicate) {
+      const existingReplay = duplicate.options?.guidedStoryDialogueReplay!;
+      const existingCheckpoint = duplicate.storyboard?.dialogueReplayCheckpoint!;
+      const { idempotencyKey: _key, ...responseSnapshot } =
+        existingReplay as typeof existingReplay & { idempotencyKey?: string };
+      res.status(201).json({
+        job: serializeVideoJob(duplicate),
+        snapshot: responseSnapshot,
+        operation: { ...existingCheckpoint, lines: undefined },
+      });
+      return;
+    }
+    if (fundingError) {
+      res.status(402).json({
+        error:
+          fundingError === "wallet"
+            ? "Your wallet balance can't cover this dialogue replay."
+            : "Monthly video quota reached and no video credits are available.",
+      });
+      return;
+    }
+    const createdChild = child!;
+    const fundedRail = funding as "quota" | "credit" | "wallet";
+    const accepted = enqueueBackgroundJob(() => runVideoGenerationJob(createdChild.id, fundedRail));
+    if (!accepted) {
+      await db.update(videoGenerationsTable).set({ status: "failed", error: "Server restarting; please retry." })
+        .where(eq(videoGenerationsTable.id, createdChild.id));
+      if (reservation) await refundFailedVideoJobWallet(createdChild.id, "dialogue replay enqueue rejected");
+      else if (fundedRail === "credit") await refundCredits(req.tenantId, "video", units, "dialogue replay enqueue rejected");
+      res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
+      return;
+    }
+    const checkpoint = createdChild.storyboard?.dialogueReplayCheckpoint!;
+    const { idempotencyKey: _key, ...responseSnapshot } = replay;
+    res.status(201).json({ job: serializeVideoJob(createdChild), snapshot: responseSnapshot, operation: { ...checkpoint, lines: undefined } });
+  },
+);
+
 router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
   const job = await loadJob(req);
   if (!job) {
@@ -7894,6 +8234,57 @@ function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
     units = 0;
   } else if (
     source.engine === "dialogue_lip_sync" &&
+    options.guidedStoryDialogueReplay
+  ) {
+    const lines = Object.values(
+      source.storyboard?.dialogueReplayCheckpoint?.lines ?? {},
+    ) as Array<{
+      lineId: string;
+      animationEvent?: unknown;
+      platePath?: string | null;
+      lipSyncEvent?: unknown;
+      lipSyncPath?: string | null;
+      clipPath?: string | null;
+    }>;
+    const offscreenLineIds = new Set(
+      options.guidedStoryDialogueReplay.lines
+        .filter((line) => line.speaker.type === "offscreen")
+        .map((line) => line.lineId),
+    );
+    const completeAnimations = lines.filter(
+      (line) => line.animationEvent && line.platePath,
+    ).length;
+    const completeLipSyncs = lines.filter(
+      (line) => line.lipSyncEvent && line.lipSyncPath,
+    ).length;
+    const completeOffscreen = lines.filter(
+      (line) => offscreenLineIds.has(line.lineId) && line.clipPath,
+    ).length;
+    const completeProviderOperations = completeAnimations + completeLipSyncs;
+    if (completeProviderOperations > 0) {
+      reusable.push(
+        `${completeProviderOperations} completed dialogue provider operation${completeProviderOperations === 1 ? "" : "s"}`,
+      );
+    }
+    if (completeOffscreen > 0) {
+      reusable.push(
+        `${completeOffscreen} completed off-screen line${completeOffscreen === 1 ? "" : "s"}`,
+      );
+    }
+    reusable.push("immutable approved Guided Story inputs");
+    units = Math.max(
+      0,
+      videoJobFullUnits(source.engine, options) - completeProviderOperations,
+    );
+    if (units > 0) {
+      regenerated.push(
+        `${units} missing dialogue provider operation${units === 1 ? "" : "s"}`,
+      );
+    } else {
+      regenerated.push("final composition and upload");
+    }
+  } else if (
+    source.engine === "dialogue_lip_sync" &&
     options.characterDialogue
   ) {
     const completeScenes = options.characterDialogue.scenes.filter(
@@ -8076,6 +8467,22 @@ function recoveryObjectPaths(
         scene.checkpoint?.lipSyncPath,
       ]) ?? []),
       options?.characterDialogue?.musicCheckpoint?.path,
+      ...(source.storyboard?.dialogueReplayCheckpoint?.lines.flatMap((line) => [
+        line.audioPath,
+        line.platePath,
+        line.lipSyncPath,
+        line.clipPath,
+      ]) ?? []),
+      ...(options?.guidedStoryDialogueReplay?.lines.flatMap((line) => [
+        line.preview.path,
+        line.backdrop.path,
+        ...(line.speaker.type === "role"
+          ? [
+              line.speaker.identity.characterReferencePath,
+              line.speaker.identity.outfitReferencePath,
+            ]
+          : []),
+      ]) ?? []),
     );
   }
   return [...new Set(paths.filter((path): path is string => Boolean(path)))];
@@ -8105,6 +8512,41 @@ async function validateRecoveryObjects(
         code: "recovery_checkpoint_invalid",
         message: `Saved dialogue scene ${scene.id} has an incomplete checkpoint and cannot be reused safely.`,
       };
+    }
+  }
+  if (options?.guidedStoryDialogueReplay) {
+    const replayLines = new Map(
+      options.guidedStoryDialogueReplay.lines.map((line) => [
+        line.lineId,
+        line,
+      ]),
+    );
+    for (const checkpoint of
+      source.storyboard?.dialogueReplayCheckpoint?.lines ?? []) {
+      const frozen = replayLines.get(checkpoint.lineId);
+      const hasAudioReceipt = Boolean(checkpoint.provider && checkpoint.model);
+      const hasAnimationReceipt = Boolean(checkpoint.animationEvent);
+      const hasLipSyncReceipt = Boolean(checkpoint.lipSyncEvent);
+      const invalid =
+        !frozen ||
+        Boolean(checkpoint.audioPath) !== hasAudioReceipt ||
+        Boolean(checkpoint.platePath) !== hasAnimationReceipt ||
+        Boolean(checkpoint.lipSyncPath) !== hasLipSyncReceipt ||
+        (Boolean(checkpoint.clipPath) && !checkpoint.audioPath) ||
+        (frozen.speaker.type === "offscreen" &&
+          (Boolean(checkpoint.platePath) ||
+            hasAnimationReceipt ||
+            Boolean(checkpoint.lipSyncPath) ||
+            hasLipSyncReceipt)) ||
+        (frozen.speaker.type === "role" &&
+          Boolean(checkpoint.clipPath) &&
+          !checkpoint.lipSyncPath);
+      if (invalid) {
+        return {
+          code: "recovery_checkpoint_invalid",
+          message: `Saved replay line ${checkpoint.lineId} has an incomplete checkpoint and cannot be reused safely.`,
+        };
+      }
     }
   }
   const characterId =
@@ -8211,6 +8653,23 @@ router.post(
       res.status(400).json({
         error: "This video does not have saved inputs that can be retried.",
         code: "recovery_not_eligible",
+      });
+      return;
+    }
+    if (
+      initial.options?.guidedStoryDialogueReplay &&
+      Object.values(
+        initial.storyboard?.dialogueReplayCheckpoint?.lines ?? {},
+      ).some(
+        (line) =>
+          (line.animationEvent && !line.platePath) ||
+          (line.lipSyncEvent && !line.lipSyncPath),
+      )
+    ) {
+      res.status(409).json({
+        error:
+          "A replay provider receipt is still awaiting reconciliation. KOKAO will not dispatch or charge that operation again.",
+        code: "recovery_outcome_unknown",
       });
       return;
     }
