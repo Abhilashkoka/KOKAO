@@ -5418,7 +5418,10 @@ router.put(
     } else if (result.kind === "invalid") {
       res.status(400).json({ error: "Every affected scene must belong to the current approved script." });
     } else if (result.kind === "stale") {
-      res.status(409).json({ error: "The story or its reference work changed. Reload and review the backdrop again." });
+      res.status(409).json({
+        error:
+          "This backdrop approval is out of date because the story or its reference image changed. Your work is safe. Review the refreshed backdrop, then click Approve backdrop again.",
+      });
     } else if (result.kind === "active") {
       res.status(409).json({
         error:

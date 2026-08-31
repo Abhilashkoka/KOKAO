@@ -689,6 +689,15 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setPrompt(shown?.prompt ?? direction ?? ""); setFile(null); }, [shown?.fingerprint, direction]);
   const refresh = (next: GuidedStoryDraft) => queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
+  const reportApprovalError = (cause: unknown) => {
+    const message = apiErrorMessage(cause, "Could not approve this backdrop.");
+    setError(message);
+    if (/approval is out of date|reference work changed/i.test(message)) {
+      void queryClient.invalidateQueries({
+        queryKey: getGetGuidedStoryDraftQueryKey(draft.id),
+      });
+    }
+  };
   const suffix = sceneId ?? "default";
   const save = async (regenerate = false, replacementPrompt?: string) => {
     try {
@@ -723,7 +732,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
     <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={prompt.trim().length < 3} onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>{shown ? "Save replacement" : "Generate for review"}</Button>
       {shown && <Button type="button" variant="outline" onClick={() => { setCustomization(prompt); setCustomizing(true); }} data-testid={test("button-regenerate-guided-backdrop")}>Customize &amp; regenerate</Button>}
       {sceneId && <Button type="button" variant="outline" onClick={() => inherit.mutate({ draftId: draft.id, sceneId, data: { revision: draft.revision } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not inherit the default backdrop.")) })} data-testid={test("button-inherit-guided-backdrop")}>Inherit default</Button>}
-      <Button type="button" disabled={!backdrop || !!backdrop.approvedAt || unsaved} onClick={() => backdrop && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: backdrop.fingerprint, sceneId } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not approve this backdrop.")) })} data-testid={test("button-approve-guided-backdrop")}>{backdrop?.approvedAt ? "Approved" : "Approve backdrop"}</Button></div>
+      <Button type="button" disabled={!backdrop || !!backdrop.approvedAt || unsaved} onClick={() => backdrop && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: backdrop.fingerprint, sceneId } }, { onSuccess: refresh, onError: reportApprovalError })} data-testid={test("button-approve-guided-backdrop")}>{backdrop?.approvedAt ? "Approved" : "Approve backdrop"}</Button></div>
     {unsaved && <p className="text-sm text-amber-700" role="status" data-testid={test("status-guided-backdrop-unsaved")}>Save backdrop review changes before approval.</p>}{error && <p className="text-sm text-destructive" role="alert">{error}</p>}
     <Dialog open={enlarged} onOpenChange={setEnlarged}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>{label}</DialogTitle><DialogDescription>Inspect the exact frozen backdrop before approving it.</DialogDescription></DialogHeader>{shown && <img src={`/api/storage${shown.imagePath}`} alt={`Enlarged ${label}`} className="mx-auto max-h-[70vh] max-w-full object-contain" data-testid={test("image-enlarged-guided-backdrop")} />}</DialogContent></Dialog>
     <Dialog open={customizing} onOpenChange={setCustomizing}><DialogContent><DialogHeader><DialogTitle>Customize this backdrop</DialogTitle><DialogDescription>Describe the replacement before generating it.</DialogDescription></DialogHeader><Textarea value={customization} onChange={(event) => setCustomization(event.target.value)} data-testid={test("input-guided-backdrop-customization")} /><Button type="button" disabled={customization.trim().length < 3} onClick={() => { const value = customization.trim(); setPrompt(value); setCustomizing(false); void save(true, value); }} data-testid={test("button-confirm-guided-backdrop-regeneration")}>Generate customized backdrop</Button></DialogContent></Dialog>
