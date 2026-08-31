@@ -18,6 +18,7 @@ import {
   useCreateGuidedStoryReference,
   useFinalizeGuidedStoryReference,
   useRejectGuidedStoryReference,
+  useApproveGuidedStoryCastRole,
   useApproveVideoStoryboard,
   useDiscardVideoStoryboard,
   useGetGoogleDriveStatus,
@@ -9547,6 +9548,7 @@ function GuidedReferenceControls({
   const createReference = useCreateGuidedStoryReference();
   const finalizeReference = useFinalizeGuidedStoryReference();
   const rejectReference = useRejectGuidedStoryReference();
+  const approveCastRole = useApproveGuidedStoryCastRole();
   const requestUploadUrl = useRequestUploadUrl();
   const [kind, setKind] = useState<"character" | "outfit" | null>(null);
   const [description, setDescription] = useState("");
@@ -9566,6 +9568,10 @@ function GuidedReferenceControls({
     )[0];
   const candidate = operation?.candidate;
   const active = operation != null;
+  const approvedRole =
+    draft.castApprovals?.draftRevision === draft.revision
+      ? draft.castApprovals.roles[member.roleId]
+      : null;
   const create = (data: Parameters<typeof createReference.mutate>[0]["data"]) => {
     createReference.mutate(
       { draftId: draft.id, data },
@@ -9634,9 +9640,12 @@ function GuidedReferenceControls({
     <section className="mt-2 rounded border border-primary/20 bg-primary/5 p-2 space-y-2" data-testid={`guided-reference-controls-${sceneId}-${member.roleId}`}>
       <p className="font-medium">Cast reference for all scenes with {member.characterName}</p>
       <p className="text-muted-foreground">A finalized {kind ?? "change"} replaces this role across every affected scene and rebuilds its previews. Candidates never alter the reviewed storyboard.</p>
+      <p className={approvedRole ? "text-emerald-700" : "text-amber-700"} data-testid={`status-guided-cast-reference-approval-${sceneId}-${member.roleId}`}>
+        {approvedRole ? "This character-and-outfit pair is approved." : "Approval needed after applying a replacement character or outfit."}
+      </p>
       {!kind && !active && <div className="flex flex-wrap gap-1">
-        <Button size="sm" variant="outline" onClick={() => setKind("character")} data-testid={`button-redefine-character-${sceneId}-${member.roleId}`}>Redefine character</Button>
-        <Button size="sm" variant="outline" onClick={() => setKind("outfit")} data-testid={`button-redefine-costume-${sceneId}-${member.roleId}`}>Redefine costume</Button>
+        <Button size="sm" variant="outline" onClick={() => setKind("character")} data-testid={`button-redefine-character-${sceneId}-${member.roleId}`}>Choose character from library</Button>
+        <Button size="sm" variant="outline" onClick={() => setKind("outfit")} data-testid={`button-redefine-costume-${sceneId}-${member.roleId}`}>Choose outfit from library</Button>
       </div>}
       {kind && !active && <div className="space-y-2">
         <div className="flex flex-wrap gap-1">
@@ -9671,9 +9680,29 @@ function GuidedReferenceControls({
           <p>Candidate only — not applied to scenes.</p>
         </div>}
         {operation.status === "ready_to_review" && <Button size="sm" onClick={() => finalizeReference.mutate({ draftId: draft.id, operationId: operation.id, data: { revision: draft.revision } }, { onSuccess: onChanged, onError: (error) => toast({ title: "Could not finalize reference", description: apiErrorMessage(error, "Refresh and try again."), variant: "destructive" }) })} disabled={finalizeReference.isPending} data-testid={`button-finalize-guided-reference-${sceneId}-${member.roleId}`}>{finalizeReference.isPending ? "Finalizing…" : "Finalize for all scenes"}</Button>}
-        {operation.status === "finalized" && <div className="flex flex-wrap gap-1"><Button size="sm" variant="outline" onClick={() => setKind("character")} data-testid={`button-redefine-character-${sceneId}-${member.roleId}`}>Redefine character</Button><Button size="sm" variant="outline" onClick={() => setKind("outfit")} data-testid={`button-redefine-costume-${sceneId}-${member.roleId}`}>Redefine costume</Button></div>}
+        {operation.status === "finalized" && <div className="flex flex-wrap gap-1"><Button size="sm" variant="outline" onClick={() => setKind("character")} data-testid={`button-redefine-character-${sceneId}-${member.roleId}`}>Choose character from library</Button><Button size="sm" variant="outline" onClick={() => setKind("outfit")} data-testid={`button-redefine-costume-${sceneId}-${member.roleId}`}>Choose outfit from library</Button></div>}
         {(operation.status === "ready_to_review" || operation.status === "failed") && <Button size="sm" variant="ghost" disabled={rejectReference.isPending} onClick={() => rejectReference.mutate({ draftId: draft.id, operationId: operation.id, data: { revision: draft.revision } }, { onSuccess: () => { setKind(null); setOperationVersion((version) => version + 1); onChanged(); }, onError: (error) => toast({ title: "Could not reject reference", description: apiErrorMessage(error, "Refresh and try again."), variant: "destructive" }) })} data-testid={`button-dismiss-guided-reference-${sceneId}-${member.roleId}`}>{rejectReference.isPending ? "Removing…" : operation.status === "failed" ? "Dismiss and try again" : "Reject candidate"}</Button>}
       </div>}
+      {!approvedRole && !["queued", "generating", "ready_to_review", "outcome_unknown"].includes(operation?.status ?? "") && (
+        <Button
+          size="sm"
+          disabled={approveCastRole.isPending}
+          onClick={() => approveCastRole.mutate(
+            { draftId: draft.id, roleId: member.roleId, data: { revision: draft.revision } },
+            {
+              onSuccess: onChanged,
+              onError: (error) => toast({
+                title: "Could not approve cast references",
+                description: apiErrorMessage(error, "Reload, review both images, and try again."),
+                variant: "destructive",
+              }),
+            },
+          )}
+          data-testid={`button-approve-guided-cast-reference-${sceneId}-${member.roleId}`}
+        >
+          {approveCastRole.isPending ? "Approving references…" : "Approve updated cast references"}
+        </Button>
+      )}
       <Dialog open={enlarged != null} onOpenChange={(open) => !open && setEnlarged(null)}><DialogContent><DialogHeader><DialogTitle>Reference candidate</DialogTitle><DialogDescription>Review this candidate before finalizing it for every affected scene.</DialogDescription></DialogHeader>{enlarged && <img className="max-h-[65vh] w-full object-contain" src={enlarged.src} alt={enlarged.alt} data-testid="image-enlarged-guided-candidate" />}</DialogContent></Dialog>
     </section>
   );

@@ -778,6 +778,7 @@ function LegacyBackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
 function CastApprovalStep(props: any) {
   const [reviewRoleId, setReviewRoleId] = useState<string | null>(null);
   const [outfitRoleId, setOutfitRoleId] = useState<string | null>(null);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const [selectedOutfitId, setSelectedOutfitId] = useState<number | null>(null);
   const [outfitCandidate, setOutfitCandidate] = useState<any>(null);
   const [outfitError, setOutfitError] = useState<string | null>(null);
@@ -789,18 +790,19 @@ function CastApprovalStep(props: any) {
   const pendingNames = props.pendingCastApprovalRoles.map((role: any) => role.name);
   const selected = props.draft.cast.find((item: any) => item.roleId === reviewRoleId);
   const outfitMember = props.draft.cast.find((item: any) => item.roleId === outfitRoleId);
-  const outfitCharacter = props.characters.find((item: Character) => item.id === outfitMember?.characterId);
+  const outfitCharacter = props.characters.find((item: Character) => item.id === selectedCharacterId);
   const availableOutfits = outfitCharacter?.outfits.filter((outfit: Character["outfits"][number]) =>
     outfit.isDefault || (outfit.status === "approved" && outfit.identityVerified),
   ) ?? [];
   const closeOutfitDialog = () => {
     setOutfitRoleId(null);
+    setSelectedCharacterId(null);
     setSelectedOutfitId(null);
     setOutfitCandidate(null);
     setOutfitError(null);
   };
   const prepareOutfitCandidate = async () => {
-    if (!outfitRoleId || !outfitMember?.characterId || !selectedOutfitId) return;
+    if (!outfitRoleId || !selectedCharacterId || !selectedOutfitId) return;
     setOutfitError(null);
     try {
       const operation = await createReference.mutateAsync({
@@ -808,10 +810,11 @@ function CastApprovalStep(props: any) {
         data: {
           revision: props.draft.revision,
           roleId: outfitRoleId,
-          kind: "outfit",
+          kind: "character",
           source: "saved",
-          characterId: outfitMember.characterId,
+          characterId: selectedCharacterId,
           outfitId: selectedOutfitId,
+          confirmed: true,
         },
       });
       setOutfitCandidate(operation);
@@ -854,7 +857,7 @@ function CastApprovalStep(props: any) {
             {props.castApprovalError?.roleId === role.id && <p className="text-sm text-destructive" role="alert" data-testid={`error-guided-cast-approval-${role.id}`}>{props.castApprovalError.message}</p>}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-review-cast-${role.id}`}>Review references</Button>
-              <Button type="button" variant="outline" onClick={() => { setOutfitRoleId(role.id); setSelectedOutfitId(null); setOutfitCandidate(null); setOutfitError(null); }} data-testid={`button-guided-change-outfit-${role.id}`}>Change outfit</Button>
+              <Button type="button" variant="outline" onClick={() => { setOutfitRoleId(role.id); setSelectedCharacterId(cast?.characterId ?? null); setSelectedOutfitId(cast?.outfitId ?? null); setOutfitCandidate(null); setOutfitError(null); }} data-testid={`button-guided-change-outfit-${role.id}`}>Replace character or outfit</Button>
               <Button type="button" onClick={() => props.onApproveCastRole(role.id)} disabled={props.pending || !cast} data-testid={`button-guided-approve-cast-${role.id}`}>{props.castApprovalPending ? "Approving…" : approved ? "Reapprove" : "Approve"}</Button>
             </div>
           </CardContent>
@@ -873,38 +876,56 @@ function CastApprovalStep(props: any) {
     <Dialog open={outfitRoleId !== null} onOpenChange={(open) => !open && closeOutfitDialog()}>
       <DialogContent className="max-w-2xl" data-testid="dialog-guided-change-outfit">
         <DialogHeader>
-          <DialogTitle>Change {roles.find((role: any) => role.id === outfitRoleId)?.name}’s outfit</DialogTitle>
-          <DialogDescription>Select an approved outfit, review its exact image, then confirm it. Changing the outfit clears this role’s approval until you approve the new character-and-outfit pair.</DialogDescription>
+          <DialogTitle>Replace {roles.find((role: any) => role.id === outfitRoleId)?.name}’s cast references</DialogTitle>
+          <DialogDescription>Select a saved character and approved outfit, review their exact images, then apply them. The old approval will be cleared so you can approve the replacement pair.</DialogDescription>
         </DialogHeader>
-        {!outfitMember?.characterId || !outfitCharacter ? (
+        {outfitCandidate?.candidate ? (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">This fictional character has no saved outfit library yet. Save the character first to manage reusable outfits.</p>
-            <Button type="button" variant="outline" onClick={props.onManageCharacters}>Manage characters and outfits</Button>
-          </div>
-        ) : outfitCandidate?.candidate?.outfit ? (
-          <div className="space-y-3">
-            <ReferenceThumbnail label="Outfit" asset={outfitCandidate.candidate.outfit} enlarged />
-            <p className="text-sm text-muted-foreground">Candidate only—the locked outfit has not changed yet.</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ReferenceThumbnail label="Character" asset={outfitCandidate.candidate.character} enlarged />
+              <ReferenceThumbnail label="Outfit" asset={outfitCandidate.candidate.outfit} enlarged />
+            </div>
+            <p className="text-sm text-muted-foreground">Candidate only—the approved cast references have not changed yet.</p>
             {outfitError && <p className="text-sm text-destructive" role="alert">{outfitError}</p>}
             <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setOutfitCandidate(null)}>Choose another</Button>
-              <Button type="button" disabled={finalizeReference.isPending} onClick={() => void confirmOutfitCandidate()} data-testid="button-guided-confirm-outfit-change">{finalizeReference.isPending ? "Applying outfit…" : "Use this outfit"}</Button>
+              <Button type="button" disabled={finalizeReference.isPending} onClick={() => void confirmOutfitCandidate()} data-testid="button-guided-confirm-outfit-change">{finalizeReference.isPending ? "Applying references…" : "Use these references"}</Button>
             </div>
+          </div>
+        ) : props.characters.length === 0 ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">No saved characters are available yet. Create and approve one in the Character Library, then return here.</p>
+            <Button type="button" variant="outline" onClick={props.onManageCharacters}>Manage characters and outfits</Button>
           </div>
         ) : (
           <div className="space-y-3">
             <div>
-              <Label>Approved outfits</Label>
+              <Label>Saved character</Label>
+              <Select value={selectedCharacterId?.toString() ?? ""} onValueChange={(value) => {
+                const characterId = Number(value);
+                const character = props.characters.find((item: Character) => item.id === characterId);
+                const outfits = character?.outfits.filter((outfit: Character["outfits"][number]) =>
+                  outfit.isDefault || (outfit.status === "approved" && outfit.identityVerified),
+                ) ?? [];
+                setSelectedCharacterId(characterId);
+                setSelectedOutfitId(outfits.find((outfit: Character["outfits"][number]) => outfit.isDefault)?.id ?? outfits[0]?.id ?? null);
+              }}>
+                <SelectTrigger data-testid="select-guided-replacement-character"><SelectValue placeholder="Choose a character" /></SelectTrigger>
+                <SelectContent>{props.characters.map((character: Character) => <SelectItem key={character.id} value={String(character.id)}>{character.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Approved outfit</Label>
               <Select value={selectedOutfitId?.toString() ?? ""} onValueChange={(value) => setSelectedOutfitId(Number(value))}>
                 <SelectTrigger data-testid="select-guided-replacement-outfit"><SelectValue placeholder="Choose an outfit" /></SelectTrigger>
                 <SelectContent>{availableOutfits.map((outfit: Character["outfits"][number]) => <SelectItem key={outfit.id} value={String(outfit.id)}>{outfit.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            {availableOutfits.length === 0 && <p className="text-sm text-muted-foreground">No other approved outfits are available for this character.</p>}
+            {selectedCharacterId && availableOutfits.length === 0 && <p className="text-sm text-muted-foreground">This character has no approved outfits yet. Approve one in the Character Library, then reopen this selector.</p>}
             {outfitError && <p className="text-sm text-destructive" role="alert">{outfitError}</p>}
             <div className="flex flex-wrap justify-between gap-2">
-              <Button type="button" variant="ghost" onClick={props.onManageCharacters}>Manage outfits</Button>
-              <Button type="button" disabled={!selectedOutfitId || createReference.isPending} onClick={() => void prepareOutfitCandidate()} data-testid="button-guided-review-outfit-change">{createReference.isPending ? "Preparing outfit…" : "Review selected outfit"}</Button>
+              <Button type="button" variant="ghost" onClick={props.onManageCharacters}>Open Character Library</Button>
+              <Button type="button" disabled={!selectedCharacterId || !selectedOutfitId || createReference.isPending} onClick={() => void prepareOutfitCandidate()} data-testid="button-guided-review-outfit-change">{createReference.isPending ? "Preparing references…" : "Review selected references"}</Button>
             </div>
           </div>
         )}
