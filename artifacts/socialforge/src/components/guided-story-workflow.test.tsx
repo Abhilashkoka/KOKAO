@@ -141,6 +141,7 @@ vi.mock("@workspace/api-client-react", async () => {
                       ? {
                           ...line,
                           text: vars.data.sourceText,
+                          romanizedPronunciation: "Idi mana kottha pranalika.",
                           englishTranslation: "This is our updated plan.",
                         }
                       : line,
@@ -289,7 +290,7 @@ function renderWorkflow(options: {
 beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
-  it("shows English meaning beneath Telugu source text without duplicating English stories", async () => {
+  it("shows native text, Romanized pronunciation, then English meaning without duplicating English stories", async () => {
     state.draft = draft({
       setup: { ...draft().setup, locale: "te" },
       scriptApprovedAt: null,
@@ -300,6 +301,7 @@ describe("GuidedStoryWorkflow", () => {
           lines: [{
             ...script.scenes[0]!.lines[0]!,
             text: "ఇది మన ప్రణాళిక.",
+            romanizedPronunciation: "Idi mana pranalika.",
             englishTranslation: "This is our plan.",
           }],
         }],
@@ -309,6 +311,12 @@ describe("GuidedStoryWorkflow", () => {
     renderWorkflow();
     expect((await screen.findByTestId("text-guided-line-english-l1")).textContent)
       .toContain("This is our plan.");
+    expect(screen.getByTestId("text-guided-line-romanized-l1").textContent)
+      .toContain("Idi mana pranalika.");
+    const localizedLineCard = screen.getByTestId("text-guided-line-romanized-l1").parentElement!;
+    expect(localizedLineCard.textContent!.indexOf("Idi mana pranalika.")).toBeLessThan(
+      localizedLineCard.textContent!.indexOf("This is our plan."),
+    );
 
     cleanup();
     state.draft = draft({ scriptApprovedAt: null });
@@ -327,6 +335,7 @@ describe("GuidedStoryWorkflow", () => {
           lines: [{
             ...script.scenes[0]!.lines[0]!,
             text: "ఇది మన ప్రణాళిక.",
+            romanizedPronunciation: "Idi mana pranalika.",
             englishTranslation: "This is our plan.",
           }],
         }],
@@ -347,6 +356,7 @@ describe("GuidedStoryWorkflow", () => {
     await user.click(screen.getByTestId("button-guided-save-script"));
     expect(state.updated.script.scenes[0].lines[0]).toMatchObject({
       text: "ఇది మన కొత్త ప్రణాళిక.",
+      romanizedPronunciation: null,
       englishTranslation: null,
     });
     expect(state.updated.setup).toEqual({
@@ -367,6 +377,8 @@ describe("GuidedStoryWorkflow", () => {
     });
     expect(screen.getByTestId("text-guided-line-english-l1").textContent)
       .toContain("This is our updated plan.");
+    expect(screen.getByTestId("text-guided-line-romanized-l1").textContent)
+      .toContain("Idi mana kottha pranalika.");
     expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value)
       .toBe("ఇది మన కొత్త ప్రణాళిక.");
   });
@@ -461,7 +473,23 @@ describe("GuidedStoryWorkflow", () => {
   });
 
   it("prioritizes an explicit failed-job draft and opens its scene editor", async () => {
-    state.draft = draft({ id: 81, script: { ...script, title: "Failed job story" } });
+    state.draft = draft({
+      id: 81,
+      setup: { ...draft().setup, locale: "te" },
+      script: {
+        ...script,
+        title: "Failed job story",
+        scenes: [{
+          ...script.scenes[0],
+          lines: [{
+            ...script.scenes[0]!.lines[0]!,
+            text: "ఇది మన ప్రణాళిక.",
+            romanizedPronunciation: "Idi mana pranalika.",
+            englishTranslation: "This is our plan.",
+          }],
+        }],
+      },
+    });
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
 
     renderWorkflow({ editRequest: { key: 1, draftId: 81 } });
@@ -470,7 +498,11 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value)
       .toBe("Failed job story");
     expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value)
-      .toBe("Here is the plan.");
+      .toBe("ఇది మన ప్రణాళిక.");
+    expect(screen.getByTestId("text-guided-line-romanized-l1").textContent)
+      .toContain("Idi mana pranalika.");
+    expect(screen.getByTestId("text-guided-line-english-l1").textContent)
+      .toContain("This is our plan.");
     expect(state.requestedDraftIds).toContain(81);
     expect(state.requestedDraftIds).not.toContain(7);
     expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBe("81");

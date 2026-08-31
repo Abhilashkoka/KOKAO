@@ -107,7 +107,7 @@ const textGenState = vi.hoisted(() => ({
       | Error
       | (() => Promise<string>),
   lineTranslationResponse:
-    '{"englishTranslation":"This is our updated plan."}' as
+    '{"romanizedPronunciation":"Idi mana kottha pranalika.","englishTranslation":"This is our updated plan."}' as
       | string
       | Error
       | (() => Promise<string>),
@@ -311,7 +311,7 @@ vi.mock("../lib/textGen", async (importOriginal) => {
                 };
               }
               const isLineTranslation = request.messages?.some((message) =>
-                message.content?.includes("Translate the supplied screenplay line"),
+                message.content?.includes("reviewer metadata for the supplied screenplay line"),
               );
               if (isLineTranslation) {
                 if (textGenState.lineTranslationResponse instanceof Error) {
@@ -652,7 +652,7 @@ beforeEach(() => {
   textGenState.guidedSceneMaxRetries = null;
   textGenState.guidedSceneCalls = 0;
   textGenState.lineTranslationResponse =
-    '{"englishTranslation":"This is our updated plan."}';
+    '{"romanizedPronunciation":"Idi mana kottha pranalika.","englishTranslation":"This is our updated plan."}';
   textGenState.lastSpokespersonPrompt = null;
   presenterPlanState.beatCount = 1;
   presenterAsrState.transcript =
@@ -2806,12 +2806,13 @@ describe("guided story route fail-closed regressions", () => {
     )[0]!;
   }
 
-  it("refreshes only one saved non-English line meaning and preserves approved source inputs", async () => {
+  it("refreshes only one saved non-English line's pronunciation and meaning while preserving approved source inputs", async () => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);
     const script = routeScript();
     const line = script.scenes[0]!.lines[0]!;
     line.text = "ఇది మన కొత్త ప్రణాళిక.";
+    line.romanizedPronunciation = null;
     line.englishTranslation = null;
     const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
     const approvedAt = "2026-08-31T00:00:00.000Z";
@@ -2844,6 +2845,7 @@ describe("guided story route fail-closed regressions", () => {
     expect(response.body.revision).toBe(draft.revision);
     expect(response.body.script.scenes[0].lines[0]).toEqual({
       ...line,
+      romanizedPronunciation: "Idi mana kottha pranalika.",
       englishTranslation: "This is our updated plan.",
     });
     const [stored] = await db
@@ -2860,6 +2862,7 @@ describe("guided story route fail-closed regressions", () => {
             sceneIndex === 0 && lineIndex === 0
               ? {
                   ...storedLine,
+                  romanizedPronunciation: "Idi mana kottha pranalika.",
                   englishTranslation: "This is our updated plan.",
                 }
               : storedLine,
@@ -2869,13 +2872,14 @@ describe("guided story route fail-closed regressions", () => {
     });
   });
 
-  it("preserves a committed meaning when a stale full-state save keeps the same source line", async () => {
+  it("preserves committed pronunciation and meaning when a stale full-state save keeps the same source line", async () => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);
     const script = routeScript();
     const line = script.scenes[0]!.lines[0]!;
     line.text =
       "ఇది మన కొత్త ప్రణాళిక ఇప్పుడు అందరం కలిసి ముందుకు సాగి ప్రతి పనిని జాగ్రత్తగా పూర్తి చేసి మంచి ఫలితం సాధిద్దాం.";
+    line.romanizedPronunciation = null;
     line.englishTranslation = null;
     script.scenes[0]!.lines[1]!.text =
       "మన స్నేహితులు కూడా వెంటనే వచ్చి అవసరమైన సహాయం అందించి ప్రతి కుటుంబం సురక్షితంగా ఇంటికి చేరే వరకు మనతో కలిసి ఉంటారు.";
@@ -2920,6 +2924,9 @@ describe("guided story route fail-closed regressions", () => {
     expect(
       staleSave.body.script.scenes[0].lines[0].englishTranslation,
     ).toBe("This is our updated plan.");
+    expect(
+      staleSave.body.script.scenes[0].lines[0].romanizedPronunciation,
+    ).toBe("Idi mana kottha pranalika.");
   });
 
   it("leaves the saved source line retryable after translation failure", async () => {
@@ -2928,6 +2935,7 @@ describe("guided story route fail-closed regressions", () => {
     const script = routeScript();
     const line = script.scenes[0]!.lines[0]!;
     line.text = "ఇది మన కొత్త ప్రణాళిక.";
+    line.romanizedPronunciation = null;
     line.englishTranslation = null;
     const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
     await db
@@ -2957,9 +2965,20 @@ describe("guided story route fail-closed regressions", () => {
       .where(eq(guidedStoryDraftsTable.id, draft.id));
     expect(unchanged!.revision).toBe(draft.revision);
     expect(unchanged!.state.script!.scenes[0]!.lines[0]).toEqual(line);
+    expect(failed.body.error).toContain(`line ${line.id}`);
+    expect(failed.body.error).toContain("saved source text is unchanged");
 
     textGenState.lineTranslationResponse =
-      '{"englishTranslation":"This is our updated plan."}';
+      '{"romanizedPronunciation":"ఇది మన కొత్త ప్రణాళిక.","englishTranslation":"This is our updated plan."}';
+    const invalidPronunciation = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
+      .send(payload);
+    expect(invalidPronunciation.status).toBe(502);
+    expect(invalidPronunciation.body.error).toContain(`line ${line.id}`);
+    expect(invalidPronunciation.body.error).toContain("Latin-letter");
+
+    textGenState.lineTranslationResponse =
+      '{"romanizedPronunciation":"Idi mana kottha pranalika.","englishTranslation":"This is our updated plan."}';
     const retried = await request(app)
       .post(`/api/ai/guided-story/drafts/${draft.id}/line-translation`)
       .send(payload);
@@ -2967,6 +2986,9 @@ describe("guided story route fail-closed regressions", () => {
     expect(retried.body.script.scenes[0].lines[0].text).toBe(line.text);
     expect(retried.body.script.scenes[0].lines[0].englishTranslation).toBe(
       "This is our updated plan.",
+    );
+    expect(retried.body.script.scenes[0].lines[0].romanizedPronunciation).toBe(
+      "Idi mana kottha pranalika.",
     );
   });
 
@@ -2976,6 +2998,7 @@ describe("guided story route fail-closed regressions", () => {
     const script = routeScript();
     const line = script.scenes[0]!.lines[0]!;
     line.text = "ఇది మన కొత్త ప్రణాళిక.";
+    line.romanizedPronunciation = null;
     line.englishTranslation = null;
     const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
     await db
@@ -2998,7 +3021,7 @@ describe("guided story route fail-closed regressions", () => {
     textGenState.lineTranslationResponse = async () => {
       providerStarted();
       await gate;
-      return '{"englishTranslation":"This is our updated plan."}';
+      return '{"romanizedPronunciation":"Idi mana kottha pranalika.","englishTranslation":"This is our updated plan."}';
     };
 
     const pending = request(app)
@@ -6012,6 +6035,7 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
             ownerRoleId: "hero",
             kind: "dialogue",
             text: sourceText,
+            romanizedPronunciation: null,
             englishTranslation: null,
             startMs: 0,
             endMs: 10_000,
@@ -6092,7 +6116,7 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
     textGenState.lineTranslationResponse = async () => {
       providerStarted();
       await gate;
-      return '{"englishTranslation":"This is our updated plan."}';
+      return '{"romanizedPronunciation":"Idi mana kottha pranalika.","englishTranslation":"This is our updated plan."}';
     };
 
     const pending = request(app)
@@ -6134,6 +6158,7 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
       .from(guidedStoryDraftsTable)
       .where(eq(guidedStoryDraftsTable.id, draft.id));
     expect(stored!.state.script!.scenes[0]!.lines[0]!.englishTranslation).toBeNull();
+    expect(stored!.state.script!.scenes[0]!.lines[0]!.romanizedPronunciation).toBeNull();
   });
 
   it("walletReservedUnits equals the AI-decided shot count when the LLM returns 6", async () => {

@@ -534,7 +534,7 @@ export function GuidedStoryWorkflow({
             lineId,
             message: apiErrorMessage(
               error,
-              "Could not refresh this English meaning. Please try again.",
+              `Could not refresh pronunciation and meaning for line ${lineId}. Please try again; your saved source text is unchanged.`,
             ),
           }),
         onSettled: () => {
@@ -1627,7 +1627,7 @@ function ScriptReview(props: any) {
                         onChange={(event) => {
                           const lines = scene.lines.map((item, index) =>
                             index === lineIndex
-                              ? { ...item, text: event.target.value, englishTranslation: null }
+                              ? { ...item, text: event.target.value, romanizedPronunciation: null, englishTranslation: null }
                               : item,
                           );
                           const scenes = editedScript.scenes.map((item, index) =>
@@ -1638,12 +1638,16 @@ function ScriptReview(props: any) {
                         data-testid={`input-guided-line-${line.id}`}
                       />
                       {storyLocale?.code !== "en" && (
-                        <div className="col-start-2 space-y-2 rounded-md bg-muted/60 px-3 py-2 text-sm" data-testid={`text-guided-line-english-${line.id}`}>
-                          <div>
+                        <div className="col-start-2 space-y-2 rounded-md bg-muted/60 px-3 py-2 text-sm">
+                          <div data-testid={`text-guided-line-romanized-${line.id}`}>
+                            <span className="font-medium">Pronunciation: </span>
+                            {line.romanizedPronunciation ?? "Not available for this line."}
+                          </div>
+                          <div data-testid={`text-guided-line-english-${line.id}`}>
                             <span className="font-medium">English meaning: </span>
                             {line.englishTranslation ?? "Not available for this edited line."}
                           </div>
-                          {line.englishTranslation === null && (
+                          {(line.romanizedPronunciation == null || line.englishTranslation == null) && (
                             <Button
                               type="button"
                               size="sm"
@@ -1659,7 +1663,7 @@ function ScriptReview(props: any) {
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                                   Refreshing…
                                 </>
-                              ) : dirty ? "Save changes first" : "Refresh English meaning"}
+                              ) : dirty ? "Save changes first" : "Refresh pronunciation & meaning"}
                             </Button>
                           )}
                           {props.translationError?.lineId === line.id && (

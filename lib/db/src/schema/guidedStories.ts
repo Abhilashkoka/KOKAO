@@ -44,6 +44,8 @@ export interface GuidedStoryScript {
       ownerRoleId: string | null;
       kind: "dialogue" | "narration";
       text: string;
+      /** Display-only Latin-letter pronunciation. Provider-bound speech always uses text. */
+      romanizedPronunciation?: string | null;
       /** Display-only English meaning. Provider-bound speech always uses text. */
       englishTranslation?: string | null;
       startMs: number;

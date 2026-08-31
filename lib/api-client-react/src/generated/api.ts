@@ -16074,8 +16074,8 @@ export const getRefreshGuidedStoryLineTranslationUrl = (draftId: number,) => {
 }
 
 /**
- * Funds one translation request against an exact draft revision and source line. Only englishTranslation is changed; source text, timings, ownership, approvals, cast, speech inputs, and storyboard state remain untouched. Provider failures leave the saved source script unchanged.
- * @summary Refresh one saved non-English line's display-only English meaning
+ * Funds one translation request against an exact draft revision and source line. Only romanizedPronunciation and englishTranslation are changed; source text, timings, ownership, approvals, cast, speech inputs, and storyboard state remain untouched. Provider failures leave the saved source script unchanged.
+ * @summary Refresh one saved non-English line's display-only pronunciation and English meaning
  */
 export const refreshGuidedStoryLineTranslation = async (draftId: number,
     guidedStoryLineTranslationInput: GuidedStoryLineTranslationInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
@@ -16124,7 +16124,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RefreshGuidedStoryLineTranslationMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Refresh one saved non-English line's display-only English meaning
+ * @summary Refresh one saved non-English line's display-only pronunciation and English meaning
  */
 export const useRefreshGuidedStoryLineTranslation = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshGuidedStoryLineTranslation>>, TError,{draftId: number;data: BodyType<GuidedStoryLineTranslationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

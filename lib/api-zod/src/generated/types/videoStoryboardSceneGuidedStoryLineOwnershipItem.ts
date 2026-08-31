@@ -14,6 +14,8 @@ export type VideoStoryboardSceneGuidedStoryLineOwnershipItem = {
   kind: VideoStoryboardSceneGuidedStoryLineOwnershipItemKind;
   text?: string;
   /** @nullable */
+  romanizedPronunciation?: string | null;
+  /** @nullable */
   englishTranslation?: string | null;
   startMs: number;
   endMs: number;

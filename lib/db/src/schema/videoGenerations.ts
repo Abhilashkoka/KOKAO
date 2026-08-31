@@ -866,6 +866,10 @@ export interface VideoStoryboardScene {
       lineId: string;
       ownerRoleId: string | null;
       kind: "dialogue" | "narration";
+      /** Display-only reviewer metadata; excluded from execution identity. */
+      text?: string;
+      romanizedPronunciation?: string | null;
+      englishTranslation?: string | null;
       startMs: number;
       endMs: number;
     }>;

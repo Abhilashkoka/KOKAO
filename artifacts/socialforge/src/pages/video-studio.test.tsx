@@ -4148,6 +4148,9 @@ describe("Video Studio", () => {
             lineId: `line-${index + 1}`,
             ownerRoleId: "hero",
             kind: "dialogue",
+            text: "ఇది మన ప్రణాళిక.",
+            romanizedPronunciation: "Idi mana pranalika.",
+            englishTranslation: "This is our plan.",
             startMs: index * 4_000,
             endMs: (index + 1) * 4_000,
           },
@@ -4189,6 +4192,14 @@ describe("Video Studio", () => {
     );
     expect(screen.getByTestId("guided-story-lines-s1").textContent).toContain(
       "Dialogue · hero",
+    );
+    const reviewLines = screen.getByTestId("guided-story-lines-s1").textContent!;
+    expect(reviewLines).toContain("ఇది మన ప్రణాళిక.");
+    expect(reviewLines.indexOf("ఇది మన ప్రణాళిక.")).toBeLessThan(
+      reviewLines.indexOf("Idi mana pranalika."),
+    );
+    expect(reviewLines.indexOf("Idi mana pranalika.")).toBeLessThan(
+      reviewLines.indexOf("This is our plan."),
     );
     expect(screen.getByTestId("guided-story-cast-s1-hero").textContent).toContain("Cast reference: anchored");
     fireEvent.click(screen.getByTestId("button-enlarge-guided-outfit-s1-hero"));

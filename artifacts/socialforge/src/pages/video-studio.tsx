@@ -9634,6 +9634,7 @@ function GuidedStorySceneDetails({
                 {Math.round(line.startMs / 100) / 10}–
                 {Math.round(line.endMs / 100) / 10}s</p>
               <p className="font-medium">{line.text}</p>
+              {line.romanizedPronunciation && <p className="text-muted-foreground"><span className="font-medium">Pronunciation:</span> {line.romanizedPronunciation}</p>}
               {line.englishTranslation && <p className="text-muted-foreground"><span className="font-medium">English meaning:</span> {line.englishTranslation}</p>}
             </div>
           ))}

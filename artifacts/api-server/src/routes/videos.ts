@@ -1669,6 +1669,14 @@ function preserveConcurrentGuidedLineTranslations(
     for (const line of scene.lines) {
       const committed = currentLines.get(`${scene.id}\u0000${line.id}`);
       if (
+        line.romanizedPronunciation == null &&
+        committed?.romanizedPronunciation != null &&
+        committed.text === line.text
+      ) {
+        line.romanizedPronunciation = committed.romanizedPronunciation;
+        changed = true;
+      }
+      if (
         line.englishTranslation == null &&
         committed?.englishTranslation != null &&
         committed.text === line.text
@@ -1686,10 +1694,14 @@ async function saveGuidedLineTranslation(args: {
   sceneIndex: number;
   lineIndex: number;
   sourceText: string;
+  romanizedPronunciation: string;
   englishTranslation: string;
 }): Promise<GuidedStoryDraft | null> {
   const translationPath = sql.raw(
     `'{script,scenes,${args.sceneIndex},lines,${args.lineIndex},englishTranslation}'`,
+  );
+  const pronunciationPath = sql.raw(
+    `'{script,scenes,${args.sceneIndex},lines,${args.lineIndex},romanizedPronunciation}'`,
   );
   const sourcePath = sql.raw(
     `'{script,scenes,${args.sceneIndex},lines,${args.lineIndex},text}'`,
@@ -1699,11 +1711,15 @@ async function saveGuidedLineTranslation(args: {
       await db
         .update(guidedStoryDraftsTable)
         .set({
-          state: sql`jsonb_set(
+          state: sql`jsonb_set(jsonb_set(
             ${guidedStoryDraftsTable.state},
+            ${pronunciationPath},
+            ${JSON.stringify(args.romanizedPronunciation)}::jsonb,
+            true
+          ),
             ${translationPath},
             ${JSON.stringify(args.englishTranslation)}::jsonb,
-            false
+            true
           )`,
           updatedAt: new Date(),
         })
@@ -1713,7 +1729,12 @@ async function saveGuidedLineTranslation(args: {
             eq(guidedStoryDraftsTable.tenantId, args.row.tenantId),
             eq(guidedStoryDraftsTable.revision, args.row.revision),
             sql`${guidedStoryDraftsTable.state} #>> ${sourcePath} = ${args.sourceText}`,
-            sql`${guidedStoryDraftsTable.state} #> ${translationPath} = 'null'::jsonb`,
+            sql`(
+              ${guidedStoryDraftsTable.state} #> ${translationPath} IS NULL OR
+              ${guidedStoryDraftsTable.state} #> ${translationPath} = 'null'::jsonb OR
+              ${guidedStoryDraftsTable.state} #> ${pronunciationPath} IS NULL OR
+              ${guidedStoryDraftsTable.state} #> ${pronunciationPath} = 'null'::jsonb
+            )`,
           ),
         )
         .returning()
@@ -2568,7 +2589,7 @@ router.post(
     const sourceLine = row.state.script.scenes[sceneIndex]!.lines[lineIndex]!;
     if (sourceLine.text !== parsed.data.sourceText) {
       res.status(409).json({
-        error: "This source line changed. Save it before refreshing its English meaning.",
+        error: `Source line ${sourceLine.id} changed. Save it before refreshing its pronunciation and English meaning.`,
       });
       return;
     }
@@ -2576,8 +2597,11 @@ router.post(
       res.status(400).json({ error: "A blank source line cannot be translated." });
       return;
     }
-    if (sourceLine.englishTranslation !== null) {
-      res.status(400).json({ error: "This line already has a current English meaning." });
+    if (
+      sourceLine.englishTranslation != null &&
+      sourceLine.romanizedPronunciation != null
+    ) {
+      res.status(400).json({ error: "This line already has current pronunciation and English meaning." });
       return;
     }
     const tenant = (
@@ -2611,6 +2635,7 @@ router.post(
             sceneIndex,
             lineIndex,
             sourceText: sourceLine.text,
+            romanizedPronunciation: result.romanizedPronunciation,
             englishTranslation: result.englishTranslation,
           });
           return saved !== null;
@@ -2618,13 +2643,15 @@ router.post(
       });
       if (!billed) {
         res.status(402).json({
-          error: "Your wallet balance can't cover this English meaning refresh.",
+          error: `Your wallet balance can't cover the pronunciation and meaning refresh for line ${sourceLine.id}.`,
         });
         return;
       }
       await recordUsage(req.tenantId, "caption", {
         requestBytes: Buffer.byteLength(sourceLine.text),
-        responseBytes: Buffer.byteLength(billed.result.englishTranslation),
+        responseBytes: Buffer.byteLength(
+          billed.result.romanizedPronunciation + billed.result.englishTranslation,
+        ),
         provider: billed.result.provider,
         model: billed.result.model,
         funding: billed.funding,
@@ -2645,13 +2672,13 @@ router.post(
     } catch (error) {
       if (error instanceof StaleBillableScriptOperationError) {
         res.status(409).json({
-          error: "This draft changed while its English meaning was refreshed.",
+          error: `The draft changed while pronunciation and English meaning for line ${sourceLine.id} were refreshed. Please retry; your saved source text is unchanged.`,
         });
         return;
       }
       if (error instanceof TextGenNotConfiguredError) {
         res.status(503).json({
-          error: "English meaning refresh is not configured. Contact your admin.",
+          error: `Pronunciation and meaning refresh for line ${sourceLine.id} is not configured. Contact your admin; your saved source text is unchanged.`,
         });
         return;
       }
@@ -2660,10 +2687,11 @@ router.post(
         "Guided story line translation failed",
       );
       res.status(502).json({
-        error:
+        error: `Refreshing pronunciation and meaning for line ${sourceLine.id} failed: ${
           error instanceof VideoGenProviderError
             ? error.message
-            : "Refreshing the English meaning failed. Please try again.",
+            : "the provider did not return usable metadata"
+        }. Please try again; your saved source text is unchanged.`,
       });
     }
   },

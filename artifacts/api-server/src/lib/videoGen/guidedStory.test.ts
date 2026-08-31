@@ -403,6 +403,7 @@ describe("guided story immutable storyboard adapter", () => {
         ownerRoleId: line.ownerRoleId,
         kind: line.kind,
         text: line.text,
+        romanizedPronunciation: line.romanizedPronunciation ?? null,
         englishTranslation: line.englishTranslation ?? null,
         startMs: line.startMs,
         endMs: line.endMs,
@@ -420,6 +421,7 @@ describe("guided story immutable storyboard adapter", () => {
           ...scene,
           lines: scene.lines.map((line) => ({
             ...line,
+            romanizedPronunciation: "Display-only changed pronunciation",
             englishTranslation: "Display-only changed meaning",
           })),
         })),
@@ -432,6 +434,7 @@ describe("guided story immutable storyboard adapter", () => {
     expect(reusedAfterTranslationChange.scenes[0]!.guidedStory?.inputFingerprint).toBe(
       first.scenes[0]!.guidedStory?.inputFingerprint,
     );
+    expect(reusedAfterTranslationChange.narration).toEqual(first.narration);
     const paid = {
       ...first,
       narration: {
@@ -462,6 +465,9 @@ describe("guided story immutable storyboard adapter", () => {
     expect(guidedStoryStoryboard(snapshot, paid).scenes[0]!.previewPath).toBe(
       "/objects/1/approved.png",
     );
+    const metadataOnly = guidedStoryStoryboard(translationOnly, paid);
+    expect(metadataOnly.scenes[0]!.previewPath).toBe("/objects/1/approved.png");
+    expect(metadataOnly.narration).toEqual(paid.narration);
     const changed = {
       ...snapshot,
       cast: snapshot.cast.map((member, index) =>
@@ -492,7 +498,12 @@ describe("guided story dialogue replay", () => {
       scenes: fixture.script.scenes.map((scene) => ({
         ...scene,
         lines: [
-          { ...scene.lines[0]!, text: exactDialogue, englishTranslation: "We must leave now." },
+          {
+            ...scene.lines[0]!,
+            text: exactDialogue,
+            romanizedPronunciation: "Manam ippude kalisi bayaluderali.",
+            englishTranslation: "We must leave now.",
+          },
           {
             ...scene.lines[1]!,
             ownerRoleId: null,
@@ -547,6 +558,7 @@ describe("guided story dialogue replay", () => {
       },
     });
     expect("englishTranslation" in segments[0]!).toBe(false);
+    expect("romanizedPronunciation" in segments[0]!).toBe(false);
     expect(segments[1]).toMatchObject({
       text: exactNarration,
       speaker: { type: "offscreen", roleId: null, voice: null },

@@ -5816,10 +5816,10 @@ paths:
     post:
       operationId: refreshGuidedStoryLineTranslation
       tags: [ai]
-      summary: Refresh one saved non-English line's display-only English meaning
+      summary: Refresh one saved non-English line's display-only pronunciation and English meaning
       description: >-
         Funds one translation request against an exact draft revision and source
-        line. Only englishTranslation is changed; source text, timings,
+        line. Only romanizedPronunciation and englishTranslation are changed; source text, timings,
         ownership, approvals, cast, speech inputs, and storyboard state remain
         untouched. Provider failures leave the saved source script unchanged.
       requestBody:
@@ -5830,7 +5830,7 @@ paths:
               $ref: "#/components/schemas/GuidedStoryLineTranslationInput"
       responses:
         "200":
-          description: Draft with the refreshed display-only English meaning
+          description: Draft with refreshed display-only pronunciation and English meaning
           content:
             application/json:
               schema:
@@ -17326,6 +17326,9 @@ components:
         ownerRoleId: { type: ["string", "null"] }
         kind: { type: string, enum: [dialogue, narration] }
         text: { type: string }
+        romanizedPronunciation:
+          type: ["string", "null"]
+          description: Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.
         englishTranslation:
           type: ["string", "null"]
           description: Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.
@@ -18437,6 +18440,7 @@ components:
                   ownerRoleId: { type: ["string", "null"] }
                   kind: { type: string, enum: [dialogue, narration] }
                   text: { type: string }
+                  romanizedPronunciation: { type: ["string", "null"] }
                   englishTranslation: { type: ["string", "null"] }
                   startMs: { type: integer }
                   endMs: { type: integer }

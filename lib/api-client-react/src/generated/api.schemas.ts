@@ -4537,6 +4537,11 @@ export interface GuidedStoryLine {
   kind: GuidedStoryLineKind;
   text: string;
   /**
+     * Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.
+     * @nullable
+     */
+  romanizedPronunciation?: string | null;
+  /**
      * Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.
      * @nullable
      */
@@ -5570,6 +5575,8 @@ export type VideoStoryboardSceneGuidedStoryLineOwnershipItem = {
   ownerRoleId: string | null;
   kind: VideoStoryboardSceneGuidedStoryLineOwnershipItemKind;
   text?: string;
+  /** @nullable */
+  romanizedPronunciation?: string | null;
   /** @nullable */
   englishTranslation?: string | null;
   startMs: number;
