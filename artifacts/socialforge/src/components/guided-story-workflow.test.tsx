@@ -1165,6 +1165,45 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("dialog-guided-change-outfit")).toBeTruthy();
   });
 
+  it("syncs server-authored visual changes that keep the same draft revision", async () => {
+    const initial = draft({
+      cast: [{ roleId: "r1", source: "generated", consentGranted: false }, { roleId: "r2", source: "generated", consentGranted: false }],
+      castApprovals: {
+        version: 1,
+        draftRevision: 2,
+        roles: {
+          r1: { roleId: "r1", approvedAt: "2026-01-01", character: {}, outfit: {} },
+          r2: { roleId: "r2", approvedAt: "2026-01-01", character: {}, outfit: {} },
+        },
+      },
+    });
+    state.draft = initial;
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    const { client } = renderWorkflow();
+
+    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
+
+    act(() => {
+      client.setQueryData(["guided", initial.id], {
+        ...initial,
+        revision: initial.revision,
+        visualChoices: {
+          ...initial.visualChoices,
+          location: {
+            mode: "text",
+            imagePath: null,
+            description: "A warmer server-approved desk",
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.queryByTestId("status-guided-enqueue-blocked")).toBeNull();
+    });
+  });
+
   it("shows the approved default beside a scene override and approves only that override", async () => {
     const defaultBackdrop = { version: 1, prompt: "Warm desk", imagePath: "/objects/99/default.png", imageSha256: "d".repeat(64), fingerprint: "d".repeat(64), revision: 2, approvedAt: "2026-01-01" };
     const override = { version: 1, prompt: "Night street", imagePath: "/objects/99/street.png", imageSha256: "o".repeat(64), fingerprint: "o".repeat(64), revision: 2, approvedAt: null };

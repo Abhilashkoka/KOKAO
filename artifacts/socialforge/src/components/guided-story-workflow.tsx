@@ -466,9 +466,10 @@ export function GuidedStoryWorkflow({
     setUserRoleChoiceMade(draft.cast.length > 0 || draft.userRoleId !== null);
     setStrategy(draft.castStrategy ?? "generated");
   }, [draft?.id, draft?.revision, draft?.script]);
+  const authoritativeVisualChoicesSignature = JSON.stringify(draft?.visualChoices ?? null);
   useEffect(() => {
     if (draft) setVisualChoices(normaliseVisualChoices(draft.visualChoices));
-  }, [draft?.id, draft?.revision]);
+  }, [draft?.id, draft?.revision, authoritativeVisualChoicesSignature]);
 
   const setAuthoritativeDraft = useCallback((next: GuidedStoryDraft) => {
     queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
@@ -835,6 +836,27 @@ function StoryFlow(props: any) {
   const [readyToGenerateCast, setReadyToGenerateCast] = useState(false);
   const step = draftStep(draft);
   const estimate = <PhaseEstimates draft={draft} />;
+  const enqueueBlockReason =
+    props.pending
+      ? "Finishing the current story update…"
+      : props.existingJobId === null &&
+          !props.failedBeforeStoryboard &&
+          !props.castApprovalsComplete
+        ? `Approve the remaining cast references${props.pendingCastApprovalRoles?.length ? `: ${props.pendingCastApprovalRoles.join(", ")}` : "."}`
+        : props.existingJobId === null &&
+            !props.failedBeforeStoryboard &&
+            !guidedStoryBackdropsAreReady(draft)
+          ? "Approve the default backdrop and every scene override."
+          : props.existingJobId === null &&
+              !props.failedBeforeStoryboard &&
+              props.attemptConsentRequired &&
+              !props.consent
+            ? "Confirm permission to use the selected saved person and voice."
+            : !props.visualSaved
+              ? "Save the visual consistency choices before building the storyboard."
+              : props.visualUploading
+                ? "Wait for the visual upload to finish."
+                : null;
   const voiceLanguageNote = (
     <p className="text-sm text-muted-foreground" data-testid="text-guided-voice-language">
       ElevenLabs speaks the exact approved story text in the selected language; voices choose how a character sounds; they are not language-specific.
@@ -883,9 +905,11 @@ function StoryFlow(props: any) {
       </div>
     )}
     {props.enqueueError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-enqueue">{props.enqueueError}</p>}
+    {enqueueBlockReason && <p id="guided-enqueue-block-reason" className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid="status-guided-enqueue-blocked">{enqueueBlockReason}</p>}
     <Button
       type="button"
       onClick={props.onEnqueue}
+      aria-describedby={enqueueBlockReason ? "guided-enqueue-block-reason" : undefined}
       disabled={
         props.pending ||
         (props.existingJobId === null &&
