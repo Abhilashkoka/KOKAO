@@ -296,6 +296,19 @@ export function GuidedStoryWorkflow({
   const draftQuery = useGetGuidedStoryDraft(draftId ?? 0, {
     query: { enabled: draftId !== null, queryKey: getGetGuidedStoryDraftQueryKey(draftId ?? 0) },
   });
+  const queriedDraft = draftQuery.data;
+  useEffect(() => {
+    if (
+      queriedDraft?.castApprovals &&
+      queriedDraft.castApprovals.draftRevision !== queriedDraft.revision
+    ) {
+      void draftQuery.refetch();
+    }
+  }, [
+    queriedDraft?.id,
+    queriedDraft?.revision,
+    queriedDraft?.castApprovals?.draftRevision,
+  ]);
   const createDraft = useCreateGuidedStoryDraft();
   const generateScript = useGenerateGuidedStoryDraftScript();
   const approveScript = useApproveGuidedStoryDraftScript();
@@ -842,7 +855,7 @@ function StoryFlow(props: any) {
       : props.existingJobId === null &&
           !props.failedBeforeStoryboard &&
           !props.castApprovalsComplete
-        ? `Approve the remaining cast references${props.pendingCastApprovalRoles?.length ? `: ${props.pendingCastApprovalRoles.join(", ")}` : "."}`
+        ? "Approve the default backdrop and every scene override."
         : props.existingJobId === null &&
             !props.failedBeforeStoryboard &&
             !guidedStoryBackdropsAreReady(draft)
@@ -967,13 +980,15 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setPrompt(shown?.prompt ?? direction ?? ""); setFile(null); }, [shown?.fingerprint, direction]);
   const refresh = (next: GuidedStoryDraft) => queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
+  const refreshAfterConflict = () =>
+    queryClient.invalidateQueries({
+      queryKey: getGetGuidedStoryDraftQueryKey(draft.id),
+    });
   const reportApprovalError = (cause: unknown) => {
     const message = apiErrorMessage(cause, "Could not approve this backdrop.");
     setError(message);
-    if (/approval is out of date|reference work changed/i.test(message)) {
-      void queryClient.invalidateQueries({
-        queryKey: getGetGuidedStoryDraftQueryKey(draft.id),
-      });
+    if (/approval is out of date|reference work changed|draft changed|changed while/i.test(message)) {
+      void refreshAfterConflict();
     }
   };
   const suffix = sceneId ?? "default";
@@ -991,7 +1006,13 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
       if (regenerate || !imagePath) imagePath = (await generate.mutateAsync({ data: { prompt: [selectedPrompt, sceneId ? `Scene-specific direction: ${direction}` : "Default shared location", "Clean location reference plate; no people, text, logos, or action."].join("\n"), size: "1024x1024", referenceImagePath: shown?.imagePath } })).imagePath;
       refresh(await prepare.mutateAsync({ draftId: draft.id, data: { revision: draft.revision, prompt: selectedPrompt, imagePath, sceneId } }));
       setFile(null);
-    } catch (cause) { setError(apiErrorMessage(cause, "Could not prepare this backdrop.")); }
+    } catch (cause) {
+      const message = apiErrorMessage(cause, "Could not prepare this backdrop.");
+      setError(message);
+      if (/draft changed|changed while|out of date|conflict/i.test(message)) {
+        void refreshAfterConflict();
+      }
+    }
   };
   const unsaved = !!file || prompt.trim() !== (shown?.prompt?.trim() ?? "");
   const test = (name: string) => sceneId ? `${name}-${suffix}` : name;
@@ -1009,7 +1030,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
     <Input type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid={test("input-guided-backdrop-upload")} />
     <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={prepare.isPending || generate.isPending} onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>{prepare.isPending || generate.isPending ? sceneId ? `Generating ${label} backdrop…` : "Generating backdrop for all scenes…" : shown ? "Save replacement" : sceneId ? "AI generate scene override" : "AI generate for all scenes"}</Button>
       {shown && <Button type="button" variant="outline" onClick={() => { setCustomization(prompt); setCustomizing(true); }} data-testid={test("button-regenerate-guided-backdrop")}>Customize &amp; regenerate</Button>}
-      {sceneId && <Button type="button" variant="outline" onClick={() => inherit.mutate({ draftId: draft.id, sceneId, data: { revision: draft.revision } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not inherit the default backdrop.")) })} data-testid={test("button-inherit-guided-backdrop")}>Inherit default</Button>}
+      {sceneId && <Button type="button" variant="outline" onClick={() => inherit.mutate({ draftId: draft.id, sceneId, data: { revision: draft.revision } }, { onSuccess: refresh, onError: (cause) => { const message = apiErrorMessage(cause, "Could not inherit the default backdrop."); setError(message); if (/draft changed|changed while|out of date|conflict/i.test(message)) void refreshAfterConflict(); } })} data-testid={test("button-inherit-guided-backdrop")}>Inherit default</Button>}
       <Button type="button" disabled={!backdrop || !!backdrop.approvedAt || unsaved} onClick={() => backdrop && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: backdrop.fingerprint, sceneId } }, { onSuccess: refresh, onError: reportApprovalError })} data-testid={test("button-approve-guided-backdrop")}>{backdrop?.approvedAt ? "Approved" : "Approve backdrop"}</Button></div>
     {unsaved && <p className="text-sm text-amber-700" role="status" data-testid={test("status-guided-backdrop-unsaved")}>Save backdrop review changes before approval.</p>}{error && <p className="text-sm text-destructive" role="alert">{error}</p>}
     <Dialog open={enlarged} onOpenChange={setEnlarged}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>{label}</DialogTitle><DialogDescription>Inspect the exact frozen backdrop before approving it.</DialogDescription></DialogHeader>{shown && <img src={`/api/storage${shown.imagePath}`} alt={`Enlarged ${label}`} className="mx-auto max-h-[70vh] max-w-full object-contain" data-testid={test("image-enlarged-guided-backdrop")} />}</DialogContent></Dialog>
