@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { pool, db, aiModelPricesTable, aiCostSettingsTable } from "@workspace/db";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   getAiCostConfig,
   setAiCostConfig,
@@ -21,6 +21,7 @@ import {
   buildImageCostMeta,
   dedupeModelPrices,
   canonicalVideoVariantKey,
+  seedPublishedModelPrices,
 } from "./aiCost";
 
 // Unique names so runs against the shared dev DB never collide.
@@ -72,6 +73,25 @@ describe("usdToPaise", () => {
     expect(usdToPaise(1, -5)).toBeNull();
     expect(usdToPaise(-1, 8600)).toBeNull();
     expect(usdToPaise(Number.NaN, 8600)).toBeNull();
+  });
+});
+
+describe("published server-owned model prices", () => {
+  it("seeds the LatentSync per-run price required before optional lip-sync", async () => {
+    await seedPublishedModelPrices();
+    const [price] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "video"),
+          eq(aiModelPricesTable.provider, "replicate"),
+          eq(aiModelPricesTable.model, "bytedance/latentsync"),
+        ),
+      )
+      .limit(1);
+
+    expect(price?.usdPerVideo).toBeGreaterThan(0);
   });
 });
 

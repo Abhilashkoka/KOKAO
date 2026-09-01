@@ -149,6 +149,20 @@ export async function seedPublishedModelPrices(): Promise<void> {
         usdPerVideo: null,
       },
       {
+        // Replicate publishes this community model at approximately $0.10 per
+        // run. Optional Studio lip-sync is server-owned rather than selected
+        // in Admin AI Settings, so it needs the same durable fallback as
+        // MusicGen. Admin corrections still win via onConflictDoNothing.
+        kind: "video",
+        provider: "replicate",
+        model: "bytedance/latentsync",
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: 0.1,
+      },
+      {
         // Replicate's published model page lists meta/musicgen at
         // approximately $0.089/run. This server-owned workflow has no
         // admin-selectable activation step, so seed its model-level fallback.
