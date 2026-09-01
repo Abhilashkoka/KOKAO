@@ -1,0 +1,250 @@
+From a93d3a28595af83e036b35ca9eb57f8c60457b2a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 1 Sep 2026 06:46:22 +0000
+Subject: [PATCH 8/9] Never run both lip-sync passes on one job
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+KOKAO now has two lip-sync passes and nothing stopped both from
+running on the same video: the character engine's own per-shot pass
+and the optional Studio finishing pass. A character video with both
+enabled paid twice and had its mouths redrawn twice.
+
+The character pass wins where both apply, and it is the better of the
+two there for reasons of input rather than preference:
+
+  - AUDIO. It syncs from the original narration PCM. The Studio pass
+    calls extractNativeAudio on the composed segment, so when a music
+    bed is present the model is driven by voice-plus-music, after two
+    loudnorm passes and an AAC round trip. These models key off speech
+    features; that is a real degradation.
+  - SHOT BOUNDARIES. On a character video the Studio plan is a single
+    entry spanning the whole runtime, so it is one provider call across
+    every cut and dip-to-black. Tracking a face across hard cuts is what
+    these models handle worst. The character pass is one call per shot.
+  - ENCODE LOSS. The character pass hands the model a purpose-encoded
+    clip; the Studio pass re-encodes an already-encoded composite.
+
+None of that applies on Guided Story or the direct engines, where the
+optional pass is the only pass — so the predicate is scoped to
+topic_to_video with a character source and returns false everywhere
+else.
+
+The decision is hoisted above the optional pass's resolution so both
+are settled before funding, matching how characterLipSync is already
+recorded at enqueue rather than read from a switch mid-render.
+
+Refused rather than silently dropped: the optional pass is a toggle the
+user ticked, so the message names the reason and the fix is un-ticking
+a box they can see.
+
+The predicate lives in its own module with unit tests rather than
+inline in an 11k-line route file, because the route suite cannot be
+exercised without object storage.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../lib/videoGen/lipSyncExclusivity.test.ts   | 68 +++++++++++++++++++
+ .../src/lib/videoGen/lipSyncExclusivity.ts    | 38 +++++++++++
+ artifacts/api-server/src/routes/videos.ts     | 29 +++++++-
+ 3 files changed, 133 insertions(+), 2 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts
+new file mode 100644
+index 00000000..6cde3d6b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts
+@@ -0,0 +1,68 @@
++import { describe, it, expect } from "vitest";
++import {
++  characterPassOwnsLipSync,
++  STUDIO_PASS_REDUNDANT_MESSAGE,
++} from "./lipSyncExclusivity";
++
++describe("characterPassOwnsLipSync", () => {
++  it("claims the job when the character pass is active on a character video", () => {
++    expect(
++      characterPassOwnsLipSync({
++        engine: "topic_to_video",
++        visualsSource: "character",
++        characterLipSyncActive: true,
++      }),
++    ).toBe(true);
++  });
++
++  it("leaves the optional pass alone when the character pass is off", () => {
++    expect(
++      characterPassOwnsLipSync({
++        engine: "topic_to_video",
++        visualsSource: "character",
++        characterLipSyncActive: false,
++      }),
++    ).toBe(false);
++  });
++
++  it("never claims a non-character topic video", () => {
++    for (const visualsSource of ["stock", "ai", "ai_video"]) {
++      expect(
++        characterPassOwnsLipSync({
++          engine: "topic_to_video",
++          visualsSource,
++          characterLipSyncActive: true,
++        }),
++      ).toBe(false);
++    }
++  });
++
++  it("never claims another engine", () => {
++    // Guided Story, the dialogue engine and the direct engines all reach the
++    // optional pass on their own terms; the character pass cannot run there,
++    // so it must not block them.
++    for (const engine of [
++      "text_to_video",
++      "image_to_video",
++      "dialogue_lip_sync",
++      "lip_sync",
++      "slideshow",
++      "localized_dub",
++    ]) {
++      expect(
++        characterPassOwnsLipSync({
++          engine,
++          visualsSource: "character",
++          characterLipSyncActive: true,
++        }),
++      ).toBe(false);
++    }
++  });
++
++  it("explains itself in the refusal", () => {
++    // The message has to name the reason, because the fix is a toggle the user
++    // can see and un-tick.
++    expect(STUDIO_PASS_REDUNDANT_MESSAGE).toMatch(/already lip-syncs/i);
++    expect(STUDIO_PASS_REDUNDANT_MESSAGE).toMatch(/second time/i);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts
+new file mode 100644
+index 00000000..8fc0d744
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts
+@@ -0,0 +1,38 @@
++/**
++ * KOKAO now has two lip-sync passes, and they must never both run on one job.
++ *
++ *  - The CHARACTER pass (topic_to_video + visualsSource "character") syncs each
++ *    shot to its own slice of the narration BEFORE the shots are composed. Its
++ *    inputs are the raw generated clip and the original narration PCM.
++ *  - The optional STUDIO pass is a finishing stage over the COMPOSED video. It
++ *    cuts a segment out of the final file and re-extracts that segment's audio,
++ *    which by then has been through the music mix, sidechain ducking, two
++ *    loudnorm passes and an AAC round trip.
++ *
++ * On the character engine the first is strictly better: cleaner audio, one call
++ * per shot instead of one call spanning every cut, and one less generation of
++ * encode loss over the mouth. So where both would apply, the character pass
++ * wins and the optional one is refused.
++ *
++ * Refused rather than silently dropped: the optional pass is a toggle the user
++ * ticked, so they are told why it cannot apply instead of wondering where it
++ * went. On every other engine the optional pass is the only pass, and this
++ * predicate returns false.
++ */
++export function characterPassOwnsLipSync(args: {
++  engine: string;
++  visualsSource: string;
++  /** Whether the character engine's own pass is active for this job. */
++  characterLipSyncActive: boolean;
++}): boolean {
++  return (
++    args.characterLipSyncActive === true &&
++    args.engine === "topic_to_video" &&
++    args.visualsSource === "character"
++  );
++}
++
++/** User-facing refusal for the redundant second pass. */
++export const STUDIO_PASS_REDUNDANT_MESSAGE =
++  "This video already lip-syncs every character scene to its own line, shot by shot. " +
++  "Turn the optional pass off — adding it would sync the finished video a second time.";
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index c7a7f6d2..9703003c 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -99,6 +99,10 @@ import {
+   runGuidedSceneCorrectionJob,
+   STORYBOARD_REGENERATIONS_PER_SCENE,
+ } from "../lib/videoGen/jobRunner";
++import {
++  characterPassOwnsLipSync,
++  STUDIO_PASS_REDUNDANT_MESSAGE,
++} from "../lib/videoGen/lipSyncExclusivity";
+ import {
+   VideoGenProviderError,
+   compiledClipPrompt,
+@@ -599,6 +603,8 @@ async function resolveStudioLipSyncSnapshot(args: {
+   guidedDraft: GuidedStoryDraft | null;
+   durationSec: number;
+   visualsSource: string;
++  /** The character engine will already sync every scene itself. */
++  characterLipSyncActive: boolean;
+ }): Promise<VideoJobOptions["studioLipSync"]> {
+   if (args.body.studioLipSync !== true) return null;
+   if (!(await isFeatureEnabled("studioLipSync"))) {
+@@ -658,6 +664,15 @@ async function resolveStudioLipSyncSnapshot(args: {
+     args.visualsSource === "character" &&
+     (args.characterId != null || args.presetCharacterId != null)
+   ) {
++    if (
++      characterPassOwnsLipSync({
++        engine: args.body.engine,
++        visualsSource: args.visualsSource,
++        characterLipSyncActive: args.characterLipSyncActive,
++      })
++    ) {
++      throw new Error(STUDIO_PASS_REDUNDANT_MESSAGE);
++    }
+     source = args.presetCharacterId ? "preset_character" : "tenant_character";
+     plan = [{
+       sceneId: "all-character-scenes",
+@@ -7633,6 +7648,16 @@ async function generateVideoHandler(
+   const approvedGuidedBackdrops = guidedDraft?.state.visualChoices
+     ? guidedBackdropChoices(guidedDraft.state.visualChoices)
+     : null;
++  // Decided before the optional pass is resolved, because the two are mutually
++  // exclusive and this one is the better of the pair on the character path: it
++  // syncs each shot from the original narration PCM before composition, rather
++  // than the finished cut from audio re-extracted out of the music mix.
++  const characterLipSyncActive =
++    body.engine === "topic_to_video" && visualsSource === "character"
++      ? (await resolveCharacterLipSync()) &&
++        (await isFeatureEnabled("lipSync").catch(() => true))
++      : false;
++
+   let studioLipSync: VideoJobOptions["studioLipSync"] = null;
+   try {
+     studioLipSync = await resolveStudioLipSyncSnapshot({
+@@ -7640,6 +7665,7 @@ async function generateVideoHandler(
+       characterId,
+       presetCharacterId: requestedPresetId,
+       guidedDraft,
++      characterLipSyncActive,
+       durationSec:
+         guidedDraft?.state.script?.runtimeSeconds ??
+         (body.engine === "dialogue_lip_sync"
+@@ -7871,8 +7897,7 @@ async function generateVideoHandler(
+     // upload-driven engine above.
+     characterLipSync:
+       body.engine === "topic_to_video" && visualsSource === "character"
+-        ? (await resolveCharacterLipSync()) &&
+-          (await isFeatureEnabled("lipSync").catch(() => true))
++        ? characterLipSyncActive
+         : undefined,
+     visualsSource,
+     characterId,
+-- 
+2.43.0
+

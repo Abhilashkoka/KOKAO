@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { pickMusicStartOffsetSec } from "./musicOffset";
 import { runFfmpeg, probeDurationSec } from "./slideshow";
+import { probeHeight } from "./lipSyncSource";
 import { ASPECT_DIMENSIONS, frameFor, VideoGenProviderError, type VideoAspect } from "./types";
 import { RESOLUTION_SHORT_EDGE, type VideoResolution } from "./modelCatalog";
 import { renderWatermarkPill } from "../watermark";
@@ -213,8 +214,23 @@ export async function normalizeVideo(
  * 5s clip; the surplus is dropped from the end rather than sampled from the
  * middle. NOT fail-soft: handing the model a mismatched clip produces a
  * confidently desynced result, which is worse than a failed job.
+ *
+ * `minHeight` upscales the shot in the SAME encode when the provider returned
+ * something smaller. Lip-sync models work on a small square crop around the
+ * face, so a 480p shot starves that crop before the model starts and the mouth
+ * comes back with a fraction of the surrounding skin's detail — measured at
+ * roughly a sixth on a real sample. Folding it in here rather than adding a
+ * second pass matters: every extra encode over the mouth region is generation
+ * loss in exactly the place the model is about to work.
  */
-export async function trimClipToStart(video: Buffer, targetSec: number): Promise<Buffer> {
+/** Same ceiling the uploaded-source path uses; past it we invent pixels. */
+const MAX_LIPSYNC_UPSCALE = 2;
+
+export async function trimClipToStart(
+  video: Buffer,
+  targetSec: number,
+  minHeight?: number,
+): Promise<Buffer> {
   if (!Number.isFinite(targetSec) || targetSec <= 0) {
     throw new VideoGenProviderError("A lip-synced shot needs a positive length.");
   }
@@ -222,10 +238,22 @@ export async function trimClipToStart(video: Buffer, targetSec: number): Promise
   try {
     await writeFile(join(dir, "in.mp4"), video);
     const actualSec = await probeDurationSec("in.mp4", dir);
-    const args = ["-y", "-i", "in.mp4"];
+    const filters: string[] = [];
     if (actualSec !== null && actualSec < targetSec) {
-      args.push("-vf", `tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
+      filters.push(`tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
     }
+    if (minHeight && minHeight > 0) {
+      const height = await probeHeight("in.mp4", dir);
+      if (height !== null && height < minHeight) {
+        // Capped at 2x for the same reason the upload path caps it: past that
+        // we are inventing pixels rather than recovering them. -2 keeps the
+        // width even for h264 and preserves the framing.
+        const target = Math.round(Math.min(minHeight, height * MAX_LIPSYNC_UPSCALE));
+        filters.push(`scale=-2:${target}:flags=lanczos`);
+      }
+    }
+    const args = ["-y", "-i", "in.mp4"];
+    if (filters.length > 0) args.push("-vf", filters.join(","));
     args.push(
       "-t", targetSec.toFixed(3),
       "-map", "0:v:0",

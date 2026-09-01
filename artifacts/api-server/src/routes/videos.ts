@@ -100,6 +100,10 @@ import {
   STORYBOARD_REGENERATIONS_PER_SCENE,
 } from "../lib/videoGen/jobRunner";
 import {
+  characterPassOwnsLipSync,
+  STUDIO_PASS_REDUNDANT_MESSAGE,
+} from "../lib/videoGen/lipSyncExclusivity";
+import {
   VideoGenProviderError,
   compiledClipPrompt,
   effectiveVideoModel,
@@ -599,6 +603,8 @@ async function resolveStudioLipSyncSnapshot(args: {
   guidedDraft: GuidedStoryDraft | null;
   durationSec: number;
   visualsSource: string;
+  /** The character engine will already sync every scene itself. */
+  characterLipSyncActive: boolean;
 }): Promise<VideoJobOptions["studioLipSync"]> {
   if (args.body.studioLipSync !== true) return null;
   if (!(await isFeatureEnabled("studioLipSync"))) {
@@ -658,6 +664,15 @@ async function resolveStudioLipSyncSnapshot(args: {
     args.visualsSource === "character" &&
     (args.characterId != null || args.presetCharacterId != null)
   ) {
+    if (
+      characterPassOwnsLipSync({
+        engine: args.body.engine,
+        visualsSource: args.visualsSource,
+        characterLipSyncActive: args.characterLipSyncActive,
+      })
+    ) {
+      throw new Error(STUDIO_PASS_REDUNDANT_MESSAGE);
+    }
     source = args.presetCharacterId ? "preset_character" : "tenant_character";
     plan = [{
       sceneId: "all-character-scenes",
@@ -7633,6 +7648,16 @@ async function generateVideoHandler(
   const approvedGuidedBackdrops = guidedDraft?.state.visualChoices
     ? guidedBackdropChoices(guidedDraft.state.visualChoices)
     : null;
+  // Decided before the optional pass is resolved, because the two are mutually
+  // exclusive and this one is the better of the pair on the character path: it
+  // syncs each shot from the original narration PCM before composition, rather
+  // than the finished cut from audio re-extracted out of the music mix.
+  const characterLipSyncActive =
+    body.engine === "topic_to_video" && visualsSource === "character"
+      ? (await resolveCharacterLipSync()) &&
+        (await isFeatureEnabled("lipSync").catch(() => true))
+      : false;
+
   let studioLipSync: VideoJobOptions["studioLipSync"] = null;
   try {
     studioLipSync = await resolveStudioLipSyncSnapshot({
@@ -7640,6 +7665,7 @@ async function generateVideoHandler(
       characterId,
       presetCharacterId: requestedPresetId,
       guidedDraft,
+      characterLipSyncActive,
       durationSec:
         guidedDraft?.state.script?.runtimeSeconds ??
         (body.engine === "dialogue_lip_sync"
@@ -7871,8 +7897,7 @@ async function generateVideoHandler(
     // upload-driven engine above.
     characterLipSync:
       body.engine === "topic_to_video" && visualsSource === "character"
-        ? (await resolveCharacterLipSync()) &&
-          (await isFeatureEnabled("lipSync").catch(() => true))
+        ? characterLipSyncActive
         : undefined,
     visualsSource,
     characterId,

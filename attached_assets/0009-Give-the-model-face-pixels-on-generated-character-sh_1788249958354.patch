@@ -1,0 +1,209 @@
+From 58fa3f36d0a11fe551afe72a4dd0300cad39ba01 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 1 Sep 2026 06:51:59 +0000
+Subject: [PATCH 9/9] Give the model face pixels on generated character shots
+ too
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The uploaded-source path has enforced a face-pixel floor since the
+first repair; the character path never got it. Generated shots went to
+the lip-sync model at whatever the video provider returned, which is
+often 480p — and the model works on a small square crop around the
+face, so that crop is starved before it starts. On a real sample the
+synced mouth came back with about a sixth of the surrounding skin's
+detail. Same defect, same fix, applied where it was missing.
+
+Folded into trimClipToStart rather than added as a second pass. Every
+shot already goes through that encode on its way to the model, and an
+extra pass would be another generation of loss in exactly the region
+the model is about to redraw. The upscale is capped at 2x for the same
+reason the upload path caps it: past that we are inventing pixels
+rather than recovering them, and h264's even-width rule and the
+original framing both survive via scale=-2.
+
+The length contract is unchanged and still asserted: a shot comes back
+at exactly its scene duration whether or not it was upscaled.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../src/lib/videoGen/postprocess.test.ts      | 71 ++++++++++++++++++-
+ .../src/lib/videoGen/postprocess.ts           | 34 ++++++++-
+ .../videoGen/topicVideo/characterScenes.ts    |  7 +-
+ 3 files changed, 106 insertions(+), 6 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.test.ts b/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
+index d355b9b3..f539dd6c 100644
+--- a/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, it, expect } from "vitest";
+-import { renderSlideshow, probeDurationSec } from "./slideshow";
+-import { mkdtemp, writeFile, rm } from "fs/promises";
++import { renderSlideshow, probeDurationSec, runFfmpeg } from "./slideshow";
++import { probeHeight } from "./lipSyncSource";
++import { mkdtemp, writeFile, readFile, rm } from "fs/promises";
+ import { tmpdir } from "os";
+ import { join } from "path";
+ import { normalizeVideo, fitImageToAspect, trimClipToStart } from "./postprocess";
+@@ -137,3 +138,69 @@ describe("trimClipToStart", () => {
+     );
+   });
+ });
++
++describe("trimClipToStart face-pixel floor", () => {
++  it("upscales a shot too small for the lip-sync model's face crop", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-small-shot-"));
++    try {
++      // 360p, the shape an image-to-video provider can return.
++      await runFfmpeg(
++        [
++          "-y", "-f", "lavfi", "-i", "testsrc=s=640x360:r=30:d=3",
++          "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
++          "small.mp4",
++        ],
++        dir,
++      );
++      const small = await readFile(join(dir, "small.mp4"));
++
++      const raised = await trimClipToStart(small, 2, 720);
++      await writeFile(join(dir, "raised.mp4"), raised);
++      expect(await probeHeight("raised.mp4", dir)).toBe(720);
++      // The length contract still holds — the upscale rides the same encode.
++      const durationSec = await probeDurationSec("raised.mp4", dir);
++      expect(Math.abs(durationSec! - 2)).toBeLessThan(0.12);
++    } finally {
++      await rm(dir, { recursive: true, force: true }).catch(() => {});
++    }
++  }, 180_000);
++
++  it("never blows a shot up by more than 2x", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-tiny-shot-"));
++    try {
++      await runFfmpeg(
++        [
++          "-y", "-f", "lavfi", "-i", "testsrc=s=256x144:r=30:d=3",
++          "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
++          "tiny.mp4",
++        ],
++        dir,
++      );
++      const raised = await trimClipToStart(await readFile(join(dir, "tiny.mp4")), 2, 720);
++      await writeFile(join(dir, "raised.mp4"), raised);
++      // 144 * 2, not 720: past 2x we would be inventing pixels.
++      expect(await probeHeight("raised.mp4", dir)).toBe(288);
++    } finally {
++      await rm(dir, { recursive: true, force: true }).catch(() => {});
++    }
++  }, 180_000);
++
++  it("leaves a shot that already clears the floor alone", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-big-shot-"));
++    try {
++      await runFfmpeg(
++        [
++          "-y", "-f", "lavfi", "-i", "testsrc=s=1280x720:r=30:d=3",
++          "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
++          "big.mp4",
++        ],
++        dir,
++      );
++      const out = await trimClipToStart(await readFile(join(dir, "big.mp4")), 2, 720);
++      await writeFile(join(dir, "out.mp4"), out);
++      expect(await probeHeight("out.mp4", dir)).toBe(720);
++    } finally {
++      await rm(dir, { recursive: true, force: true }).catch(() => {});
++    }
++  }, 180_000);
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.ts b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+index 31ebb773..fcd6f9d8 100644
+--- a/artifacts/api-server/src/lib/videoGen/postprocess.ts
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+@@ -4,6 +4,7 @@ import { tmpdir } from "os";
+ import { join } from "path";
+ import { pickMusicStartOffsetSec } from "./musicOffset";
+ import { runFfmpeg, probeDurationSec } from "./slideshow";
++import { probeHeight } from "./lipSyncSource";
+ import { ASPECT_DIMENSIONS, frameFor, VideoGenProviderError, type VideoAspect } from "./types";
+ import { RESOLUTION_SHORT_EDGE, type VideoResolution } from "./modelCatalog";
+ import { renderWatermarkPill } from "../watermark";
+@@ -213,8 +214,23 @@ export async function normalizeVideo(
+  * 5s clip; the surplus is dropped from the end rather than sampled from the
+  * middle. NOT fail-soft: handing the model a mismatched clip produces a
+  * confidently desynced result, which is worse than a failed job.
++ *
++ * `minHeight` upscales the shot in the SAME encode when the provider returned
++ * something smaller. Lip-sync models work on a small square crop around the
++ * face, so a 480p shot starves that crop before the model starts and the mouth
++ * comes back with a fraction of the surrounding skin's detail — measured at
++ * roughly a sixth on a real sample. Folding it in here rather than adding a
++ * second pass matters: every extra encode over the mouth region is generation
++ * loss in exactly the place the model is about to work.
+  */
+-export async function trimClipToStart(video: Buffer, targetSec: number): Promise<Buffer> {
++/** Same ceiling the uploaded-source path uses; past it we invent pixels. */
++const MAX_LIPSYNC_UPSCALE = 2;
++
++export async function trimClipToStart(
++  video: Buffer,
++  targetSec: number,
++  minHeight?: number,
++): Promise<Buffer> {
+   if (!Number.isFinite(targetSec) || targetSec <= 0) {
+     throw new VideoGenProviderError("A lip-synced shot needs a positive length.");
+   }
+@@ -222,10 +238,22 @@ export async function trimClipToStart(video: Buffer, targetSec: number): Promise
+   try {
+     await writeFile(join(dir, "in.mp4"), video);
+     const actualSec = await probeDurationSec("in.mp4", dir);
+-    const args = ["-y", "-i", "in.mp4"];
++    const filters: string[] = [];
+     if (actualSec !== null && actualSec < targetSec) {
+-      args.push("-vf", `tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
++      filters.push(`tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
+     }
++    if (minHeight && minHeight > 0) {
++      const height = await probeHeight("in.mp4", dir);
++      if (height !== null && height < minHeight) {
++        // Capped at 2x for the same reason the upload path caps it: past that
++        // we are inventing pixels rather than recovering them. -2 keeps the
++        // width even for h264 and preserves the framing.
++        const target = Math.round(Math.min(minHeight, height * MAX_LIPSYNC_UPSCALE));
++        filters.push(`scale=-2:${target}:flags=lanczos`);
++      }
++    }
++    const args = ["-y", "-i", "in.mp4"];
++    if (filters.length > 0) args.push("-vf", filters.join(","));
+     args.push(
+       "-t", targetSec.toFixed(3),
+       "-map", "0:v:0",
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index 0eb69a4f..7fb8c181 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -9,6 +9,7 @@ import { getMotionInstruction } from "../motionPrompt";
+ import type { ResolvedModelOptions } from "../modelCatalog";
+ import type { Cinematography } from "../cinematography";
+ import { trimClipToStart } from "../postprocess";
++import { MIN_SYNC_HEIGHT } from "../lipSyncSource";
+ import { lipSyncClip } from "../lipSyncClip";
+ import { VideoGenProviderError, type VideoAspect } from "../types";
+ import { logger } from "../../logger";
+@@ -502,7 +503,11 @@ export async function animateSceneKeyframes(params: {
+     // as separate files and assumes they start together.
+     const startSec = sceneStartSec[i] ?? 0;
+     const audio = sliceNarration(lipSync.wav, startSec, startSec + scene.durationSec);
+-    const trimmed = await trimClipToStart(clip, scene.durationSec);
++    // Same face-pixel floor the uploaded-source path enforces: the model works
++    // on a small crop around the face, and a shot the video provider returned
++    // at 480p starves it before it starts. Folded into the trim so the mouth
++    // region takes one encode, not two.
++    const trimmed = await trimClipToStart(clip, scene.durationSec, MIN_SYNC_HEIGHT);
+     try {
+       const result = await lipSyncClip({ video: trimmed, audio });
+       synced[i] = true;
+-- 
+2.43.0
+

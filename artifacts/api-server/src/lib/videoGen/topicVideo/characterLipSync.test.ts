@@ -83,8 +83,11 @@ describe("character scene lip sync", () => {
     expect(lipSyncClip).toHaveBeenCalledTimes(3);
     // Scenes tile the track in order: 0-2s, 2-4s, 4-6s. The ramp encodes the
     // second, so the first sample of each slice names where it came from.
+    // Rounded, not exact: the lip-sync noise floor rides under every slice, so
+    // a sample is within ~33 of its ramp value rather than equal to it.
     const seconds = lipSyncClip.mock.calls.map(
-      ([args]) => parseWav((args as { audio: Buffer }).audio).pcm.readInt16LE(0) / 1000,
+      ([args]) =>
+        Math.round(parseWav((args as { audio: Buffer }).audio).pcm.readInt16LE(0) / 1000),
     );
     expect(seconds).toEqual([1, 3, 5]);
   });

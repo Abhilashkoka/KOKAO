@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { renderSlideshow, probeDurationSec } from "./slideshow";
-import { mkdtemp, writeFile, rm } from "fs/promises";
+import { renderSlideshow, probeDurationSec, runFfmpeg } from "./slideshow";
+import { probeHeight } from "./lipSyncSource";
+import { mkdtemp, writeFile, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { normalizeVideo, fitImageToAspect, trimClipToStart } from "./postprocess";
@@ -136,4 +137,70 @@ describe("trimClipToStart", () => {
       VideoGenProviderError,
     );
   });
+});
+
+describe("trimClipToStart face-pixel floor", () => {
+  it("upscales a shot too small for the lip-sync model's face crop", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kokao-small-shot-"));
+    try {
+      // 360p, the shape an image-to-video provider can return.
+      await runFfmpeg(
+        [
+          "-y", "-f", "lavfi", "-i", "testsrc=s=640x360:r=30:d=3",
+          "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+          "small.mp4",
+        ],
+        dir,
+      );
+      const small = await readFile(join(dir, "small.mp4"));
+
+      const raised = await trimClipToStart(small, 2, 720);
+      await writeFile(join(dir, "raised.mp4"), raised);
+      expect(await probeHeight("raised.mp4", dir)).toBe(720);
+      // The length contract still holds — the upscale rides the same encode.
+      const durationSec = await probeDurationSec("raised.mp4", dir);
+      expect(Math.abs(durationSec! - 2)).toBeLessThan(0.12);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 180_000);
+
+  it("never blows a shot up by more than 2x", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kokao-tiny-shot-"));
+    try {
+      await runFfmpeg(
+        [
+          "-y", "-f", "lavfi", "-i", "testsrc=s=256x144:r=30:d=3",
+          "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+          "tiny.mp4",
+        ],
+        dir,
+      );
+      const raised = await trimClipToStart(await readFile(join(dir, "tiny.mp4")), 2, 720);
+      await writeFile(join(dir, "raised.mp4"), raised);
+      // 144 * 2, not 720: past 2x we would be inventing pixels.
+      expect(await probeHeight("raised.mp4", dir)).toBe(288);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 180_000);
+
+  it("leaves a shot that already clears the floor alone", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kokao-big-shot-"));
+    try {
+      await runFfmpeg(
+        [
+          "-y", "-f", "lavfi", "-i", "testsrc=s=1280x720:r=30:d=3",
+          "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+          "big.mp4",
+        ],
+        dir,
+      );
+      const out = await trimClipToStart(await readFile(join(dir, "big.mp4")), 2, 720);
+      await writeFile(join(dir, "out.mp4"), out);
+      expect(await probeHeight("out.mp4", dir)).toBe(720);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 180_000);
 });

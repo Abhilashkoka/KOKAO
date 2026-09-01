@@ -245,7 +245,57 @@ export function sliceNarration(wav: Buffer, startSec: number, endSec: number): B
   };
   const from = toFrame(startSec);
   const to = Math.max(from, toFrame(endSec));
-  return buildWav(format, pcm.subarray(from, to));
+  // Copy, never a view: the floor below writes into these bytes, and the
+  // caller's narration track must not be modified underneath it.
+  return buildWav(format, applyNoiseFloor(format, Buffer.from(pcm.subarray(from, to))));
+}
+
+/**
+ * Peak amplitude of the noise floor, as dB below full scale. Quiet enough to
+ * be inaudible if it ever reached a speaker; loud enough not to be zero.
+ */
+export const LIP_SYNC_NOISE_FLOOR_DBFS = -60;
+
+/**
+ * Lay a faint noise floor under a slice before it goes to the lip-sync model.
+ *
+ * The gaps between sentences are built by silence(), which is Buffer.alloc —
+ * every sample exactly zero. True digital silence does not occur in the
+ * recordings these models are trained on, and on a generated-character render
+ * the model's behaviour through those gaps was degenerate: instead of closing
+ * the lips it held the mouth half-open with a black void where the teeth
+ * should be, while articulating cleanly the moment speech resumed. The floor
+ * puts the input back inside the distribution the model has actually seen.
+ *
+ * This is a HYPOTHESIS with one supporting observation, not a proven fix. It is
+ * deliberately cheap to undo: delete the call in sliceNarration and the model
+ * receives exactly what it received before.
+ *
+ * Applied uniformly rather than only to detected silence — at 60dB below full
+ * scale it is ~40dB under ordinary speech, so it changes no speech feature, and
+ * detecting silence to treat it specially would add a failure mode for no gain.
+ *
+ * Deterministic by construction: same slice in, same bytes out, so a retry
+ * cannot produce a different render and a test cannot flake.
+ *
+ * Only 16-bit PCM is touched; any other width is returned untouched rather than
+ * corrupted, since the narration synthesizer pins pcm_s16 anyway.
+ */
+export function applyNoiseFloor(format: WavFormat, pcm: Buffer): Buffer {
+  if (format.bitsPerSample !== 16 || pcm.length < 2) return pcm;
+  const peak = Math.max(
+    1,
+    Math.round(32767 * Math.pow(10, LIP_SYNC_NOISE_FLOOR_DBFS / 20)),
+  );
+  // Small LCG rather than Math.random, so the bytes are reproducible.
+  let seed = (pcm.length * 2654435761) % 4294967296;
+  for (let offset = 0; offset + 2 <= pcm.length; offset += 2) {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    const noise = (seed % (2 * peak + 1)) - peak;
+    const mixed = pcm.readInt16LE(offset) + noise;
+    pcm.writeInt16LE(Math.max(-32768, Math.min(32767, mixed)), offset);
+  }
+  return pcm;
 }
 
 /**

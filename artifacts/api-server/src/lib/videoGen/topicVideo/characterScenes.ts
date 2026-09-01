@@ -9,6 +9,7 @@ import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
 import { trimClipToStart } from "../postprocess";
+import { MIN_SYNC_HEIGHT } from "../lipSyncSource";
 import { lipSyncClip } from "../lipSyncClip";
 import { VideoGenProviderError, type VideoAspect } from "../types";
 import { logger } from "../../logger";
@@ -502,7 +503,11 @@ export async function animateSceneKeyframes(params: {
     // as separate files and assumes they start together.
     const startSec = sceneStartSec[i] ?? 0;
     const audio = sliceNarration(lipSync.wav, startSec, startSec + scene.durationSec);
-    const trimmed = await trimClipToStart(clip, scene.durationSec);
+    // Same face-pixel floor the uploaded-source path enforces: the model works
+    // on a small crop around the face, and a shot the video provider returned
+    // at 480p starves it before it starts. Folded into the trim so the mouth
+    // region takes one encode, not two.
+    const trimmed = await trimClipToStart(clip, scene.durationSec, MIN_SYNC_HEIGHT);
     try {
       const result = await lipSyncClip({ video: trimmed, audio });
       synced[i] = true;
