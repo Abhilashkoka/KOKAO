@@ -2399,63 +2399,90 @@ export function VideoStudioPage() {
     const requestId = translationRequestRef.current + 1;
     translationRequestRef.current = requestId;
 
+    const applyTranslationResult = (
+      result: any,
+      retriesRemaining: number,
+      previousSpendPaise = 0,
+    ) => {
+      if (translationRequestRef.current !== requestId) return;
+      const track = result.tracks.find(
+        (candidate: any) => candidate.locale === "te",
+      );
+      const translated = track?.cues
+        .slice()
+        .sort((a: any, b: any) => a.index - b.index)
+        .map((cue: any) => cue.text.trim())
+        .filter(Boolean)
+        .join("\n\n");
+      if (!track || !translated || translated.length < 3) {
+        toast({
+          title: "Could not translate this script",
+          description:
+            "No usable Telugu draft was returned. Your English source is unchanged.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const incompleteOrBlocked =
+        track.blocked ||
+        track.cues.length !== cues.length ||
+        track.cues.some(
+          (cue: any) =>
+            cue.text.trim().length === 0 ||
+            [...cue.issues, ...cue.cueIssues].some(
+              (issue: any) => issue.severity === "error",
+            ),
+        );
+      const totalSpendPaise =
+        previousSpendPaise + (result.spendPaise ?? 0);
+      if (incompleteOrBlocked && retriesRemaining > 0) {
+        translateScript.mutate(
+          { data: { cues, locales: ["te"] } },
+          {
+            onSuccess: (retryResult) =>
+              applyTranslationResult(
+                retryResult,
+                retriesRemaining - 1,
+                totalSpendPaise,
+              ),
+            onError: () =>
+              applyTranslationResult(
+                { ...result, spendPaise: totalSpendPaise },
+                0,
+              ),
+          },
+        );
+        return;
+      }
+      setSpokespersonScript(translated);
+      setApprovedSpokespersonScript(null);
+      setSpokespersonStep("review");
+      setTeluguTranslationReady(true);
+      setTeluguTranslationNeedsEdit(incompleteOrBlocked);
+      setTranslationSpendPaise(totalSpendPaise || null);
+      void queryClient.invalidateQueries({
+        queryKey: getWalletGetOverviewQueryKey(),
+      });
+      toast({
+        title: "Telugu draft ready",
+        description:
+          totalSpendPaise > 0
+            ? `${incompleteOrBlocked ? "The automatic retry still needs an edit before approval. " : "Review and edit it before approval. "}Charged ₹${(
+                totalSpendPaise / 100
+              ).toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}.`
+            : incompleteOrBlocked
+              ? "The automatic retry still needs an edit before approval."
+              : "Review and edit it before approval.",
+      });
+    };
+
     translateScript.mutate(
       { data: { cues, locales: ["te"] } },
       {
-        onSuccess: (result) => {
-          if (translationRequestRef.current !== requestId) return;
-          const track = result.tracks.find(
-            (candidate) => candidate.locale === "te",
-          );
-          const translated = track?.cues
-            .slice()
-            .sort((a, b) => a.index - b.index)
-            .map((cue) => cue.text.trim())
-            .filter(Boolean)
-            .join("\n\n");
-          if (!track || !translated || translated.length < 3) {
-            toast({
-              title: "Could not translate this script",
-              description:
-                "No usable Telugu draft was returned. Your English source is unchanged.",
-              variant: "destructive",
-            });
-            return;
-          }
-          const incompleteOrBlocked =
-            track.blocked ||
-            track.cues.length !== cues.length ||
-            track.cues.some(
-              (cue) =>
-                cue.text.trim().length === 0 ||
-                [...cue.issues, ...cue.cueIssues].some(
-                  (issue) => issue.severity === "error",
-                ),
-            );
-          setSpokespersonScript(translated);
-          setApprovedSpokespersonScript(null);
-          setSpokespersonStep("review");
-          setTeluguTranslationReady(true);
-          setTeluguTranslationNeedsEdit(incompleteOrBlocked);
-          setTranslationSpendPaise(result.spendPaise ?? null);
-          void queryClient.invalidateQueries({
-            queryKey: getWalletGetOverviewQueryKey(),
-          });
-          toast({
-            title: "Telugu draft ready",
-            description:
-              result.spendPaise != null
-                ? `${incompleteOrBlocked ? "The draft needs an edit before approval. " : "Review and edit it before approval. "}Charged ₹${(
-                    result.spendPaise / 100
-                  ).toLocaleString("en-IN", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}.`
-                : incompleteOrBlocked
-                  ? "The draft needs an edit before approval."
-                  : "Review and edit it before approval.",
-          });
-        },
+        onSuccess: (result) => applyTranslationResult(result, 1),
         onError: (error) => {
           if (translationRequestRef.current !== requestId) return;
           toast({

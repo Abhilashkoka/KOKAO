@@ -655,9 +655,10 @@ async function resolveStudioLipSyncSnapshot(args: {
         : [];
     });
     if (plan.length === 0) {
-      throw new Error(
-        "Optional lip-sync requires at least one Guided Story scene with exactly one visible approved speaker. Multi-person, narration-only and ambiguous scenes are skipped.",
-      );
+      // Lip-sync is an optional enhancement. A valid Guided Story may contain
+      // only narration or multi-person scenes, so an empty eligible plan must
+      // fall back to the normal render instead of blocking the whole video.
+      return null;
     }
   } else if (
     args.body.engine === "topic_to_video" &&
