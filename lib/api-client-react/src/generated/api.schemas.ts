@@ -4373,7 +4373,7 @@ export interface MotionPresetCatalog {
 }
 
 /**
- * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+ * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and uses a voice from the Character Dialogue voice catalog.
  */
 export interface CharacterDialogueInput {
   scriptApproved: true;
@@ -4383,6 +4383,11 @@ export interface CharacterDialogueInput {
      * @maxLength 35
      */
   locale: string;
+  /**
+     * Stable id from GET /ai/guided-story/voices.
+     * @minLength 1
+     */
+  voiceId: string;
 }
 
 export interface GuidedStoryRolePlan {
@@ -6700,7 +6705,7 @@ export interface VideoGenerateRequest {
      */
   prompt?: string | null;
   /**
-     * dialogue_lip_sync only; the exact single-speaker dialogue/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.
+     * dialogue_lip_sync only; the exact single-speaker dialogue/script synthesized with the selected Character Dialogue catalog voice.
      * @minLength 1
      * @maxLength 12000
      * @nullable

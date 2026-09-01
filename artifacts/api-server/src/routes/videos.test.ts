@@ -90,7 +90,11 @@ vi.mock("../lib/storageUpload", () => ({
 
 vi.mock("../lib/voiceClone", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/voiceClone")>()),
-  listElevenLabsPremadeVoices: vi.fn(async () => []),
+  listElevenLabsPremadeVoices: vi.fn(async () => voiceCatalogState.premade),
+}));
+
+const voiceCatalogState = vi.hoisted(() => ({
+  premade: [] as Array<{ voiceId: string; label: string }>,
 }));
 
 /**
@@ -865,7 +869,7 @@ describe("POST /api/ai/generate-video", () => {
       aiPersonConsent: true,
       presetCharacterId: "amara-sen",
       presetVoiceId: "openai-gpt-audio-nova",
-      characterDialogue: { scriptApproved: true, locale: "hi" },
+      characterDialogue: { scriptApproved: true, locale: "hi", voiceId: "stock:alloy" },
     };
     const rejected = await request(app).post("/api/ai/generate-video").send({
       ...base,
@@ -6752,7 +6756,7 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
       characterId,
       outfitId,
       brandKitId,
-      characterDialogue: { scriptApproved: true, locale: "te" },
+      characterDialogue: { scriptApproved: true, locale: "te", voiceId: "stock:alloy" },
     };
   }
 
@@ -6803,6 +6807,67 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
       reviewStoryboard: false,
       lipSyncQuality: "standard",
     });
+  });
+
+  it("accepts a saved character with a built-in catalog voice and no Brand Kit", async () => {
+    const tenant = await newTenant();
+    const character = await seedCharacter(tenant.tenantId);
+    const res = await request(app).post("/api/ai/generate-video").send({
+      ...savedCharacterBody(character.characterId, character.outfitId, 999_999),
+      brandKitId: null,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const [row] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, res.body.id));
+    expect(row?.options?.characterDialogue).toMatchObject({
+      brandKitId: null,
+      voice: {
+        id: "stock:alloy",
+        provider: "stock",
+        providerVoiceId: null,
+        brandKitId: null,
+      },
+    });
+  });
+
+  it("snapshots an available ElevenLabs premade catalog voice", async () => {
+    voiceCatalogState.premade = [{ voiceId: "premade-voice", label: "Premade narrator" }];
+    try {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const res = await request(app).post("/api/ai/generate-video").send({
+        ...savedCharacterBody(character.characterId, character.outfitId, 1),
+        brandKitId: null,
+        characterDialogue: {
+          scriptApproved: true,
+          locale: "te",
+          voiceId: "elevenlabs:premade:premade-voice",
+        },
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const [row] = await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id));
+      expect(row?.options?.characterDialogue?.voice).toMatchObject({
+        id: "elevenlabs:premade:premade-voice",
+        provider: "elevenlabs",
+        providerVoiceId: "premade-voice",
+        brandKitId: null,
+      });
+    } finally {
+      voiceCatalogState.premade = [];
+    }
+  });
+
+  it("rejects an unavailable catalog voice before queueing", async () => {
+    const tenant = await newTenant();
+    const character = await seedCharacter(tenant.tenantId);
+    const res = await request(app).post("/api/ai/generate-video").send({
+      ...savedCharacterBody(character.characterId, character.outfitId, 1),
+      characterDialogue: { scriptApproved: true, locale: "te", voiceId: "brand-kit:999999:active" },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/voice.*not available/i);
+    expect(runnerState.calls).toHaveLength(0);
   });
 
   it("freezes the selected High Quality model into a saved-character dialogue job", async () => {
@@ -6862,8 +6927,8 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
     const kitWithoutClone = await seedDialogueKit(tenant);
 
     const cases = [
-      [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), characterDialogue: { scriptApproved: true, locale: "zz" } }, /unsupported locale/i],
-      [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), characterDialogue: { scriptApproved: false, locale: "te" } }, /approve the script/i],
+      [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), characterDialogue: { scriptApproved: true, locale: "zz", voiceId: "stock:alloy" } }, /unsupported locale/i],
+      [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), characterDialogue: { scriptApproved: false, locale: "te", voiceId: "stock:alloy" } }, /approve the script/i],
       [savedCharacterBody(foreign.characterId, foreign.outfitId, kitWithoutClone), /character does not exist/i],
       [savedCharacterBody(own.characterId, foreign.outfitId, kitWithoutClone), /outfit does not exist/i],
       [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), brandKitId: 2_147_000_000 }, /Brand Voice.*workspace/i],

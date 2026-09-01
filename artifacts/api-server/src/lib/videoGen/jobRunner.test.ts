@@ -2628,6 +2628,44 @@ describe("dialogue_lip_sync runner", () => {
     ]);
   });
 
+  it("dispatches frozen stock and ElevenLabs catalog voices without loading a Brand Kit", async () => {
+    const tenant = await newTenant();
+    const stockOptions = savedCharacterDialogueOptions(1);
+    stockOptions.characterDialogue!.brandKitId = null;
+    stockOptions.characterDialogue!.voice = {
+      id: "stock:alloy",
+      label: "alloy",
+      provider: "stock",
+      providerVoiceId: null,
+      brandKitId: null,
+    };
+    const stockJob = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A saved presenter at a desk",
+      options: stockOptions,
+    });
+    await runVideoGenerationJob(stockJob.id, "quota");
+    expect(state.dialogueSpeech).toContain("Approved Telugu scene 1.");
+    expect(state.clonedSpeech).not.toContain("Approved Telugu scene 1.");
+
+    const elevenOptions = savedCharacterDialogueOptions(1);
+    elevenOptions.characterDialogue!.brandKitId = null;
+    elevenOptions.characterDialogue!.voice = {
+      id: "elevenlabs:premade:voice-1",
+      label: "Premade",
+      provider: "elevenlabs",
+      providerVoiceId: "voice-1",
+      brandKitId: null,
+    };
+    const elevenJob = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A saved presenter at a desk",
+      options: elevenOptions,
+    });
+    await runVideoGenerationJob(elevenJob.id, "quota");
+    expect(state.clonedSpeech).toContain("Approved Telugu scene 1.");
+  });
+
   it("keeps High Quality on Sync Labs across scenes and prices measured output duration", async () => {
     const tenant = await newTenant();
     state.dialogueBrandVoice = true;

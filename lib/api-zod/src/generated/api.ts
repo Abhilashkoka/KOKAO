@@ -12610,6 +12610,7 @@ export const generateVideoBodyDialogueMax = 12000;
 export const generateVideoBodyCharacterDialogueOneLocaleMin = 2;
 export const generateVideoBodyCharacterDialogueOneLocaleMax = 35;
 
+
 export const generateVideoBodyAiPersonConsentDefault = false;
 export const generateVideoBodyLipSyncConsentDefault = false;
 export const generateVideoBodyStudioLipSyncConsentDefault = false;
@@ -12665,11 +12666,12 @@ export const GenerateVideoBody = zod.object({
   "presetLanguage": zod.string().nullish().describe('Language code supported by both the preset and selected voice (defaults to en).'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.'),
-  "dialogue": zod.string().min(1).max(generateVideoBodyDialogueMax).nullish().describe('dialogue_lip_sync only; the exact single-speaker dialogue\/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.'),
+  "dialogue": zod.string().min(1).max(generateVideoBodyDialogueMax).nullish().describe('dialogue_lip_sync only; the exact single-speaker dialogue\/script synthesized with the selected Character Dialogue catalog voice.'),
   "characterDialogue": zod.union([zod.object({
   "scriptApproved": zod.boolean(),
-  "locale": zod.string().min(generateVideoBodyCharacterDialogueOneLocaleMin).max(generateVideoBodyCharacterDialogueOneLocaleMax).describe('A locale from GET \/ai\/video-capabilities.')
-}).describe('Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.'),zod.null()]).optional(),
+  "locale": zod.string().min(generateVideoBodyCharacterDialogueOneLocaleMin).max(generateVideoBodyCharacterDialogueOneLocaleMax).describe('A locale from GET \/ai\/video-capabilities.'),
+  "voiceId": zod.string().min(1).describe('Stable id from GET \/ai\/guided-story\/voices.')
+}).describe('Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and uses a voice from the Character Dialogue voice catalog.'),zod.null()]).optional(),
   "guidedStoryDraftId": zod.number().nullish().describe('Server-only orchestration reference used by the guided-story enqueue endpoint. The server resolves the exact approved script and immutable cast snapshot; clients cannot submit either snapshot here.'),
   "aiPersonConsent": zod.boolean().default(generateVideoBodyAiPersonConsentDefault).describe('dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person\/likeness and to make that person appear to speak the supplied dialogue.'),
   "sourceVideoPath": zod.string().nullish().describe('lip_sync VIDEO mode and localized_dub: \/objects\/... path of the tenant\'s own uploaded base video. For lip_sync the AI redraws the mouth to match the voice track and this is mutually exclusive with sourceImagePath. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.'),

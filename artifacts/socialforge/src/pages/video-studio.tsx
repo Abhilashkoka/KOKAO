@@ -55,6 +55,8 @@ import {
   useDeleteVideoStyle,
   useGetVideoCapabilities,
   getGetVideoCapabilitiesQueryKey,
+  useListGuidedStoryVoices,
+  getListGuidedStoryVoicesQueryKey,
   getListVideoStylesQueryKey,
   getSearchMusicLibraryQueryKey,
   useWalletGetOverview,
@@ -256,6 +258,7 @@ type CharacterDialogueDraft = {
   presetVoiceId?: string | null;
   presetLanguage?: string | null;
   brandKitId: number | null;
+  voiceId?: string;
   locale: string;
   topic: string;
   sourceScript?: string;
@@ -907,8 +910,19 @@ export function VideoStudioPage() {
   );
   const [characterDialogueLocale, setCharacterDialogueLocale] =
     useState<string>("");
+  // A built-in choice is always usable, even while the optional provider
+  // catalog is loading or unavailable.
+  const [characterDialogueVoiceId, setCharacterDialogueVoiceId] =
+    useState("stock:alloy");
 
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
+  const { data: characterDialogueVoiceCatalog } = useListGuidedStoryVoices({
+    query: {
+      queryKey: getListGuidedStoryVoicesQueryKey(),
+      staleTime: 0,
+      refetchOnMount: "always",
+    },
+  });
   const [styleProfileId, setStyleProfileId] = useState<number | null>(null);
   const [stylesOpen, setStylesOpen] = useState(false);
   const [activeUploadCount, setActiveUploadCount] = useState(0);
@@ -1036,6 +1050,11 @@ export function VideoStudioPage() {
           ? Number(draft.brandKitId)
           : null,
       );
+      setCharacterDialogueVoiceId(
+        typeof draft.voiceId === "string" && draft.voiceId.length > 0
+          ? draft.voiceId
+          : "stock:alloy",
+      );
       setCharacterDialogueLocale(
         typeof draft.locale === "string" ? draft.locale : "",
       );
@@ -1135,6 +1154,7 @@ export function VideoStudioPage() {
         presetVoiceId,
         presetLanguage,
         brandKitId,
+        voiceId: characterDialogueVoiceId,
         locale: characterDialogueLocale,
         topic: spokespersonTopic,
         sourceScript: spokespersonSourceScript,
@@ -1171,6 +1191,7 @@ export function VideoStudioPage() {
     presetVoiceId,
     presetLanguage,
     brandKitId,
+    characterDialogueVoiceId,
     characterDialogueLocale,
     spokespersonTopic,
     spokespersonSourceScript,
@@ -1507,6 +1528,10 @@ export function VideoStudioPage() {
       ) ?? [],
     [brandKits],
   );
+  const selectedCharacterDialogueVoice =
+    characterDialogueVoiceCatalog?.voices.find(
+      (voice) => voice.id === characterDialogueVoiceId,
+    ) ?? null;
 
   // Poll the active job until it settles; the server does the heavy lifting.
   const { data: activeJob } = useGetVideoJob(activeJobId ?? 0, {
@@ -2020,11 +2045,9 @@ export function VideoStudioPage() {
           return (
             characterDialogueLocale.length > 0 &&
             spokespersonTopic.trim().length >= 3 &&
-            (presetCharacterId !== null
-              ? presetCastLanguageCompatible
-              : characterDialogueBrandKits.some(
-                  (kit) => kit.id === brandKitId,
-                )) &&
+              (presetCharacterId !== null
+               ? presetCastLanguageCompatible
+               : characterDialogueVoiceId.length > 0) &&
             approvedSpokespersonScript !== null &&
             characterDialogueDurationIsValid &&
             lipSyncConsent
@@ -2054,8 +2077,7 @@ export function VideoStudioPage() {
         approvedSpokespersonScript !== null &&
         aiPersonPrompt.trim().length >= 3 &&
         aiPersonConsent &&
-        dialogueDurationIsValid &&
-        (voice !== "brand" || brandKitId !== null)
+            dialogueDurationIsValid
       );
     }
     if (engine === "image_to_video") return photos.length >= 1;
@@ -2079,7 +2101,7 @@ export function VideoStudioPage() {
     voice,
     brandKitId,
     characterDialogueLocale,
-    characterDialogueBrandKits,
+    characterDialogueVoiceId,
     spokespersonTopic,
     dialogueDurationIsValid,
     spokespersonStep,
@@ -2164,11 +2186,11 @@ export function VideoStudioPage() {
         if (
           presetCharacterId !== null
             ? !presetCastLanguageCompatible
-            : !characterDialogueBrandKits.some((kit) => kit.id === brandKitId)
+             : characterDialogueVoiceId.length === 0
         ) {
           return presetCharacterId !== null
             ? "Choose a language supported by the selected cast."
-            : "Choose a brand kit with a voice for this dialogue.";
+            : "Choose a Character Dialogue voice.";
         }
         if (approvedSpokespersonScript === null) {
           return "Approve the dialogue script before generating the video.";
@@ -2807,8 +2829,9 @@ export function VideoStudioPage() {
               ? wardrobeNotes.trim()
               : null,
           brandKitId:
-            isCharacterDialogue ||
-            engine === "topic_to_video" ||
+            isCharacterDialogue
+              ? selectedCharacterDialogueVoice?.brandKitId ?? null
+              : engine === "topic_to_video" ||
             engine === "lip_sync" ||
             engine === "dialogue_lip_sync"
               ? brandKitId
@@ -2856,7 +2879,11 @@ export function VideoStudioPage() {
               ? aiPersonConsent
               : false,
           characterDialogue: isCharacterDialogue
-            ? { scriptApproved: true, locale: characterDialogueLocale }
+            ? {
+                scriptApproved: true,
+                locale: characterDialogueLocale,
+                voiceId: characterDialogueVoiceId,
+              }
             : null,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
           shotCount: engine === "text_to_video" ? shotCount : 1,
@@ -4549,14 +4576,7 @@ export function VideoStudioPage() {
                         {(() => {
                           const hasCharacter =
                             characters && characters.length > 0;
-                          const hasPresetCast =
-                            (characters as StudioCharacter[] | undefined)?.some(
-                              isSharedCharacter,
-                            ) === true;
-                          const hasDialogueVoice =
-                            hasPresetCast ||
-                            characterDialogueBrandKits.length > 0;
-                          if (!hasCharacter || !hasDialogueVoice) {
+                          if (!hasCharacter) {
                             return (
                               <div
                                 className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3"
@@ -4568,9 +4588,8 @@ export function VideoStudioPage() {
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
                                     Character Dialogue requires a saved
-                                    character. Choose an included preset for its
-                                    licensed voice, or a Brand Kit with an
-                                    ElevenLabs cloned voice.
+                                    character. Choose one in Manage Characters
+                                    to begin.
                                   </p>
                                 </div>
                                 <div className="flex gap-3">
@@ -4583,16 +4602,6 @@ export function VideoStudioPage() {
                                       Manage Characters
                                     </Button>
                                   )}
-                                  {!hasPresetCast &&
-                                    characterDialogueBrandKits.length === 0 && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => navigate("/brand-kits")}
-                                      >
-                                        Manage Brand Kits
-                                      </Button>
-                                    )}
                                 </div>
                               </div>
                             );
@@ -4635,31 +4644,52 @@ export function VideoStudioPage() {
                                   </Select>
                                 </div>
                                 <div className="space-y-2">
-                                  <Label>Brand Voice (Cloned)</Label>
+                                  <Label>Voice</Label>
                                   <Select
-                                    value={brandKitId ? String(brandKitId) : ""}
-                                    onValueChange={(v) =>
-                                      setBrandKitId(Number(v))
-                                    }
+                                    value={characterDialogueVoiceId}
+                                    onValueChange={(voiceId) => {
+                                      setCharacterDialogueVoiceId(voiceId);
+                                      const selected =
+                                        characterDialogueVoiceCatalog?.voices.find(
+                                          (voice) => voice.id === voiceId,
+                                        );
+                                      setBrandKitId(selected?.brandKitId ?? null);
+                                    }}
                                   >
                                     <SelectTrigger data-testid="select-character-dialogue-brand-kit">
-                                      <SelectValue placeholder="Select a Brand Kit" />
+                                      <SelectValue placeholder="Select a voice" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {characterDialogueBrandKits.map((bk) => (
+                                      {(characterDialogueVoiceCatalog?.voices ?? [
+                                        {
+                                          id: "stock:alloy",
+                                          label: "Alloy",
+                                          provider: "stock",
+                                          brandKitId: null,
+                                        },
+                                      ]).map((voice) => (
                                         <SelectItem
-                                          key={bk.id}
-                                          value={String(bk.id)}
+                                          key={voice.id}
+                                          value={voice.id}
                                         >
-                                          <span>{bk.name}</span>
+                                          <span>{voice.label}</span>
                                           <span className="text-muted-foreground">
                                             {" "}
-                                            · {clonedVoiceMetadata(bk)}
+                                            · {voice.provider === "stock"
+                                              ? "Built-in"
+                                              : voice.brandKitId
+                                                ? "Your cloned voice"
+                                                : "ElevenLabs premade"}
                                           </span>
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                  {characterDialogueVoiceCatalog?.providerWarning && (
+                                    <p className="text-xs text-amber-600">
+                                      {characterDialogueVoiceCatalog.providerWarning}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
 

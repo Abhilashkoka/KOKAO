@@ -7,7 +7,7 @@
  */
 
 /**
- * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+ * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and uses a voice from the Character Dialogue voice catalog.
  */
 export interface CharacterDialogueInput {
   scriptApproved: true;
@@ -17,4 +17,9 @@ export interface CharacterDialogueInput {
      * @maxLength 35
      */
   locale: string;
+  /**
+     * Stable id from GET /ai/guided-story/voices.
+     * @minLength 1
+     */
+  voiceId: string;
 }

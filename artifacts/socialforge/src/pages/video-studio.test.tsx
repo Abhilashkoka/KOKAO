@@ -29,6 +29,7 @@ const mockState: {
   activeJob: any;
   characters: any[];
   brandKits: any[];
+  characterDialogueVoices: any[];
   styleProfiles: any[];
   storyboardEdits: any[];
   storyboardEditError: unknown;
@@ -83,6 +84,7 @@ const mockState: {
   activeJob: undefined,
   characters: [],
   brandKits: [],
+  characterDialogueVoices: [],
   styleProfiles: [],
   storyboardEdits: [],
   storyboardEditError: null,
@@ -201,6 +203,23 @@ vi.mock("@workspace/api-client-react", async () => {
   return createApiClientMock({
     useGetMe: () => ({ data: mockState.me }),
     useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
+    useListGuidedStoryVoices: () => ({
+      data: {
+        voices: mockState.characterDialogueVoices.length > 0
+          ? mockState.characterDialogueVoices
+          : [
+              { id: "stock:alloy", label: "Alloy", provider: "stock", providerVoiceId: null, brandKitId: null },
+              ...mockState.brandKits.map((kit) => ({
+              id: `brand-kit:${kit.id}:active`,
+              label: `${kit.name} · ${kit.activeVersion?.payload?.brand_voice?.cloned_label ?? "Brand voice"}${kit.activeVersion?.payload?.brand_voice?.cloned_gender ? ` · ${kit.activeVersion.payload.brand_voice.cloned_gender === "female" ? "Female" : kit.activeVersion.payload.brand_voice.cloned_gender}` : ""}`,
+              provider: "elevenlabs",
+              providerVoiceId: kit.activeVersion?.payload?.brand_voice?.provider_voice_id ?? "active",
+              brandKitId: kit.id,
+            })),
+            ],
+        providerWarning: null,
+      },
+    }),
     useGenerateVideo: () => ({
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
@@ -849,6 +868,7 @@ beforeEach(() => {
   mockState.activeJob = undefined;
   mockState.characters = [];
   mockState.brandKits = [];
+  mockState.characterDialogueVoices = [];
   mockState.styleProfiles = [];
   mockState.storyboardEdits = [];
   mockState.storyboardEditError = null;
@@ -1314,6 +1334,33 @@ describe("Video Studio", () => {
       expect(screen.queryByTestId("select-character-dialogue-locale")).toBeNull();
     });
 
+    it("renders catalog voices and submits a selected ElevenLabs voice without a Brand Kit", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.characterDialogueVoices = [
+        { id: "stock:alloy", label: "Alloy", provider: "stock", providerVoiceId: null, brandKitId: null },
+        { id: "elevenlabs:premade:premade-1", label: "Premade narrator", provider: "elevenlabs", providerVoiceId: "premade-1", brandKitId: null },
+      ];
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+      await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
+      expect(screen.getByRole("option", { name: /Alloy.*Built-in/ })).toBeTruthy();
+      await user.click(screen.getByRole("option", { name: /Premade narrator.*ElevenLabs premade/ }));
+      await user.click(screen.getByTestId("select-character"));
+      await user.click(screen.getByText("Alice"));
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "Explain our launch");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+      await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+      await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+      await user.click(screen.getByTestId("button-generate-video"));
+      expect(mockState.lastGenerateVars.data).toEqual(expect.objectContaining({
+        brandKitId: null,
+        characterDialogue: expect.objectContaining({
+          voiceId: "elevenlabs:premade:premade-1",
+        }),
+      }));
+    });
+
     it("loads locales, drafts script with targetLocale, estimates long scenes, and submits payload", async () => {
       mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
       mockState.brandKits = [
@@ -1386,7 +1433,7 @@ describe("Video Studio", () => {
           characterId: 1,
           brandKitId: 5,
           dialogue: mockState.spokespersonScript,
-          characterDialogue: { scriptApproved: true, locale: "en" },
+          characterDialogue: { scriptApproved: true, locale: "en", voiceId: "brand-kit:5:active" },
           subtitles: false,
           lipSyncConsent: true,
           aiPersonConsent: true,
@@ -1505,7 +1552,7 @@ describe("Video Studio", () => {
       expect(mockState.lastGenerateVars.data).toEqual(
         expect.objectContaining({
           dialogue: "ఇది వినియోగదారు ఆమోదించిన తెలుగు వచనం.",
-          characterDialogue: { scriptApproved: true, locale: "te" },
+          characterDialogue: { scriptApproved: true, locale: "te", voiceId: "brand-kit:5:active" },
         }),
       );
       expect(mockState.lastGenerateVars.data.dialogue).not.toContain("English source");
@@ -1768,7 +1815,9 @@ describe("Video Studio", () => {
       await user.click(screen.getByTestId("select-character"));
       await user.click(screen.getByText("Alice"));
       await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
-      await user.click(screen.getByText("My Cloned Kit"));
+      await user.click(
+        screen.getByRole("option", { name: /My Cloned Kit.*Your cloned voice/ }),
+      );
       await user.type(screen.getByTestId("input-spokesperson-topic"), "Explain our launch");
       await user.click(screen.getByTestId("button-generate-spokesperson-script"));
       await user.click(screen.getByTestId("button-approve-spokesperson-script"));
@@ -1837,6 +1886,7 @@ describe("Video Studio", () => {
           characterId: 1,
           outfitId: 9,
           brandKitId: 5,
+          voiceId: "brand-kit:5:active",
           locale: "te",
           topic: "Explain our launch",
           script: "This approved script should still be here.",
@@ -1879,7 +1929,11 @@ describe("Video Studio", () => {
           characterId: 1,
           outfitId: 9,
           brandKitId: 5,
-          characterDialogue: { scriptApproved: true, locale: "te" },
+          characterDialogue: {
+            scriptApproved: true,
+            locale: "te",
+            voiceId: "brand-kit:5:active",
+          },
           lipSyncQuality: "high",
         }),
       );
@@ -1993,7 +2047,7 @@ describe("Video Studio", () => {
       await selectCharacterDialogue(user);
 
       await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
-      await user.click(screen.getByText("My Cloned Kit"));
+      await user.click(screen.getByRole("option", { name: /My Cloned Kit/ }));
       await user.type(screen.getByTestId("input-spokesperson-topic"), "A long script");
       await user.click(screen.getByTestId("button-generate-spokesperson-script"));
 

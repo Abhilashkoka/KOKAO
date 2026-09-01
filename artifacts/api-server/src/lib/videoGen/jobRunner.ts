@@ -1932,12 +1932,20 @@ async function produceVideo(
           options: { ...options, characterDialogue: frozenPlan },
         });
       }
-      const presetVoice = options.presetSnapshot?.voice ?? null;
-      const branding = presetVoice
-        ? null
-        : await loadVideoBranding(job.tenantId, frozenPlan.brandKitId);
+      const frozenVoice = frozenPlan.voice;
+      // Existing jobs have no frozen catalog voice and retain their licensed
+      // preset voice. New catalog-backed Character Dialogue jobs deliberately
+      // let the explicit picker override a preset's default.
+      const presetVoice = frozenVoice ? null : (options.presetSnapshot?.voice ?? null);
+      // New jobs freeze their catalog voice at enqueue time. Keep the Brand
+      // Kit lookup solely for rows queued before voice snapshots existed.
+      const branding =
+        presetVoice || frozenVoice
+          ? null
+          : await loadVideoBranding(job.tenantId, frozenPlan.brandKitId);
       if (
         !presetVoice &&
+        !frozenVoice &&
         (!branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs")
       ) {
         throw new VideoJobInputError("The saved character dialogue Brand Voice is no longer available.");
@@ -1970,6 +1978,27 @@ async function produceVideo(
                   resolveNarrationVoice(options.voice, presetVoice.speaker),
                 )
               ).wav
+            : frozenVoice?.provider === "stock"
+              ? (
+                  await synthesizeNarration(
+                    [scene.text],
+                    frozenVoice.id.slice("stock:".length) as NarrationVoice,
+                  )
+                ).wav
+              : frozenVoice?.provider === "elevenlabs" &&
+                  frozenVoice.providerVoiceId
+                ? await speakLocalizedBrandVoiceCue({
+                    tenantId: job.tenantId,
+                    jobId: frozenPlan.retry?.sourceJobId ?? job.id,
+                    cueIndex: sceneIndex,
+                    voice: {
+                      provider: "elevenlabs",
+                      voiceId: frozenVoice.providerVoiceId,
+                    },
+                    text: scene.text,
+                    modelId: "eleven_v3",
+                    languageCode: frozenPlan.locale,
+                  })
             : await speakLocalizedBrandVoiceCue({
                 tenantId: job.tenantId,
                 jobId: frozenPlan.retry?.sourceJobId ?? job.id,

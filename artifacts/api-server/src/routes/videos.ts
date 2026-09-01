@@ -350,6 +350,50 @@ async function guidedStoryCloneCatalog(
   }
   return output;
 }
+
+type CharacterDialogueVoiceSnapshot = {
+  id: string;
+  label: string;
+  provider: "stock" | "elevenlabs";
+  providerVoiceId: string | null;
+  brandKitId: number | null;
+};
+
+/** Resolve a catalog id afresh at enqueue time; never trust client kit ids. */
+async function resolveCharacterDialogueVoice(
+  tenantId: number,
+  voiceId: string,
+): Promise<CharacterDialogueVoiceSnapshot | null> {
+  if (voiceId.startsWith("stock:")) {
+    const stockId = voiceId.slice("stock:".length);
+    return GUIDED_STORY_STOCK_VOICE_SET.has(stockId)
+      ? { id: voiceId, label: stockId, provider: "stock", providerVoiceId: null, brandKitId: null }
+      : null;
+  }
+  const clone = (await guidedStoryCloneCatalog(tenantId)).find(
+    (voice) => voice.id === voiceId || voice.legacyIds.includes(voiceId),
+  );
+  if (clone) {
+    return {
+      id: clone.id,
+      label: clone.label,
+      provider: "elevenlabs",
+      providerVoiceId: clone.providerVoiceId,
+      brandKitId: clone.brandKitId,
+    };
+  }
+  if (!voiceId.startsWith("elevenlabs:premade:")) return null;
+  try {
+    const premade = (await listElevenLabsPremadeVoices()).find(
+      (voice) => `elevenlabs:premade:${voice.voiceId}` === voiceId,
+    );
+    return premade
+      ? { id: voiceId, label: premade.label, provider: "elevenlabs", providerVoiceId: premade.voiceId, brandKitId: null }
+      : null;
+  } catch {
+    return null;
+  }
+}
 const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
 
 /** Scene renderers quantize generated clips to these supported durations. */
@@ -6491,6 +6535,7 @@ async function generateVideoHandler(
       return;
     }
   }
+  let resolvedCharacterDialogueVoice: CharacterDialogueVoiceSnapshot | null = null;
   if (body.engine === "dialogue_lip_sync") {
     // This pipeline combines all three governed capabilities. Check every
     // switch before provider preflight or funding so a disabled capability
@@ -6505,13 +6550,6 @@ async function generateVideoHandler(
     if (!(await isFeatureEnabled("lipSync"))) {
       res.status(403).json({
         error: "Lip-synced videos are currently turned off.",
-        code: "feature_disabled",
-      });
-      return;
-    }
-    if (!requestedPresetId && !(await isFeatureEnabled("brandVoiceClone"))) {
-      res.status(403).json({
-        error: "Brand Voice is currently turned off.",
         code: "feature_disabled",
       });
       return;
@@ -6551,15 +6589,6 @@ async function generateVideoHandler(
           .status(400)
           .json({
             error: "Pick a saved character for a character dialogue video.",
-          });
-        return;
-      }
-      if (body.brandKitId == null && requestedPresetId == null) {
-        res
-          .status(400)
-          .json({
-            error:
-              "Character dialogue requires an active Brand Kit with a cloned voice.",
           });
         return;
       }
@@ -6715,7 +6744,11 @@ async function generateVideoHandler(
         return;
       }
       // brand_voice requires the brandVoiceClone kill switch.
-      if (!(await isFeatureEnabled("brandVoiceClone"))) {
+    if (
+      !body.characterDialogue &&
+      !requestedPresetId &&
+      !(await isFeatureEnabled("brandVoiceClone"))
+    ) {
         res.status(403).json({
           error: "Brand voice cloning is currently turned off.",
           code: "feature_disabled",
@@ -7234,63 +7267,26 @@ async function generateVideoHandler(
     return;
   }
 
-  // A dialogue job may use only an active Brand Kit owned by this tenant.
-  // Unlike ordinary best-effort branding, a user-selected speaking identity
-  // is security-sensitive and must not silently accept a foreign/deleted id.
-  if (
-    body.engine === "dialogue_lip_sync" &&
-    body.brandKitId != null &&
-    requestedPresetId == null
-  ) {
-    const [kit] = await db
-      .select({ id: brandKitsTable.id })
-      .from(brandKitsTable)
-      .where(
-        and(
-          eq(brandKitsTable.id, body.brandKitId),
-          eq(brandKitsTable.tenantId, req.tenantId),
-          eq(brandKitsTable.status, "active"),
-          eq(brandKitsTable.isArchived, false),
-          isNotNull(brandKitsTable.activeVersionId),
-        ),
-      )
-      .limit(1);
-    if (!kit) {
-      res
-        .status(400)
-        .json({
-          error: "That Brand Voice is not available in this workspace.",
-        });
-      return;
-    }
-  }
   let characterDialogue: VideoJobOptions["characterDialogue"] = null;
   if (body.engine === "dialogue_lip_sync" && body.characterDialogue) {
     const locale = characterDialogueLocale(body.characterDialogue.locale);
-    if (
-      selectedPresetSnapshot &&
-      (!locale ||
-        selectedPresetSnapshot.language !== locale.code ||
-        !selectedPresetSnapshot.voice.languages.includes(locale.code))
-    ) {
+    if (selectedPresetSnapshot && (!locale || selectedPresetSnapshot.language !== locale.code)) {
       res.status(400).json({
         error:
           "The selected preset voice and language must match the Character Dialogue locale.",
       });
       return;
     }
-    const branding = selectedPresetSnapshot
-      ? null
-      : await loadVideoBranding(req.tenantId, body.brandKitId!);
+    resolvedCharacterDialogueVoice = await resolveCharacterDialogueVoice(
+      req.tenantId,
+      body.characterDialogue.voiceId,
+    );
     if (
       !locale ||
-      (!selectedPresetSnapshot &&
-        (!branding?.clonedVoice ||
-          branding.clonedVoice.provider !== "elevenlabs"))
+      !resolvedCharacterDialogueVoice
     ) {
       res.status(400).json({
-        error:
-          "Character dialogue requires an active Brand Kit with a cloned ElevenLabs voice.",
+        error: "That Character Dialogue voice is not available in this workspace.",
       });
       return;
     }
@@ -7318,7 +7314,10 @@ async function generateVideoHandler(
       fontCandidates: locale.fontCandidates,
       characterId,
       outfitId,
-      brandKitId: body.brandKitId ?? null,
+      brandKitId: resolvedCharacterDialogueVoice?.brandKitId ?? null,
+      ...(resolvedCharacterDialogueVoice
+        ? { voice: resolvedCharacterDialogueVoice }
+        : {}),
       scenes,
     };
   }
@@ -7930,7 +7929,12 @@ async function generateVideoHandler(
     // foreign id just renders unbranded. Dropped entirely when the Brand
     // Video kill switch is off.
     brandKitId:
-      body.engine === "lip_sync" || body.engine === "dialogue_lip_sync"
+      body.engine === "dialogue_lip_sync" && body.characterDialogue
+        // Character Dialogue speaks from its frozen catalog selection, not a
+        // free-form branding choice. Only an owned selected clone carries a
+        // Brand Kit reference.
+        ? (resolvedCharacterDialogueVoice?.brandKitId ?? null)
+        : body.engine === "lip_sync" || body.engine === "dialogue_lip_sync"
         ? // Lip-sync uses the kit only for its (cloned/preset) voice; the
           // engine's own kill switch was already checked above.
           (body.brandKitId ?? null)

@@ -694,8 +694,19 @@ export interface VideoJobOptions {
     scriptName: string;
     characterId: number;
     outfitId: number;
-    /** Required for tenant-character dialogue; presets use their frozen stock voice. */
+    /**
+     * Present only when the frozen selection is a tenant clone. Retained for
+     * legacy jobs that resolve their voice from the Brand Kit at render time.
+     */
     brandKitId: number | null;
+    /** Immutable catalog selection, absent on legacy queued jobs. */
+    voice?: {
+      id: string;
+      label: string;
+      provider: "stock" | "elevenlabs";
+      providerVoiceId: string | null;
+      brandKitId: number | null;
+    };
     scenes: Array<{
       id: string;
       text: string;

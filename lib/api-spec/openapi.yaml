@@ -17095,10 +17095,11 @@ components:
             $ref: "#/components/schemas/MotionPreset"
     CharacterDialogueInput:
       type: object
-      required: [scriptApproved, locale]
+      required: [scriptApproved, locale, voiceId]
       description: >-
         Opt-in saved-character mode. Top-level dialogue is the exact
-        human-approved script and can only use a cloned Brand Voice.
+        human-approved script and uses a voice from the Character Dialogue
+        voice catalog.
       properties:
         scriptApproved:
           type: boolean
@@ -17108,6 +17109,10 @@ components:
           minLength: 2
           maxLength: 35
           description: A locale from GET /ai/video-capabilities.
+        voiceId:
+          type: string
+          minLength: 1
+          description: Stable id from GET /ai/guided-story/voices.
     GuidedStoryRolePlan:
       type: object
       required: [allowed, recommended]
@@ -17908,8 +17913,7 @@ components:
           maxLength: 12000
           description: >-
             dialogue_lip_sync only; the exact single-speaker dialogue/script
-            synthesized with the selected brand-kit voice, falling back to the
-            selected stock voice when no cloned Brand Voice is available.
+            synthesized with the selected Character Dialogue catalog voice.
         characterDialogue:
           oneOf:
             - $ref: "#/components/schemas/CharacterDialogueInput"

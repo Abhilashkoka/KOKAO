@@ -49,7 +49,7 @@ export interface VideoGenerateRequest {
      */
   prompt?: string | null;
   /**
-     * dialogue_lip_sync only; the exact single-speaker dialogue/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.
+     * dialogue_lip_sync only; the exact single-speaker dialogue/script synthesized with the selected Character Dialogue catalog voice.
      * @minLength 1
      * @maxLength 12000
      * @nullable
