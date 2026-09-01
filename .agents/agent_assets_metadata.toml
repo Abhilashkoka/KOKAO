@@ -101,3 +101,73 @@ mtime_ms = 1788280662516
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/dfe6b607-f673-404b-a800-91a12d644bc4/441ae9c3-2fa4-4b31-a0a4-72d91f45b658"
 storage_version_token = "1788280688806433"
 content_type = "image/jpeg"
+
+[[outputs]]
+id = "V3e9k1kAMyjJWiSnAejnf"
+uri = "file://attached_assets/generated_images/job-552-nano-banana-pro/job-552-nano-banana-pro-contact-sheet.jpg"
+type = "image"
+title = "Job 552 — Nano Banana Pro Contact Sheet"
+description = "All four regenerated scene images using the saved Job 552 prompts and character reference via OpenRouter google/gemini-3-pro-image-preview."
+logical_id = "45336a32-ed89-4c90-aef2-dd923c60c3d6"
+content_hash = "sha256:5ed31e19ba973703fb67ef796326904403dfdfb7477f963b60f07b4ef16339e7"
+size = 184848
+mtime_ms = 1788281544295
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/45336a32-ed89-4c90-aef2-dd923c60c3d6/8ab18e9e-e40b-4fde-bdc9-8fcdc819855a"
+storage_version_token = "1788281562024440"
+content_type = "image/jpeg"
+
+[[outputs]]
+id = "AmCT2aaxSZ8JOY6yDkeju"
+uri = "file://attached_assets/generated_images/job-552-nano-banana-pro/scene-1.png"
+type = "image"
+title = "Job 552 — Scene 1"
+description = "Nano Banana Pro regeneration of Job 552 Scene 1."
+logical_id = "2cc2fb49-743b-47b8-9b31-4d6ced25feb7"
+content_hash = "sha256:04f564a977ea668181d2cc2ae81c9a6a8878c134c5fee37c507baa4e5189d6c4"
+size = 725896
+mtime_ms = 1788281486926
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/2cc2fb49-743b-47b8-9b31-4d6ced25feb7/94693ec8-450a-4664-800b-6fd6241bab68"
+storage_version_token = "1788281563349195"
+content_type = "image/png"
+
+[[outputs]]
+id = "nuhsCxq3XIdDLmHz2PDpJ"
+uri = "file://attached_assets/generated_images/job-552-nano-banana-pro/scene-2.png"
+type = "image"
+title = "Job 552 — Scene 2"
+description = "Nano Banana Pro regeneration of Job 552 Scene 2."
+logical_id = "9d5505f0-8ce6-41bb-a804-ffdc1481c1e8"
+content_hash = "sha256:66ad06496125f9b12ee838ec4b6dcaddd59b7eb84de83473de203560b75d1a50"
+size = 764705
+mtime_ms = 1788281529738
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/9d5505f0-8ce6-41bb-a804-ffdc1481c1e8/6c9f2478-9a6d-4e05-93b7-39c9723eceec"
+storage_version_token = "1788281564616928"
+content_type = "image/png"
+
+[[outputs]]
+id = "-B7Z4vXWbBxv9Qk0D8W-q"
+uri = "file://attached_assets/generated_images/job-552-nano-banana-pro/scene-3.png"
+type = "image"
+title = "Job 552 — Scene 3"
+description = "Nano Banana Pro regeneration of Job 552 Scene 3."
+logical_id = "3bb9e0b2-e8e3-445c-be2c-f4d15807278e"
+content_hash = "sha256:b6a7139a33cfc7405b9441649df9e140c868dada3d5ed366b9160e4d055ade03"
+size = 700425
+mtime_ms = 1788281529970
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/3bb9e0b2-e8e3-445c-be2c-f4d15807278e/1cedebbb-7e10-4e6c-9e3d-448e4d9a0461"
+storage_version_token = "1788281565900883"
+content_type = "image/png"
+
+[[outputs]]
+id = "8Z8sraEYBTh051TqEe10j"
+uri = "file://attached_assets/generated_images/job-552-nano-banana-pro/scene-4.png"
+type = "image"
+title = "Job 552 — Scene 4"
+description = "Nano Banana Pro regeneration of Job 552 Scene 4."
+logical_id = "056abc70-4788-460b-840d-286f3c0cbb04"
+content_hash = "sha256:e1d878585aa15d4c8c31ce4c56b7a3856a5339ace49d5e7da2267572786e6560"
+size = 721068
+mtime_ms = 1788281530466
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/056abc70-4788-460b-840d-286f3c0cbb04/98a4dbe4-8830-45e1-8429-32676af2edc2"
+storage_version_token = "1788281567243217"
+content_type = "image/png"
