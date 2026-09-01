@@ -17,30 +17,35 @@ id = "LgNRwiiOXO_7QWJPCUO09"
 uri = "file://exports/api-inventory.xlsx"
 type = "table"
 title = "API Inventory — verified at runtime (108 endpoints)"
+logical_id = "74d44370-09d2-4283-bea3-f730ef8a63a2"
 
 [[outputs]]
 id = "f8NBfdY199UKWm5iVU6Z0"
 uri = "file://loadtest/PLAN.md"
 type = "text"
 title = "Load-testing plan"
+logical_id = "4b3b8388-41b8-4171-85ff-b610474171a0"
 
 [[outputs]]
 id = "66cGi3QKyx22myR_mCwkM"
 uri = "file://loadtest/loadtest-bundle.zip"
 type = "unspecified"
 title = "k6 scripts + plan (download bundle)"
+logical_id = "844d7d3c-4eca-43ff-af6b-58b20067188b"
 
 [[outputs]]
 id = "RsbcHgoSvc80PgTkH-UAg"
 uri = "file://artifacts/kokao-promo/public/audio/bg_music.mp3"
 type = "audio"
 title = "background music"
+logical_id = "348e35dd-024a-4621-9307-5122525e9fcc"
 
 [[outputs]]
 id = "S-0-KhWHxsohgrHlWivde"
 uri = "file://TECH_STACK.md"
 type = "text"
 title = "KOKAO Tech Stack Reference"
+logical_id = "31effc23-0b83-4864-91df-3df0a71c3713"
 
 [[outputs]]
 id = "f6McWY7UrqEynUbfYcauH"
@@ -48,6 +53,8 @@ uri = "file://assets/kokao-doctors-onepager.html"
 type = "text"
 title = "KOKAO for Doctors — One-Pager"
 description = "Printable A4 infomercial pitching KOKAO to doctors, with QR code to app.kokao.in."
+logical_id = "310dfe78-f0d7-43a8-99ef-f318272ac7b2"
+content_type = "text/html"
 
 [[outputs]]
 id = "KxTzKn4qVLigLkTa02oQz"
@@ -55,6 +62,7 @@ uri = "file://assets/kokao-doctors-onepager.pdf"
 type = "pdf"
 title = "KOKAO for Doctors — One-Pager (PDF, updated logo)"
 description = "A4 PDF with the current purple KOKAO branding and QR code to app.kokao.in."
+logical_id = "c5a2ce58-3b98-40a6-a8af-a73dd749e517"
 
 [[outputs]]
 id = "8QuC9Huq7zUh6LN5jgesI"
@@ -62,6 +70,7 @@ uri = "file://assets/kokao-doctors-onepager.pptx"
 type = "slides"
 title = "KOKAO for Doctors — One-Pager (editable PowerPoint, updated logo)"
 description = "Editable A4 one-pager with the current purple KOKAO branding."
+logical_id = "6c333525-e866-4436-ba60-72f7f060070f"
 
 [[outputs]]
 id = "itkFIhPUVE89stYeBWY04"
@@ -69,6 +78,7 @@ uri = "file://assets/kokao-doctors-onepager-v2.pdf"
 type = "pdf"
 title = "KOKAO for Doctors — One-Pager (single-page PDF)"
 description = "Everything now fits on exactly one A4 page, with the purple KOKAO branding and QR code."
+logical_id = "954d807c-f12b-48b8-a4b4-3201cc4cb71d"
 
 [[outputs]]
 id = "LtlFvmB_D3OjrtCJjWK7P"
@@ -76,3 +86,18 @@ uri = "file://assets/kokao-doctors-onepager-v2.pptx"
 type = "slides"
 title = "KOKAO for Doctors — One-Pager v2 (purple logo, editable PowerPoint)"
 description = "Fresh editable copy with the current purple KOKAO branding."
+logical_id = "e6f6d690-8fec-4cc4-bca4-b1428fdb0444"
+
+[[outputs]]
+id = "PWnlw37QidnSglugDFega"
+uri = "file://exports/job-552-storyboard/job-552-storyboard.jpg"
+type = "image"
+title = "Job 552 Storyboard Stills"
+description = "A labeled 2×2 contact sheet made from the first frame of each of Job 552's four saved Character Dialogue source plates."
+logical_id = "dfe6b607-f673-404b-a800-91a12d644bc4"
+content_hash = "sha256:0f15eb57dd78c9a24e0eda4326ce93e8dc9a5cd8e831f200cbe641fbd8d0bd44"
+size = 266720
+mtime_ms = 1788280662516
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/dfe6b607-f673-404b-a800-91a12d644bc4/441ae9c3-2fa4-4b31-a0a4-72d91f45b658"
+storage_version_token = "1788280688806433"
+content_type = "image/jpeg"
