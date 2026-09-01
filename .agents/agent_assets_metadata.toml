@@ -185,3 +185,17 @@ mtime_ms = 1788282059457
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/1db95372-4de3-41ca-ae05-f1910eda1d85/0739621e-427d-40aa-9a71-f275111a0db6"
 storage_version_token = "1788282078840862"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "bc8y38KBnJJQpu_keD18s"
+uri = "file://exports/job-553-nano-banana-lipsync/job-553-nano-banana-lipsync.mp4"
+type = "video"
+title = "Job 553 — Nano Banana Pro Lip-Synced Video"
+description = "Genuinely lip-synced 9:16 Character Dialogue render using Job 552 narration, Wan 2.2 I2V Fast, and Sync Lipsync 2. Subtitles are disabled."
+logical_id = "dd8f94c0-393b-4bc7-88c4-26ce87b5d578"
+content_hash = "sha256:d610fdbebb170558422654cca528499c26f311e6a80b82f517eccb08d123a49a"
+size = 14114100
+mtime_ms = 1788284175086
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/dd8f94c0-393b-4bc7-88c4-26ce87b5d578/3a57066c-8667-4548-99b9-d16f5fe2e0e7"
+storage_version_token = "1788284213459554"
+content_type = "video/mp4"
