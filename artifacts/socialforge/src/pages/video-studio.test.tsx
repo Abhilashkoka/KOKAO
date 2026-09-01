@@ -2665,7 +2665,15 @@ describe("Video Studio", () => {
   });
 
   it("surfaces a quota toast on a 402 instead of a generic error", async () => {
-    mockState.generateError = { status: 402, message: "Monthly video quota reached" };
+    mockState.generateError = {
+      status: 402,
+      message: "Request failed",
+      data: {
+        error:
+          "This video needs 2 generations and your wallet balance can't cover it. Recharge to continue.",
+      },
+    };
+    mockState.wallet = { walletBilling: true };
     renderPage();
     fireEvent.change(screen.getByTestId("input-video-prompt"), {
       target: { value: "A calm ocean at dusk" },
@@ -2673,7 +2681,11 @@ describe("Video Studio", () => {
     fireEvent.click(screen.getByTestId("button-generate-video"));
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Video quota reached" }),
+        expect.objectContaining({
+          title: "Wallet balance too low",
+          description:
+            "This video needs 2 generations and your wallet balance can't cover it. Recharge to continue.",
+        }),
       ),
     );
   });

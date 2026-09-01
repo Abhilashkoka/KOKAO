@@ -2792,7 +2792,7 @@ export function VideoStudioPage() {
               description: isOwner
                 ? ownerQuotaMessage({
                     walletBilling,
-                    serverMessage: error?.message,
+                    serverMessage: apiErrorMessage(error, ""),
                     upgradeFallback: "Upgrade your plan or buy a credit pack.",
                   })
                 : memberDescription,
