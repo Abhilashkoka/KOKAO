@@ -2089,6 +2089,23 @@ export function VideoStudioPage() {
     studioLipSyncEligible,
   ]);
 
+  const dialogueGenerateBlockReason =
+    engine !== "dialogue_lip_sync" || generateVideo.isPending || uploading
+      ? null
+      : approvedSpokespersonScript === null
+        ? "Approve the dialogue script before generating the video."
+        : aiPersonPrompt.trim().length < 3
+          ? "Describe the AI person who should speak the dialogue."
+          : !aiPersonConsent
+            ? "Confirm that you are authorized to create this AI person or likeness."
+            : !dialogueDurationIsValid
+              ? dialogueBounds.minimum > MAX_DIALOGUE_DURATION_SEC
+                ? `Shorten the approved dialogue so it fits within ${MAX_DIALOGUE_DURATION_SEC} seconds.`
+                : `Choose a video length between ${dialogueBounds.minimum} and ${dialogueBounds.maximum} seconds.`
+              : voice === "brand" && brandKitId === null
+                ? "Choose a brand kit for Brand kit voice, or select a stock voice."
+                : null;
+
   const busy =
     activeJob != null &&
     activeJob.id === activeJobId &&
@@ -2505,6 +2522,14 @@ export function VideoStudioPage() {
     // intentionally not a VideoGenerateRequest engine and must never enter the
     // ordinary generation payload below.
     if (engine === "guided_story") return;
+    if (dialogueGenerateBlockReason) {
+      toast({
+        title: "Complete the AI Dialogue setup",
+        description: dialogueGenerateBlockReason,
+        variant: "destructive",
+      });
+      return;
+    }
     if (isCharacterDialogue && !characterDialogueDurationIsValid) {
       toast({
         title: "Increase the video length",
@@ -6364,32 +6389,54 @@ export function VideoStudioPage() {
             {(engine !== "lip_sync" && engine !== "dialogue_lip_sync"
               ? true
               : spokespersonStep === "setup") && (
-              <Button
-                onClick={onGenerate}
-                disabled={!canGenerate || busy || reviewing}
-                className="w-full sm:w-auto"
-                data-testid="button-generate-video"
-              >
-                {reviewing ? (
-                  <>
-                    <Clapperboard className="h-4 w-4 mr-2" /> Finish the
-                    storyboard below
-                  </>
-                ) : generateVideo.isPending || busy ? (
-                  <>
-                    <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
-                  </>
-                ) : (
-                  <>
-                    <Film className="h-4 w-4 mr-2" />{" "}
-                    {engine === "lip_sync"
-                      ? "Generate spokesperson video"
-                      : engine === "dialogue_lip_sync"
-                        ? "Generate AI dialogue video"
-                        : "Generate video"}
-                  </>
+              <div className="space-y-2">
+                <Button
+                  onClick={onGenerate}
+                  disabled={
+                    (engine === "dialogue_lip_sync"
+                      ? generateVideo.isPending || uploading
+                      : !canGenerate) ||
+                    busy ||
+                    reviewing
+                  }
+                  className="w-full sm:w-auto"
+                  data-testid="button-generate-video"
+                  aria-describedby={
+                    dialogueGenerateBlockReason
+                      ? "dialogue-generate-block-reason"
+                      : undefined
+                  }
+                >
+                  {reviewing ? (
+                    <>
+                      <Clapperboard className="h-4 w-4 mr-2" /> Finish the
+                      storyboard below
+                    </>
+                  ) : generateVideo.isPending || busy ? (
+                    <>
+                      <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
+                    </>
+                  ) : (
+                    <>
+                      <Film className="h-4 w-4 mr-2" />{" "}
+                      {engine === "lip_sync"
+                        ? "Generate spokesperson video"
+                        : engine === "dialogue_lip_sync"
+                          ? "Generate AI dialogue video"
+                          : "Generate video"}
+                    </>
+                  )}
+                </Button>
+                {dialogueGenerateBlockReason && (
+                  <p
+                    id="dialogue-generate-block-reason"
+                    className="text-sm text-destructive"
+                    data-testid="text-dialogue-generate-block-reason"
+                  >
+                    {dialogueGenerateBlockReason}
+                  </p>
                 )}
-              </Button>
+              </div>
             )}
           </CardContent>
         </Card>

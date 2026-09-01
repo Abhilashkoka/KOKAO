@@ -2412,7 +2412,7 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("tab-dialogue-lip-sync").textContent).toContain("AI Dialogue");
     });
 
-    it("keeps AI Dialogue generation disabled until its visual prompt, voice, and authorization are ready", async () => {
+    it("keeps AI Dialogue generation actionable and explains each missing prerequisite", async () => {
       renderPage();
       const user = userEvent.setup();
       await approveDialogueScript(user);
@@ -2420,16 +2420,20 @@ describe("Video Studio", () => {
       const button = screen.getByTestId("button-generate-video") as HTMLButtonElement;
       expect(screen.getByTestId("input-ai-person-prompt")).toBeTruthy();
       expect(screen.queryByTestId("button-upload-base-video")).toBeNull();
-      expect(button.disabled).toBe(true);
+      expect(button.disabled).toBe(false);
+      expect(screen.getByTestId("text-dialogue-generate-block-reason").textContent).toContain(
+        "Describe the AI person",
+      );
 
       await user.type(
         screen.getByTestId("input-ai-person-prompt"),
         "An original presenter in a sunlit studio",
       );
-      expect(button.disabled).toBe(true);
+      expect(screen.getByTestId("text-dialogue-generate-block-reason").textContent).toContain(
+        "Confirm that you are authorized",
+      );
       await user.click(screen.getByTestId("select-dialogue-lip-sync-voice"));
       await user.click(screen.getByText("Nova · bright"));
-      expect(button.disabled).toBe(true);
       // The 30-second script setting is the default, but this short approved
       // dialogue needs a shorter plate to stay within the provider's range.
       expect(
@@ -2437,9 +2441,9 @@ describe("Video Studio", () => {
       ).toContain("30");
       await user.click(screen.getByTestId("select-dialogue-video-duration"));
       await user.click(screen.getByText("10 seconds"));
-      expect(button.disabled).toBe(true);
       await user.click(screen.getByTestId("checkbox-ai-person-consent"));
       expect(button.disabled).toBe(false);
+      expect(screen.queryByTestId("text-dialogue-generate-block-reason")).toBeNull();
     });
 
     it("submits the approved dialogue with an explicit stock voice", async () => {
