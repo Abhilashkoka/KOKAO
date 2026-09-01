@@ -42,6 +42,7 @@ const GUARDED_TABLES = [
   "plan_settings",
   "signup_credit_settings",
   "ai_cost_settings",
+  "wallet_settings",
 ] as const;
 
 const API_TEST_RUN_ADVISORY_LOCK_KEY = 913_874_220;
