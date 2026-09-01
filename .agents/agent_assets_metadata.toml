@@ -171,3 +171,17 @@ mtime_ms = 1788281530466
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/056abc70-4788-460b-840d-286f3c0cbb04/98a4dbe4-8830-45e1-8429-32676af2edc2"
 storage_version_token = "1788281567243217"
 content_type = "image/png"
+
+[[outputs]]
+id = "htUf8cZ15BMjkH6rA2_8I"
+uri = "file://exports/job-552-nano-banana-video/job-552-nano-banana-storyboard.mp4"
+type = "video"
+title = "Job 552 — Nano Banana Storyboard Video"
+description = "A 27.48-second vertical storyboard render using the four Nano Banana Pro scene images and Job 552's original narration audio, with subtitles off."
+logical_id = "1db95372-4de3-41ca-ae05-f1910eda1d85"
+content_hash = "sha256:88e964aba5cc7659892609c917f166a01c1e79e5b0fe029d0e6b3009ffba6685"
+size = 2213909
+mtime_ms = 1788282059457
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/1db95372-4de3-41ca-ae05-f1910eda1d85/0739621e-427d-40aa-9a71-f275111a0db6"
+storage_version_token = "1788282078840862"
+content_type = "video/mp4"
