@@ -1,0 +1,249 @@
+From b5507f124c8234cebd9558ed6c042413f67dc990 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 1 Sep 2026 17:50:40 +0000
+Subject: [PATCH] Make the character reference mandatory, and scoped
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two defects on the same chain, found together.
+
+First: a provider that cannot read reference images accepted these calls
+anyway. `replicate` has supportsImageInput:false, so every character
+keyframe was generated from prompt text alone with the approved reference
+silently discarded — a new face and a new costume in every scene, and
+nothing in the result to say the anchor had been dropped. Guided Story
+never had this because its cast-frame call passes requireReferenceInput;
+the character path passed nothing. Both character call sites now pass it,
+so an incapable pin reroutes to a capable provider or refuses, instead of
+degrading into confident nonsense.
+
+Second, which only became visible once the first was fixed: with the
+reference finally being consumed, the reference's own background came
+with it. Outfit references are deliberately shot against a neutral studio
+wall (outfitVariantPrompt asks for exactly that), and sceneKeyframePrompt
+never said not to copy it — so a hospital scene rendered as a grey
+seamless. The prompt now scopes the reference to identity and clothing
+only, and takes background, pose, camera angle and framing from the scene
+direction, naming the studio backdrop as the thing to exclude.
+
+The existing assertion on "authoritative for both identity and clothing"
+is updated rather than kept: that phrasing is the bug.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../api-server/src/lib/characters.test.ts     | 124 ++++++++++++++++--
+ artifacts/api-server/src/lib/characters.ts    |  26 +++-
+ 2 files changed, 136 insertions(+), 14 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/characters.test.ts b/artifacts/api-server/src/lib/characters.test.ts
+index 0a28bdc2..e20d90dc 100644
+--- a/artifacts/api-server/src/lib/characters.test.ts
++++ b/artifacts/api-server/src/lib/characters.test.ts
+@@ -1,26 +1,132 @@
+-import { describe, expect, it } from "vitest";
++import { describe, expect, it, vi, beforeEach } from "vitest";
+ import type { Character, CharacterOutfit } from "@workspace/db";
+ import sharp from "sharp";
+-import { createOutfitMaskedEdit, sceneKeyframePrompt } from "./characters";
++
++/**
++ * Typed to generateImage's real shape, so the assertions below are checked
++ * against the contract rather than against `any` — the point of these tests is
++ * an argument that was previously not being passed at all.
++ */
++const generateImage = vi.fn(
++  async (
++    _prompt: string,
++    _size: string,
++    _reference?: { buffer: Buffer; mimeType: string },
++    _opts?: {
++      transparent?: boolean;
++      exactMaskedEdit?: unknown;
++      requireReferenceInput?: boolean;
++      onProviderSuccess?: (meta: { provider: string; model: string }) => Promise<void>;
++    },
++  ) => ({
++    buffer: Buffer.from("png"),
++    mimeType: "image/png" as const,
++    provider: "openai",
++    model: "gpt-image-1",
++    fallbackStep: 0,
++    routingReason: "test",
++  }),
++);
++vi.mock("./imageGen", () => ({ generateImage }));
++
++const {
++  createOutfitMaskedEdit,
++  sceneKeyframePrompt,
++  generateSceneKeyframe,
++  generateOutfitVariant,
++} = await import("./characters");
++
++const CHARACTER = { name: "Maya", description: "founder" } as Character;
++const OUTFIT = {
++  name: "Blue blazer",
++  description: "navy blue blazer, white shirt, black trousers",
++} as CharacterOutfit;
++const REFERENCE = { buffer: Buffer.from("ref"), mimeType: "image/png" as const };
+ 
+ describe("sceneKeyframePrompt", () => {
+   it("makes the selected outfit reference authoritative over conflicting scene prose", () => {
+     const prompt = sceneKeyframePrompt(
+-      { name: "Maya", description: "founder" } as Character,
+-      {
+-        name: "Blue blazer",
+-        description: "navy blue blazer, white shirt, black trousers",
+-      } as CharacterOutfit,
++      CHARACTER,
++      OUTFIT,
+       "Maya finishes a workout in implied gym clothes",
+     );
+ 
+-    expect(prompt).toContain("reference image is authoritative for both identity and clothing");
++    expect(prompt).toContain("reference image is authoritative for identity and clothing only");
+     expect(prompt).toContain(
+       "Required outfit: Blue blazer — navy blue blazer, white shirt, black trousers",
+     );
+     expect(prompt).toContain("ignore any conflicting wardrobe implied by it");
+     expect(prompt).toContain("Do not redesign, substitute, infer, or add clothing");
+   });
++
++  it("takes the background from the scene, never from the reference", () => {
++    // The reference is a costume portrait shot against a neutral studio wall
++    // (see outfitVariantPrompt, which asks for exactly that). Once a provider
++    // actually CONSUMES that reference, the wall comes with it unless the
++    // prompt says otherwise — a hospital scene rendered as a grey seamless.
++    // Identity and wardrobe are what the reference is for; the room is not.
++    const prompt = sceneKeyframePrompt(CHARACTER, OUTFIT, "a busy hospital corridor", "medium");
++
++    expect(prompt).toContain("Do not copy the reference's background, pose, camera angle, or framing");
++    expect(prompt).toMatch(/no studio backdrop, seamless wall, or empty grey field/i);
++    expect(prompt).toContain("a busy hospital corridor");
++    expect(prompt).toMatch(/Pose and body language come from the scene action/i);
++  });
++
++  it("keeps identity and wardrobe locked while the setting is freed", () => {
++    // The scoping is a narrowing, not a loosening: everything that made the
++    // character the same character has to survive it.
++    const prompt = sceneKeyframePrompt(CHARACTER, OUTFIT, "a busy hospital corridor", "close");
++
++    expect(prompt).toMatch(/identical face, hair, body, identity, and exact referenced outfit/i);
++    expect(prompt).toContain("Copy every visible garment, color, pattern, layer, accessory");
++    expect(prompt).toContain("Close-up");
++    expect(prompt).toContain("No text, no watermark");
++  });
++});
++
++describe("reference-required routing", () => {
++  beforeEach(() => generateImage.mockClear());
++
++  it("refuses to render a scene keyframe without the reference reaching the provider", async () => {
++    // This is the flag that turns an invisible failure into a visible one. A
++    // provider with supportsImageInput:false previously accepted the call and
++    // returned a prompt-only image: a new face and a new costume every scene,
++    // with nothing in the result to say the reference had been dropped.
++    await generateSceneKeyframe(CHARACTER, OUTFIT, "a corridor", "9:16", REFERENCE);
++
++    expect(generateImage).toHaveBeenCalledTimes(1);
++    const [, , reference, opts] = generateImage.mock.calls[0]!;
++    expect(reference).toBe(REFERENCE);
++    expect(opts?.requireReferenceInput).toBe(true);
++  });
++
++  it("requires it for costume variants too", async () => {
++    // Same failure one stage earlier, and worse: a dropped reference here
++    // poisons the outfit reference that every later scene anchors to.
++    await generateOutfitVariant(CHARACTER, "a white coat", REFERENCE);
++
++    const [, , reference, opts] = generateImage.mock.calls[0]!;
++    expect(reference).toBe(REFERENCE);
++    expect(opts?.requireReferenceInput).toBe(true);
++  });
++
++  it("keeps masked-edit routing intact when it applies", async () => {
++    const exactMaskedEdit = { protectedRectangle: { x: 0, y: 0, width: 1, height: 0.4 } };
++    const onProviderSuccess = vi.fn(async () => {});
++    await generateOutfitVariant(
++      CHARACTER,
++      "a white coat",
++      REFERENCE,
++      exactMaskedEdit as never,
++      onProviderSuccess,
++    );
++
++    const opts = generateImage.mock.calls[0]![3]!;
++    expect(opts.requireReferenceInput).toBe(true);
++    expect(opts.exactMaskedEdit).toBe(exactMaskedEdit);
++    expect(opts.onProviderSuccess).toBe(onProviderSuccess);
++  });
+ });
+ 
+ describe("createOutfitMaskedEdit", () => {
+@@ -46,4 +152,4 @@ describe("createOutfitMaskedEdit", () => {
+     expect(alphaAt(50, 100)).toBe(0);
+     expect(alphaAt(1, 100)).toBe(255);
+   });
+-});
+\ No newline at end of file
++});
+diff --git a/artifacts/api-server/src/lib/characters.ts b/artifacts/api-server/src/lib/characters.ts
+index a2d87e11..ea5be4d0 100644
+--- a/artifacts/api-server/src/lib/characters.ts
++++ b/artifacts/api-server/src/lib/characters.ts
+@@ -99,15 +99,21 @@ export function sceneKeyframePrompt(
+ ): string {
+   const identity = character.description ? ` (${character.description})` : "";
+   return (
+-    "The reference image is authoritative for both identity and clothing. " +
++    "The reference image is authoritative for identity and clothing only. " +
+     `Place the exact character from the reference${identity} into this scene. ` +
+     `Required outfit: ${outfit.name} — ${outfit.description}. ` +
+     "Copy every visible garment, color, pattern, layer, accessory, and footwear " +
+     "from the reference exactly. Do not redesign, substitute, infer, or add clothing. " +
+-    `Scene action and setting only (ignore any conflicting wardrobe implied by it): ${sceneVisual}. ` +
+-    "Keep the identical face, hair, body, identity, and exact referenced outfit. " +
++    `Scene action and setting (ignore any conflicting wardrobe implied by it): ${sceneVisual}. ` +
++    "Do not copy the reference's background, pose, camera angle, or framing. The " +
++    "reference is a plain studio portrait; this is a new photograph taken on " +
++    "location. The character is inside the setting described above and surrounded " +
++    "by it — no studio backdrop, seamless wall, or empty grey field anywhere in " +
++    "the frame. Pose and body language come from the scene action, not from the " +
++    "reference. " +
+     `${FRAMING[shotSize]} ` +
+-    "Photorealistic, natural lighting. " +
++    "Keep the identical face, hair, body, identity, and exact referenced outfit. " +
++    "Photorealistic, natural lighting that belongs to the setting. " +
+     "No text, no watermark."
+   );
+ }
+@@ -298,7 +304,11 @@ export async function generateOutfitVariant(
+     outfitVariantPrompt(character, outfitDescription),
+     "1024x1536",
+     baseReference,
+-    exactMaskedEdit ? { exactMaskedEdit, onProviderSuccess } : undefined,
++    // requireReferenceInput: a costume variant that ignored the base reference
++    // would be a different person in the right clothes. See generateSceneKeyframe.
++    exactMaskedEdit
++      ? { exactMaskedEdit, onProviderSuccess, requireReferenceInput: true }
++      : { requireReferenceInput: true },
+   );
+ }
+ 
+@@ -315,5 +325,11 @@ export async function generateSceneKeyframe(
+     sceneKeyframePrompt(character, outfit, sceneVisual, shotSize),
+     imageSizeForAspect(aspect),
+     outfitReference,
++    // The whole point of this call is "the approved character, again". A
++    // provider that cannot read the reference does not do a worse job of that
++    // — it does a different job, inventing a new face and a new costume per
++    // scene from prompt text alone, with nothing in the result to say so.
++    // requireReferenceInput reroutes to a capable provider, or refuses.
++    { requireReferenceInput: true },
+   );
+ }
+-- 
+2.43.0
+

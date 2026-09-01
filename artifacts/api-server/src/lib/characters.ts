@@ -99,15 +99,21 @@ export function sceneKeyframePrompt(
 ): string {
   const identity = character.description ? ` (${character.description})` : "";
   return (
-    "The reference image is authoritative for both identity and clothing. " +
+    "The reference image is authoritative for identity and clothing only. " +
     `Place the exact character from the reference${identity} into this scene. ` +
     `Required outfit: ${outfit.name} — ${outfit.description}. ` +
     "Copy every visible garment, color, pattern, layer, accessory, and footwear " +
     "from the reference exactly. Do not redesign, substitute, infer, or add clothing. " +
-    `Scene action and setting only (ignore any conflicting wardrobe implied by it): ${sceneVisual}. ` +
-    "Keep the identical face, hair, body, identity, and exact referenced outfit. " +
+    `Scene action and setting (ignore any conflicting wardrobe implied by it): ${sceneVisual}. ` +
+    "Do not copy the reference's background, pose, camera angle, or framing. The " +
+    "reference is a plain studio portrait; this is a new photograph taken on " +
+    "location. The character is inside the setting described above and surrounded " +
+    "by it — no studio backdrop, seamless wall, or empty grey field anywhere in " +
+    "the frame. Pose and body language come from the scene action, not from the " +
+    "reference. " +
     `${FRAMING[shotSize]} ` +
-    "Photorealistic, natural lighting. " +
+    "Keep the identical face, hair, body, identity, and exact referenced outfit. " +
+    "Photorealistic, natural lighting that belongs to the setting. " +
     "No text, no watermark."
   );
 }
@@ -298,7 +304,11 @@ export async function generateOutfitVariant(
     outfitVariantPrompt(character, outfitDescription),
     "1024x1536",
     baseReference,
-    exactMaskedEdit ? { exactMaskedEdit, onProviderSuccess } : undefined,
+    // requireReferenceInput: a costume variant that ignored the base reference
+    // would be a different person in the right clothes. See generateSceneKeyframe.
+    exactMaskedEdit
+      ? { exactMaskedEdit, onProviderSuccess, requireReferenceInput: true }
+      : { requireReferenceInput: true },
   );
 }
 
@@ -315,5 +325,11 @@ export async function generateSceneKeyframe(
     sceneKeyframePrompt(character, outfit, sceneVisual, shotSize),
     imageSizeForAspect(aspect),
     outfitReference,
+    // The whole point of this call is "the approved character, again". A
+    // provider that cannot read the reference does not do a worse job of that
+    // — it does a different job, inventing a new face and a new costume per
+    // scene from prompt text alone, with nothing in the result to say so.
+    // requireReferenceInput reroutes to a capable provider, or refuses.
+    { requireReferenceInput: true },
   );
 }
