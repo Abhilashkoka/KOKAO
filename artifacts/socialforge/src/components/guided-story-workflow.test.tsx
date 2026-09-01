@@ -97,7 +97,11 @@ vi.mock("@workspace/api-client-react", async () => {
       return { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
     }),
     useGenerateGuidedStoryDraftScript: mutation(() => {
-      if (state.generationError) throw state.generationError;
+      if (state.generationError) {
+        const latestDraft = (state.generationError as any).latestDraft;
+        if (latestDraft) state.draft = latestDraft;
+        throw state.generationError;
+      }
       return state.draft;
     }),
     useApproveGuidedStoryDraftScript: mutation(() => {
@@ -516,6 +520,25 @@ describe("GuidedStoryWorkflow", () => {
     );
     expect(screen.queryByTestId("error-guided-setup-save")).toBeNull();
     expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Save setup");
+  });
+
+  it("refreshes the server revision before correcting a failed script generation", async () => {
+    state.draft = draft({ revision: 7, script: null, scriptApprovedAt: null });
+    state.generationError = {
+      data: { error: "The script does not fit this runtime." },
+      latestDraft: draft({ revision: 8, script: null, scriptApprovedAt: null }),
+    };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(await screen.findByTestId("button-guided-generate-script"));
+    expect((await screen.findByTestId("button-guided-create-draft")).textContent).toBe("Save setup");
+
+    state.generationError = null;
+    await userEvent.click(screen.getByTestId("button-guided-create-draft"));
+
+    expect(state.updated).toMatchObject({ revision: 8 });
+    expect(screen.queryByTestId("error-guided-setup-save")).toBeNull();
   });
 
   it("uses the server language catalog as the authoritative story-language selector", async () => {
