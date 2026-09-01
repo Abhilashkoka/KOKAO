@@ -1375,7 +1375,8 @@ describe("Video Studio", () => {
 
       expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
 
-      // 5. Submit final payload
+      // 5. Disable subtitles and submit the final payload.
+      await user.click(screen.getByTestId("switch-subtitles"));
       await user.click(screen.getByTestId("button-generate-video"));
 
       expect(mockState.lastGenerateVars.data).toEqual(
@@ -1386,7 +1387,7 @@ describe("Video Studio", () => {
           brandKitId: 5,
           dialogue: mockState.spokespersonScript,
           characterDialogue: { scriptApproved: true, locale: "en" },
-          subtitles: true,
+          subtitles: false,
           lipSyncConsent: true,
           aiPersonConsent: true,
           durationSec: 90,

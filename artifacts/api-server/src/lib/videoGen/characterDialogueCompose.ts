@@ -71,6 +71,7 @@ const timestamp = (seconds: number) => {
 export async function composeCharacterDialogue(input: {
   clips: Buffer[];
   scenes: Array<{ text: string; narrationDurationSec: number }>;
+  subtitles: boolean;
   fontCandidates: string[];
   direction: "ltr" | "rtl";
   music?: Buffer | null;
@@ -78,9 +79,15 @@ export async function composeCharacterDialogue(input: {
   if (!input.clips.length || input.clips.length !== input.scenes.length) {
     throw new VideoGenProviderError("Character dialogue scene clips are incomplete.");
   }
-  const font = await resolveExactFont(input.fontCandidates);
   const joined = await concatClips(input.clips);
   const durationSec = input.scenes.reduce((sum, scene) => sum + scene.narrationDurationSec, 0);
+  if (!input.subtitles) {
+    return {
+      buffer: input.music ? await mixMusicIntoVideo(joined, input.music) : joined,
+      durationSec,
+    };
+  }
+  const font = await resolveExactFont(input.fontCandidates);
   const dir = await mkdtemp(join(tmpdir(), "kokao-character-dialogue-"));
   try {
     await writeFile(join(dir, "in.mp4"), joined);

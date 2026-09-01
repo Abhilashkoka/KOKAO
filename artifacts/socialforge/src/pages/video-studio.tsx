@@ -2672,7 +2672,7 @@ export function VideoStudioPage() {
               ? undefined
               : voice,
           stockSource,
-          subtitles: isCharacterDialogue ? true : subtitles,
+          subtitles,
           captionStyle,
           paragraphCount,
           visualsSource: isCharacterDialogue

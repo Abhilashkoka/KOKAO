@@ -77,7 +77,7 @@ const state = vi.hoisted(() => ({
   dialogueNarrationDurations: [] as number[],
   dialogueLipSyncDurations: [] as number[],
   dialogueStrictTrimDurations: [] as number[],
-  dialogueCompositions: [] as Array<{ scenes: Array<{ text: string; narrationDurationSec: number }>; clips: number }>,
+  dialogueCompositions: [] as Array<{ scenes: Array<{ text: string; narrationDurationSec: number }>; clips: number; subtitles: boolean }>,
   failLipSyncCall: null as number | null,
   dialogueBrandVoice: false,
   dialogueCompositionError: null as unknown,
@@ -384,9 +384,14 @@ vi.mock("./characterDialogueCompose", async (importOriginal) => ({
   composeCharacterDialogue: vi.fn(async (input: {
     clips: Buffer[];
     scenes: Array<{ text: string; narrationDurationSec: number }>;
+    subtitles: boolean;
   }) => {
     if (state.dialogueCompositionError) throw state.dialogueCompositionError;
-    state.dialogueCompositions.push({ clips: input.clips.length, scenes: input.scenes });
+    state.dialogueCompositions.push({
+      clips: input.clips.length,
+      scenes: input.scenes,
+      subtitles: input.subtitles,
+    });
     return {
       buffer: Buffer.from("composed-character-dialogue"),
       durationSec: input.scenes.reduce((sum, scene) => sum + scene.narrationDurationSec, 0),
@@ -2585,10 +2590,12 @@ describe("dialogue_lip_sync runner", () => {
     const tenant = await newTenant();
     state.dialogueBrandVoice = true;
     state.dialogueNarrationDurations.push(4.2, 5.7);
+    const options = savedCharacterDialogueOptions();
+    options.subtitles = false;
     const job = await seedJob(tenant.tenantId, {
       engine: "dialogue_lip_sync",
       prompt: "A saved presenter at a desk",
-      options: savedCharacterDialogueOptions(),
+      options,
     });
 
     await runVideoGenerationJob(job.id, "quota");
@@ -2608,6 +2615,7 @@ describe("dialogue_lip_sync runner", () => {
         { text: "Approved Telugu scene 1.", narrationDurationSec: 4.2 },
         { text: "Approved Telugu scene 2.", narrationDurationSec: 5.7 },
       ],
+      subtitles: false,
     }]);
     // Every provider video is charged from its inspected raw output. The
     // lip-sync mock reports 8s even though narration is 4.2/5.7s, proving cost

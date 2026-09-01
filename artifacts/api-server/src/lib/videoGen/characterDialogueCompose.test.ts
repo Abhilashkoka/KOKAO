@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { probeDurationSec, runFfmpeg } from "./slideshow";
-import { composeApprovedStillAudioClip, resolveExactFont, trimCharacterDialogueClipStrict } from "./characterDialogueCompose";
+import {
+  composeApprovedStillAudioClip,
+  composeCharacterDialogue,
+  resolveExactFont,
+  trimCharacterDialogueClipStrict,
+} from "./characterDialogueCompose";
 
 describe("resolveExactFont", () => {
   it.each([
@@ -59,6 +64,31 @@ describe("composeApprovedStillAudioClip", () => {
       const duration = await probeDurationSec("clip.mp4", dir);
       expect(duration).not.toBeNull();
       expect(Math.abs(duration! - 1.2)).toBeLessThanOrEqual(0.1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("composeCharacterDialogue", () => {
+  it("joins clips without resolving a subtitle font when subtitles are off", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kokao-dialogue-no-subtitles-test-"));
+    try {
+      await runFfmpeg([
+        "-y", "-f", "lavfi", "-i", "color=c=black:s=320x240:d=1",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", "clip.mp4",
+      ], dir);
+      const composed = await composeCharacterDialogue({
+        clips: [await readFile(join(dir, "clip.mp4"))],
+        scenes: [{ text: "This must not be burned in.", narrationDurationSec: 1 }],
+        subtitles: false,
+        fontCandidates: ["A font that does not exist"],
+        direction: "ltr",
+      });
+      await writeFile(join(dir, "composed.mp4"), composed.buffer);
+
+      expect(await probeDurationSec("composed.mp4", dir)).toBeGreaterThan(0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

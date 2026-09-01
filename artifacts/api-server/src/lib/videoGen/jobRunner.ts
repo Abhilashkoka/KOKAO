@@ -2188,6 +2188,7 @@ async function produceVideo(
         }
         const composed = await composeCharacterDialogue({
           clips, scenes: composedScenes, fontCandidates: frozenPlan.fontCandidates,
+          subtitles: options.subtitles ?? true,
           direction: frozenPlan.direction, music,
         });
         let finalBuffer = composed.buffer;
