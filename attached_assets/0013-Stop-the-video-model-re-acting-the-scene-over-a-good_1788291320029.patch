@@ -1,0 +1,223 @@
+From bf9190be2173968c9a167708963089b43c915c65 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 1 Sep 2026 19:10:18 +0000
+Subject: [PATCH] Stop the video model re-acting the scene over a good keyframe
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The keyframes are fine. Measured on a real render: the first frame of
+every scene is relaxed and natural, the eyes are already wide by 0.8s,
+and full alarm holds from 1.6s to the end of the shot. The whole defect
+lives in the image-to-video stage, which was being sent
+
+    `${entry.visual}. ${motion}`
+
+Two things wrong with that, neither of them the keyframe.
+
+entry.visual is a description of a STILL, and the image model has already
+rendered it into the keyframe being animated. Sending it again asks the
+video model to perform the same beat a second time on top of a frame that
+already contains it — so "alarmed by a shocking statistic" gets acted out,
+having already been composed.
+
+And `motion` is a camera note ("Subtle natural motion, cinematic"). Nothing
+in the prompt constrained the face at all. Given seconds to fill and no
+constraint, wan-2.2-i2v-fast falls into its presenter prior — brows up,
+eyes wide — and nothing pulls it back.
+
+A shot that will be lip-synced now sends no scene prose: its keyframe is
+the scene, and the only thing left to ask for is that the person move like
+a person while nothing else changes. Mouth acting there is thrown away by
+LatentSync regardless; what survives to the finished video is the eyes and
+brows, which is what had gone wrong. An unsynced shot keeps its prose and
+gains the lighter guard, since it may be an action rather than a piece to
+camera.
+
+Both clauses speak only about the face, so a picked motion preset still
+owns the camera and is never contradicted or dropped.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../topicVideo/characterMotion.test.ts        | 69 +++++++++++++++++++
+ .../videoGen/topicVideo/characterMotion.ts    | 65 +++++++++++++++++
+ .../videoGen/topicVideo/characterScenes.ts    |  7 +-
+ 3 files changed, 140 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts
+new file mode 100644
+index 00000000..bd4a6362
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts
+@@ -0,0 +1,69 @@
++import { describe, it, expect } from "vitest";
++import {
++  characterScenePrompt,
++  SPEAKING_HOLD,
++  EXPRESSION_GUARD,
++} from "./characterMotion";
++
++const VISUAL = "Dr Asha stands in a busy hospital corridor, alarmed by a shocking statistic";
++const MOTION = "Subtle natural motion, cinematic.";
++
++describe("characterScenePrompt", () => {
++  it("stops sending scene prose to a shot that will be lip-synced", () => {
++    // The keyframe already IS this description. Sending it again asks the
++    // video model to perform the beat a second time, and the emotional words
++    // in it are what it performs — this prompt is where "alarmed by a shocking
++    // statistic" turned into five seconds of a terrified face.
++    const prompt = characterScenePrompt({ visual: VISUAL, motion: MOTION, lipSynced: true });
++
++    expect(prompt).not.toContain("alarmed");
++    expect(prompt).not.toContain("shocking");
++    expect(prompt).not.toContain(VISUAL);
++  });
++
++  it("names the drift it has to prevent, not just the state it wants", () => {
++    // "Calm expression" alone loses: the model starts calm and escalates
++    // anyway, because nothing forbids the escalation. The negatives and the
++    // across-the-shot constraint are the load-bearing half.
++    const prompt = characterScenePrompt({ visual: VISUAL, motion: MOTION, lipSynced: true });
++
++    expect(prompt).toMatch(/do not widen the eyes/i);
++    expect(prompt).toMatch(/do not raise the eyebrows/i);
++    expect(prompt).toMatch(/must not build or intensify/i);
++    expect(prompt).toMatch(/surprise, shock, alarm/i);
++  });
++
++  it("keeps the scene prose when nothing will be synced", () => {
++    // An unsynced character shot may be an action rather than a piece to
++    // camera, so the visual still earns its place; only the drift is named.
++    const prompt = characterScenePrompt({ visual: VISUAL, motion: MOTION, lipSynced: false });
++
++    expect(prompt).toContain(VISUAL);
++    expect(prompt).toContain(EXPRESSION_GUARD);
++  });
++
++  it("never drops the motion instruction, synced or not", () => {
++    // A picked motion preset arrives here as `motion` and owns the camera.
++    // These clauses only ever speak about the face; losing the preset would
++    // silently discard a choice the user made.
++    for (const lipSynced of [true, false]) {
++      expect(characterScenePrompt({ visual: VISUAL, motion: MOTION, lipSynced })).toContain(MOTION);
++    }
++    const preset = "Crash zoom in, fast and aggressive.";
++    expect(characterScenePrompt({ visual: VISUAL, motion: preset, lipSynced: true }))
++      .toContain(preset);
++  });
++
++  it("says nothing about the camera, so it cannot contradict a preset", () => {
++    // The one thing these clauses must not do is fight the motion instruction.
++    for (const clause of [SPEAKING_HOLD, EXPRESSION_GUARD]) {
++      expect(clause).not.toMatch(/\b(zoom|pan|dolly|push in|static camera|camera still)\b/i);
++    }
++  });
++
++  it("asks for movement, so the shot is not a still", () => {
++    // Overcorrecting into a frozen face is the other way to fail this.
++    expect(SPEAKING_HOLD).toMatch(/head movement/i);
++    expect(SPEAKING_HOLD).toMatch(/blinking/i);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts
+new file mode 100644
+index 00000000..2b2e8a39
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts
+@@ -0,0 +1,65 @@
++/**
++ * The image-to-video prompt for a character scene.
++ *
++ * The keyframe arrives correct — identity locked, outfit locked, calm face —
++ * and the video model then has several seconds to fill. What it was being told
++ * was the scene's VISUAL description followed by a camera note ("Subtle
++ * natural motion, cinematic"). Neither constrains the face, and the visual
++ * description is actively harmful here: it is a description of a still, the
++ * image model has already rendered it into the keyframe, and re-sending it
++ * asks the video model to perform the same beat a second time on top of a
++ * frame that already contains it. Any emotional word in that prose becomes
++ * facial acting.
++ *
++ * Unconstrained, wan-2.2-i2v-fast falls into its presenter prior: brows up,
++ * eyes wide, and — because nothing pulls it back — it stays there. Measured on
++ * a real render, the first frame of every scene was relaxed and natural, the
++ * eyes were already wide by 0.8s, and full alarm held from 1.6s to the end of
++ * the shot. The defect is entirely inside this stage.
++ *
++ * So a scene that will be lip-synced sends no scene prose at all. Its keyframe
++ * IS the scene, and the only thing left to ask for is that the person move
++ * like a person while nothing else changes. The mouth is a special case worth
++ * naming: LatentSync replaces that region wholesale afterwards, so mouth
++ * acting done here is paid for and then thrown away — what survives to the
++ * finished video is the eyes and brows, which is exactly what had gone wrong.
++ *
++ * The motion clause always survives. A user who picked a motion preset picked
++ * it deliberately, and the preset owns the camera; these clauses only ever
++ * speak about the face.
++ */
++
++/** Facial hold for a shot whose mouth will be re-synced downstream. */
++export const SPEAKING_HOLD =
++  "The person in this image is speaking calmly to the camera. Animate them " +
++  "talking: gentle natural head movement, normal relaxed blinking, small " +
++  "natural lip movement. Hold the face as it is in the source image — the " +
++  "same relaxed expression in the last frame as in the first. Eyes relaxed " +
++  "and normally open, eyebrows level and still. Do not widen the eyes, do not " +
++  "raise the eyebrows, and do not add surprise, shock, alarm, excitement or " +
++  "any exaggerated expression. The expression must not build or intensify " +
++  "across the shot. Keep the background, the clothing and the framing " +
++  "unchanged.";
++
++/**
++ * The lighter guard for a character shot that is not being synced. Here the
++ * scene prose still earns its place — the shot may be an action rather than a
++ * piece to camera — so the visual is kept and only the drift is named.
++ */
++export const EXPRESSION_GUARD =
++  "Keep the facial expression natural and consistent throughout: eyes relaxed " +
++  "and normally open, eyebrows level. No surprise, shock, alarm or " +
++  "exaggerated expression, and no build-up of expression across the shot.";
++
++export function characterScenePrompt(args: {
++  /** The scene's visual description, as written for the keyframe. */
++  visual: string;
++  /** The resolved motion instruction: a picked preset, or the governed default. */
++  motion: string;
++  /** Whether this shot's mouth will be replaced by the lip-sync pass. */
++  lipSynced: boolean;
++}): string {
++  return args.lipSynced
++    ? `${SPEAKING_HOLD} ${args.motion}`
++    : `${args.visual}. ${args.motion} ${EXPRESSION_GUARD}`;
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index 1a70fe92..945bdb54 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -6,6 +6,7 @@ import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
+ import type { ImageGenResult } from "../../imageGen/types";
+ import { generateVideo } from "../index";
+ import { getMotionInstruction } from "../motionPrompt";
++import { characterScenePrompt } from "./characterMotion";
+ import type { ResolvedModelOptions } from "../modelCatalog";
+ import type { Cinematography } from "../cinematography";
+ import { trimClipToStart } from "../postprocess";
+@@ -541,7 +542,11 @@ export async function animateSceneKeyframes(params: {
+     const attempt = async (): Promise<Buffer> => {
+       const clip = await generateVideo({
+         mode: "image",
+-        prompt: `${entry.visual}. ${motion}`,
++        prompt: characterScenePrompt({
++          visual: entry.visual,
++          motion,
++          lipSynced: lipSync !== null,
++        }),
+         aspectRatio: params.aspectRatio,
+         seed: params.seed ?? null,
+         image: { buffer: keyframe, mimeType: "image/png" },
+-- 
+2.43.0
+

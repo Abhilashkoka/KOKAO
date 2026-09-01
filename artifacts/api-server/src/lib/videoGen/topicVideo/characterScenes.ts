@@ -6,6 +6,7 @@ import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
 import type { ImageGenResult } from "../../imageGen/types";
 import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
+import { characterScenePrompt } from "./characterMotion";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
 import { trimClipToStart } from "../postprocess";
@@ -541,7 +542,11 @@ export async function animateSceneKeyframes(params: {
     const attempt = async (): Promise<Buffer> => {
       const clip = await generateVideo({
         mode: "image",
-        prompt: `${entry.visual}. ${motion}`,
+        prompt: characterScenePrompt({
+          visual: entry.visual,
+          motion,
+          lipSynced: lipSync !== null,
+        }),
         aspectRatio: params.aspectRatio,
         seed: params.seed ?? null,
         image: { buffer: keyframe, mimeType: "image/png" },
