@@ -12,11 +12,12 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; generationError: unknown; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; generatedScripts: number; generationError: unknown; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   requestedDraftIds: [],
   existingJob: null,
   created: null,
+  generatedScripts: 0,
   generationError: null,
   cast: null,
   castError: null,
@@ -94,14 +95,23 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetVideoJob: () => ({ data: state.existingJob, isLoading: false }),
     useCreateGuidedStoryDraft: mutation((vars) => {
       state.created = vars.data;
-      return { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
+      const next = { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
+      state.draft = next;
+      return next;
     }),
     useGenerateGuidedStoryDraftScript: mutation(() => {
+      state.generatedScripts += 1;
       if (state.generationError) {
         const latestDraft = (state.generationError as any).latestDraft;
         if (latestDraft) state.draft = latestDraft;
         throw state.generationError;
       }
+      state.draft = {
+        ...state.draft,
+        revision: state.draft.revision + 1,
+        script,
+        scriptApprovedAt: null,
+      };
       return state.draft;
     }),
     useApproveGuidedStoryDraftScript: mutation(() => {
@@ -297,7 +307,7 @@ function renderWorkflow(options: {
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.generationError = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.generatedScripts = 0; state.generationError = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("starts a new story without deleting the previously restored draft", async () => {
@@ -311,7 +321,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBeNull();
     expect(screen.queryByTestId("button-guided-new-story")).toBeNull();
     expect((screen.getByTestId("input-guided-topic") as HTMLTextAreaElement).value).toBe("");
-    expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Create story draft");
+    expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Generate script");
   });
 
   it("shows native text, Romanized pronunciation, then English meaning without duplicating English stories", async () => {
@@ -456,6 +466,8 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.type(screen.getByTestId("input-guided-topic"), "A story about sorting a desk");
     await userEvent.click(screen.getByTestId("button-guided-create-draft"));
     expect(state.created).toMatchObject({ platform: "instagram_reels", durationSeconds: 30, roleCount: 2 });
+    expect(state.generatedScripts).toBe(1);
+    expect(await screen.findByTestId("guided-script-summary")).toBeTruthy();
   });
 
   it("creates a story without a Brand Kit", async () => {
@@ -480,7 +492,7 @@ describe("GuidedStoryWorkflow", () => {
     renderWorkflow();
 
     await userEvent.click(await screen.findByTestId("button-guided-generate-script"));
-    expect((await screen.findByTestId("button-guided-create-draft")).textContent).toBe("Save setup");
+    expect((await screen.findByTestId("button-guided-create-draft")).textContent).toBe("Save & regenerate script");
 
     state.updated = "error";
     await userEvent.click(screen.getByTestId("button-guided-create-draft"));
@@ -519,7 +531,7 @@ describe("GuidedStoryWorkflow", () => {
         .toBe("The latest saved topic"),
     );
     expect(screen.queryByTestId("error-guided-setup-save")).toBeNull();
-    expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Save setup");
+    expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Save & regenerate script");
   });
 
   it("refreshes the server revision before correcting a failed script generation", async () => {
@@ -532,7 +544,7 @@ describe("GuidedStoryWorkflow", () => {
     renderWorkflow();
 
     await userEvent.click(await screen.findByTestId("button-guided-generate-script"));
-    expect((await screen.findByTestId("button-guided-create-draft")).textContent).toBe("Save setup");
+    expect((await screen.findByTestId("button-guided-create-draft")).textContent).toBe("Save & regenerate script");
 
     state.generationError = null;
     await userEvent.click(screen.getByTestId("button-guided-create-draft"));
