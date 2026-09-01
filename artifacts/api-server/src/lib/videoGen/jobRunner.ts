@@ -817,6 +817,11 @@ async function setJob(
 
 /** Never persist arbitrary provider payloads/tokens in the customer-visible audit. */
 function safeVideoErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof VideoGenNotConfiguredError) {
+    // This class is created only from application-authored configuration
+    // checks, never from arbitrary provider response bodies.
+    return error.message;
+  }
   if (
     error instanceof OpenRouterInputImagePrivacyError ||
     (error as { code?: unknown } | null)?.code === OPENROUTER_INPUT_IMAGE_PRIVACY_CODE
@@ -1050,7 +1055,9 @@ async function speakLocalizedBrandVoiceCue(args: {
       ? (await getAiCostConfig()).elevenLabsInrPerCredit
       : null;
   if (walletFunded && !rateSnapshot) {
-    throw new VideoGenProviderError("ElevenLabs credit billing is not configured for cloned narration.");
+    throw new VideoGenNotConfiguredError(
+      "ElevenLabs credit billing is not configured. Ask an administrator to set the ₹-per-credit rate before retrying.",
+    );
   }
   if (!walletFunded) {
     return (
@@ -1068,7 +1075,9 @@ async function speakLocalizedBrandVoiceCue(args: {
     rateSnapshot!,
   );
   if (ceilingPaise === null || ceilingPaise <= 0) {
-    throw new VideoGenProviderError("ElevenLabs credit billing is not configured for cloned narration.");
+    throw new VideoGenNotConfiguredError(
+      "ElevenLabs credit billing is not configured. Ask an administrator to set the ₹-per-credit rate before retrying.",
+    );
   }
   const reservation = await reserveWallet(
     args.tenantId,

@@ -756,7 +756,7 @@ import {
 import { eq } from "drizzle-orm";
 import { createTenant, deleteTenant, type TestTenant } from "../../test/dbHelpers";
 import { grantCredits } from "../credits";
-import { VideoGenProviderError } from "./index";
+import { VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { ImageGenProviderError } from "../imageGen";
 import { OpenRouterInputImagePrivacyError } from "./providers/openrouter";
 import { reserveVideoJobWalletTopUp } from "../wallet";
@@ -1337,6 +1337,24 @@ describe("the clip storyboard pause", () => {
     expect(state.planned).toEqual(["prompt"]);
     expect(state.clipCheckpointed).toEqual([0]);
     expect(state.usage).toHaveLength(3);
+  });
+
+  it("surfaces application-owned provider configuration guidance", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      options: { aspectRatio: "9:16", reviewStoryboard: false, shotCount: 3 },
+    });
+    state.renderError = new VideoGenNotConfiguredError(
+      "ElevenLabs credit billing is not configured. Ask an administrator to set the ₹-per-credit rate before retrying.",
+    );
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("failed");
+    expect(row.error).toBe(
+      "ElevenLabs credit billing is not configured. Ask an administrator to set the ₹-per-credit rate before retrying.",
+    );
   });
 
   it.each([
