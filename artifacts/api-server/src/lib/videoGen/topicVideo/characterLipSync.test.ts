@@ -42,7 +42,11 @@ const SCENES: ScriptScene[] = [
   { firstCue: 2, lastCue: 2, durationSec: 2, text: "three" },
 ];
 
-const PLAN = SCENES.map((_, i) => ({ visual: `scene ${i}`, outfitId: 1 }));
+const PLAN = SCENES.map((_, i) => ({
+  visual: `scene ${i}`,
+  outfitId: 1,
+  shotSize: "close" as const,
+}));
 const KEYFRAMES = SCENES.map((_, i) => Buffer.from(`keyframe-${i}`));
 
 beforeEach(() => {

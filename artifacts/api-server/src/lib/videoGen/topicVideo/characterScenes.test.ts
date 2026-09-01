@@ -203,8 +203,8 @@ describe("planSceneVisuals", () => {
   it("keeps valid outfit assignments and passes wardrobe notes to the model", async () => {
     planState.response = JSON.stringify({
       scenes: [
-        { visual: "waking up by a window", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     const { plan, rawPlan } = await planSceneVisuals({
@@ -217,28 +217,32 @@ describe("planSceneVisuals", () => {
       scenes,
     });
     expect(plan).toEqual([
-      { visual: "waking up by a window", outfitId: 10 },
-      { visual: "lifting weights", outfitId: 11 },
+      { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+      { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
     ]);
     // The untouched AI reply is surfaced so it can be stored for audit.
     expect(rawPlan).toEqual({
       scenes: [
-        { visual: "waking up by a window", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     expect(planState.lastPrompt).toContain("gym wear for the workout");
     expect(planState.lastPrompt).toContain("Maya");
     expect(planState.lastPrompt).toContain("camera move");
-    expect(planState.lastPrompt).toContain("coverage");
+    // Coverage used to be a clause inside the visual sentence and was ignored
+    // — a real sample came back as eight identical extreme close-ups. It is now
+    // an enumerated field the model has to return, so that is what is pinned.
+    expect(planState.lastPrompt).toContain('"shotSize"');
+    expect(planState.lastPrompt).toMatch(/"wide"\|"medium"\|"close"/);
     expect(planState.lastPrompt).toMatch(/quality(?: and direction)? of light/);
   });
 
   it("polishes scene visuals while preserving the clamped outfit plan and raw reply", async () => {
     planState.response = JSON.stringify({
       scenes: [
-        { visual: "waking up by a window", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     planState.refinementResponse = JSON.stringify({
@@ -257,13 +261,13 @@ describe("planSceneVisuals", () => {
       scenes,
     });
     expect(result.plan).toEqual([
-      { visual: "intimate 50mm frame by the window with a slow push-in", outfitId: 10 },
-      { visual: "wide 28mm gym frame with a measured lateral glide", outfitId: 10 },
+      { visual: "intimate 50mm frame by the window with a slow push-in", outfitId: 10, shotSize: "medium" as const },
+      { visual: "wide 28mm gym frame with a measured lateral glide", outfitId: 10, shotSize: "medium" as const },
     ]);
     expect(result.rawPlan).toEqual({
       scenes: [
-        { visual: "waking up by a window", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     expect(planState.lastRefinementPrompt).toContain("Do not add characters, costume changes");
@@ -272,8 +276,8 @@ describe("planSceneVisuals", () => {
   it("keeps planned scene visuals when cinematic refinement fails", async () => {
     planState.response = JSON.stringify({
       scenes: [
-        { visual: "waking up by a window", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     planState.refinementThrows = true;
@@ -287,8 +291,8 @@ describe("planSceneVisuals", () => {
       scenes,
     });
     expect(plan).toEqual([
-      { visual: "waking up by a window", outfitId: 10 },
-      { visual: "lifting weights", outfitId: 10 },
+      { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+      { visual: "lifting weights", outfitId: 10, shotSize: "medium" as const },
     ]);
   });
 
@@ -297,8 +301,8 @@ describe("planSceneVisuals", () => {
     // wardrobe instructions from the user, uniformity wins regardless.
     planState.response = JSON.stringify({
       scenes: [
-        { visual: "waking up by a window", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     const { plan, rawPlan } = await planSceneVisuals({
@@ -348,7 +352,7 @@ describe("planSceneVisuals", () => {
 
   it("falls back to the locked outfit and scene text on a bad response", async () => {
     planState.response = JSON.stringify({
-      scenes: [{ visual: "", outfitId: 999 }],
+      scenes: [{ visual: "", outfitId: 999, shotSize: "medium" as const }],
     });
     const { plan, rawPlan } = await planSceneVisuals({
       tenantAiModel: "gpt-test",
@@ -360,9 +364,9 @@ describe("planSceneVisuals", () => {
       scenes,
     });
     expect(plan).toHaveLength(2);
-    expect(plan[0]).toEqual({ visual: "Morning starts early.", outfitId: 10 });
-    expect(plan[1]).toEqual({ visual: "Then a hard workout.", outfitId: 10 });
-    expect(rawPlan).toEqual({ scenes: [{ visual: "", outfitId: 999 }] });
+    expect(plan[0]).toEqual({ visual: "Morning starts early.", outfitId: 10, shotSize: "medium" as const });
+    expect(plan[1]).toEqual({ visual: "Then a hard workout.", outfitId: 10, shotSize: "medium" as const });
+    expect(rawPlan).toEqual({ scenes: [{ visual: "", outfitId: 999, shotSize: "medium" as const }] });
   });
 
   it("follows a supplied plan without calling the model, still enforcing the costume lock", async () => {
@@ -370,8 +374,8 @@ describe("planSceneVisuals", () => {
     // wipe the plan — the assertions below prove it never did.
     const supplied = {
       scenes: [
-        { visual: "waking up by a window", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     };
     const { plan, rawPlan } = await planSceneVisuals({
@@ -401,8 +405,8 @@ describe("planSceneVisuals", () => {
       scenes,
       suppliedPlan: {
         scenes: [
-          { visual: "waking up", outfitId: 999 }, // not in the wardrobe → locked outfit
-          { visual: "lifting weights", outfitId: 11 },
+          { visual: "waking up", outfitId: 999, shotSize: "medium" as const }, // not in the wardrobe → locked outfit
+          { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
         ],
       },
     });
@@ -436,8 +440,8 @@ describe("generateCharacterSceneClips", () => {
       character,
       outfits,
       plan: [
-        { visual: "waking up", outfitId: 10 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "waking up", outfitId: 10, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
       scenes,
       aspectRatio: "9:16",
@@ -460,8 +464,8 @@ describe("generateCharacterSceneClips", () => {
   it("uses only the clamped selected outfit asset when wardrobe is locked", async () => {
     planState.response = JSON.stringify({
       scenes: [
-        { visual: "working at a desk", outfitId: 11 },
-        { visual: "walking through a gym", outfitId: 11 },
+        { visual: "working at a desk", outfitId: 11, shotSize: "medium" as const },
+        { visual: "walking through a gym", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     const scenes = [
@@ -492,8 +496,8 @@ describe("generateCharacterSceneClips", () => {
   it("anchors deliberate wardrobe changes only to their assigned saved outfit assets", async () => {
     planState.response = JSON.stringify({
       scenes: [
-        { visual: "working at a desk", outfitId: 999 },
-        { visual: "lifting weights", outfitId: 11 },
+        { visual: "working at a desk", outfitId: 999, shotSize: "medium" as const },
+        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
       ],
     });
     const scenes = [

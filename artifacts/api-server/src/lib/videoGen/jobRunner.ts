@@ -3778,6 +3778,9 @@ async function produceVideo(
         paragraphCount: options.paragraphCount ?? 1,
         templateRuntime: options.templateRuntime ?? null,
         visualsSource: reviewable,
+        // Framing is planned now and rendered later, so the plan has to know
+        // whether these scenes will be synced — a wide shot cannot be.
+        characterLipSync: options.characterLipSync === true,
         characterId: options.characterId ?? null,
         outfitId: options.outfitId ?? null,
         wardrobeNotes: options.wardrobeNotes ?? null,

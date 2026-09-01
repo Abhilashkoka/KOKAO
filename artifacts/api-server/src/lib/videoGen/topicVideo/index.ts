@@ -38,6 +38,7 @@ import {
   generateCharacterSceneClips,
   generateSceneKeyframes,
   animateSceneKeyframes,
+  normalizeShotSize,
   type ScriptScene,
   type ScenePlanEntry,
   type SceneLipSync,
@@ -775,6 +776,8 @@ async function planCharacterScenes(params: {
   /** A saved/edited plan reused instead of asking the model. */
   suppliedPlan?: unknown;
   characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
+  /** Whether these scenes will be lip-synced; bans wide framing when true. */
+  speaking?: boolean;
 }): Promise<{
   detail: NonNullable<Awaited<ReturnType<typeof getCharacterDetail>>>;
   plan: ScenePlanEntry[];
@@ -800,6 +803,7 @@ async function planCharacterScenes(params: {
     wardrobeNotes: params.wardrobeNotes,
     scenes: params.scenes,
     suppliedPlan: params.suppliedPlan,
+    speaking: params.speaking === true,
   });
   return { detail, plan, rawPlan };
 }
@@ -844,7 +848,13 @@ async function generateCharacterStoryClips(params: {
     sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
   );
   scenesWithinRuntimeBounds(scenes, params.templateRuntime);
-  const planned = await planCharacterScenes({ ...params, scenes });
+  // Framing has to know whether these scenes will be synced: a wide shot puts
+  // the face at a fraction of frame height and starves the sync model's crop.
+  const planned = await planCharacterScenes({
+    ...params,
+    scenes,
+    speaking: params.lipSync != null,
+  });
   const detail = planned.detail;
   const plan = planned.plan.map((entry) => ({
     ...entry,
@@ -884,6 +894,8 @@ const NARRATION_TIMELINE_LOCKED = true;
 export interface StoryboardPlanParams {
   tenantId: number;
   topic: string;
+  /** Lip-sync character scenes; framing is chosen to keep faces syncable. */
+  characterLipSync?: boolean;
   /** Exact human-approved guided-story transcript; bypasses script rewriting. */
   approvedScript?: string | null;
   /** Immutable server-authored guided contract. When present no generic
@@ -1068,6 +1080,7 @@ export async function planTopicStoryboard(
       scenes,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
       characterSnapshot: params.characterSnapshot,
+      speaking: params.characterLipSync === true,
     });
     return {
       version: 1,
@@ -1090,6 +1103,7 @@ export async function planTopicStoryboard(
         durationSec: scene.durationSec,
         previewPath: null,
         outfitId: plan[index]?.outfitId ?? null,
+        shotSize: plan[index]?.shotSize ?? null,
       })),
       aiPlan:
         rawPlan == null
@@ -1397,8 +1411,12 @@ export async function prepareCharacterStoryStoryboard(params: {
   if (!detail) throw new VideoGenProviderError("The selected character no longer exists.");
   const fallbackOutfit = resolveOutfit(detail, params.selectedOutfitId);
   if (!fallbackOutfit) throw new VideoGenProviderError("The selected character has no outfit.");
-  const plan: ScenePlanEntry[] = prepared.scenes.map((scene) => ({
+  const plan: ScenePlanEntry[] = prepared.scenes.map((scene, i) => ({
     visual: scene.visual,
+    // Reviewed coverage is authoritative; only a board saved before shot size
+    // existed falls back, and it falls back to the same rotation a fresh plan
+    // would have used rather than to one repeated size.
+    shotSize: normalizeShotSize(scene.shotSize, i, false),
     outfitId:
       scene.outfitId && detail.outfits.some((outfit) => outfit.id === scene.outfitId)
         ? scene.outfitId
@@ -1455,6 +1473,7 @@ export async function prepareCharacterStoryStoryboard(params: {
       ...scene,
       previewPath: previewPaths[index] ?? null,
       outfitId: plan[index]!.outfitId,
+      shotSize: plan[index]!.shotSize,
     })),
   };
 }
@@ -1637,9 +1656,10 @@ export async function renderTopicStoryboard(params: {
     params.onStage?.("Filming your character");
     const animated = await animateSceneKeyframes({
       keyframes: stills as Buffer[],
-      plan: board.scenes.map((scene) => ({
+      plan: board.scenes.map((scene, i) => ({
         visual: scene.visual,
         outfitId: scene.outfitId ?? 0,
+        shotSize: normalizeShotSize(scene.shotSize, i, params.characterLipSync === true),
       })),
       scenes,
       aspectRatio: params.aspectRatio,
@@ -1880,6 +1900,7 @@ export async function regenerateStoryboardPreview(params: {
         plan: [
           {
             visual: params.scene.visual,
+            shotSize: normalizeShotSize(params.scene.shotSize, 0, false),
             // Unknown or implicit changes fall back to the enqueue-time selected
             // outfit, never whichever outfit happens to be default now.
             outfitId:

@@ -69,10 +69,33 @@ export function outfitVariantPrompt(character: Character, outfitDescription: str
 }
 
 /** Prompt that places the locked character (in the locked outfit) into a scene. */
+/**
+ * Explicit framing language per shot size.
+ *
+ * "Cinematic composition" alone lost every time: the reference is a portrait
+ * and the prompt's own identity-preservation language ("place the exact
+ * character from the reference") pulls hard toward a face-forward frame. A
+ * real sample came back as eight consecutive extreme close-ups. Naming the
+ * shot in the terms a camera department would use is what actually moves it.
+ */
+const FRAMING: Record<"wide" | "medium" | "close", string> = {
+  wide:
+    "Wide shot: the character full-length inside the location, the place " +
+    "clearly readable around them and the character occupying a modest part " +
+    "of the frame.",
+  medium:
+    "Medium shot: the character framed from about the waist up, with enough " +
+    "of the setting behind them to place the scene.",
+  close:
+    "Close-up: head and shoulders, the face occupying much of the frame, the " +
+    "background soft behind them.",
+};
+
 export function sceneKeyframePrompt(
   character: Character,
   outfit: CharacterOutfit,
   sceneVisual: string,
+  shotSize: "wide" | "medium" | "close" = "medium",
 ): string {
   const identity = character.description ? ` (${character.description})` : "";
   return (
@@ -83,7 +106,8 @@ export function sceneKeyframePrompt(
     "from the reference exactly. Do not redesign, substitute, infer, or add clothing. " +
     `Scene action and setting only (ignore any conflicting wardrobe implied by it): ${sceneVisual}. ` +
     "Keep the identical face, hair, body, identity, and exact referenced outfit. " +
-    "Cinematic composition, photorealistic, natural lighting. " +
+    `${FRAMING[shotSize]} ` +
+    "Photorealistic, natural lighting. " +
     "No text, no watermark."
   );
 }
@@ -285,9 +309,10 @@ export async function generateSceneKeyframe(
   sceneVisual: string,
   aspect: VideoJobAspect,
   outfitReference: ReferenceImage,
+  shotSize: "wide" | "medium" | "close" = "medium",
 ): Promise<ImageGenResult> {
   return generateImage(
-    sceneKeyframePrompt(character, outfit, sceneVisual),
+    sceneKeyframePrompt(character, outfit, sceneVisual, shotSize),
     imageSizeForAspect(aspect),
     outfitReference,
   );

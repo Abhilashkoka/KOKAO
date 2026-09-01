@@ -1,0 +1,910 @@
+From 0944551dc5e33010eb6e0fadec5f42d60afade04 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 1 Sep 2026 09:13:29 +0000
+Subject: [PATCH] Make shot size a planned field, not a hope
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Every shot in a real character render came back an extreme close-up,
+despite the planner prompt asking to "vary the coverage by mixing wide
+establishing frames, medium shots, intimate close-ups". Two reasons,
+both structural:
+
+  - As prose it was one clause among six competing demands in the same
+    sentence — camera movement, light quality, tactile detail, a
+    non-repetition rule, an instruction not to name the character. Shot
+    scale is what lost.
+  - sceneKeyframePrompt then said only "cinematic composition", while
+    its own identity language ("place the exact character from the
+    reference") pulls hard toward a face-forward frame, because the
+    reference is a portrait.
+
+So shot size is now an enumerated field the planner must return per
+scene, clamped like the costume lock is, persisted on the storyboard so
+an approved plan renders the coverage it was reviewed with, and stated
+to the image model in the terms a camera department would use.
+
+The clamp is not stylistic. A wide shot puts the face at a fraction of
+frame height and the lip-sync model crops around it — the same
+face-pixel constraint that governs the upload path, arriving here as a
+composition rule. A speaking scene can be medium or close and never
+wide, enforced in three places: the prompt asks only for the two, the
+clamp rewrites a wide it is handed anyway, and normalizeShotSize
+rescues a board approved before lip sync was switched on.
+
+Making the field required rather than optional was deliberate: the
+typechecker then names every site that builds a plan, including two
+storyboard resume paths that would otherwise have silently defaulted
+and changed a video's shape after approval.
+
+A plan that omits the field falls back to a rotation rather than one
+repeated size, so even a model that ignores it produces something that
+cuts.
+
+One existing test pinned the word "coverage" in the prompt. It now pins
+the enumerated field instead — the mechanism changed, and the old
+assertion was checking for the thing that did not work.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ artifacts/api-server/src/lib/characters.ts    |  29 ++-
+ .../api-server/src/lib/videoGen/jobRunner.ts  |   3 +
+ .../topicVideo/characterLipSync.test.ts       |   6 +-
+ .../topicVideo/characterScenes.test.ts        |  70 +++----
+ .../videoGen/topicVideo/characterScenes.ts    |  85 ++++++++-
+ .../src/lib/videoGen/topicVideo/index.ts      |  27 ++-
+ .../lib/videoGen/topicVideo/shotSize.test.ts  |  82 ++++++++
+ lib/db/src/schema/videoGenerations.ts         |  10 +
+ scripts/src/multispeaker-audio.mjs            | 177 ++++++++++++++++++
+ 9 files changed, 442 insertions(+), 47 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/shotSize.test.ts
+ create mode 100644 scripts/src/multispeaker-audio.mjs
+
+diff --git a/artifacts/api-server/src/lib/characters.ts b/artifacts/api-server/src/lib/characters.ts
+index 50544517..a2d87e11 100644
+--- a/artifacts/api-server/src/lib/characters.ts
++++ b/artifacts/api-server/src/lib/characters.ts
+@@ -69,10 +69,33 @@ export function outfitVariantPrompt(character: Character, outfitDescription: str
+ }
+ 
+ /** Prompt that places the locked character (in the locked outfit) into a scene. */
++/**
++ * Explicit framing language per shot size.
++ *
++ * "Cinematic composition" alone lost every time: the reference is a portrait
++ * and the prompt's own identity-preservation language ("place the exact
++ * character from the reference") pulls hard toward a face-forward frame. A
++ * real sample came back as eight consecutive extreme close-ups. Naming the
++ * shot in the terms a camera department would use is what actually moves it.
++ */
++const FRAMING: Record<"wide" | "medium" | "close", string> = {
++  wide:
++    "Wide shot: the character full-length inside the location, the place " +
++    "clearly readable around them and the character occupying a modest part " +
++    "of the frame.",
++  medium:
++    "Medium shot: the character framed from about the waist up, with enough " +
++    "of the setting behind them to place the scene.",
++  close:
++    "Close-up: head and shoulders, the face occupying much of the frame, the " +
++    "background soft behind them.",
++};
++
+ export function sceneKeyframePrompt(
+   character: Character,
+   outfit: CharacterOutfit,
+   sceneVisual: string,
++  shotSize: "wide" | "medium" | "close" = "medium",
+ ): string {
+   const identity = character.description ? ` (${character.description})` : "";
+   return (
+@@ -83,7 +106,8 @@ export function sceneKeyframePrompt(
+     "from the reference exactly. Do not redesign, substitute, infer, or add clothing. " +
+     `Scene action and setting only (ignore any conflicting wardrobe implied by it): ${sceneVisual}. ` +
+     "Keep the identical face, hair, body, identity, and exact referenced outfit. " +
+-    "Cinematic composition, photorealistic, natural lighting. " +
++    `${FRAMING[shotSize]} ` +
++    "Photorealistic, natural lighting. " +
+     "No text, no watermark."
+   );
+ }
+@@ -285,9 +309,10 @@ export async function generateSceneKeyframe(
+   sceneVisual: string,
+   aspect: VideoJobAspect,
+   outfitReference: ReferenceImage,
++  shotSize: "wide" | "medium" | "close" = "medium",
+ ): Promise<ImageGenResult> {
+   return generateImage(
+-    sceneKeyframePrompt(character, outfit, sceneVisual),
++    sceneKeyframePrompt(character, outfit, sceneVisual, shotSize),
+     imageSizeForAspect(aspect),
+     outfitReference,
+   );
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 4cadf94c..729f1fab 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -3778,6 +3778,9 @@ async function produceVideo(
+         paragraphCount: options.paragraphCount ?? 1,
+         templateRuntime: options.templateRuntime ?? null,
+         visualsSource: reviewable,
++        // Framing is planned now and rendered later, so the plan has to know
++        // whether these scenes will be synced — a wide shot cannot be.
++        characterLipSync: options.characterLipSync === true,
+         characterId: options.characterId ?? null,
+         outfitId: options.outfitId ?? null,
+         wardrobeNotes: options.wardrobeNotes ?? null,
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts
+index fb4f2be8..4b4d595d 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterLipSync.test.ts
+@@ -42,7 +42,11 @@ const SCENES: ScriptScene[] = [
+   { firstCue: 2, lastCue: 2, durationSec: 2, text: "three" },
+ ];
+ 
+-const PLAN = SCENES.map((_, i) => ({ visual: `scene ${i}`, outfitId: 1 }));
++const PLAN = SCENES.map((_, i) => ({
++  visual: `scene ${i}`,
++  outfitId: 1,
++  shotSize: "close" as const,
++}));
+ const KEYFRAMES = SCENES.map((_, i) => Buffer.from(`keyframe-${i}`));
+ 
+ beforeEach(() => {
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
+index 4074152b..e0fc7d46 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
+@@ -203,8 +203,8 @@ describe("planSceneVisuals", () => {
+   it("keeps valid outfit assignments and passes wardrobe notes to the model", async () => {
+     planState.response = JSON.stringify({
+       scenes: [
+-        { visual: "waking up by a window", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     const { plan, rawPlan } = await planSceneVisuals({
+@@ -217,28 +217,32 @@ describe("planSceneVisuals", () => {
+       scenes,
+     });
+     expect(plan).toEqual([
+-      { visual: "waking up by a window", outfitId: 10 },
+-      { visual: "lifting weights", outfitId: 11 },
++      { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++      { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+     ]);
+     // The untouched AI reply is surfaced so it can be stored for audit.
+     expect(rawPlan).toEqual({
+       scenes: [
+-        { visual: "waking up by a window", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     expect(planState.lastPrompt).toContain("gym wear for the workout");
+     expect(planState.lastPrompt).toContain("Maya");
+     expect(planState.lastPrompt).toContain("camera move");
+-    expect(planState.lastPrompt).toContain("coverage");
++    // Coverage used to be a clause inside the visual sentence and was ignored
++    // — a real sample came back as eight identical extreme close-ups. It is now
++    // an enumerated field the model has to return, so that is what is pinned.
++    expect(planState.lastPrompt).toContain('"shotSize"');
++    expect(planState.lastPrompt).toMatch(/"wide"\|"medium"\|"close"/);
+     expect(planState.lastPrompt).toMatch(/quality(?: and direction)? of light/);
+   });
+ 
+   it("polishes scene visuals while preserving the clamped outfit plan and raw reply", async () => {
+     planState.response = JSON.stringify({
+       scenes: [
+-        { visual: "waking up by a window", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     planState.refinementResponse = JSON.stringify({
+@@ -257,13 +261,13 @@ describe("planSceneVisuals", () => {
+       scenes,
+     });
+     expect(result.plan).toEqual([
+-      { visual: "intimate 50mm frame by the window with a slow push-in", outfitId: 10 },
+-      { visual: "wide 28mm gym frame with a measured lateral glide", outfitId: 10 },
++      { visual: "intimate 50mm frame by the window with a slow push-in", outfitId: 10, shotSize: "medium" as const },
++      { visual: "wide 28mm gym frame with a measured lateral glide", outfitId: 10, shotSize: "medium" as const },
+     ]);
+     expect(result.rawPlan).toEqual({
+       scenes: [
+-        { visual: "waking up by a window", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     expect(planState.lastRefinementPrompt).toContain("Do not add characters, costume changes");
+@@ -272,8 +276,8 @@ describe("planSceneVisuals", () => {
+   it("keeps planned scene visuals when cinematic refinement fails", async () => {
+     planState.response = JSON.stringify({
+       scenes: [
+-        { visual: "waking up by a window", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     planState.refinementThrows = true;
+@@ -287,8 +291,8 @@ describe("planSceneVisuals", () => {
+       scenes,
+     });
+     expect(plan).toEqual([
+-      { visual: "waking up by a window", outfitId: 10 },
+-      { visual: "lifting weights", outfitId: 10 },
++      { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++      { visual: "lifting weights", outfitId: 10, shotSize: "medium" as const },
+     ]);
+   });
+ 
+@@ -297,8 +301,8 @@ describe("planSceneVisuals", () => {
+     // wardrobe instructions from the user, uniformity wins regardless.
+     planState.response = JSON.stringify({
+       scenes: [
+-        { visual: "waking up by a window", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     const { plan, rawPlan } = await planSceneVisuals({
+@@ -348,7 +352,7 @@ describe("planSceneVisuals", () => {
+ 
+   it("falls back to the locked outfit and scene text on a bad response", async () => {
+     planState.response = JSON.stringify({
+-      scenes: [{ visual: "", outfitId: 999 }],
++      scenes: [{ visual: "", outfitId: 999, shotSize: "medium" as const }],
+     });
+     const { plan, rawPlan } = await planSceneVisuals({
+       tenantAiModel: "gpt-test",
+@@ -360,9 +364,9 @@ describe("planSceneVisuals", () => {
+       scenes,
+     });
+     expect(plan).toHaveLength(2);
+-    expect(plan[0]).toEqual({ visual: "Morning starts early.", outfitId: 10 });
+-    expect(plan[1]).toEqual({ visual: "Then a hard workout.", outfitId: 10 });
+-    expect(rawPlan).toEqual({ scenes: [{ visual: "", outfitId: 999 }] });
++    expect(plan[0]).toEqual({ visual: "Morning starts early.", outfitId: 10, shotSize: "medium" as const });
++    expect(plan[1]).toEqual({ visual: "Then a hard workout.", outfitId: 10, shotSize: "medium" as const });
++    expect(rawPlan).toEqual({ scenes: [{ visual: "", outfitId: 999, shotSize: "medium" as const }] });
+   });
+ 
+   it("follows a supplied plan without calling the model, still enforcing the costume lock", async () => {
+@@ -370,8 +374,8 @@ describe("planSceneVisuals", () => {
+     // wipe the plan — the assertions below prove it never did.
+     const supplied = {
+       scenes: [
+-        { visual: "waking up by a window", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up by a window", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     };
+     const { plan, rawPlan } = await planSceneVisuals({
+@@ -401,8 +405,8 @@ describe("planSceneVisuals", () => {
+       scenes,
+       suppliedPlan: {
+         scenes: [
+-          { visual: "waking up", outfitId: 999 }, // not in the wardrobe → locked outfit
+-          { visual: "lifting weights", outfitId: 11 },
++          { visual: "waking up", outfitId: 999, shotSize: "medium" as const }, // not in the wardrobe → locked outfit
++          { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+         ],
+       },
+     });
+@@ -436,8 +440,8 @@ describe("generateCharacterSceneClips", () => {
+       character,
+       outfits,
+       plan: [
+-        { visual: "waking up", outfitId: 10 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "waking up", outfitId: 10, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+       scenes,
+       aspectRatio: "9:16",
+@@ -460,8 +464,8 @@ describe("generateCharacterSceneClips", () => {
+   it("uses only the clamped selected outfit asset when wardrobe is locked", async () => {
+     planState.response = JSON.stringify({
+       scenes: [
+-        { visual: "working at a desk", outfitId: 11 },
+-        { visual: "walking through a gym", outfitId: 11 },
++        { visual: "working at a desk", outfitId: 11, shotSize: "medium" as const },
++        { visual: "walking through a gym", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     const scenes = [
+@@ -492,8 +496,8 @@ describe("generateCharacterSceneClips", () => {
+   it("anchors deliberate wardrobe changes only to their assigned saved outfit assets", async () => {
+     planState.response = JSON.stringify({
+       scenes: [
+-        { visual: "working at a desk", outfitId: 999 },
+-        { visual: "lifting weights", outfitId: 11 },
++        { visual: "working at a desk", outfitId: 999, shotSize: "medium" as const },
++        { visual: "lifting weights", outfitId: 11, shotSize: "medium" as const },
+       ],
+     });
+     const scenes = [
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index 7fb8c181..1a70fe92 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -85,11 +85,52 @@ export function groupCuesIntoScenes(
+   return scenes;
+ }
+ 
++/**
++ * How tight a scene is framed. A structured field rather than something hoped
++ * for inside the visual sentence: the sentence competes with camera movement,
++ * light, texture and non-repetition instructions, and coverage is what loses.
++ * Every shot in a real sample came back an extreme close-up despite the prompt
++ * asking for variety.
++ */
++export type ShotSize = "wide" | "medium" | "close";
++
++export const SHOT_SIZES: readonly ShotSize[] = ["wide", "medium", "close"];
++
+ export interface ScenePlanEntry {
+   /** What the scene should show, written for image generation. */
+   visual: string;
+   /** The outfit worn in this scene (from the character's wardrobe). */
+   outfitId: number;
++  /** How tight the framing is. Never "wide" where the character speaks. */
++  shotSize: ShotSize;
++}
++
++/**
++ * Framing when the model gives none, rotated by scene index so a plan that
++ * ignores the field still cuts between sizes instead of repeating one.
++ *
++ * Speaking scenes alternate medium and close only. A wide shot puts the face
++ * at a fraction of frame height, and the lip-sync model crops around it — the
++ * same face-pixel constraint that governs the upload path, arriving here as a
++ * composition rule.
++ */
++export function normalizeShotSize(
++  stored: unknown,
++  index: number,
++  speaking: boolean,
++): ShotSize {
++  const size = SHOT_SIZES.includes(stored as ShotSize)
++    ? (stored as ShotSize)
++    : defaultShotSize(index, speaking);
++  // The face-pixel rule holds on replay too: a board approved before lip sync
++  // was switched on can carry a wide shot into a job that now has to sync it.
++  return speaking && size === "wide" ? "medium" : size;
++}
++
++export function defaultShotSize(index: number, speaking: boolean): ShotSize {
++  if (speaking) return index % 2 === 0 ? "medium" : "close";
++  // Non-speaking scenes can open wide; nothing has to read a mouth.
++  return (["wide", "medium", "close", "medium"] as const)[index % 4]!;
+ }
+ 
+ /**
+@@ -110,7 +151,10 @@ export async function planSceneVisuals(params: {
+   /** A saved/edited plan reused instead of asking the model (validated
+    * upstream; the costume-lock clamp below still applies in full). */
+   suppliedPlan?: unknown;
++  /** Whether these scenes will be lip-synced; bans wide framing when true. */
++  speaking?: boolean;
+ }): Promise<{ plan: ScenePlanEntry[]; rawPlan: unknown | null }> {
++  const speaking = params.speaking === true;
+   // Costume uniformity is the default. Unless the user wrote wardrobe
+   // instructions, the character wears the locked outfit in every scene: the
+   // rules below ask the director for that, and the clamp at the end of this
+@@ -131,11 +175,16 @@ export async function planSceneVisuals(params: {
+     }
+     return {
+       plan: clampScenePlan({
+-        planned: parsed.scenes as { visual?: unknown; outfitId?: unknown }[],
++        planned: parsed.scenes as {
++          visual?: unknown;
++          outfitId?: unknown;
++          shotSize?: unknown;
++        }[],
+         scenes: params.scenes,
+         costumeLocked,
+         lockedOutfitId: params.lockedOutfitId,
+         validIds: new Set(params.outfits.map((o) => o.id)),
++        speaking,
+       }),
+       rawPlan: params.suppliedPlan,
+     };
+@@ -148,10 +197,17 @@ export async function planSceneVisuals(params: {
+   const sceneList = params.scenes
+     .map((s, i) => `${i + 1}. ${s.text}`)
+     .join("\n");
++  // Coverage is a separate, enumerated field because as prose it lost every
++  // time: the visual sentence already carries camera movement, light, texture
++  // and a non-repetition rule, and a real sample came back as eight identical
++  // extreme close-ups.
++  const shotSizeRules = speaking
++    ? `3. "shotSize" is "medium" or "close" — never "wide". The character speaks in every scene here and their mouth has to be large enough to read. Alternate the two; never use the same value for three scenes in a row.`
++    : `3. "shotSize" is "wide", "medium" or "close". Open on a "wide" that establishes the place, then vary. Never use the same value for three scenes in a row.`;
+   const outfitRules = costumeLocked
+-    ? `3. "outfitId" must be exactly ${params.lockedOutfitId} for every scene. The character wears one costume for the whole video — never change it, however much the story might suggest one.`
+-    : `3. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} and change it only where the wardrobe instructions below explicitly call for a change.
+-4. Keep outfit changes rare and motivated; never alternate every scene.`;
++    ? `4. "outfitId" must be exactly ${params.lockedOutfitId} for every scene. The character wears one costume for the whole video — never change it, however much the story might suggest one.`
++    : `4. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} and change it only where the wardrobe instructions below explicitly call for a change.
++5. Keep outfit changes rare and motivated; never alternate every scene.`;
+   const prompt = `# Role: Video Scene Director
+ 
+ A short video features one recurring character. For every scene below, describe the single visual moment to generate, always featuring the character.
+@@ -163,8 +219,9 @@ ${params.character.name}${params.character.description ? ` — ${params.characte
+ ${wardrobe}
+ 
+ ## Rules:
+-1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly ${params.scenes.length} entries, in scene order.
+-2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Include one slow camera move (e.g. glide, push-in, rise), the quality and direction of light (e.g. golden-hour warmth, shafts of sunlight, diffused overcast), and a tactile detail or atmosphere (surface texture, dust in sunlight, reflections). Treat the list as an edit: consecutive scenes must differ in at least two of setting, action, shot scale, camera angle/movement, subject placement, and background geometry. Never repeat the same pose, activity, location, or composition in adjacent scenes. Vary the coverage by mixing wide establishing frames, medium shots, intimate close-ups, details, and overheads where natural. Do not mention the character's name or clothing.
++1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>, "shotSize": "wide"|"medium"|"close"}, ...]} with exactly ${params.scenes.length} entries, in scene order.
++2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Include one slow camera move (e.g. glide, push-in, rise), the quality and direction of light (e.g. golden-hour warmth, shafts of sunlight, diffused overcast), and a tactile detail or atmosphere (surface texture, dust in sunlight, reflections). Treat the list as an edit: consecutive scenes must differ in at least two of setting, action, shot scale, camera angle/movement, subject placement, and background geometry. Never repeat the same pose, activity, location, or composition in adjacent scenes. Do not mention the character's name or clothing, and do not describe the framing in this sentence — "shotSize" carries it.
++${shotSizeRules}
+ ${outfitRules}
+ ${costumeLocked ? "" : `\n## Wardrobe instructions from the user:\n${wardrobeNotes}\n`}
+ ## Scenes (narration):
+@@ -254,6 +311,7 @@ ${sceneList}`;
+     costumeLocked,
+     lockedOutfitId: params.lockedOutfitId,
+     validIds,
++    speaking,
+   });
+   const refinedVisuals = await refineScenePrompts({
+     tenantAiModel: params.tenantAiModel,
+@@ -275,11 +333,13 @@ ${sceneList}`;
+  * outside the wardrobe still falls back to the locked one.
+  */
+ function clampScenePlan(args: {
+-  planned: { visual?: unknown; outfitId?: unknown }[];
++  planned: { visual?: unknown; outfitId?: unknown; shotSize?: unknown }[];
+   scenes: ScriptScene[];
+   costumeLocked: boolean;
+   lockedOutfitId: number;
+   validIds: Set<number>;
++  /** Whether these scenes will be lip-synced; bans "wide" when they are. */
++  speaking: boolean;
+ }): ScenePlanEntry[] {
+   return args.scenes.map((scene, i) => {
+     const entry = args.planned[i];
+@@ -292,7 +352,15 @@ function clampScenePlan(args: {
+       : typeof entry?.outfitId === "number" && args.validIds.has(entry.outfitId)
+         ? entry.outfitId
+         : args.lockedOutfitId;
+-    return { visual, outfitId };
++    // Framing is clamped rather than trusted, for the same reason the costume
++    // lock is: the plan may be hand-edited or replayed from a saved job, and a
++    // wide shot on a speaking scene produces a mouth too small to sync.
++    const requested = SHOT_SIZES.includes(entry?.shotSize as ShotSize)
++      ? (entry!.shotSize as ShotSize)
++      : defaultShotSize(i, args.speaking);
++    const shotSize: ShotSize =
++      args.speaking && requested === "wide" ? "medium" : requested;
++    return { visual, outfitId, shotSize };
+   });
+ }
+ 
+@@ -363,6 +431,7 @@ export async function generateSceneKeyframes(params: {
+           : entry.visual,
+         params.aspectRatio,
+         reference,
++        entry.shotSize,
+       );
+     let result: ImageGenResult;
+     try {
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 10b90dde..3fbca045 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -38,6 +38,7 @@ import {
+   generateCharacterSceneClips,
+   generateSceneKeyframes,
+   animateSceneKeyframes,
++  normalizeShotSize,
+   type ScriptScene,
+   type ScenePlanEntry,
+   type SceneLipSync,
+@@ -775,6 +776,8 @@ async function planCharacterScenes(params: {
+   /** A saved/edited plan reused instead of asking the model. */
+   suppliedPlan?: unknown;
+   characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
++  /** Whether these scenes will be lip-synced; bans wide framing when true. */
++  speaking?: boolean;
+ }): Promise<{
+   detail: NonNullable<Awaited<ReturnType<typeof getCharacterDetail>>>;
+   plan: ScenePlanEntry[];
+@@ -800,6 +803,7 @@ async function planCharacterScenes(params: {
+     wardrobeNotes: params.wardrobeNotes,
+     scenes: params.scenes,
+     suppliedPlan: params.suppliedPlan,
++    speaking: params.speaking === true,
+   });
+   return { detail, plan, rawPlan };
+ }
+@@ -844,7 +848,13 @@ async function generateCharacterStoryClips(params: {
+     sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
+   );
+   scenesWithinRuntimeBounds(scenes, params.templateRuntime);
+-  const planned = await planCharacterScenes({ ...params, scenes });
++  // Framing has to know whether these scenes will be synced: a wide shot puts
++  // the face at a fraction of frame height and starves the sync model's crop.
++  const planned = await planCharacterScenes({
++    ...params,
++    scenes,
++    speaking: params.lipSync != null,
++  });
+   const detail = planned.detail;
+   const plan = planned.plan.map((entry) => ({
+     ...entry,
+@@ -884,6 +894,8 @@ const NARRATION_TIMELINE_LOCKED = true;
+ export interface StoryboardPlanParams {
+   tenantId: number;
+   topic: string;
++  /** Lip-sync character scenes; framing is chosen to keep faces syncable. */
++  characterLipSync?: boolean;
+   /** Exact human-approved guided-story transcript; bypasses script rewriting. */
+   approvedScript?: string | null;
+   /** Immutable server-authored guided contract. When present no generic
+@@ -1068,6 +1080,7 @@ export async function planTopicStoryboard(
+       scenes,
+       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
+       characterSnapshot: params.characterSnapshot,
++      speaking: params.characterLipSync === true,
+     });
+     return {
+       version: 1,
+@@ -1090,6 +1103,7 @@ export async function planTopicStoryboard(
+         durationSec: scene.durationSec,
+         previewPath: null,
+         outfitId: plan[index]?.outfitId ?? null,
++        shotSize: plan[index]?.shotSize ?? null,
+       })),
+       aiPlan:
+         rawPlan == null
+@@ -1397,8 +1411,12 @@ export async function prepareCharacterStoryStoryboard(params: {
+   if (!detail) throw new VideoGenProviderError("The selected character no longer exists.");
+   const fallbackOutfit = resolveOutfit(detail, params.selectedOutfitId);
+   if (!fallbackOutfit) throw new VideoGenProviderError("The selected character has no outfit.");
+-  const plan: ScenePlanEntry[] = prepared.scenes.map((scene) => ({
++  const plan: ScenePlanEntry[] = prepared.scenes.map((scene, i) => ({
+     visual: scene.visual,
++    // Reviewed coverage is authoritative; only a board saved before shot size
++    // existed falls back, and it falls back to the same rotation a fresh plan
++    // would have used rather than to one repeated size.
++    shotSize: normalizeShotSize(scene.shotSize, i, false),
+     outfitId:
+       scene.outfitId && detail.outfits.some((outfit) => outfit.id === scene.outfitId)
+         ? scene.outfitId
+@@ -1455,6 +1473,7 @@ export async function prepareCharacterStoryStoryboard(params: {
+       ...scene,
+       previewPath: previewPaths[index] ?? null,
+       outfitId: plan[index]!.outfitId,
++      shotSize: plan[index]!.shotSize,
+     })),
+   };
+ }
+@@ -1637,9 +1656,10 @@ export async function renderTopicStoryboard(params: {
+     params.onStage?.("Filming your character");
+     const animated = await animateSceneKeyframes({
+       keyframes: stills as Buffer[],
+-      plan: board.scenes.map((scene) => ({
++      plan: board.scenes.map((scene, i) => ({
+         visual: scene.visual,
+         outfitId: scene.outfitId ?? 0,
++        shotSize: normalizeShotSize(scene.shotSize, i, params.characterLipSync === true),
+       })),
+       scenes,
+       aspectRatio: params.aspectRatio,
+@@ -1880,6 +1900,7 @@ export async function regenerateStoryboardPreview(params: {
+         plan: [
+           {
+             visual: params.scene.visual,
++            shotSize: normalizeShotSize(params.scene.shotSize, 0, false),
+             // Unknown or implicit changes fall back to the enqueue-time selected
+             // outfit, never whichever outfit happens to be default now.
+             outfitId:
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/shotSize.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/shotSize.test.ts
+new file mode 100644
+index 00000000..487d22ad
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/shotSize.test.ts
+@@ -0,0 +1,82 @@
++import { describe, it, expect } from "vitest";
++import { defaultShotSize, normalizeShotSize, SHOT_SIZES } from "./characterScenes";
++import { sceneKeyframePrompt } from "../../characters";
++import type { Character, CharacterOutfit } from "@workspace/db";
++
++const CHARACTER = { id: 1, name: "Asha", description: "a paediatrician" } as Character;
++const OUTFIT = { id: 7, name: "Scrubs", description: "teal scrubs" } as CharacterOutfit;
++
++describe("defaultShotSize", () => {
++  it("never offers a wide shot to a scene that speaks", () => {
++    // The sync model crops around the face. A wide frame starves that crop
++    // before it starts — the same face-pixel rule the upload path enforces,
++    // arriving here as a composition constraint.
++    for (let i = 0; i < 12; i++) {
++      expect(defaultShotSize(i, true)).not.toBe("wide");
++    }
++  });
++
++  it("alternates rather than repeating one size", () => {
++    const speaking = Array.from({ length: 8 }, (_, i) => defaultShotSize(i, true));
++    expect(new Set(speaking).size).toBeGreaterThan(1);
++    for (let i = 2; i < speaking.length; i++) {
++      // Never three of the same in a row, which is the defect this replaces.
++      expect(speaking[i] === speaking[i - 1] && speaking[i - 1] === speaking[i - 2]).toBe(false);
++    }
++  });
++
++  it("opens wide when nobody has to be synced", () => {
++    expect(defaultShotSize(0, false)).toBe("wide");
++    expect(new Set(Array.from({ length: 8 }, (_, i) => defaultShotSize(i, false))).size)
++      .toBeGreaterThan(2);
++  });
++});
++
++describe("normalizeShotSize", () => {
++  it("keeps a reviewed size", () => {
++    for (const size of SHOT_SIZES) {
++      if (size === "wide") continue;
++      expect(normalizeShotSize(size, 0, true)).toBe(size);
++    }
++    expect(normalizeShotSize("wide", 0, false)).toBe("wide");
++  });
++
++  it("rescues a board approved before lip sync was switched on", () => {
++    // A stored wide is legitimate; it just cannot survive into a synced job.
++    expect(normalizeShotSize("wide", 0, true)).toBe("medium");
++  });
++
++  it("falls back to the rotation, not to one repeated size", () => {
++    for (const junk of [undefined, null, "", "extreme-closeup", 3, {}]) {
++      expect(SHOT_SIZES).toContain(normalizeShotSize(junk, 0, true));
++    }
++    const recovered = Array.from({ length: 6 }, (_, i) => normalizeShotSize(null, i, true));
++    expect(new Set(recovered).size).toBeGreaterThan(1);
++  });
++});
++
++describe("sceneKeyframePrompt framing", () => {
++  it("names the shot in camera terms rather than leaving it to chance", () => {
++    const close = sceneKeyframePrompt(CHARACTER, OUTFIT, "waiting in a corridor", "close");
++    const wide = sceneKeyframePrompt(CHARACTER, OUTFIT, "waiting in a corridor", "wide");
++    expect(close).toMatch(/Close-up/);
++    expect(close).toMatch(/face occupying much of the frame/i);
++    expect(wide).toMatch(/Wide shot/);
++    expect(wide).toMatch(/full-length/i);
++    expect(close).not.toBe(wide);
++  });
++
++  it("still carries identity and wardrobe unchanged", () => {
++    // Framing is additive. The outfit lock is what keeps a character the same
++    // character, and it must survive the new language intact.
++    const prompt = sceneKeyframePrompt(CHARACTER, OUTFIT, "waiting in a corridor", "medium");
++    expect(prompt).toMatch(/reference image is authoritative/i);
++    expect(prompt).toContain(OUTFIT.description);
++    expect(prompt).toMatch(/identical face, hair, body, identity/i);
++    expect(prompt).toMatch(/No text, no watermark/);
++  });
++
++  it("defaults to a medium shot when no size is given", () => {
++    expect(sceneKeyframePrompt(CHARACTER, OUTFIT, "a corridor")).toMatch(/Medium shot/);
++  });
++});
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 6f8b177f..8323ec15 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -1094,6 +1094,16 @@ export interface VideoStoryboardScene {
+   } | null;
+   /** Character mode: the outfit worn in this scene. */
+   outfitId: number | null;
++  /**
++   * Character mode: how tight this scene is framed. Persisted on the board so
++   * an approved plan renders the same coverage it was reviewed with — a scene
++   * that resumes without it would silently fall back to the default rotation
++   * and change shape after approval.
++   *
++   * Never "wide" on a lip-synced scene: the sync model works on a crop around
++   * the face, and a wide frame starves that crop before it starts.
++   */
++  shotSize?: "wide" | "medium" | "close" | null;
+   /** "prompt" plans only: the polished generation prompt derived from the
+    * approved `visual` (Prompt Kit video_scene_image pass). Written once at
+    * first render and reused on retries, so an approved plan always renders
+diff --git a/scripts/src/multispeaker-audio.mjs b/scripts/src/multispeaker-audio.mjs
+new file mode 100644
+index 00000000..95556e9c
+--- /dev/null
++++ b/scripts/src/multispeaker-audio.mjs
+@@ -0,0 +1,177 @@
++/* eslint-disable no-console */
++// Build one full-length audio track per speaker from a scene's dialogue lines.
++//
++// Usage: node scripts/src/multispeaker-audio.mjs scene.json [outDir]
++//
++// Every multi-speaker lip-sync route needs the same thing: for each character,
++// a track as long as the whole scene, carrying only that character's lines at
++// their real timecodes. Native two-speaker models (InfiniteTalk, MultiTalk)
++// take these as left_audio / right_audio. The crop-and-composite route feeds
++// one per pass. Either way this is the piece that has to be exact.
++//
++// scene.json:
++// {
++//   "durationSec": 8.0,
++//   "lines": [
++//     { "speaker": "doctor",  "audio": "line1.wav", "startSec": 0.0 },
++//     { "speaker": "patient", "audio": "line2.wav", "startSec": 2.4 },
++//     { "speaker": "doctor",  "audio": "line3.wav", "startSec": 5.1 }
++//   ]
++// }
++//
++// Two things this gets right that are easy to get wrong:
++//
++//  - The gaps are NOT digital silence. Every sample being zero made LatentSync
++//    hold the mouth half-open with a black void where the teeth should be,
++//    instead of closing it. The same -60 dBFS floor the character path now uses
++//    goes under these tracks, for the same reason.
++//  - Every output is exactly durationSec long, to the sample. Lip-sync models
++//    take video and audio as separate files and assume they start together, so
++//    a track that is short by a frame is a mouth that is wrong by a frame.
++
++import { spawn } from "node:child_process";
++import { mkdir, readFile, writeFile } from "node:fs/promises";
++import { dirname, join, resolve } from "node:path";
++
++const scenePath = process.argv[2];
++const outDir = process.argv[3] || "multispeaker-audio";
++if (!scenePath) {
++  console.error("usage: node scripts/src/multispeaker-audio.mjs scene.json [outDir]");
++  process.exit(2);
++}
++
++/** Peak amplitude of the noise floor, dB below full scale. Matches narration.ts. */
++const NOISE_FLOOR_DBFS = -60;
++const SAMPLE_RATE = 24_000;
++
++function ffmpeg(args) {
++  return new Promise((resolve_, reject) => {
++    const proc = spawn("ffmpeg", args);
++    let stderr = "";
++    proc.stderr.on("data", (c) => {
++      stderr = (stderr + c.toString()).slice(-4000);
++    });
++    proc.on("close", (code) =>
++      code === 0 ? resolve_() : reject(new Error(`ffmpeg ${code}: ${stderr.slice(-400)}`)),
++    );
++    proc.on("error", reject);
++  });
++}
++
++function parseWav(buffer) {
++  let offset = 12;
++  let format = null;
++  let pcm = null;
++  while (offset + 8 <= buffer.length) {
++    const id = buffer.toString("ascii", offset, offset + 4);
++    const size = buffer.readUInt32LE(offset + 4);
++    const body = buffer.subarray(offset + 8, Math.min(offset + 8 + size, buffer.length));
++    if (id === "fmt ") {
++      format = {
++        channels: body.readUInt16LE(2),
++        sampleRate: body.readUInt32LE(4),
++        byteRate: body.readUInt32LE(8),
++        blockAlign: body.readUInt16LE(12),
++        bitsPerSample: body.readUInt16LE(14),
++      };
++    } else if (id === "data") pcm = Buffer.from(body);
++    offset += 8 + size + (size % 2);
++  }
++  if (!format || !pcm) throw new Error("not a PCM WAV");
++  return { format, pcm };
++}
++
++function buildWav(format, pcm) {
++  const h = Buffer.alloc(44);
++  h.write("RIFF", 0, "ascii");
++  h.writeUInt32LE(36 + pcm.length, 4);
++  h.write("WAVE", 8, "ascii");
++  h.write("fmt ", 12, "ascii");
++  h.writeUInt32LE(16, 16);
++  h.writeUInt16LE(1, 20);
++  h.writeUInt16LE(format.channels, 22);
++  h.writeUInt32LE(format.sampleRate, 24);
++  h.writeUInt32LE(format.byteRate, 28);
++  h.writeUInt16LE(format.blockAlign, 32);
++  h.writeUInt16LE(format.bitsPerSample, 34);
++  h.write("data", 36, "ascii");
++  h.writeUInt32LE(pcm.length, 40);
++  return Buffer.concat([h, pcm]);
++}
++
++/** Normalize any input to mono 16-bit PCM at SAMPLE_RATE. */
++async function toPcm(inputPath, workDir, index) {
++  const out = join(workDir, `norm_${index}.wav`);
++  await ffmpeg([
++    "-y", "-i", inputPath,
++    "-ac", "1", "-ar", String(SAMPLE_RATE), "-c:a", "pcm_s16le",
++    out,
++  ]);
++  return parseWav(await readFile(out));
++}
++
++function applyNoiseFloor(pcm) {
++  const peak = Math.max(1, Math.round(32767 * Math.pow(10, NOISE_FLOOR_DBFS / 20)));
++  let seed = (pcm.length * 2654435761) % 4294967296;
++  for (let o = 0; o + 2 <= pcm.length; o += 2) {
++    seed = (seed * 1664525 + 1013904223) % 4294967296;
++    const mixed = pcm.readInt16LE(o) + ((seed % (2 * peak + 1)) - peak);
++    pcm.writeInt16LE(Math.max(-32768, Math.min(32767, mixed)), o);
++  }
++  return pcm;
++}
++
++async function main() {
++  const scene = JSON.parse(await readFile(scenePath, "utf8"));
++  const base = dirname(resolve(scenePath));
++  await mkdir(outDir, { recursive: true });
++
++  const blockAlign = 2;
++  const byteRate = SAMPLE_RATE * blockAlign;
++  const format = {
++    channels: 1,
++    sampleRate: SAMPLE_RATE,
++    byteRate,
++    blockAlign,
++    bitsPerSample: 16,
++  };
++  const totalBytes = Math.round((scene.durationSec * byteRate) / blockAlign) * blockAlign;
++
++  const speakers = [...new Set(scene.lines.map((l) => l.speaker))];
++  const tracks = new Map(speakers.map((s) => [s, Buffer.alloc(totalBytes)]));
++
++  console.log(`scene: ${scene.durationSec}s, ${scene.lines.length} lines, ${speakers.length} speakers\n`);
++
++  let i = 0;
++  for (const line of scene.lines) {
++    const { pcm } = await toPcm(join(base, line.audio), outDir, i++);
++    const at = Math.round((line.startSec * byteRate) / blockAlign) * blockAlign;
++    const room = Math.max(0, totalBytes - at);
++    const take = Math.min(pcm.length, room);
++    if (take < pcm.length) {
++      console.warn(
++        `  ! ${line.audio} overruns the scene by ${((pcm.length - take) / byteRate).toFixed(2)}s and was cut`,
++      );
++    }
++    pcm.copy(tracks.get(line.speaker), at, 0, take);
++    console.log(
++      `  ${line.speaker.padEnd(10)} ${line.startSec.toFixed(2)}s  ${(take / byteRate).toFixed(2)}s  ${line.audio}`,
++    );
++  }
++
++  console.log("");
++  for (const [speaker, pcm] of tracks) {
++    const path = join(outDir, `${speaker}.wav`);
++    await writeFile(path, buildWav(format, applyNoiseFloor(pcm)));
++    console.log(`  -> ${path}  (${(pcm.length / byteRate).toFixed(3)}s)`);
++  }
++  console.log(
++    `\nEvery track is exactly ${(totalBytes / byteRate).toFixed(3)}s, with a ${NOISE_FLOOR_DBFS} dBFS floor` +
++      " where nobody is speaking.",
++  );
++}
++
++main().catch((error) => {
++  console.error(error.message);
++  process.exit(1);
++});
+-- 
+2.43.0
+

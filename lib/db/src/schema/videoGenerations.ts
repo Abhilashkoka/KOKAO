@@ -1094,6 +1094,16 @@ export interface VideoStoryboardScene {
   } | null;
   /** Character mode: the outfit worn in this scene. */
   outfitId: number | null;
+  /**
+   * Character mode: how tight this scene is framed. Persisted on the board so
+   * an approved plan renders the same coverage it was reviewed with — a scene
+   * that resumes without it would silently fall back to the default rotation
+   * and change shape after approval.
+   *
+   * Never "wide" on a lip-synced scene: the sync model works on a crop around
+   * the face, and a wide frame starves that crop before it starts.
+   */
+  shotSize?: "wide" | "medium" | "close" | null;
   /** "prompt" plans only: the polished generation prompt derived from the
    * approved `visual` (Prompt Kit video_scene_image pass). Written once at
    * first render and reused on retries, so an approved plan always renders

@@ -85,11 +85,52 @@ export function groupCuesIntoScenes(
   return scenes;
 }
 
+/**
+ * How tight a scene is framed. A structured field rather than something hoped
+ * for inside the visual sentence: the sentence competes with camera movement,
+ * light, texture and non-repetition instructions, and coverage is what loses.
+ * Every shot in a real sample came back an extreme close-up despite the prompt
+ * asking for variety.
+ */
+export type ShotSize = "wide" | "medium" | "close";
+
+export const SHOT_SIZES: readonly ShotSize[] = ["wide", "medium", "close"];
+
 export interface ScenePlanEntry {
   /** What the scene should show, written for image generation. */
   visual: string;
   /** The outfit worn in this scene (from the character's wardrobe). */
   outfitId: number;
+  /** How tight the framing is. Never "wide" where the character speaks. */
+  shotSize: ShotSize;
+}
+
+/**
+ * Framing when the model gives none, rotated by scene index so a plan that
+ * ignores the field still cuts between sizes instead of repeating one.
+ *
+ * Speaking scenes alternate medium and close only. A wide shot puts the face
+ * at a fraction of frame height, and the lip-sync model crops around it — the
+ * same face-pixel constraint that governs the upload path, arriving here as a
+ * composition rule.
+ */
+export function normalizeShotSize(
+  stored: unknown,
+  index: number,
+  speaking: boolean,
+): ShotSize {
+  const size = SHOT_SIZES.includes(stored as ShotSize)
+    ? (stored as ShotSize)
+    : defaultShotSize(index, speaking);
+  // The face-pixel rule holds on replay too: a board approved before lip sync
+  // was switched on can carry a wide shot into a job that now has to sync it.
+  return speaking && size === "wide" ? "medium" : size;
+}
+
+export function defaultShotSize(index: number, speaking: boolean): ShotSize {
+  if (speaking) return index % 2 === 0 ? "medium" : "close";
+  // Non-speaking scenes can open wide; nothing has to read a mouth.
+  return (["wide", "medium", "close", "medium"] as const)[index % 4]!;
 }
 
 /**
@@ -110,7 +151,10 @@ export async function planSceneVisuals(params: {
   /** A saved/edited plan reused instead of asking the model (validated
    * upstream; the costume-lock clamp below still applies in full). */
   suppliedPlan?: unknown;
+  /** Whether these scenes will be lip-synced; bans wide framing when true. */
+  speaking?: boolean;
 }): Promise<{ plan: ScenePlanEntry[]; rawPlan: unknown | null }> {
+  const speaking = params.speaking === true;
   // Costume uniformity is the default. Unless the user wrote wardrobe
   // instructions, the character wears the locked outfit in every scene: the
   // rules below ask the director for that, and the clamp at the end of this
@@ -131,11 +175,16 @@ export async function planSceneVisuals(params: {
     }
     return {
       plan: clampScenePlan({
-        planned: parsed.scenes as { visual?: unknown; outfitId?: unknown }[],
+        planned: parsed.scenes as {
+          visual?: unknown;
+          outfitId?: unknown;
+          shotSize?: unknown;
+        }[],
         scenes: params.scenes,
         costumeLocked,
         lockedOutfitId: params.lockedOutfitId,
         validIds: new Set(params.outfits.map((o) => o.id)),
+        speaking,
       }),
       rawPlan: params.suppliedPlan,
     };
@@ -148,10 +197,17 @@ export async function planSceneVisuals(params: {
   const sceneList = params.scenes
     .map((s, i) => `${i + 1}. ${s.text}`)
     .join("\n");
+  // Coverage is a separate, enumerated field because as prose it lost every
+  // time: the visual sentence already carries camera movement, light, texture
+  // and a non-repetition rule, and a real sample came back as eight identical
+  // extreme close-ups.
+  const shotSizeRules = speaking
+    ? `3. "shotSize" is "medium" or "close" — never "wide". The character speaks in every scene here and their mouth has to be large enough to read. Alternate the two; never use the same value for three scenes in a row.`
+    : `3. "shotSize" is "wide", "medium" or "close". Open on a "wide" that establishes the place, then vary. Never use the same value for three scenes in a row.`;
   const outfitRules = costumeLocked
-    ? `3. "outfitId" must be exactly ${params.lockedOutfitId} for every scene. The character wears one costume for the whole video — never change it, however much the story might suggest one.`
-    : `3. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} and change it only where the wardrobe instructions below explicitly call for a change.
-4. Keep outfit changes rare and motivated; never alternate every scene.`;
+    ? `4. "outfitId" must be exactly ${params.lockedOutfitId} for every scene. The character wears one costume for the whole video — never change it, however much the story might suggest one.`
+    : `4. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} and change it only where the wardrobe instructions below explicitly call for a change.
+5. Keep outfit changes rare and motivated; never alternate every scene.`;
   const prompt = `# Role: Video Scene Director
 
 A short video features one recurring character. For every scene below, describe the single visual moment to generate, always featuring the character.
@@ -163,8 +219,9 @@ ${params.character.name}${params.character.description ? ` — ${params.characte
 ${wardrobe}
 
 ## Rules:
-1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly ${params.scenes.length} entries, in scene order.
-2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Include one slow camera move (e.g. glide, push-in, rise), the quality and direction of light (e.g. golden-hour warmth, shafts of sunlight, diffused overcast), and a tactile detail or atmosphere (surface texture, dust in sunlight, reflections). Treat the list as an edit: consecutive scenes must differ in at least two of setting, action, shot scale, camera angle/movement, subject placement, and background geometry. Never repeat the same pose, activity, location, or composition in adjacent scenes. Vary the coverage by mixing wide establishing frames, medium shots, intimate close-ups, details, and overheads where natural. Do not mention the character's name or clothing.
+1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>, "shotSize": "wide"|"medium"|"close"}, ...]} with exactly ${params.scenes.length} entries, in scene order.
+2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Include one slow camera move (e.g. glide, push-in, rise), the quality and direction of light (e.g. golden-hour warmth, shafts of sunlight, diffused overcast), and a tactile detail or atmosphere (surface texture, dust in sunlight, reflections). Treat the list as an edit: consecutive scenes must differ in at least two of setting, action, shot scale, camera angle/movement, subject placement, and background geometry. Never repeat the same pose, activity, location, or composition in adjacent scenes. Do not mention the character's name or clothing, and do not describe the framing in this sentence — "shotSize" carries it.
+${shotSizeRules}
 ${outfitRules}
 ${costumeLocked ? "" : `\n## Wardrobe instructions from the user:\n${wardrobeNotes}\n`}
 ## Scenes (narration):
@@ -254,6 +311,7 @@ ${sceneList}`;
     costumeLocked,
     lockedOutfitId: params.lockedOutfitId,
     validIds,
+    speaking,
   });
   const refinedVisuals = await refineScenePrompts({
     tenantAiModel: params.tenantAiModel,
@@ -275,11 +333,13 @@ ${sceneList}`;
  * outside the wardrobe still falls back to the locked one.
  */
 function clampScenePlan(args: {
-  planned: { visual?: unknown; outfitId?: unknown }[];
+  planned: { visual?: unknown; outfitId?: unknown; shotSize?: unknown }[];
   scenes: ScriptScene[];
   costumeLocked: boolean;
   lockedOutfitId: number;
   validIds: Set<number>;
+  /** Whether these scenes will be lip-synced; bans "wide" when they are. */
+  speaking: boolean;
 }): ScenePlanEntry[] {
   return args.scenes.map((scene, i) => {
     const entry = args.planned[i];
@@ -292,7 +352,15 @@ function clampScenePlan(args: {
       : typeof entry?.outfitId === "number" && args.validIds.has(entry.outfitId)
         ? entry.outfitId
         : args.lockedOutfitId;
-    return { visual, outfitId };
+    // Framing is clamped rather than trusted, for the same reason the costume
+    // lock is: the plan may be hand-edited or replayed from a saved job, and a
+    // wide shot on a speaking scene produces a mouth too small to sync.
+    const requested = SHOT_SIZES.includes(entry?.shotSize as ShotSize)
+      ? (entry!.shotSize as ShotSize)
+      : defaultShotSize(i, args.speaking);
+    const shotSize: ShotSize =
+      args.speaking && requested === "wide" ? "medium" : requested;
+    return { visual, outfitId, shotSize };
   });
 }
 
@@ -363,6 +431,7 @@ export async function generateSceneKeyframes(params: {
           : entry.visual,
         params.aspectRatio,
         reference,
+        entry.shotSize,
       );
     let result: ImageGenResult;
     try {
