@@ -2201,6 +2201,7 @@ export function VideoStudioPage() {
         if (!lipSyncConsent) {
           return "Confirm that you have permission to lip-sync the selected cast.";
         }
+        return null;
       }
       return prompt.trim().length < 3
         ? "Describe the video topic before generating."

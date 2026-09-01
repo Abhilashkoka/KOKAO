@@ -1352,6 +1352,9 @@ describe("Video Studio", () => {
       await user.click(screen.getByTestId("button-generate-spokesperson-script"));
       await user.click(screen.getByTestId("button-approve-spokesperson-script"));
       await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+      expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(
+        false,
+      );
       await user.click(screen.getByTestId("button-generate-video"));
       expect(mockState.lastGenerateVars.data).toEqual(expect.objectContaining({
         brandKitId: null,
