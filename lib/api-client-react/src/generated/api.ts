@@ -416,6 +416,9 @@ import type {
   UpsertAiModelPriceRequest,
   UserPromptCase,
   VideoCapabilities,
+  VideoCoverCandidateList,
+  VideoCoverGenerateInput,
+  VideoCoverInput,
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
@@ -18917,6 +18920,221 @@ export const useSaveVideoToLibrary = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSaveVideoToLibraryMutationOptions(options));
+    }
+
+export const getListVideoCoverCandidatesUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/cover-candidates`
+}
+
+/**
+ * Grabs an even spread of frames from the rendered video and stores them so the user can choose one as the cover. Free — no generation is involved. POST rather than GET because it writes the frames to storage.
+ * @summary Extract candidate cover frames from a finished video
+ */
+export const listVideoCoverCandidates = async (jobId: number, options?: RequestInit): Promise<VideoCoverCandidateList> => {
+
+  return customFetch<VideoCoverCandidateList>(getListVideoCoverCandidatesUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getListVideoCoverCandidatesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listVideoCoverCandidates>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof listVideoCoverCandidates>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['listVideoCoverCandidates'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listVideoCoverCandidates>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  listVideoCoverCandidates(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ListVideoCoverCandidatesMutationResult = NonNullable<Awaited<ReturnType<typeof listVideoCoverCandidates>>>
+
+    export type ListVideoCoverCandidatesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Extract candidate cover frames from a finished video
+ */
+export const useListVideoCoverCandidates = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listVideoCoverCandidates>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof listVideoCoverCandidates>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getListVideoCoverCandidatesMutationOptions(options));
+    }
+
+export const getGenerateVideoCoverCandidatesUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/cover-candidates/generate`
+}
+
+/**
+ * Generates cover stills from the video's locked character reference, at three expression intensities, composed for the requested aspect. Costs image generations, so it is only ever done on request. Character videos only — there is no locked reference to anchor to otherwise.
+ * @summary Generate purpose-made cover images for a finished video
+ */
+export const generateVideoCoverCandidates = async (jobId: number,
+    videoCoverGenerateInput?: VideoCoverGenerateInput, options?: RequestInit): Promise<VideoCoverCandidateList> => {
+
+  return customFetch<VideoCoverCandidateList>(getGenerateVideoCoverCandidatesUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoCoverGenerateInput)
+  }
+);}
+
+
+
+
+export const getGenerateVideoCoverCandidatesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateVideoCoverCandidates>>, TError,{jobId: number;data?: BodyType<VideoCoverGenerateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateVideoCoverCandidates>>, TError,{jobId: number;data?: BodyType<VideoCoverGenerateInput>}, TContext> => {
+
+const mutationKey = ['generateVideoCoverCandidates'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateVideoCoverCandidates>>, {jobId: number;data?: BodyType<VideoCoverGenerateInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  generateVideoCoverCandidates(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateVideoCoverCandidatesMutationResult = NonNullable<Awaited<ReturnType<typeof generateVideoCoverCandidates>>>
+    export type GenerateVideoCoverCandidatesMutationBody = BodyType<VideoCoverGenerateInput> | undefined
+    export type GenerateVideoCoverCandidatesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate purpose-made cover images for a finished video
+ */
+export const useGenerateVideoCoverCandidates = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateVideoCoverCandidates>>, TError,{jobId: number;data?: BodyType<VideoCoverGenerateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateVideoCoverCandidates>>,
+        TError,
+        {jobId: number;data?: BodyType<VideoCoverGenerateInput>},
+        TContext
+      > => {
+      return useMutation(getGenerateVideoCoverCandidatesMutationOptions(options));
+    }
+
+export const getSetVideoCoverUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/cover`
+}
+
+/**
+ * Accepts any image already stored under this tenant — a candidate frame, a generated cover, or the user's own upload via the presigned upload flow. Propagates to the library copy when the video has been saved.
+ * @summary Set the cover image shown for a finished video
+ */
+export const setVideoCover = async (jobId: number,
+    videoCoverInput: VideoCoverInput, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getSetVideoCoverUrl(jobId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoCoverInput)
+  }
+);}
+
+
+
+
+export const getSetVideoCoverMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setVideoCover>>, TError,{jobId: number;data: BodyType<VideoCoverInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setVideoCover>>, TError,{jobId: number;data: BodyType<VideoCoverInput>}, TContext> => {
+
+const mutationKey = ['setVideoCover'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setVideoCover>>, {jobId: number;data: BodyType<VideoCoverInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  setVideoCover(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetVideoCoverMutationResult = NonNullable<Awaited<ReturnType<typeof setVideoCover>>>
+    export type SetVideoCoverMutationBody = BodyType<VideoCoverInput>
+    export type SetVideoCoverMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set the cover image shown for a finished video
+ */
+export const useSetVideoCover = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setVideoCover>>, TError,{jobId: number;data: BodyType<VideoCoverInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setVideoCover>>,
+        TError,
+        {jobId: number;data: BodyType<VideoCoverInput>},
+        TContext
+      > => {
+      return useMutation(getSetVideoCoverMutationOptions(options));
     }
 
 export const getTranscribeAudioUrl = () => {

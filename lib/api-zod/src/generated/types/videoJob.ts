@@ -95,10 +95,12 @@ export interface VideoJob {
      */
   savedContentItemId: number | null;
   /**
-     * Poster-frame PNG path (best effort; may be null).
+     * The video's cover image. Set by the renderer on success, and replaceable afterwards via PATCH /ai/video-jobs/{jobId}/cover.
      * @nullable
      */
   thumbnailPath?: string | null;
+  /** Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene. */
+  coverGeneratable?: boolean;
   /** @nullable */
   provider?: string | null;
   /** @nullable */

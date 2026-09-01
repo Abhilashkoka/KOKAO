@@ -6354,10 +6354,12 @@ export interface VideoJob {
      */
   savedContentItemId: number | null;
   /**
-     * Poster-frame PNG path (best effort; may be null).
+     * The video's cover image. Set by the renderer on success, and replaceable afterwards via PATCH /ai/video-jobs/{jobId}/cover.
      * @nullable
      */
   thumbnailPath?: string | null;
+  /** Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene. */
+  coverGeneratable?: boolean;
   /** @nullable */
   provider?: string | null;
   /** @nullable */
@@ -7281,6 +7283,53 @@ export interface ImportLibraryMusicRequest {
      * @maxLength 200
      */
   title: string;
+}
+
+/**
+ * Where this candidate came from.
+ */
+export type VideoCoverCandidateSource = typeof VideoCoverCandidateSource[keyof typeof VideoCoverCandidateSource];
+
+
+export const VideoCoverCandidateSource = {
+  frame: 'frame',
+  generated: 'generated',
+  upload: 'upload',
+} as const;
+
+export interface VideoCoverCandidate {
+  /** Stored object path of the candidate image. */
+  path: string;
+  /** Where this candidate came from. */
+  source: VideoCoverCandidateSource;
+  /**
+     * Timestamp in the video, for an extracted frame.
+     * @nullable
+     */
+  atSec?: number | null;
+  /**
+     * Expression intensity, for a generated cover.
+     * @nullable
+     */
+  intensity?: string | null;
+}
+
+export interface VideoCoverCandidateList {
+  candidates: VideoCoverCandidate[];
+}
+
+export interface VideoCoverGenerateInput {
+  /** Shape to compose the cover for. Defaults to the video's own aspect. A wide cover cannot be cropped out of a vertical video, which is why this is chosen before generating rather than after. */
+  aspect?: string;
+}
+
+export interface VideoCoverInput {
+  /**
+     * Object path of the image to use as the cover.
+     * @minLength 1
+     * @maxLength 512
+     */
+  coverPath: string;
 }
 
 export interface LibraryMusicImportResult {

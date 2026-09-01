@@ -7335,6 +7335,121 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/cover-candidates:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: listVideoCoverCandidates
+      tags: [ai]
+      summary: Extract candidate cover frames from a finished video
+      description: >-
+        Grabs an even spread of frames from the rendered video and stores them
+        so the user can choose one as the cover. Free — no generation is
+        involved. POST rather than GET because it writes the frames to storage.
+      responses:
+        "200":
+          description: The candidate frames, in timestamp order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoCoverCandidateList"
+        "400":
+          description: The video is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/cover-candidates/generate:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: generateVideoCoverCandidates
+      tags: [ai]
+      summary: Generate purpose-made cover images for a finished video
+      description: >-
+        Generates cover stills from the video's locked character reference, at
+        three expression intensities, composed for the requested aspect. Costs
+        image generations, so it is only ever done on request. Character videos
+        only — there is no locked reference to anchor to otherwise.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoCoverGenerateInput"
+      responses:
+        "200":
+          description: The generated covers, mildest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoCoverCandidateList"
+        "400":
+          description: The video is not ready, or has no character to generate from
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/cover:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: setVideoCover
+      tags: [ai]
+      summary: Set the cover image shown for a finished video
+      description: >-
+        Accepts any image already stored under this tenant — a candidate frame,
+        a generated cover, or the user's own upload via the presigned upload
+        flow. Propagates to the library copy when the video has been saved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoCoverInput"
+      responses:
+        "200":
+          description: The updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Invalid input or the video is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/transcribe:
     post:
       operationId: transcribeAudio
@@ -18984,7 +19099,16 @@ components:
             finished generation remains in the Studio's unsaved timeline.
         thumbnailPath:
           type: ["string", "null"]
-          description: Poster-frame PNG path (best effort; may be null).
+          description: >-
+            The video's cover image. Set by the renderer on success, and
+            replaceable afterwards via PATCH /ai/video-jobs/{jobId}/cover.
+        coverGeneratable:
+          type: boolean
+          description: >-
+            Whether purpose-made covers can be generated for this video. True
+            for completed videos. Character videos anchor generation to their
+            locked identity and wardrobe; other modules use their topic and
+            first scene.
         provider:
           type: ["string", "null"]
         model:
@@ -19358,6 +19482,49 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    VideoCoverCandidate:
+      type: object
+      required: [path, source]
+      properties:
+        path:
+          type: string
+          description: Stored object path of the candidate image.
+        source:
+          type: string
+          enum: [frame, generated, upload]
+          description: Where this candidate came from.
+        atSec:
+          type: ["number", "null"]
+          description: Timestamp in the video, for an extracted frame.
+        intensity:
+          type: ["string", "null"]
+          description: Expression intensity, for a generated cover.
+    VideoCoverCandidateList:
+      type: object
+      required: [candidates]
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoCoverCandidate"
+    VideoCoverGenerateInput:
+      type: object
+      properties:
+        aspect:
+          type: string
+          description: >-
+            Shape to compose the cover for. Defaults to the video's own aspect.
+            A wide cover cannot be cropped out of a vertical video, which is why
+            this is chosen before generating rather than after.
+    VideoCoverInput:
+      type: object
+      required: [coverPath]
+      properties:
+        coverPath:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Object path of the image to use as the cover.
     LibraryMusicImportResult:
       type: object
       required: [musicPath, title]

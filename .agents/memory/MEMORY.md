@@ -142,3 +142,4 @@
 - [Guided dialogue replay](guided-dialogue-replay.md) — reuse approved inputs only; pin active-speaker lip sync and validate every nested checkpoint artifact before retry funding.
 - [Guided meaning metadata](guided-meaning-metadata.md) — English meanings do not advance source revisions; full-state saves must preserve concurrent meanings for unchanged source lines.
 - [Studio lip-sync insights](studio-lipsync-insights.md) — suppress cohorts by accepted jobs; rank by finished output; never merge incompatible scene-bucket meanings.
+- [Video cover selection](video-cover-selection.md) — every finished Video Studio module offers extracted, uploaded, and explicitly requested generated covers.

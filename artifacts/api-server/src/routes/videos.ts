@@ -24,8 +24,10 @@ import {
 import { and, eq, desc, isNotNull, ne, sql } from "drizzle-orm";
 import {
   GenerateVideoBody,
+  GenerateVideoCoverCandidatesBody,
   ImportLibraryMusicBody,
   SaveVideoToLibraryBody,
+  SetVideoCoverBody,
   UpdateVideoStoryboardBody,
   InsertVideoStoryboardSceneBody,
   GenerateSpokespersonScriptBody,
@@ -159,10 +161,23 @@ import {
   CharacterInputError,
   generateOutfitVariant,
   getCharacterDetail,
+  imageSizeForAspect,
   isOutfitSelectable,
   loadReferenceImage,
   resolveOutfit,
 } from "../lib/characters";
+import { generateImage } from "../lib/imageGen";
+import { ImageGenNotConfiguredError } from "../lib/imageGen/types";
+import { logger } from "../lib/logger";
+import { VIDEO_ASPECTS, type VideoAspect } from "../lib/videoGen/types";
+import {
+  COVER_INTENSITIES,
+  coverImagePrompt,
+  extractCoverCandidates,
+  genericCoverImagePrompt,
+  hasOnlyCoverPathKey,
+  resolveCoverOutfit,
+} from "../lib/videoGen/videoCover";
 import {
   getPresetForTenant,
   presetSnapshot as makePresetSnapshot,
@@ -979,6 +994,9 @@ function serializeVideoJob(
     guidedStoryDraftId: job.options?.guidedStory?.draftId ?? null,
     currentVideoPath: lineage?.currentVideoPath ?? job.videoPath ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
+    // The rule for generated covers lives here rather than in the client, so
+    // the button and the route's own refusal can never disagree.
+    coverGeneratable: job.status === "succeeded" && Boolean(job.videoPath),
     provider: job.provider ?? null,
     model: job.model ?? null,
     error: job.error ?? null,
@@ -1083,6 +1101,9 @@ const RECOVERABLE_VIDEO_ENGINES = new Set([
 ]);
 
 const musicStorage = new ObjectStorageService();
+
+/** Reads the finished video and validates a chosen cover path. */
+const coverStorage = new ObjectStorageService();
 
 /**
  * Parse a free-text topic into structured script inputs.
@@ -8352,6 +8373,202 @@ async function loadJob(req: Request): Promise<VideoGeneration | undefined> {
       .limit(1)
   )[0];
 }
+
+/**
+ * The video's cover image.
+ *
+ * `thumbnail_path` was written once by the renderer — one frame grabbed at
+ * 1.0s — and never again. These three routes make it the user's choice: a
+ * spread of frames from their own video (free), purpose-made cover images
+ * generated from the locked character reference (on request, costs image
+ * generations), or an image they uploaded themselves through the existing
+ * presigned-upload flow. All three converge on PATCH .../cover, which is the
+ * only place the column is writable from outside the renderer.
+ */
+async function loadFinishedJobForCover(
+  req: Request,
+  res: Response,
+): Promise<VideoGeneration | null> {
+  const job = await loadJob(req);
+  if (!job) {
+    res.status(404).json({ error: "Not found" });
+    return null;
+  }
+  if (job.status !== "succeeded" || !job.videoPath) {
+    res.status(400).json({ error: "This video is not ready yet." });
+    return null;
+  }
+  return job;
+}
+
+router.post(
+  "/ai/video-jobs/:jobId/cover-candidates",
+  async (req: Request, res: Response) => {
+    const job = await loadFinishedJobForCover(req, res);
+    if (!job) return;
+    try {
+      const file = await coverStorage.getObjectEntityFile(job.videoPath!, req.tenantId);
+      const [video] = await file.download();
+      const frames = await extractCoverCandidates(video);
+      if (frames.length === 0) {
+        res.status(400).json({ error: "No frames could be read from this video." });
+        return;
+      }
+      const candidates = await Promise.all(
+        frames.map(async (frame) => ({
+          path: await uploadBufferToStorage(req.tenantId, frame.buffer, "image/png"),
+          source: "frame" as const,
+          atSec: frame.atSec,
+          intensity: null,
+        })),
+      );
+      res.json({ candidates });
+    } catch (err) {
+      if (err instanceof ObjectNotFoundError) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      logger.error({ err, jobId: job.id }, "cover candidate extraction failed");
+      res.status(400).json({ error: "Could not read frames from this video." });
+    }
+  },
+);
+
+router.post(
+  "/ai/video-jobs/:jobId/cover-candidates/generate",
+  async (req: Request, res: Response) => {
+    const parsed = GenerateVideoCoverCandidatesBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const job = await loadFinishedJobForCover(req, res);
+    if (!job) return;
+
+    const snapshot = job.options?.characterSnapshot;
+    const outfit = resolveCoverOutfit(snapshot?.outfits, job.options?.outfitId ?? null);
+
+    const aspect = (parsed.data.aspect ?? job.options?.aspectRatio ?? "9:16") as VideoAspect;
+    if (!VIDEO_ASPECTS.includes(aspect)) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    // The first scene's visual is the video's own setting, so a cover matches
+    // where the video actually takes place rather than inventing a location.
+    const sceneVisual =
+      job.storyboard?.scenes?.[0]?.visual?.trim() ||
+      `a setting matching ${job.prompt ?? "the video"}`;
+
+    try {
+      const reference =
+        snapshot && outfit
+          ? await loadReferenceImage(outfit.referenceImagePath, req.tenantId)
+          : undefined;
+      const results = await Promise.all(
+        COVER_INTENSITIES.map(async (intensity) => {
+          const prompt =
+            snapshot && outfit
+              ? coverImagePrompt({
+                  characterDescription: snapshot.character.description,
+                  outfitName: outfit.name,
+                  outfitDescription: outfit.description,
+                  sceneVisual,
+                  aspect,
+                  intensity,
+                })
+              : genericCoverImagePrompt({
+                  topic: job.prompt?.trim() || "the finished video",
+                  sceneVisual,
+                  aspect,
+                  intensity,
+                });
+          const image = await generateImage(
+            prompt,
+            imageSizeForAspect(aspect),
+            reference,
+            { requireReferenceInput: Boolean(reference) },
+          );
+          return {
+            path: await uploadBufferToStorage(req.tenantId, image.buffer, "image/png"),
+            source: "generated" as const,
+            atSec: null,
+            intensity,
+          };
+        }),
+      );
+      res.json({ candidates: results });
+    } catch (err) {
+      logger.error({ err, jobId: job.id }, "cover generation failed");
+      res.status(400).json({
+        error:
+          err instanceof ImageGenNotConfiguredError
+            ? err.message
+            : "Could not generate cover images. Try again, or pick a frame from the video.",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/ai/video-jobs/:jobId/cover",
+  async (req: Request, res: Response) => {
+    // Explicit key allowlist before the generated parse: this write takes a
+    // storage path, and the generated schema strips unknown keys rather than
+    // rejecting them, so a rejection has to be proved here.
+    if (!hasOnlyCoverPathKey(req.body)) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const parsed = SetVideoCoverBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    // The path must be an object this tenant owns. Without this the field is a
+    // read primitive for any object in the bucket.
+    if (!canonicalGuidedVisualObjectPath(parsed.data.coverPath, req.tenantId)) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const job = await loadFinishedJobForCover(req, res);
+    if (!job) return;
+    try {
+      await coverStorage.getObjectEntityFile(parsed.data.coverPath, req.tenantId);
+    } catch {
+      res.status(400).json({ error: "That image could not be found." });
+      return;
+    }
+
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(videoGenerationsTable)
+        .set({ thumbnailPath: parsed.data.coverPath, updatedAt: new Date() })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          ),
+        )
+        .returning();
+      // A video already saved to the library shows the library's own copy of
+      // the path, so leaving it behind would mean the picker appeared to do
+      // nothing everywhere the user actually looks at their videos.
+      if (job.savedContentItemId) {
+        await tx
+          .update(contentItemsTable)
+          .set({ videoThumbnailPath: parsed.data.coverPath, updatedAt: new Date() })
+          .where(
+            and(
+              eq(contentItemsTable.id, job.savedContentItemId),
+              eq(contentItemsTable.tenantId, req.tenantId),
+            ),
+          );
+      }
+      return row;
+    });
+    res.json(serializeVideoJob(updated ?? job));
+  },
+);
 
 /** Canonical JSON keeps a review token stable across request object ordering. */
 function guidedReplayFingerprint(value: unknown): string {

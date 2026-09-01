@@ -6,9 +6,12 @@ import {
   useRepairVideoJob,
   useGetMe,
   useBillingRequestUpgrade,
+  useGenerateVideoCoverCandidates,
   useGetVideoJob,
+  useListVideoCoverCandidates,
   useListVideoJobs,
   useSaveVideoToLibrary,
+  useSetVideoCover,
   useUpdateVideoStoryboard,
   useInsertVideoStoryboardScene,
   useRegenerateStoryboardScenePreview,
@@ -959,6 +962,7 @@ export function VideoStudioPage() {
     : null;
 
   const [saveOpen, setSaveOpen] = useState(false);
+  const [coverPickerOpen, setCoverPickerOpen] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
   const [saveCaption, setSaveCaption] = useState("");
   const [savePlatform, setSavePlatform] = useState("instagram");
@@ -6859,6 +6863,13 @@ export function VideoStudioPage() {
                     )}
                   <Button
                     variant="outline"
+                    onClick={() => setCoverPickerOpen(true)}
+                    data-testid="button-choose-cover"
+                  >
+                    <ImageIcon className="h-4 w-4 mr-2" /> Cover
+                  </Button>
+                  <Button
+                    variant="outline"
                     onClick={() => void onDownload()}
                     disabled={downloading}
                     data-testid="button-download-video"
@@ -7611,6 +7622,22 @@ export function VideoStudioPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {activeJob && (
+        <CoverPickerDialog
+          open={coverPickerOpen}
+          onOpenChange={setCoverPickerOpen}
+          job={activeJob}
+          storageUrl={storageUrl}
+          uploadFile={uploadFile}
+          onSaved={() => {
+            void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+            void queryClient.invalidateQueries({
+              queryKey: getGetVideoJobQueryKey(activeJob.id),
+            });
+          }}
+        />
+      )}
 
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent>
@@ -11910,6 +11937,302 @@ function ReferenceStyleDialog({
             ))}
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type CoverCandidateItem = {
+  path: string;
+  source: "frame" | "generated" | "upload";
+  atSec?: number | null;
+  intensity?: string | null;
+};
+
+/**
+ * Add new candidates without disturbing what is already on screen.
+ *
+ * Generating covers appends to the frames rather than replacing them — the
+ * user asked for more options, not different ones — and a path already shown
+ * keeps its original tile, so the grid never reorders under a pending click.
+ */
+export function mergeCoverCandidates(
+  existing: CoverCandidateItem[],
+  incoming: CoverCandidateItem[],
+): CoverCandidateItem[] {
+  const seen = new Set(existing.map((item) => item.path));
+  return [
+    ...existing,
+    ...incoming.filter((item) => {
+      if (seen.has(item.path)) return false;
+      seen.add(item.path);
+      return true;
+    }),
+  ];
+}
+
+/**
+ * Choose the image shown before anyone presses play.
+ *
+ * Opening the dialog extracts a spread of frames from the finished video,
+ * which is free. Generating purpose-made covers costs image credits, so it
+ * happens only when the user asks for it. Character videos use their locked
+ * identity and outfit reference; every other module uses its own topic and
+ * first scene so all completed Video Studio outputs have the same cover tools.
+ *
+ * The aspect selector sits with the Generate button rather than at the top,
+ * because it only changes generated covers: an extracted frame is whatever
+ * shape the video is, and no crop makes a 9:16 frame into a usable 16:9 cover.
+ */
+function CoverPickerDialog({
+  open,
+  onOpenChange,
+  job,
+  storageUrl,
+  uploadFile,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  job: { id: number; thumbnailPath?: string | null; aspectRatio?: string | null; coverGeneratable?: boolean };
+  storageUrl: (path?: string | null) => string | undefined;
+  uploadFile: (file: File) => Promise<string>;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const listCandidates = useListVideoCoverCandidates();
+  const generateCovers = useGenerateVideoCoverCandidates();
+  const setCover = useSetVideoCover();
+  const [items, setItems] = useState<CoverCandidateItem[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [aspect, setAspect] = useState<string>(job.aspectRatio ?? "9:16");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const requestedFor = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      requestedFor.current = null;
+      return;
+    }
+    setSelected(job.thumbnailPath ?? null);
+    setAspect(job.aspectRatio ?? "9:16");
+    // The current cover is always offered, so "put it back" needs no undo.
+    setItems(
+      job.thumbnailPath ? [{ path: job.thumbnailPath, source: "upload" }] : [],
+    );
+    if (requestedFor.current === job.id) return;
+    requestedFor.current = job.id;
+    listCandidates.mutate(
+      { jobId: job.id },
+      {
+        onSuccess: (data) =>
+          setItems((prev) => mergeCoverCandidates(prev, data.candidates as CoverCandidateItem[])),
+        onError: () =>
+          toast({
+            title: "Could not read frames from this video",
+            description: "You can still upload your own cover image.",
+            variant: "destructive",
+          }),
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, job.id]);
+
+  const label = (item: CoverCandidateItem) =>
+    item.source === "generated"
+      ? (item.intensity ?? "generated")
+      : item.source === "upload"
+        ? "yours"
+        : typeof item.atSec === "number"
+          ? `${item.atSec.toFixed(1)}s`
+          : "frame";
+
+  const busy = listCandidates.isPending || generateCovers.isPending || uploading;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Choose a cover</DialogTitle>
+          <DialogDescription>
+            The image shown in your library and wherever this video is posted,
+            before anyone presses play.
+          </DialogDescription>
+        </DialogHeader>
+
+        {listCandidates.isPending && items.length === 0 ? (
+          <div className="py-10 flex justify-center">
+            <RippleSpinner className="h-6 w-6" />
+          </div>
+        ) : items.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No frames could be read from this video — upload your own cover instead.
+          </p>
+        ) : (
+          <div
+            className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[50vh] overflow-y-auto p-1"
+            data-testid="cover-candidate-grid"
+          >
+            {items.map((item) => {
+              const isSelected = selected === item.path;
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  onClick={() => setSelected(item.path)}
+                  className={`relative rounded-lg overflow-hidden border-2 transition-colors ${
+                    isSelected
+                      ? "border-primary"
+                      : "border-transparent hover:border-primary/40"
+                  }`}
+                  data-testid={`cover-candidate-${item.source}`}
+                >
+                  <img
+                    src={storageUrl(item.path)}
+                    alt={label(item)}
+                    className="aspect-square object-cover w-full"
+                  />
+                  <span className="absolute bottom-1 left-1 rounded bg-background/80 px-1.5 text-[10px] capitalize">
+                    {label(item)}
+                  </span>
+                  {isSelected && (
+                    <CheckCircle2 className="absolute top-1.5 right-1.5 h-5 w-5 text-primary bg-background rounded-full" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+          {job.coverGeneratable && (
+            <>
+              <Select value={aspect} onValueChange={setAspect}>
+                <SelectTrigger className="w-[130px]" data-testid="cover-aspect">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="9:16">9:16 vertical</SelectItem>
+                  <SelectItem value="16:9">16:9 wide</SelectItem>
+                  <SelectItem value="1:1">1:1 square</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() =>
+                  generateCovers.mutate(
+                    { jobId: job.id, data: { aspect } },
+                    {
+                      onSuccess: (data) =>
+                        setItems((prev) =>
+                          mergeCoverCandidates(prev, data.candidates as CoverCandidateItem[]),
+                        ),
+                      onError: (err) =>
+                        toast({
+                          title: "Could not generate covers",
+                          description: apiErrorMessage(err, "Please try again."),
+                          variant: "destructive",
+                        }),
+                    },
+                  )
+                }
+                data-testid="button-generate-covers"
+              >
+                {generateCovers.isPending ? (
+                  <>
+                    <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" /> Generate cover options
+                  </>
+                )}
+              </Button>
+            </>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              setUploading(true);
+              try {
+                const path = await uploadFile(file);
+                setItems((prev) =>
+                  mergeCoverCandidates(prev, [{ path, source: "upload" }]),
+                );
+                setSelected(path);
+              } catch (err) {
+                toast({
+                  title: "Upload failed",
+                  description: apiErrorMessage(err, "Please try again."),
+                  variant: "destructive",
+                });
+              } finally {
+                setUploading(false);
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => fileRef.current?.click()}
+            data-testid="button-upload-cover"
+          >
+            {uploading ? (
+              <>
+                <RippleSpinner className="mr-2 h-4 w-4" /> Uploading…
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4 mr-2" /> Upload your own
+              </>
+            )}
+          </Button>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!selected || selected === job.thumbnailPath || setCover.isPending}
+            onClick={() =>
+              selected &&
+              setCover.mutate(
+                { jobId: job.id, data: { coverPath: selected } },
+                {
+                  onSuccess: () => {
+                    toast({ title: "Cover updated" });
+                    onSaved();
+                    onOpenChange(false);
+                  },
+                  onError: (err) =>
+                    toast({
+                      title: "Could not set the cover",
+                      description: apiErrorMessage(err, "Please try again."),
+                      variant: "destructive",
+                    }),
+                },
+              )
+            }
+            data-testid="button-save-cover"
+          >
+            {setCover.isPending ? (
+              <>
+                <RippleSpinner className="mr-2 h-4 w-4" /> Saving…
+              </>
+            ) : (
+              "Use this cover"
+            )}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
