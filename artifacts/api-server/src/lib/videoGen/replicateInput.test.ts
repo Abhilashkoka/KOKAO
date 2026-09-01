@@ -97,3 +97,49 @@ describe("replicate buildInput photo mapping", () => {
     }
   });
 });
+
+describe("replicate failed prediction diagnostics", () => {
+  it("retains the prediction id and marks ordinary model failures transient", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({
+        id: "pred_failed_123",
+        status: "failed",
+        error: "The model worker exited unexpectedly.",
+      }), { status: 201, headers: { "Content-Type": "application/json" } })
+    ));
+
+    await expect(generateWithReplicate({
+      model: "wan-video/wan-2.2-i2v-fast",
+      prompt: "A presenter speaking",
+      aspectRatio: "9:16",
+      durationSec: 5,
+      image: { buffer: Buffer.from("image"), mimeType: "image/png" },
+    }, "test-key")).rejects.toMatchObject({
+      status: 503,
+      requestId: "pred_failed_123",
+      provider: "replicate",
+      model: "wan-video/wan-2.2-i2v-fast",
+    });
+  });
+
+  it("keeps content-policy prediction failures terminal", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({
+        id: "pred_rejected_456",
+        status: "failed",
+        error: "Input failed safety moderation.",
+      }), { status: 201, headers: { "Content-Type": "application/json" } })
+    ));
+
+    await expect(generateWithReplicate({
+      model: "wan-video/wan-2.2-i2v-fast",
+      prompt: "A presenter speaking",
+      aspectRatio: "9:16",
+      durationSec: 5,
+      image: { buffer: Buffer.from("image"), mimeType: "image/png" },
+    }, "test-key")).rejects.toMatchObject({
+      status: 422,
+      requestId: "pred_rejected_456",
+    });
+  });
+});

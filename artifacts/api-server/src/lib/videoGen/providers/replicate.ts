@@ -37,6 +37,26 @@ interface ReplicatePrediction {
   urls?: { get?: string };
 }
 
+function failedPredictionStatus(error: unknown): number {
+  const detail = typeof error === "string" ? error.toLowerCase() : "";
+  return /nsfw|safety|content policy|moderation|invalid input|validation/.test(detail)
+    ? 422
+    : 503;
+}
+
+function replicatePredictionError(
+  message: string,
+  status: number,
+  model: string,
+  requestId?: string | null,
+): VideoGenProviderError {
+  return Object.assign(new VideoGenProviderError(message, status), {
+    provider: "replicate",
+    model: model.split(":")[0] || model,
+    requestId: requestId?.trim() || undefined,
+  });
+}
+
 function firstUrl(output: unknown): string | null {
   if (typeof output === "string") return output;
   if (Array.isArray(output) && typeof output[0] === "string") return output[0];
@@ -293,9 +313,11 @@ async function runReplicatePrediction(
         },
       );
       if (!res.ok) {
-        throw new VideoGenProviderError(
+        throw replicatePredictionError(
           `Replicate video prediction failed (${res.status}): ${await errorDetail(res)}`,
           res.status,
+          model,
+          res.headers.get("x-request-id"),
         );
       }
       return (await res.json()) as ReplicatePrediction;
@@ -336,11 +358,21 @@ async function runReplicatePrediction(
   if (prediction.status !== "succeeded") {
     const detail =
       typeof prediction.error === "string" ? prediction.error.slice(0, 300) : prediction.status;
-    throw new VideoGenProviderError(`Replicate video prediction did not succeed: ${detail}`);
+    throw replicatePredictionError(
+      `Replicate video prediction did not succeed: ${detail}`,
+      failedPredictionStatus(prediction.error),
+      model,
+      prediction.id,
+    );
   }
   const url = firstUrl(prediction.output);
   if (!url) {
-    throw new VideoGenProviderError("Replicate returned no video URL.");
+    throw replicatePredictionError(
+      "Replicate returned no video URL.",
+      503,
+      model,
+      prediction.id,
+    );
   }
   const buffer = await withRetries(
     async () => {
