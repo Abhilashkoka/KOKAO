@@ -2565,10 +2565,19 @@ describe("Video Studio", () => {
     renderPage();
     const button = screen.getByTestId("button-generate-video") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
+    expect(
+      screen.getByTestId("text-generate-video-block-reason").textContent,
+    ).toContain("Enter a video prompt");
+    expect(button.getAttribute("aria-describedby")).toBe(
+      "generate-video-block-reason",
+    );
     fireEvent.change(screen.getByTestId("input-video-prompt"), {
       target: { value: "A calm ocean at dusk" },
     });
     expect(button.disabled).toBe(false);
+    expect(
+      screen.queryByTestId("text-generate-video-block-reason"),
+    ).toBeNull();
   });
 
   it("submits a text-to-video job with the chosen aspect ratio and length", async () => {

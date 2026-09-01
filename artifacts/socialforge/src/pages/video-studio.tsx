@@ -911,7 +911,11 @@ export function VideoStudioPage() {
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [styleProfileId, setStyleProfileId] = useState<number | null>(null);
   const [stylesOpen, setStylesOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [activeUploadCount, setActiveUploadCount] = useState(0);
+  const uploading = activeUploadCount > 0;
+  const beginUpload = () => setActiveUploadCount((count) => count + 1);
+  const finishUpload = () =>
+    setActiveUploadCount((count) => Math.max(0, count - 1));
   const [reviewStoryboard, setReviewStoryboard] = useState(true);
   const [studioLipSync, setStudioLipSync] = useState(false);
   const [studioLipSyncConsent, setStudioLipSyncConsent] = useState(false);
@@ -1765,7 +1769,7 @@ export function VideoStudioPage() {
     }
     const good = accepted.filter((f) => f.size <= 10 * 1024 * 1024);
     if (!good.length) return;
-    setUploading(true);
+    beginUpload();
     try {
       const uploaded: PickedPhoto[] = [];
       for (const file of good) {
@@ -1784,7 +1788,7 @@ export function VideoStudioPage() {
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      finishUpload();
       if (photoInputRef.current) photoInputRef.current.value = "";
     }
   };
@@ -1819,7 +1823,7 @@ export function VideoStudioPage() {
       });
       return;
     }
-    setUploading(true);
+    beginUpload();
     try {
       const objectPath = await uploadFile(file);
       spec.set({ objectPath, name: file.name });
@@ -1830,7 +1834,7 @@ export function VideoStudioPage() {
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      finishUpload();
       if (spec.inputRef.current) spec.inputRef.current.value = "";
     }
   };
@@ -1854,7 +1858,7 @@ export function VideoStudioPage() {
       });
       return;
     }
-    setUploading(true);
+    beginUpload();
     try {
       const objectPath = await uploadFile(file);
       setBaseVideo({ objectPath, name: file.name });
@@ -1865,7 +1869,7 @@ export function VideoStudioPage() {
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      finishUpload();
       if (baseVideoInputRef.current) baseVideoInputRef.current.value = "";
     }
   };
@@ -1889,7 +1893,7 @@ export function VideoStudioPage() {
       });
       return;
     }
-    setUploading(true);
+    beginUpload();
     try {
       const objectPath = await uploadFile(file);
       setPresenterVideo({ objectPath, name: file.name });
@@ -1900,7 +1904,7 @@ export function VideoStudioPage() {
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      finishUpload();
       if (presenterVideoInputRef.current)
         presenterVideoInputRef.current.value = "";
     }
@@ -1925,7 +1929,7 @@ export function VideoStudioPage() {
       });
       return;
     }
-    setUploading(true);
+    beginUpload();
     try {
       const objectPath = await uploadFile(file);
       setMusic({ objectPath, name: file.name });
@@ -1937,7 +1941,7 @@ export function VideoStudioPage() {
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      finishUpload();
       if (musicInputRef.current) musicInputRef.current.value = "";
     }
   };
@@ -2105,6 +2109,85 @@ export function VideoStudioPage() {
               : voice === "brand" && brandKitId === null
                 ? "Choose a brand kit for Brand kit voice, or select a stock voice."
                 : null;
+
+  const generateBlockReason = (() => {
+    if (generateVideo.isPending || uploading) return null;
+    if (studioLipSyncEligible && studioLipSync && !studioLipSyncConsent) {
+      return "Confirm consent for lip-sync before generating the video.";
+    }
+    if (engine === "dialogue_lip_sync") return dialogueGenerateBlockReason;
+    if (engine === "lip_sync") {
+      if (approvedSpokespersonScript === null) {
+        return "Approve the spokesperson script before generating the video.";
+      }
+      if (prompt.trim() !== approvedSpokespersonScript) {
+        return "The script changed after approval. Approve the current script before generating.";
+      }
+      if (
+        (lipSyncSource === "portrait" && portrait === null) ||
+        (lipSyncSource === "video" && baseVideo === null)
+      ) {
+        return lipSyncSource === "portrait"
+          ? "Upload or select a portrait before generating the video."
+          : "Upload a base video before generating the video.";
+      }
+      if (!lipSyncConsent) {
+        return "Confirm that you have permission to lip-sync this person.";
+      }
+      return null;
+    }
+    if (engine === "image_to_video" || engine === "slideshow") {
+      return photos.length < 1
+        ? "Upload or select at least one image before generating the video."
+        : null;
+    }
+    if (engine === "topic_to_video") {
+      if (visuals === "character" && !hasSelectedCast) {
+        return "Select the cast before generating the video.";
+      }
+      if (isHybridCharacterStory && !lipSyncConsent) {
+        return "Confirm that you have permission to lip-sync the selected cast.";
+      }
+      if (templateRequiresPresenterVideo && presenterVideo === null) {
+        return "Upload a presenter video required by this template.";
+      }
+      if (
+        visuals === "character" &&
+        characterMode === "dialogue"
+      ) {
+        if (characterDialogueLocale.length === 0) {
+          return "Choose a dialogue language before generating the video.";
+        }
+        if (spokespersonTopic.trim().length < 3) {
+          return "Describe the dialogue topic before generating the video.";
+        }
+        if (
+          presetCharacterId !== null
+            ? !presetCastLanguageCompatible
+            : !characterDialogueBrandKits.some((kit) => kit.id === brandKitId)
+        ) {
+          return presetCharacterId !== null
+            ? "Choose a language supported by the selected cast."
+            : "Choose a brand kit with a voice for this dialogue.";
+        }
+        if (approvedSpokespersonScript === null) {
+          return "Approve the dialogue script before generating the video.";
+        }
+        if (!characterDialogueDurationIsValid) {
+          return `Choose a duration between ${characterDialogueMinimumDurationSec} and ${MAX_CHARACTER_DIALOGUE_DURATION_SEC} seconds.`;
+        }
+        if (!lipSyncConsent) {
+          return "Confirm that you have permission to lip-sync the selected cast.";
+        }
+      }
+      return prompt.trim().length < 3
+        ? "Describe the video topic before generating."
+        : null;
+    }
+    return prompt.trim().length < 3
+      ? "Enter a video prompt before generating."
+      : null;
+  })();
 
   const busy =
     activeJob != null &&
@@ -6429,8 +6512,8 @@ export function VideoStudioPage() {
                   className="w-full sm:w-auto"
                   data-testid="button-generate-video"
                   aria-describedby={
-                    dialogueGenerateBlockReason
-                      ? "dialogue-generate-block-reason"
+                    generateBlockReason
+                      ? "generate-video-block-reason"
                       : undefined
                   }
                 >
@@ -6438,6 +6521,10 @@ export function VideoStudioPage() {
                     <>
                       <Clapperboard className="h-4 w-4 mr-2" /> Finish the
                       storyboard below
+                    </>
+                  ) : uploading ? (
+                    <>
+                      <RippleSpinner className="mr-2 h-4 w-4" /> Uploading…
                     </>
                   ) : generateVideo.isPending || busy ? (
                     <>
@@ -6454,13 +6541,17 @@ export function VideoStudioPage() {
                     </>
                   )}
                 </Button>
-                {dialogueGenerateBlockReason && (
+                {generateBlockReason && (
                   <p
-                    id="dialogue-generate-block-reason"
+                    id="generate-video-block-reason"
                     className="text-sm text-destructive"
-                    data-testid="text-dialogue-generate-block-reason"
+                    data-testid={
+                      engine === "dialogue_lip_sync"
+                        ? "text-dialogue-generate-block-reason"
+                        : "text-generate-video-block-reason"
+                    }
                   >
-                    {dialogueGenerateBlockReason}
+                    {generateBlockReason}
                   </p>
                 )}
               </div>
