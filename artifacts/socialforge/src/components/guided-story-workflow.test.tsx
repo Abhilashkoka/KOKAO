@@ -322,6 +322,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.queryByTestId("button-guided-new-story")).toBeNull();
     expect((screen.getByTestId("input-guided-topic") as HTMLTextAreaElement).value).toBe("");
     expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Generate script");
+    expect(screen.queryByTestId("guided-studio-lipsync-control")).toBeNull();
   });
 
   it("shows native text, Romanized pronunciation, then English meaning without duplicating English stories", async () => {
@@ -969,6 +970,7 @@ describe("GuidedStoryWorkflow", () => {
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
     renderWorkflow();
 
+    expect(screen.getByTestId("guided-studio-lipsync-control")).toBeTruthy();
     expect(screen.getByTestId("section-guided-attempt-consent")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Reapprove" })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();

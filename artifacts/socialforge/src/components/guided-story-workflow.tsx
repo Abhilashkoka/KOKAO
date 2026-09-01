@@ -777,6 +777,52 @@ export function GuidedStoryWorkflow({
   if (editRequest && draftId === editRequest.draftId && (draftQuery.isError || (!draftQuery.isLoading && !draft))) return <Card><CardContent className="p-6 text-destructive" role="alert" data-testid="error-guided-story-restore">This story draft could not be restored. Return to your video jobs and try again.</CardContent></Card>;
   const correctionMessage =
     editRequest?.draftId === draft?.id ? editRequest?.correctionMessage : null;
+  const studioLipSyncControls = (
+    <div
+      className="space-y-2 rounded-md border p-3"
+      data-testid="guided-studio-lipsync-control"
+    >
+      <label className="flex items-start gap-2 text-sm">
+        <Checkbox
+          checked={studioLipSync}
+          disabled={
+            !studioLipSyncCapability?.enabled ||
+            !studioLipSyncCapability.ready
+          }
+          onCheckedChange={(checked) => {
+            const enabled = checked === true;
+            setStudioLipSync(enabled);
+            if (!enabled) setStudioLipSyncConsent(false);
+            trackStudioLipSyncSelection("guided_story", enabled);
+          }}
+          data-testid="checkbox-guided-studio-lipsync"
+        />
+        <span>
+          Lip-sync eligible single-speaker scenes
+          <span className="block text-xs text-muted-foreground">
+            Only scenes with exactly one visible approved speaker use their
+            native dialogue timing; narration-only and multi-person scenes
+            stay unchanged.
+          </span>
+        </span>
+      </label>
+      {studioLipSyncAvailable && studioLipSync && (
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox
+            checked={studioLipSyncConsent}
+            onCheckedChange={(checked) =>
+              setStudioLipSyncConsent(checked === true)
+            }
+            data-testid="checkbox-guided-studio-lipsync-consent"
+          />
+          <span>
+            I authorize the approved cast likenesses and voices for this
+            lip-sync pass.
+          </span>
+        </label>
+      )}
+    </div>
+  );
   return <div className="space-y-5" data-testid="guided-story-workflow">
     <Card>
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
@@ -797,50 +843,6 @@ export function GuidedStoryWorkflow({
         )}
       </CardHeader>
       <CardContent className="space-y-4" ref={scriptEditorRef}>
-        <div
-          className="space-y-2 rounded-md border p-3"
-          data-testid="guided-studio-lipsync-control"
-        >
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox
-              checked={studioLipSync}
-              disabled={
-                !studioLipSyncCapability?.enabled ||
-                !studioLipSyncCapability.ready
-              }
-              onCheckedChange={(checked) => {
-                const enabled = checked === true;
-                setStudioLipSync(enabled);
-                if (!enabled) setStudioLipSyncConsent(false);
-                trackStudioLipSyncSelection("guided_story", enabled);
-              }}
-              data-testid="checkbox-guided-studio-lipsync"
-            />
-            <span>
-              Lip-sync eligible single-speaker scenes
-              <span className="block text-xs text-muted-foreground">
-                Only scenes with exactly one visible approved speaker use their
-                native dialogue timing; narration-only and multi-person scenes
-                stay unchanged.
-              </span>
-            </span>
-          </label>
-          {studioLipSyncAvailable && studioLipSync && (
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox
-                checked={studioLipSyncConsent}
-                onCheckedChange={(checked) =>
-                  setStudioLipSyncConsent(checked === true)
-                }
-                data-testid="checkbox-guided-studio-lipsync-consent"
-              />
-              <span>
-                I authorize the approved cast likenesses and voices for this
-                lip-sync pass.
-              </span>
-            </label>
-          )}
-        </div>
         {correctionMessage && (
           <div
             role="alert"
@@ -906,7 +908,7 @@ export function GuidedStoryWorkflow({
             </div>
           )}
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending || generateScript.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save & regenerate script" : "Generate script"}</Button>
-        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} castApprovalPending={approveCastRole.isPending} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: releaseMutation }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError("Approve every current cast role before building the storyboard."); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} />}
+        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} castApprovalPending={approveCastRole.isPending} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: releaseMutation }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError("Approve every current cast role before building the storyboard."); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} />}
       </CardContent>
     </Card>
   </div>;
@@ -976,6 +978,7 @@ function StoryFlow(props: any) {
     {voiceLanguageNote}
     <VisualConsistencyStep {...props} />
     <BackdropReviewStep draft={draft} />
+    {props.existingJobId === null && props.studioLipSyncControls}
     {props.existingJobId === null && props.attemptConsentRequired && (
       <div className="flex items-start gap-2 rounded-lg border-2 border-amber-500 bg-amber-50 p-3 dark:bg-amber-950/20" data-testid="section-guided-attempt-consent">
         <Checkbox
