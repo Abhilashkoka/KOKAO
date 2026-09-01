@@ -40,7 +40,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AnalyticsTracker } from "@/components/analytics-tracker";
-import { LogoLoader } from "@/components/logo-loader";
+import {
+  ClerkBootstrapReady,
+  ClerkBootstrapRecovery,
+} from "@/components/clerk-bootstrap-recovery";
 
 import {
   ClerkLoaded,
@@ -202,11 +205,10 @@ function ClerkProviderWithRoutes() {
     >
       <QueryClientProvider client={queryClient}>
         <ClerkLoading>
-          <div className="min-h-screen flex items-center justify-center bg-background">
-            <LogoLoader label="Loading workspace..." />
-          </div>
+          <ClerkBootstrapRecovery />
         </ClerkLoading>
         <ClerkLoaded>
+          <ClerkBootstrapReady />
           <ClerkQueryClientCacheInvalidator />
           <AnalyticsTracker />
           <BrandProvider>
