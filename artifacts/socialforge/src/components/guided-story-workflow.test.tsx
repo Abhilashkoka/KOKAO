@@ -12,11 +12,12 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; requestedDraftIds: number[]; existingJob: any; created: any; generationError: unknown; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   requestedDraftIds: [],
   existingJob: null,
   created: null,
+  generationError: null,
   cast: null,
   castError: null,
   approvalError: null,
@@ -94,6 +95,10 @@ vi.mock("@workspace/api-client-react", async () => {
     useCreateGuidedStoryDraft: mutation((vars) => {
       state.created = vars.data;
       return { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
+    }),
+    useGenerateGuidedStoryDraftScript: mutation(() => {
+      if (state.generationError) throw state.generationError;
+      return state.draft;
     }),
     useApproveGuidedStoryDraftScript: mutation(() => {
       if (state.approvalError) throw state.approvalError;
@@ -287,7 +292,7 @@ function renderWorkflow(options: {
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.requestedDraftIds = []; state.created = null; state.generationError = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("starts a new story without deleting the previously restored draft", async () => {
@@ -461,6 +466,22 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByTestId("button-guided-create-draft"));
 
     expect(state.created).toMatchObject({ brandKitId: null });
+  });
+
+  it("shows the server error when Save setup fails", async () => {
+    state.draft = draft({ script: null, scriptApprovedAt: null });
+    state.generationError = { data: { error: "The script does not fit this runtime." } };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(await screen.findByTestId("button-guided-generate-script"));
+    expect((await screen.findByTestId("button-guided-create-draft")).textContent).toBe("Save setup");
+
+    state.updated = "error";
+    await userEvent.click(screen.getByTestId("button-guided-create-draft"));
+
+    expect((await screen.findByTestId("error-guided-setup-save")).textContent)
+      .toContain("Visual choices could not be saved.");
   });
 
   it("uses the server language catalog as the authoritative story-language selector", async () => {
