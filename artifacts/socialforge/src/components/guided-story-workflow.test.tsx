@@ -126,6 +126,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useUpdateGuidedStoryDraft: mutation((vars) => {
       if (state.updated === "error") throw { data: { error: "Visual choices could not be saved." } };
+      if (state.updated === "conflict") throw { data: { error: "This draft changed. Reload it and try again." } };
       state.updated = vars.data;
       return { ...state.draft, ...vars.data, revision: state.draft.revision + 1 };
     }),
@@ -482,6 +483,39 @@ describe("GuidedStoryWorkflow", () => {
 
     expect((await screen.findByTestId("error-guided-setup-save")).textContent)
       .toContain("Visual choices could not be saved.");
+  });
+
+  it("offers to reload the latest draft after a setup conflict", async () => {
+    state.draft = draft({ script: null, scriptApprovedAt: null });
+    state.generationError = { data: { error: "The script does not fit this runtime." } };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(await screen.findByTestId("button-guided-generate-script"));
+    state.updated = "conflict";
+    await userEvent.click(await screen.findByTestId("button-guided-create-draft"));
+
+    expect((await screen.findByTestId("error-guided-setup-save")).textContent)
+      .toContain("This draft changed");
+    expect(screen.getByTestId("button-guided-reload-draft")).toBeTruthy();
+
+    state.draft = draft({
+      revision: 8,
+      script: null,
+      scriptApprovedAt: null,
+      setup: {
+        ...state.draft.setup,
+        topic: "The latest saved topic",
+      },
+    });
+    await userEvent.click(screen.getByTestId("button-guided-reload-draft"));
+
+    await waitFor(() =>
+      expect((screen.getByTestId("input-guided-topic") as HTMLTextAreaElement).value)
+        .toBe("The latest saved topic"),
+    );
+    expect(screen.queryByTestId("error-guided-setup-save")).toBeNull();
+    expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Save setup");
   });
 
   it("uses the server language catalog as the authoritative story-language selector", async () => {
