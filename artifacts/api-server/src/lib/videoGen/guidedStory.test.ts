@@ -1041,6 +1041,18 @@ describe("guided story script validation", () => {
       validateAndRepairGuidedScript(validRaw(), { roleCount: 2, durationSeconds: 20 }),
     ).toThrow(/runtime/);
   });
+
+  it("rejects spoken text that would exceed the approved timeframe", () => {
+    const raw = validRaw();
+    raw.scenes[0]!.lines[0]!.text = Array.from(
+      { length: 73 },
+      (_, index) => `word${index + 1}`,
+    ).join(" ");
+
+    expect(() =>
+      validateAndRepairGuidedScript(raw, { roleCount: 2, durationSeconds: 30 }),
+    ).toThrow(/dialogue word count/);
+  });
 });
 
 describe("guided story invalidation and duplicate confirmation rules", () => {
