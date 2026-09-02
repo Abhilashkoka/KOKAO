@@ -270,7 +270,11 @@ vi.mock("@workspace/api-client-react", async () => {
   });
 });
 
-import { GuidedStoryWorkflow } from "./guided-story-workflow";
+import {
+  GUIDED_BACKDROP_PROMPT_MAX,
+  GuidedStoryWorkflow,
+  fitGuidedBackdropPrompt,
+} from "./guided-story-workflow";
 
 const kit = { id: 3, name: "Studio", activeVersion: { payload: { brand_voice: { mode: "cloned", provider_voice_id: "voice-a", cloned_label: "A voice", preset_voice: "nova", voices: [{ id: "voice-a", label: "A voice" }] } } } };
 const character = {
@@ -1383,6 +1387,20 @@ describe("GuidedStoryWorkflow", () => {
     await waitFor(() => expect(state.generatedImageRequest).not.toBeNull());
     expect(state.generatedImageRequest.prompt).toContain('Guided Story "The plan"');
     expect(state.generatedImageRequest.prompt).toContain("Scene 1: A desk");
+  });
+
+  it("keeps expanded story backdrop prompts inside the API limit", () => {
+    const expandedDirections = Array.from(
+      { length: 9 },
+      (_, index) =>
+        `Scene ${index + 1}: ${"Detailed location and lighting continuity. ".repeat(12)}`,
+    ).join("\n");
+
+    const fitted = fitGuidedBackdropPrompt(expandedDirections);
+
+    expect(fitted.length).toBe(GUIDED_BACKDROP_PROMPT_MAX);
+    expect(fitted).toContain("Scene 1:");
+    expect(fitted.endsWith("...")).toBe(true);
   });
 
   it("asks for customization approval before regenerating a backdrop", async () => {

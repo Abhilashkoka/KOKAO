@@ -105,6 +105,14 @@ const BUILT_IN_VOICES: GuidedStoryVoiceCatalogItem[] = [
 }));
 const VISUAL_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_VISUAL_IMAGE_BYTES = 10 * 1024 * 1024;
+export const GUIDED_BACKDROP_PROMPT_MAX = 1000;
+
+export function fitGuidedBackdropPrompt(value: string): string {
+  const prompt = value.trim();
+  if (prompt.length <= GUIDED_BACKDROP_PROMPT_MAX) return prompt;
+  return `${prompt.slice(0, GUIDED_BACKDROP_PROMPT_MAX - 3).trimEnd()}...`;
+}
+
 type VisualChoices = {
   logo: { path: string | null; sceneIds: string[] };
   location: { mode: "none"; imagePath: null; description: null } | { mode: "image"; imagePath: string; description: null } | { mode: "text"; imagePath: null; description: string };
@@ -1068,7 +1076,9 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const suffix = sceneId ?? "default";
   const save = async (regenerate = false, replacementPrompt?: string) => {
     try {
-      const selectedPrompt = (replacementPrompt ?? prompt).trim() || automaticPrompt;
+      const selectedPrompt = fitGuidedBackdropPrompt(
+        (replacementPrompt ?? prompt).trim() || automaticPrompt,
+      );
       let imagePath: string | undefined;
       if (file) {
         if (!VISUAL_IMAGE_TYPES.includes(file.type) || file.size > MAX_VISUAL_IMAGE_BYTES) throw new Error("Use a PNG, JPEG, or WebP image no larger than 10 MB.");
