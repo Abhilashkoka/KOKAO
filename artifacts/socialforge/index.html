@@ -104,7 +104,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Baloo+Tammudu+2:wght@600;700;800&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main
+        style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#faf9f6;color:#211b35;font-family:Inter,system-ui,sans-serif;text-align:center"
+      >
+        <div style="max-width:420px">
+          <div style="font-size:28px;font-weight:800;letter-spacing:-0.04em">KOKAO</div>
+          <p style="margin:14px 0 0;font-size:15px;color:#625c70">Loading your workspace…</p>
+          <p style="margin:10px 0 0;font-size:13px;color:#817a8e">
+            If this message remains visible, reload the preview.
+          </p>
+        </div>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
