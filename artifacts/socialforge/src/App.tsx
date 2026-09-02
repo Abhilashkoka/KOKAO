@@ -1,24 +1,7 @@
 import { AppLayout } from "@/components/layout";
 import { LandingPage } from "@/pages/landing";
 import { PrivacyPage } from "@/pages/privacy";
-import { DashboardPage } from "@/pages/dashboard";
 import { SignInPage, SignUpPage } from "@/pages/auth";
-import { StudioPage } from "@/pages/studio";
-import { LibraryPage } from "@/pages/library";
-import { EditorPage } from "@/pages/editor";
-import { SchedulePage } from "@/pages/schedule";
-import { BrandKitsPage } from "@/pages/brand-kits";
-import { AccountsPage } from "@/pages/accounts";
-import { SettingsPage } from "@/pages/settings";
-import { HelpPage } from "@/pages/help";
-import { AdminPage } from "@/pages/admin";
-import { AnalyticsPage } from "@/pages/analytics";
-import { HealthPage } from "@/pages/health";
-import { VideoPricingPage } from "@/pages/video-pricing";
-import { AdsPage } from "@/pages/ads";
-import { CalendarPage } from "@/pages/calendar";
-import { CampaignsPage } from "@/pages/campaigns";
-import { PromptCustomizationsPage } from "@/pages/prompt-customizations";
 import { BrandProvider } from "@/lib/brand";
 import { readPlanIntent } from "@/lib/planIntent";
 import { FeatureGate, type FeatureId } from "@/lib/features";
@@ -38,7 +21,6 @@ import {
 } from "@/lib/admin-guard";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/not-found";
 import { AnalyticsTracker } from "@/components/analytics-tracker";
 
 import {
@@ -47,11 +29,77 @@ import {
   useClerk,
 } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { navigate } from "wouter/use-browser-location";
 
 // Video Studio now lives inside AI Studio as a tab; keep old links working.
 import { PricingPage } from "@/pages/pricing";
+
+const DashboardPage = lazy(() =>
+  import("@/pages/dashboard").then(({ DashboardPage }) => ({ default: DashboardPage })),
+);
+const StudioPage = lazy(() =>
+  import("@/pages/studio").then(({ StudioPage }) => ({ default: StudioPage })),
+);
+const LibraryPage = lazy(() =>
+  import("@/pages/library").then(({ LibraryPage }) => ({ default: LibraryPage })),
+);
+const EditorPage = lazy(() =>
+  import("@/pages/editor").then(({ EditorPage }) => ({ default: EditorPage })),
+);
+const SchedulePage = lazy(() =>
+  import("@/pages/schedule").then(({ SchedulePage }) => ({ default: SchedulePage })),
+);
+const BrandKitsPage = lazy(() =>
+  import("@/pages/brand-kits").then(({ BrandKitsPage }) => ({ default: BrandKitsPage })),
+);
+const AccountsPage = lazy(() =>
+  import("@/pages/accounts").then(({ AccountsPage }) => ({ default: AccountsPage })),
+);
+const SettingsPage = lazy(() =>
+  import("@/pages/settings").then(({ SettingsPage }) => ({ default: SettingsPage })),
+);
+const HelpPage = lazy(() =>
+  import("@/pages/help").then(({ HelpPage }) => ({ default: HelpPage })),
+);
+const AdminPage = lazy(() =>
+  import("@/pages/admin").then(({ AdminPage }) => ({ default: AdminPage })),
+);
+const AnalyticsPage = lazy(() =>
+  import("@/pages/analytics").then(({ AnalyticsPage }) => ({ default: AnalyticsPage })),
+);
+const HealthPage = lazy(() =>
+  import("@/pages/health").then(({ HealthPage }) => ({ default: HealthPage })),
+);
+const VideoPricingPage = lazy(() =>
+  import("@/pages/video-pricing").then(({ VideoPricingPage }) => ({ default: VideoPricingPage })),
+);
+const AdsPage = lazy(() =>
+  import("@/pages/ads").then(({ AdsPage }) => ({ default: AdsPage })),
+);
+const CalendarPage = lazy(() =>
+  import("@/pages/calendar").then(({ CalendarPage }) => ({ default: CalendarPage })),
+);
+const CampaignsPage = lazy(() =>
+  import("@/pages/campaigns").then(({ CampaignsPage }) => ({ default: CampaignsPage })),
+);
+const PromptCustomizationsPage = lazy(() =>
+  import("@/pages/prompt-customizations").then(({ PromptCustomizationsPage }) => ({
+    default: PromptCustomizationsPage,
+  })),
+);
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+function RouteLoader() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <div className="space-y-2 text-center">
+        <div className="text-2xl font-extrabold tracking-tight">KOKAO</div>
+        <p className="text-sm text-muted-foreground">Opening your workspace…</p>
+      </div>
+    </main>
+  );
+}
 
 function VideoStudioRedirect() {
   useEffect(() => {
@@ -217,42 +265,44 @@ function ClerkProviderWithRoutes() {
         <AnalyticsTracker />
         <BrandProvider>
           <TooltipProvider>
-            <Switch>
-              <Route path="/" component={HomeRoute} />
-              <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
-              <Route path="/sign-in/*?" component={SignInPage} />
-              <Route path="/sign-up/*?" component={SignUpPage} />
-              {/* Public marketing page: plans are served by the unauthenticated
-                  GET /plans endpoint, so crawlers and signed-out buyers see prices. */}
-              <Route path="/pricing" component={PricingPage} />
-              {/* Public CMS-managed privacy policy. */}
-              <Route path="/privacy" component={PrivacyPage} />
+            <Suspense fallback={<RouteLoader />}>
+              <Switch>
+                <Route path="/" component={HomeRoute} />
+                <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
+                <Route path="/sign-in/*?" component={SignInPage} />
+                <Route path="/sign-up/*?" component={SignUpPage} />
+                {/* Public marketing page: plans are served by the unauthenticated
+                    GET /plans endpoint, so crawlers and signed-out buyers see prices. */}
+                <Route path="/pricing" component={PricingPage} />
+                {/* Public CMS-managed privacy policy. */}
+                <Route path="/privacy" component={PrivacyPage} />
 
-              <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
-              {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
-              <Route path="/video-studio" component={VideoStudioRedirect} />
-              <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
-              {/* Full-page image editor for one library item. The quick dialog stays
-                  for small tweaks; this is where masks, adjustments and the AI tools live. */}
-              <Route path="/editor/:id" component={() => <ProtectedRoute component={EditorPage} feature="contentLibrary" featureLabel="Content Library" />} />
-              <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
-              <Route path="/calendar" component={() => <ProtectedRoute component={CalendarPage} feature="calendar" featureLabel="Calendar" />} />
-              <Route path="/campaigns" component={() => <ProtectedRoute component={CampaignsPage} feature="campaigns" featureLabel="Campaigns" />} />
-              <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />
-              <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} feature="connectedAccounts" featureLabel="Connected Accounts" />} />
-              <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
-              <Route path="/ai-styles" component={() => <ProtectedRoute component={PromptCustomizationsPage} />} />
-              <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
-              <Route path="/help" component={() => <ProtectedRoute component={HelpPage} />} />
-              <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
-              <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />
-              <Route path="/health" component={() => <ProtectedRoute component={HealthPage} />} />
-              <Route path="/video-pricing" component={() => <ProtectedRoute component={VideoPricingPage} />} />
-              {/* Branding moved into Settings; keep old links working. */}
-              <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
+                <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
+                {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
+                <Route path="/video-studio" component={VideoStudioRedirect} />
+                <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
+                {/* Full-page image editor for one library item. The quick dialog stays
+                    for small tweaks; this is where masks, adjustments and the AI tools live. */}
+                <Route path="/editor/:id" component={() => <ProtectedRoute component={EditorPage} feature="contentLibrary" featureLabel="Content Library" />} />
+                <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
+                <Route path="/calendar" component={() => <ProtectedRoute component={CalendarPage} feature="calendar" featureLabel="Calendar" />} />
+                <Route path="/campaigns" component={() => <ProtectedRoute component={CampaignsPage} feature="campaigns" featureLabel="Campaigns" />} />
+                <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />
+                <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} feature="connectedAccounts" featureLabel="Connected Accounts" />} />
+                <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
+                <Route path="/ai-styles" component={() => <ProtectedRoute component={PromptCustomizationsPage} />} />
+                <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
+                <Route path="/help" component={() => <ProtectedRoute component={HelpPage} />} />
+                <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
+                <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />
+                <Route path="/health" component={() => <ProtectedRoute component={HealthPage} />} />
+                <Route path="/video-pricing" component={() => <ProtectedRoute component={VideoPricingPage} />} />
+                {/* Branding moved into Settings; keep old links working. */}
+                <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
 
-              <Route component={NotFound} />
-            </Switch>
+                <Route component={NotFound} />
+              </Switch>
+            </Suspense>
             <Toaster />
           </TooltipProvider>
         </BrandProvider>

@@ -121,22 +121,17 @@
       window.setTimeout(function () {
         if (!document.getElementById("boot-fallback")) return;
 
-        var url = new URL(window.location.href);
-        if (!url.searchParams.has("__kokao_boot_retry")) {
-          url.searchParams.set("__kokao_boot_retry", Date.now().toString());
-          window.location.replace(url.toString());
-          return;
-        }
-
         var message = document.getElementById("boot-recovery-message");
         if (message) {
           message.innerHTML =
-            'The preview did not start. <a href="' +
+            'Still loading. <a href="' +
             window.location.pathname +
-            '" style="color:#5b36e8;font-weight:600">Reload KOKAO</a>';
+            "?__kokao_boot_retry=" +
+            Date.now() +
+            '" style="color:#5b36e8;font-weight:600">Retry once</a>';
         }
-      }, 8000);
+      }, 30000);
     </script>
-    <script type="module" src="/src/main.tsx?v=20260902-boot2"></script>
+    <script type="module" src="/src/main.tsx?v=20260902-boot3"></script>
   </body>
 </html>
