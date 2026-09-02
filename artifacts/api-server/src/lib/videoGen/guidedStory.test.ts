@@ -1008,6 +1008,58 @@ describe("guided story estimates", () => {
 });
 
 describe("guided story script validation", () => {
+  it("requires a 3-5 second narrated ensemble buildup for newly generated scripts", () => {
+    const raw: Record<string, any> = validRaw();
+    raw.scenes = [
+      {
+        startMs: 0,
+        endMs: 4_000,
+        visualDirection:
+          "Both characters rush to secure the windows as the storm hits; their alarm turns to resolve, then they stop and exchange a determined look.",
+        roleIds: raw.roles.map((role: { id: string }) => role.id),
+        lines: [
+          {
+            ownerRoleId: null,
+            kind: "narration",
+            text: "The storm leaves them only one choice.",
+            startMs: 0,
+            endMs: 4_000,
+          },
+        ],
+      },
+      {
+        startMs: 4_000,
+        endMs: 30_000,
+        visualDirection: "A tense conversation beside the secured window.",
+        roleIds: raw.roles.map((role: { id: string }) => role.id),
+        lines: validRaw().scenes[0]!.lines.map((entry, index) => ({
+          ...entry,
+          startMs: index === 0 ? 4_000 : 14_000,
+          endMs: index === 0 ? 14_000 : 24_000,
+        })),
+      },
+    ];
+
+    const script = validateAndRepairGuidedScript(
+      raw,
+      { roleCount: 2, durationSeconds: 30, requireOpeningBuildup: true },
+    );
+    expect(script.scenes[0]).toMatchObject({
+      startMs: 0,
+      endMs: 4_000,
+      roleIds: ["role-1", "role-2"],
+    });
+    expect(script.scenes[0]!.lines.every((entry) => entry.kind === "narration")).toBe(true);
+
+    const dialogueOpening = validRaw();
+    expect(() =>
+      validateAndRepairGuidedScript(
+        dialogueOpening,
+        { roleCount: 2, durationSeconds: 30, requireOpeningBuildup: true },
+      ),
+    ).toThrow(/opening buildup/i);
+  });
+
   it("repairs missing stable ids but preserves valid ownership and timing", () => {
     const script = validateAndRepairGuidedScript(validRaw(), {
       roleCount: 2,
