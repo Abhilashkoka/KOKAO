@@ -1571,6 +1571,8 @@ export async function renderTopicStoryboard(params: {
   aspectRatio: VideoAspect;
   /** Lip-sync character scenes to the narration (decided and priced at enqueue). */
   characterLipSync?: boolean;
+  /** Storyboard scenes the optional finishing pass will lip-sync. */
+  lipSyncedSceneIds?: ReadonlySet<string>;
   subtitles: boolean;
   captionStyle?: "classic" | "dynamic";
   music?: Buffer | null;
@@ -1688,6 +1690,9 @@ export async function renderTopicStoryboard(params: {
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
       savedClips,
+      lipSynced: board.scenes.map(
+        (scene) => params.lipSyncedSceneIds?.has(scene.id) ?? false,
+      ),
       onCheckpoint: params.onCheckpoint,
       onPrivacyImageRejected: params.onPrivacyImageRejected,
     });

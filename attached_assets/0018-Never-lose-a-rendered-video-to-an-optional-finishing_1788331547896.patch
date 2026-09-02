@@ -1,0 +1,633 @@
+From 0c7e3da6efb042db905c6ed79b17865aafeba5b5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 06:20:43 +0000
+Subject: [PATCH] Never lose a rendered video to an optional finishing pass
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Job #51878 rendered its base video, stored it, synced some scenes, then
+hit a provider refusal on one scene and threw the whole job away. The user
+got nothing — no video, and no sign that the part they actually paid the
+most for had succeeded.
+
+The pass uploads the completed base a few lines before the loop, with a
+comment saying a finishing failure can therefore be surfaced without
+regenerating scenes. It just never did it: `generateLipSyncWithReplicate`
+was called with no try/catch, so one refusal unwound the entire function.
+The character engine's own pass has failed soft since it shipped, for
+exactly this reason. This one didn't, and the inconsistency is the bug.
+
+A refused scene now keeps its base footage, is recorded as `skipped` with
+the provider's reason, and the pass carries on. This is an optional
+finishing stage over a video that already exists and is already paid for;
+one refusal should cost that scene its sync and nothing else.
+
+It cannot mask billed-but-lost work. That case is the `provider_succeeded`
+checkpoint, which still throws, because a receipt exists for it — the
+distinction the checkpoint states were built to make.
+
+Silence would be its own bug, so VideoJob gains `skippedSceneCount`.
+Without it someone watches a finished video, sees one character's mouth
+not moving, and has no way to learn the provider refused that scene. A
+skipped scene never carries a provider event, since the event is the
+billing receipt, and there is a test pinning that.
+
+This does not explain why LatentSync refuses that particular segment
+twice across two different storyboards — a repeat on the same scene is not
+transient, whatever the recorded classification says. It stops that
+refusal from costing the whole video while the cause is found.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  | 37 +++++++++++-
+ .../lib/videoGen/lipSyncExclusivity.test.ts   | 38 ++++++++++++
+ .../src/lib/videoGen/lipSyncExclusivity.ts    | 24 ++++++++
+ artifacts/api-server/src/routes/videos.ts     |  7 +++
+ .../src/generated/api.schemas.ts              |  5 ++
+ lib/api-spec/openapi.yaml                     |  8 +++
+ lib/api-zod/src/generated/api.ts              | 60 +++++++++++++++++++
+ .../generated/types/videoJobStudioLipSync.ts  |  5 ++
+ lib/db/src/schema/videoGenerations.ts         | 10 +++-
+ 9 files changed, 192 insertions(+), 2 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 729f1fab..a4c88651 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -5648,7 +5648,42 @@ async function finishWithStudioLipSync(
+       const audio = await extractNativeAudio(source);
+       const replicateDef = getVideoGenProviderDef("replicate");
+       const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+-      const result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
++      let result: Awaited<ReturnType<typeof generateLipSyncWithReplicate>>;
++      try {
++        result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
++      } catch (err) {
++        // Fail soft, per scene. This is an OPTIONAL finishing pass over a video
++        // that is already rendered, already paid for, and already uploaded a
++        // few lines above precisely so a finishing failure could be survived.
++        // Throwing here threw that away: the user lost a finished video because
++        // one of N sync calls was refused, and every scene already synced and
++        // billed went with it. The character engine's own pass has failed soft
++        // for exactly this reason since it shipped; this one never did.
++        //
++        // The scene keeps its base footage — unsynced, and recorded as such, so
++        // nothing claims a sync that did not happen. This cannot mask a
++        // billed-but-lost output: that is the `provider_succeeded` guard above,
++        // which still throws, because a receipt exists for it.
++        logger.warn(
++          { err, jobId: job.id, sceneId: scene.sceneId },
++          "optional lip-sync scene refused; shipping that scene unsynced",
++        );
++        const skipped = latestOptions.studioLipSync!.checkpoint!.scenes!.map((item) =>
++          item.sceneId === scene.sceneId
++            ? {
++                ...item,
++                state: "skipped" as const,
++                skipReason: err instanceof Error ? err.message.slice(0, 300) : "the provider refused this scene",
++              }
++            : item,
++        );
++        latestOptions = structuredClone(latestOptions);
++        latestOptions.studioLipSync = { ...snapshot, checkpoint: { state: "prepared", scenes: skipped } };
++        await setJob(job.id, { options: latestOptions });
++        clips.push(source);
++        cursor = endSec;
++        continue;
++      }
+       // Persist the durable provider receipt before *any* fallible work on the
+       // returned bytes. A QA/upload crash is therefore a hard no-redispatch
+       // barrier for this exact scene.
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts
+index 6cde3d6b..849b1f88 100644
+--- a/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.test.ts
+@@ -1,9 +1,47 @@
+ import { describe, it, expect } from "vitest";
+ import {
+   characterPassOwnsLipSync,
++  summariseStudioLipSyncScenes,
+   STUDIO_PASS_REDUNDANT_MESSAGE,
+ } from "./lipSyncExclusivity";
+ 
++describe("summariseStudioLipSyncScenes", () => {
++  const event = { provider: "replicate", model: "latentsync" };
++
++  it("counts what synced and what the provider refused", () => {
++    expect(
++      summariseStudioLipSyncScenes([
++        { state: "complete", event },
++        { state: "skipped" },
++        { state: "complete", event },
++      ]),
++    ).toEqual({ synced: 2, skipped: 1, billable: 2 });
++  });
++
++  it("never counts a skipped scene as billable", () => {
++    // The event IS the billing receipt. A skipped scene carrying one would
++    // mean charging for a sync that never happened — the pass fails soft, it
++    // does not fail soft AND charge.
++    const summary = summariseStudioLipSyncScenes([{ state: "skipped" }, { state: "skipped" }]);
++    expect(summary.billable).toBe(0);
++    expect(summary.skipped).toBe(2);
++  });
++
++  it("distinguishes a refused scene from one never dispatched", () => {
++    // `prepared` means the pass never reached it — a job that stopped early.
++    // `skipped` means the provider was asked and said no. Collapsing the two
++    // would report a crashed job as a merely partial one.
++    const summary = summariseStudioLipSyncScenes([{ state: "prepared" }, { state: "skipped" }]);
++    expect(summary.skipped).toBe(1);
++    expect(summary.synced).toBe(0);
++  });
++
++  it("reports nothing for a pass that never ran", () => {
++    expect(summariseStudioLipSyncScenes(undefined)).toEqual({ synced: 0, skipped: 0, billable: 0 });
++    expect(summariseStudioLipSyncScenes([])).toEqual({ synced: 0, skipped: 0, billable: 0 });
++  });
++});
++
+ describe("characterPassOwnsLipSync", () => {
+   it("claims the job when the character pass is active on a character video", () => {
+     expect(
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts
+index 8fc0d744..30d69fd0 100644
+--- a/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncExclusivity.ts
+@@ -32,6 +32,30 @@ export function characterPassOwnsLipSync(args: {
+   );
+ }
+ 
++/**
++ * How much of the optional pass actually landed.
++ *
++ * The pass fails soft per scene: a scene the provider refuses ships as
++ * unsynced base footage rather than costing the user an already-rendered
++ * video. That is the right trade, but it must never be silent — otherwise
++ * someone watches the result, sees one character's mouth not moving, and has
++ * no way to know why.
++ *
++ * A skipped scene must also never carry a provider event, because the event IS
++ * the billing receipt: a skipped scene holding one would mean charging for a
++ * sync that never happened.
++ */
++export function summariseStudioLipSyncScenes(
++  scenes: ReadonlyArray<{ state: string; event?: unknown }> | undefined,
++): { synced: number; skipped: number; billable: number } {
++  const list = scenes ?? [];
++  return {
++    synced: list.filter((scene) => scene.state === "complete").length,
++    skipped: list.filter((scene) => scene.state === "skipped").length,
++    billable: list.filter((scene) => scene.event != null).length,
++  };
++}
++
+ /** User-facing refusal for the redundant second pass. */
+ export const STUDIO_PASS_REDUNDANT_MESSAGE =
+   "This video already lip-syncs every character scene to its own line, shot by shot. " +
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index cebd14a5..835d8e55 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -103,6 +103,7 @@ import {
+ } from "../lib/videoGen/jobRunner";
+ import {
+   characterPassOwnsLipSync,
++  summariseStudioLipSyncScenes,
+   STUDIO_PASS_REDUNDANT_MESSAGE,
+ } from "../lib/videoGen/lipSyncExclusivity";
+ import {
+@@ -934,6 +935,12 @@ function serializeVideoJob(
+           estimatedAdditionalPaise:
+             job.options.studioLipSync.estimatedAdditionalPaise,
+           sceneCount: job.options.studioLipSync.plan.length,
++          // A partly-synced video must say so. Without this the user watches a
++          // finished video, sees one character's mouth not moving, and has no
++          // way to tell that the provider refused that one scene.
++          skippedSceneCount: summariseStudioLipSyncScenes(
++            job.options.studioLipSync.checkpoint?.scenes,
++          ).skipped,
+           state: job.options.studioLipSync.checkpoint?.state ?? "prepared",
+         }
+       : null,
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index f3f9b025..a3fa1a62 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -6179,6 +6179,11 @@ export type VideoJobStudioLipSync = {
+   estimatedAdditionalPaise: number;
+   /** @minimum 0 */
+   sceneCount: number;
++  /**
++     * Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.
++     * @minimum 0
++     */
++  skippedSceneCount?: number;
+   state: VideoJobStudioLipSyncState;
+ } | null;
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 25ab6be6..fc4b0d7a 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -19055,6 +19055,14 @@ components:
+             model: { type: string }
+             estimatedAdditionalPaise: { type: integer, minimum: 0 }
+             sceneCount: { type: integer, minimum: 0 }
++            skippedSceneCount:
++              type: integer
++              minimum: 0
++              description: >-
++                Scenes the provider refused, which ship as unsynced base
++                footage. Greater than zero means the finished video is only
++                partly lip-synced — surface it rather than letting the user
++                wonder why one mouth does not move.
+             state:
+               type: string
+               enum: [prepared, provider_succeeded, complete]
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index dd82b64b..000027e4 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -12738,6 +12738,8 @@ export const generateVideoResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+ 
+ export const generateVideoResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const generateVideoResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const generateVideoResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -12866,6 +12868,7 @@ export const GenerateVideoResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(generateVideoResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(generateVideoResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(generateVideoResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -17411,6 +17414,8 @@ export const enqueueGuidedStoryDraftResponseStudioLipSyncEstimatedAdditionalPais
+ 
+ export const enqueueGuidedStoryDraftResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const enqueueGuidedStoryDraftResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const enqueueGuidedStoryDraftResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -17539,6 +17544,7 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -17983,6 +17989,8 @@ export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncEstimatedAdditi
+ 
+ export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const finalizeGuidedStoryJobReferenceResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -18111,6 +18119,7 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -18520,6 +18529,8 @@ export const startGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdd
+ 
+ export const startGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const startGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const startGuidedStoryReferenceOperationResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -18648,6 +18659,7 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -19068,6 +19080,8 @@ export const completeGuidedStoryReferenceOperationResponseStudioLipSyncEstimated
+ 
+ export const completeGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const completeGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const completeGuidedStoryReferenceOperationResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -19196,6 +19210,7 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -19682,6 +19697,8 @@ export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncEstimatedAd
+ 
+ export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSceneCountMin = 0;
+ 
++export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const confirmGuidedStoryDialogueReplayResponseJobErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -19829,6 +19846,7 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -20604,6 +20622,8 @@ export const listVideoJobsResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+ 
+ export const listVideoJobsResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const listVideoJobsResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const listVideoJobsResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -20732,6 +20752,7 @@ export const ListVideoJobsResponseItem = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(listVideoJobsResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(listVideoJobsResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(listVideoJobsResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -21133,6 +21154,8 @@ export const getVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+ 
+ export const getVideoJobResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const getVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const getVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -21261,6 +21284,7 @@ export const GetVideoJobResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(getVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(getVideoJobResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(getVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -21662,6 +21686,8 @@ export const cancelVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+ 
+ export const cancelVideoJobResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const cancelVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const cancelVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -21790,6 +21816,7 @@ export const CancelVideoJobResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(cancelVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(cancelVideoJobResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(cancelVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -22191,6 +22218,8 @@ export const retryVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+ 
+ export const retryVideoJobResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const retryVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const retryVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -22319,6 +22348,7 @@ export const RetryVideoJobResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(retryVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(retryVideoJobResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(retryVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -22720,6 +22750,8 @@ export const restartVideoJobFreshResponseStudioLipSyncEstimatedAdditionalPaiseMi
+ 
+ export const restartVideoJobFreshResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const restartVideoJobFreshResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const restartVideoJobFreshResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -22848,6 +22880,7 @@ export const RestartVideoJobFreshResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(restartVideoJobFreshResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(restartVideoJobFreshResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(restartVideoJobFreshResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -23253,6 +23286,8 @@ export const repairVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+ 
+ export const repairVideoJobResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const repairVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const repairVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -23381,6 +23416,7 @@ export const RepairVideoJobResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(repairVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(repairVideoJobResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(repairVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -23809,6 +23845,8 @@ export const updateVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseM
+ 
+ export const updateVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const updateVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const updateVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -23937,6 +23975,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(updateVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(updateVideoStoryboardResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(updateVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -24350,6 +24389,8 @@ export const insertVideoStoryboardSceneResponseStudioLipSyncEstimatedAdditionalP
+ 
+ export const insertVideoStoryboardSceneResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const insertVideoStoryboardSceneResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const insertVideoStoryboardSceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -24478,6 +24519,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -24880,6 +24922,8 @@ export const regenerateStoryboardScenePreviewResponseStudioLipSyncEstimatedAddit
+ 
+ export const regenerateStoryboardScenePreviewResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const regenerateStoryboardScenePreviewResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const regenerateStoryboardScenePreviewResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -25008,6 +25052,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -25422,6 +25467,8 @@ export const correctGuidedStorySceneResponseStudioLipSyncEstimatedAdditionalPais
+ 
+ export const correctGuidedStorySceneResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const correctGuidedStorySceneResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const correctGuidedStorySceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -25550,6 +25597,7 @@ export const CorrectGuidedStorySceneResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -25951,6 +25999,8 @@ export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncEstimatedAddit
+ 
+ export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const renderMissingGuidedStoryPreviewsResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -26079,6 +26129,7 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -26480,6 +26531,8 @@ export const approveVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaise
+ 
+ export const approveVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const approveVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const approveVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -26608,6 +26661,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(approveVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(approveVideoStoryboardResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(approveVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -27008,6 +27062,8 @@ export const discardVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaise
+ 
+ export const discardVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const discardVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const discardVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -27136,6 +27192,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(discardVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(discardVideoStoryboardResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(discardVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+@@ -27640,6 +27697,8 @@ export const setVideoCoverResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+ 
+ export const setVideoCoverResponseStudioLipSyncSceneCountMin = 0;
+ 
++export const setVideoCoverResponseStudioLipSyncSkippedSceneCountMin = 0;
++
+ 
+ export const setVideoCoverResponseErrorHistoryItemRecoveryAttemptMin = 0;
+ 
+@@ -27768,6 +27827,7 @@ export const SetVideoCoverResponse = zod.object({
+   "model": zod.string(),
+   "estimatedAdditionalPaise": zod.number().min(setVideoCoverResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+   "sceneCount": zod.number().min(setVideoCoverResponseStudioLipSyncSceneCountMin),
++  "skippedSceneCount": zod.number().min(setVideoCoverResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.'),
+   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+ }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+diff --git a/lib/api-zod/src/generated/types/videoJobStudioLipSync.ts b/lib/api-zod/src/generated/types/videoJobStudioLipSync.ts
+index 6914bee4..cd5540af 100644
+--- a/lib/api-zod/src/generated/types/videoJobStudioLipSync.ts
++++ b/lib/api-zod/src/generated/types/videoJobStudioLipSync.ts
+@@ -18,5 +18,10 @@ export type VideoJobStudioLipSync = {
+   estimatedAdditionalPaise: number;
+   /** @minimum 0 */
+   sceneCount: number;
++  /**
++     * Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced — surface it rather than letting the user wonder why one mouth does not move.
++     * @minimum 0
++     */
++  skippedSceneCount?: number;
+   state: VideoJobStudioLipSyncState;
+ } | null;
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 8323ec15..5bd2b5e0 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -232,8 +232,16 @@ export interface VideoJobOptions {
+       /** Each optional operation is independently durable and retryable. */
+       scenes?: Array<{
+         sceneId: string;
+-        state: "prepared" | "provider_succeeded" | "complete";
++        /**
++         * `skipped` records a scene the provider refused. This pass is optional
++         * and the base video is already rendered, so one refusal costs that
++         * scene its sync and nothing more. Distinct from `prepared` (never
++         * dispatched) so the reason survives into review.
++         */
++        state: "prepared" | "provider_succeeded" | "complete" | "skipped";
+         outputPath?: string;
++        /** Why the provider refused, when state is `skipped`. */
++        skipReason?: string;
+         event?: {
+           eventId?: string;
+           provider: string;
+-- 
+2.43.0
+

@@ -1,8 +1,54 @@
 import { describe, it, expect } from "vitest";
 import {
   characterPassOwnsLipSync,
+  summariseStudioLipSyncScenes,
   STUDIO_PASS_REDUNDANT_MESSAGE,
 } from "./lipSyncExclusivity";
+
+describe("summariseStudioLipSyncScenes", () => {
+  const event = { provider: "replicate", model: "latentsync" };
+
+  it("counts what synced and what the provider refused", () => {
+    expect(
+      summariseStudioLipSyncScenes([
+        { state: "complete", event },
+        { state: "skipped" },
+        { state: "complete", event },
+      ]),
+    ).toEqual({ synced: 2, skipped: 1, billable: 2 });
+  });
+
+  it("never counts a skipped scene as billable", () => {
+    const summary = summariseStudioLipSyncScenes([
+      { state: "skipped" },
+      { state: "skipped" },
+    ]);
+    expect(summary.billable).toBe(0);
+    expect(summary.skipped).toBe(2);
+  });
+
+  it("distinguishes a refused scene from one never dispatched", () => {
+    const summary = summariseStudioLipSyncScenes([
+      { state: "prepared" },
+      { state: "skipped" },
+    ]);
+    expect(summary.skipped).toBe(1);
+    expect(summary.synced).toBe(0);
+  });
+
+  it("reports nothing for a pass that never ran", () => {
+    expect(summariseStudioLipSyncScenes(undefined)).toEqual({
+      synced: 0,
+      skipped: 0,
+      billable: 0,
+    });
+    expect(summariseStudioLipSyncScenes([])).toEqual({
+      synced: 0,
+      skipped: 0,
+      billable: 0,
+    });
+  });
+});
 
 describe("characterPassOwnsLipSync", () => {
   it("claims the job when the character pass is active on a character video", () => {

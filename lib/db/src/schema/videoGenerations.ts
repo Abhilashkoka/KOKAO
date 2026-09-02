@@ -232,8 +232,10 @@ export interface VideoJobOptions {
       /** Each optional operation is independently durable and retryable. */
       scenes?: Array<{
         sceneId: string;
-        state: "prepared" | "provider_succeeded" | "complete";
+        state: "prepared" | "provider_succeeded" | "complete" | "skipped";
         outputPath?: string;
+        /** Why the optional provider refused this scene. */
+        skipReason?: string;
         event?: {
           eventId?: string;
           provider: string;

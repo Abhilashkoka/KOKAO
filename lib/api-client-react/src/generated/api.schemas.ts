@@ -6184,6 +6184,11 @@ export type VideoJobStudioLipSync = {
   estimatedAdditionalPaise: number;
   /** @minimum 0 */
   sceneCount: number;
+  /**
+     * Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.
+     * @minimum 0
+     */
+  skippedSceneCount?: number;
   state: VideoJobStudioLipSyncState;
 } | null;
 

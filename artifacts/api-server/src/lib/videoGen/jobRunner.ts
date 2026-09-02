@@ -3639,6 +3639,9 @@ async function produceVideo(
         storyboard: board,
         aspectRatio,
         characterLipSync: options.characterLipSync === true,
+        lipSyncedSceneIds: new Set(
+          (options.studioLipSync?.plan ?? []).map((scene) => scene.sceneId),
+        ),
         subtitles: options.subtitles ?? true,
         captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
         music,
@@ -5363,6 +5366,9 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
     const result = await renderTopicStoryboard({
       storyboard: board,
       aspectRatio: options.aspectRatio ?? "9:16",
+      lipSyncedSceneIds: new Set(
+        (options.studioLipSync?.plan ?? []).map((scene) => scene.sceneId),
+      ),
       subtitles: options.subtitles ?? true,
       captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
       music,
@@ -5687,7 +5693,39 @@ async function finishWithStudioLipSync(
       const audio = await extractNativeAudio(source);
       const replicateDef = getVideoGenProviderDef("replicate");
       const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
-      const result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
+      let result: Awaited<ReturnType<typeof generateLipSyncWithReplicate>>;
+      try {
+        result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
+      } catch (err) {
+        // This is optional finishing work over a completed base render. A
+        // provider refusal costs this scene its sync, not the whole video.
+        // Receipt-bearing provider_succeeded checkpoints still fail above.
+        logger.warn(
+          { err, jobId: job.id, sceneId: scene.sceneId },
+          "optional lip-sync scene refused; shipping that scene unsynced",
+        );
+        const skipped = latestOptions.studioLipSync!.checkpoint!.scenes!.map((item) =>
+          item.sceneId === scene.sceneId
+            ? {
+                ...item,
+                state: "skipped" as const,
+                skipReason:
+                  err instanceof Error
+                    ? err.message.slice(0, 300)
+                    : "the provider refused this scene",
+              }
+            : item,
+        );
+        latestOptions = structuredClone(latestOptions);
+        latestOptions.studioLipSync = {
+          ...snapshot,
+          checkpoint: { state: "prepared", scenes: skipped },
+        };
+        await setJob(job.id, { options: latestOptions });
+        clips.push(source);
+        cursor = endSec;
+        continue;
+      }
       // Persist the durable provider receipt before *any* fallible work on the
       // returned bytes. A QA/upload crash is therefore a hard no-redispatch
       // barrier for this exact scene.

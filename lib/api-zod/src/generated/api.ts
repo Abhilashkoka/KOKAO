@@ -12740,6 +12740,8 @@ export const generateVideoResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const generateVideoResponseStudioLipSyncSceneCountMin = 0;
 
+export const generateVideoResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const generateVideoResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -12868,6 +12870,7 @@ export const GenerateVideoResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(generateVideoResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(generateVideoResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(generateVideoResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -17413,6 +17416,8 @@ export const enqueueGuidedStoryDraftResponseStudioLipSyncEstimatedAdditionalPais
 
 export const enqueueGuidedStoryDraftResponseStudioLipSyncSceneCountMin = 0;
 
+export const enqueueGuidedStoryDraftResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const enqueueGuidedStoryDraftResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -17541,6 +17546,7 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(enqueueGuidedStoryDraftResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -17985,6 +17991,8 @@ export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncEstimatedAdditi
 
 export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncSceneCountMin = 0;
 
+export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const finalizeGuidedStoryJobReferenceResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -18113,6 +18121,7 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(finalizeGuidedStoryJobReferenceResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -18522,6 +18531,8 @@ export const startGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdd
 
 export const startGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
 
+export const startGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const startGuidedStoryReferenceOperationResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -18650,6 +18661,7 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(startGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -19070,6 +19082,8 @@ export const completeGuidedStoryReferenceOperationResponseStudioLipSyncEstimated
 
 export const completeGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
 
+export const completeGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const completeGuidedStoryReferenceOperationResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -19198,6 +19212,7 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(completeGuidedStoryReferenceOperationResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -19684,6 +19699,8 @@ export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncEstimatedAd
 
 export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSceneCountMin = 0;
 
+export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const confirmGuidedStoryDialogueReplayResponseJobErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -19831,6 +19848,7 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -20606,6 +20624,8 @@ export const listVideoJobsResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const listVideoJobsResponseStudioLipSyncSceneCountMin = 0;
 
+export const listVideoJobsResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const listVideoJobsResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -20734,6 +20754,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(listVideoJobsResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(listVideoJobsResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(listVideoJobsResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -21135,6 +21156,8 @@ export const getVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const getVideoJobResponseStudioLipSyncSceneCountMin = 0;
 
+export const getVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const getVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -21263,6 +21286,7 @@ export const GetVideoJobResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(getVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(getVideoJobResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(getVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -21664,6 +21688,8 @@ export const cancelVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const cancelVideoJobResponseStudioLipSyncSceneCountMin = 0;
 
+export const cancelVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const cancelVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -21792,6 +21818,7 @@ export const CancelVideoJobResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(cancelVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(cancelVideoJobResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(cancelVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -22193,6 +22220,8 @@ export const retryVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const retryVideoJobResponseStudioLipSyncSceneCountMin = 0;
 
+export const retryVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const retryVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -22321,6 +22350,7 @@ export const RetryVideoJobResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(retryVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(retryVideoJobResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(retryVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -22722,6 +22752,8 @@ export const restartVideoJobFreshResponseStudioLipSyncEstimatedAdditionalPaiseMi
 
 export const restartVideoJobFreshResponseStudioLipSyncSceneCountMin = 0;
 
+export const restartVideoJobFreshResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const restartVideoJobFreshResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -22850,6 +22882,7 @@ export const RestartVideoJobFreshResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(restartVideoJobFreshResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(restartVideoJobFreshResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(restartVideoJobFreshResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -23255,6 +23288,8 @@ export const repairVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const repairVideoJobResponseStudioLipSyncSceneCountMin = 0;
 
+export const repairVideoJobResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const repairVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -23383,6 +23418,7 @@ export const RepairVideoJobResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(repairVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(repairVideoJobResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(repairVideoJobResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -23811,6 +23847,8 @@ export const updateVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseM
 
 export const updateVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
 
+export const updateVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const updateVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -23939,6 +23977,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(updateVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(updateVideoStoryboardResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(updateVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -24352,6 +24391,8 @@ export const insertVideoStoryboardSceneResponseStudioLipSyncEstimatedAdditionalP
 
 export const insertVideoStoryboardSceneResponseStudioLipSyncSceneCountMin = 0;
 
+export const insertVideoStoryboardSceneResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const insertVideoStoryboardSceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -24480,6 +24521,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(insertVideoStoryboardSceneResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -24882,6 +24924,8 @@ export const regenerateStoryboardScenePreviewResponseStudioLipSyncEstimatedAddit
 
 export const regenerateStoryboardScenePreviewResponseStudioLipSyncSceneCountMin = 0;
 
+export const regenerateStoryboardScenePreviewResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const regenerateStoryboardScenePreviewResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -25010,6 +25054,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(regenerateStoryboardScenePreviewResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -25424,6 +25469,8 @@ export const correctGuidedStorySceneResponseStudioLipSyncEstimatedAdditionalPais
 
 export const correctGuidedStorySceneResponseStudioLipSyncSceneCountMin = 0;
 
+export const correctGuidedStorySceneResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const correctGuidedStorySceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -25552,6 +25599,7 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(correctGuidedStorySceneResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -25953,6 +26001,8 @@ export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncEstimatedAddit
 
 export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncSceneCountMin = 0;
 
+export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const renderMissingGuidedStoryPreviewsResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -26081,6 +26131,7 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(renderMissingGuidedStoryPreviewsResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -26482,6 +26533,8 @@ export const approveVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaise
 
 export const approveVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
 
+export const approveVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const approveVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -26610,6 +26663,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(approveVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(approveVideoStoryboardResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(approveVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -27010,6 +27064,8 @@ export const discardVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaise
 
 export const discardVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
 
+export const discardVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const discardVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -27138,6 +27194,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(discardVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(discardVideoStoryboardResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(discardVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
@@ -27642,6 +27699,8 @@ export const setVideoCoverResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const setVideoCoverResponseStudioLipSyncSceneCountMin = 0;
 
+export const setVideoCoverResponseStudioLipSyncSkippedSceneCountMin = 0;
+
 
 export const setVideoCoverResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
@@ -27770,6 +27829,7 @@ export const SetVideoCoverResponse = zod.object({
   "model": zod.string(),
   "estimatedAdditionalPaise": zod.number().min(setVideoCoverResponseStudioLipSyncEstimatedAdditionalPaiseMin),
   "sceneCount": zod.number().min(setVideoCoverResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(setVideoCoverResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
   "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
 }).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),

@@ -19059,6 +19059,13 @@ components:
             model: { type: string }
             estimatedAdditionalPaise: { type: integer, minimum: 0 }
             sceneCount: { type: integer, minimum: 0 }
+            skippedSceneCount:
+              type: integer
+              minimum: 0
+              description: >-
+                Scenes the provider refused, which ship as unsynced base
+                footage. Greater than zero means the finished video is only
+                partly lip-synced.
             state:
               type: string
               enum: [prepared, provider_succeeded, complete]

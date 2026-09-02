@@ -1,0 +1,185 @@
+From 50710a44a987234f3722381b11157c517afc2b04 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 06:39:48 +0000
+Subject: [PATCH] Stop the video model walking a second person into a solo shot
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Measured on job #51878's base video. Coverage worked: 0-3s is one speaker
+alone, 3-6s the other alone, chest up, clean. The keyframes are right. Then
+around 4.9s a dark shape enters frame left, and by 5.5s a large
+out-of-focus body fills the foreground of a shot that is supposed to hold
+exactly one face. That is what LatentSync refused, twice, on the same
+scene — not a transient provider failure.
+
+Guided scenes animate through animateBrollStills, which builds
+
+    `${visual}. ${motion}`
+
+the same construction the character path was fixed for. Guided never got
+that fix, so a lip-synced shot hands the video model its full coverage
+direction — including "eyes toward the person they are speaking with just
+off-frame" and "Do not include any other person". That tells the model
+someone IS off-frame, then names them in a negative, and diffusion models
+read a named negative as an invitation. Give it five seconds to fill and it
+brings that person in.
+
+A shot the finishing pass will sync now animates from the hold instruction
+instead: no scene prose, no negative naming anyone. The hold also now
+states what the frame DOES contain — the same single subject first frame to
+last, nothing new entering — rather than who must stay out of it, which is
+the phrasing that backfired.
+
+Ordinary AI b-roll keeps its prose byte-for-byte. Most of those scenes have
+no person in them, so the character-shot language would be noise; a test
+that pins the existing b-roll prompt caught that over-reach and was right
+to.
+
+Which shots the pass will sync is known at enqueue, so the runner passes
+those scene ids down and the animation stage decides per scene.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts      | 10 ++++++++++
+ .../src/lib/videoGen/topicVideo/aiBroll.ts        | 15 ++++++++++++++-
+ .../videoGen/topicVideo/characterMotion.test.ts   | 12 ++++++++++++
+ .../lib/videoGen/topicVideo/characterMotion.ts    |  3 ++-
+ .../src/lib/videoGen/topicVideo/index.ts          | 10 ++++++++++
+ 5 files changed, 48 insertions(+), 2 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index a4c88651..5558b24c 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -3600,6 +3600,13 @@ async function produceVideo(
+         storyboard: board,
+         aspectRatio,
+         characterLipSync: options.characterLipSync === true,
++        // Scenes the optional finishing pass will sync. Those shots are
++        // animated with a hold instruction rather than the scene's prose, so
++        // the video model does not walk a second person into a frame the sync
++        // model needs to hold exactly one face.
++        lipSyncedSceneIds: new Set(
++          (options.studioLipSync?.plan ?? []).map((scene) => scene.sceneId),
++        ),
+         subtitles: options.subtitles ?? true,
+         captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+         music,
+@@ -5324,6 +5331,9 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
+     const result = await renderTopicStoryboard({
+       storyboard: board,
+       aspectRatio: options.aspectRatio ?? "9:16",
++      lipSyncedSceneIds: new Set(
++        (options.studioLipSync?.plan ?? []).map((scene) => scene.sceneId),
++      ),
+       subtitles: options.subtitles ?? true,
+       captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+       music,
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+index 64ceaffc..ae22932b 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+@@ -17,6 +17,7 @@ import type { Cinematography } from "../cinematography";
+ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
+ import { clipDurationForScene, type ScriptScene } from "./characterScenes";
+ import type { SceneSegment } from "./compose";
++import { characterScenePrompt } from "./characterMotion";
+ import { refineScenePrompts } from "./refineScenePrompts";
+ import { imageFingerprint, matchesPriorImage } from "./imageDistinctness";
+ 
+@@ -413,6 +414,8 @@ export async function animateBrollStills(params: {
+   /** Picked catalog model and its resolved flags; omitted = platform default. */
+   modelOptions?: ResolvedModelOptions;
+   savedClips?: Array<Buffer | null>;
++  /** Per-scene: will this shot's mouth be replaced by a lip-sync pass later? */
++  lipSynced?: boolean[];
+   onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
+   /**
+    * Generated-storyboard-only hook. Identity-backed callers omit it and fail
+@@ -442,7 +445,17 @@ export async function animateBrollStills(params: {
+     const attempt = async (): Promise<Buffer> => {
+       const clip = await generateVideo({
+         mode: "image",
+-        prompt: `${visual}. ${motion}`,
++        // A shot that will be lip-synced sends no scene prose. Its still IS
++        // the scene, and the prose is what walks a second person into frame:
++        // it says the speaker is looking at someone "just off-frame" and then
++        // forbids that someone, which a video model reads as an invitation.
++        //
++        // Ordinary b-roll keeps its prose untouched. Most of these scenes have
++        // no person in them at all — flour, hands, a street — so a clause about
++        // holding a facial expression would be noise at best.
++        prompt: params.lipSynced?.[i] === true
++          ? characterScenePrompt({ visual, motion, lipSynced: true })
++          : `${visual}. ${motion}`,
+         aspectRatio: params.aspectRatio,
+         seed: params.seed ?? null,
+         image: { buffer: image, mimeType: "image/png" },
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts
+index bd4a6362..5aa5133f 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.test.ts
+@@ -66,4 +66,16 @@ describe("characterScenePrompt", () => {
+     expect(SPEAKING_HOLD).toMatch(/head movement/i);
+     expect(SPEAKING_HOLD).toMatch(/blinking/i);
+   });
++
++  it("states the frame holds one subject, without naming a second person", () => {
++    // Measured on a real render: a second body walked into a single-speaker
++    // shot around 5s and the sync model lost the face. The scene prose had
++    // told the model the speaker was looking at someone "just off-frame" and
++    // then forbidden that someone — and a diffusion model reads a named
++    // negative as an invitation. So this says what the frame DOES hold rather
++    // than who must stay out of it.
++    expect(SPEAKING_HOLD).toMatch(/same single subject from the first frame to the last/i);
++    expect(SPEAKING_HOLD).toMatch(/nothing new enters it/i);
++    expect(SPEAKING_HOLD).not.toMatch(/second person|other person|no one else/i);
++  });
+ });
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts
+index 2b2e8a39..26e7241c 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterMotion.ts
+@@ -39,7 +39,8 @@ export const SPEAKING_HOLD =
+   "raise the eyebrows, and do not add surprise, shock, alarm, excitement or " +
+   "any exaggerated expression. The expression must not build or intensify " +
+   "across the shot. Keep the background, the clothing and the framing " +
+-  "unchanged.";
++  "unchanged. The frame holds the same single subject from the first frame to " +
++  "the last, and nothing new enters it.";
+ 
+ /**
+  * The lighter guard for a character shot that is not being synced. Here the
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 3fbca045..fa666411 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -1571,6 +1571,13 @@ export async function renderTopicStoryboard(params: {
+   aspectRatio: VideoAspect;
+   /** Lip-sync character scenes to the narration (decided and priced at enqueue). */
+   characterLipSync?: boolean;
++  /**
++   * Storyboard scene ids the optional finishing pass will lip-sync. Those
++   * shots are animated with a hold instruction instead of the scene's prose:
++   * the prose is what walks a second person into a single-speaker frame, and
++   * a second face is exactly what the sync model cannot resolve.
++   */
++  lipSyncedSceneIds?: ReadonlySet<string>;
+   subtitles: boolean;
+   captionStyle?: "classic" | "dynamic";
+   music?: Buffer | null;
+@@ -1688,6 +1695,9 @@ export async function renderTopicStoryboard(params: {
+       seed: params.seed ?? null,
+       modelOptions: params.modelOptions,
+       savedClips,
++      lipSynced: board.scenes.map((scene) =>
++        params.lipSyncedSceneIds?.has(scene.id) ?? false,
++      ),
+       onCheckpoint: params.onCheckpoint,
+       onPrivacyImageRejected: params.onPrivacyImageRejected,
+     });
+-- 
+2.43.0
+

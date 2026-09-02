@@ -39,7 +39,8 @@ export const SPEAKING_HOLD =
   "raise the eyebrows, and do not add surprise, shock, alarm, excitement or " +
   "any exaggerated expression. The expression must not build or intensify " +
   "across the shot. Keep the background, the clothing and the framing " +
-  "unchanged.";
+  "unchanged. The frame holds the same single subject from the first frame to " +
+  "the last, and nothing new enters it.";
 
 /**
  * The lighter guard for a character shot that is not being synced. Here the

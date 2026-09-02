@@ -17,6 +17,7 @@ import type { Cinematography } from "../cinematography";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import { clipDurationForScene, type ScriptScene } from "./characterScenes";
 import type { SceneSegment } from "./compose";
+import { characterScenePrompt } from "./characterMotion";
 import { refineScenePrompts } from "./refineScenePrompts";
 import { imageFingerprint, matchesPriorImage } from "./imageDistinctness";
 
@@ -413,6 +414,8 @@ export async function animateBrollStills(params: {
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
   savedClips?: Array<Buffer | null>;
+  /** Per scene: whether a downstream finishing pass will replace the mouth. */
+  lipSynced?: boolean[];
   onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
   /**
    * Generated-storyboard-only hook. Identity-backed callers omit it and fail
@@ -442,7 +445,10 @@ export async function animateBrollStills(params: {
     const attempt = async (): Promise<Buffer> => {
       const clip = await generateVideo({
         mode: "image",
-        prompt: `${visual}. ${motion}`,
+        prompt:
+          params.lipSynced?.[i] === true
+            ? characterScenePrompt({ visual, motion, lipSynced: true })
+            : `${visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
         seed: params.seed ?? null,
         image: { buffer: image, mimeType: "image/png" },

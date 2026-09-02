@@ -66,4 +66,14 @@ describe("characterScenePrompt", () => {
     expect(SPEAKING_HOLD).toMatch(/head movement/i);
     expect(SPEAKING_HOLD).toMatch(/blinking/i);
   });
+
+  it("holds one subject without naming a second person", () => {
+    expect(SPEAKING_HOLD).toMatch(
+      /same single subject from the first frame to the last/i,
+    );
+    expect(SPEAKING_HOLD).toMatch(/nothing new enters it/i);
+    expect(SPEAKING_HOLD).not.toMatch(
+      /second person|other person|no one else/i,
+    );
+  });
 });

@@ -32,6 +32,18 @@ export function characterPassOwnsLipSync(args: {
   );
 }
 
+/** Summarize how much of the optional per-scene pass actually landed. */
+export function summariseStudioLipSyncScenes(
+  scenes: ReadonlyArray<{ state: string; event?: unknown }> | undefined,
+): { synced: number; skipped: number; billable: number } {
+  const list = scenes ?? [];
+  return {
+    synced: list.filter((scene) => scene.state === "complete").length,
+    skipped: list.filter((scene) => scene.state === "skipped").length,
+    billable: list.filter((scene) => scene.event != null).length,
+  };
+}
+
 /** User-facing refusal for the redundant second pass. */
 export const STUDIO_PASS_REDUNDANT_MESSAGE =
   "This video already lip-syncs every character scene to its own line, shot by shot. " +

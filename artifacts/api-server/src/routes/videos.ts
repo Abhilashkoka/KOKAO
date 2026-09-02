@@ -103,6 +103,7 @@ import {
 } from "../lib/videoGen/jobRunner";
 import {
   characterPassOwnsLipSync,
+  summariseStudioLipSyncScenes,
   STUDIO_PASS_REDUNDANT_MESSAGE,
 } from "../lib/videoGen/lipSyncExclusivity";
 import {
@@ -980,6 +981,9 @@ function serializeVideoJob(
           estimatedAdditionalPaise:
             job.options.studioLipSync.estimatedAdditionalPaise,
           sceneCount: job.options.studioLipSync.plan.length,
+          skippedSceneCount: summariseStudioLipSyncScenes(
+            job.options.studioLipSync.checkpoint?.scenes,
+          ).skipped,
           state: job.options.studioLipSync.checkpoint?.state ?? "prepared",
         }
       : null,
