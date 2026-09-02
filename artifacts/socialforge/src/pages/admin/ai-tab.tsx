@@ -4805,6 +4805,7 @@ export function NvidiaAdminCard() {
   const clearHostedKey = useAdminClearNvidiaHostedKey();
   const testHosted = useAdminTestNvidiaHosted();
   const [hostedKey, setHostedKeyInput] = useState("");
+  const [editingHostedKey, setEditingHostedKey] = useState(false);
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getAdminGetNvidiaSettingsQueryKey() });
   const saveHostedKey = () => {
@@ -4815,6 +4816,7 @@ export function NvidiaAdminCard() {
       {
         onSuccess: () => {
           setHostedKeyInput("");
+          setEditingHostedKey(false);
           invalidate();
           toast({ title: "NVIDIA hosted key saved" });
         },
@@ -4845,9 +4847,9 @@ export function NvidiaAdminCard() {
           </div>
         ) : (
           <>
-            <section className="space-y-2 rounded-md border p-4">
+            <section className="rounded-md border p-3" data-testid="section-nvidia-hosted-key">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-medium">Hosted API Catalog key</h3>
+                <h3 className="mr-auto font-medium">Hosted API Catalog key</h3>
                 <Badge variant={data.hosted.configured ? "secondary" : "destructive"}>
                   {data.hosted.configured
                     ? `Configured ${data.hosted.keyMasked ?? ""}`
@@ -4856,31 +4858,6 @@ export function NvidiaAdminCard() {
                 <Badge variant={data.hosted.lastTestStatus === "ok" ? "secondary" : "outline"}>
                   {data.hosted.lastTestStatus === "ok" ? "Healthy" : "Not verified"}
                 </Badge>
-              </div>
-              <form
-                className="flex flex-wrap gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  saveHostedKey();
-                }}
-              >
-                <Input
-                  className="w-80"
-                  type="password"
-                  autoComplete="off"
-                  value={hostedKey}
-                  onChange={(event) => setHostedKeyInput(event.target.value)}
-                  placeholder={data.hosted.configured ? "Enter to rotate key" : "nvapi-..."}
-                  data-testid="input-nvidia-hosted-key"
-                />
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={!hostedKey.trim() || setHostedKey.isPending}
-                  data-testid="button-save-nvidia-hosted-key"
-                >
-                  {setHostedKey.isPending ? "Saving..." : "Save key"}
-                </Button>
                 <Button
                   type="button"
                   size="sm"
@@ -4900,23 +4877,69 @@ export function NvidiaAdminCard() {
                   disabled={!data.hosted.configured || testHosted.isPending}
                   data-testid="button-test-nvidia-hosted"
                 >
-                  {testHosted.isPending ? "Testing..." : "Test hosted"}
+                  {testHosted.isPending ? "Testing..." : "Test"}
                 </Button>
                 {data.hosted.configured && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => clearHostedKey.mutate(undefined, { onSuccess: invalidate })}
-                    disabled={clearHostedKey.isPending}
-                    data-testid="button-remove-nvidia-hosted-key"
-                  >
-                    Remove
-                  </Button>
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditingHostedKey((current) => !current)}
+                      data-testid="button-change-nvidia-hosted-key"
+                    >
+                      {editingHostedKey ? "Cancel" : "Change key"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      onClick={() =>
+                        clearHostedKey.mutate(undefined, {
+                          onSuccess: () => {
+                            setHostedKeyInput("");
+                            setEditingHostedKey(false);
+                            invalidate();
+                          },
+                        })
+                      }
+                      disabled={clearHostedKey.isPending}
+                      data-testid="button-remove-nvidia-hosted-key"
+                    >
+                      Remove
+                    </Button>
+                  </>
                 )}
-              </form>
+              </div>
+              {(!data.hosted.configured || editingHostedKey) && (
+                <form
+                  className="mt-2 flex flex-wrap gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveHostedKey();
+                  }}
+                >
+                  <Input
+                    className="w-80"
+                    type="password"
+                    autoComplete="off"
+                    value={hostedKey}
+                    onChange={(event) => setHostedKeyInput(event.target.value)}
+                    placeholder={data.hosted.configured ? "Enter replacement key" : "nvapi-..."}
+                    data-testid="input-nvidia-hosted-key"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={!hostedKey.trim() || setHostedKey.isPending}
+                    data-testid="button-save-nvidia-hosted-key"
+                  >
+                    {setHostedKey.isPending ? "Saving..." : "Save key"}
+                  </Button>
+                </form>
+              )}
               {data.hosted.lastTestError && (
-                <div className="text-xs text-destructive">{data.hosted.lastTestError}</div>
+                <div className="mt-2 text-xs text-destructive">{data.hosted.lastTestError}</div>
               )}
             </section>
             <div className="space-y-3">

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isNvidiaTextDeploymentReady, NvidiaAdminCard } from "./ai-tab";
 
@@ -87,6 +88,24 @@ describe("NvidiaAdminCard markup", () => {
     expect(hostedKey.closest("form")).not.toBeNull();
     expect(deploymentKey.closest("form")).not.toBeNull();
     expect(container.querySelector("p div")).toBeNull();
+  });
+
+  it("keeps a configured hosted key compact until Change key is selected", async () => {
+    settings = {
+      ...settings,
+      hosted: {
+        configured: true,
+        keyMasked: "••••url",
+        lastTestStatus: "ok",
+        lastTestError: null,
+      },
+    };
+    renderCard();
+
+    expect(screen.queryByTestId("input-nvidia-hosted-key")).toBeNull();
+    expect(screen.getByTestId("section-nvidia-hosted-key").textContent).toContain("Configured");
+    await userEvent.click(screen.getByTestId("button-change-nvidia-hosted-key"));
+    expect(screen.getByTestId("input-nvidia-hosted-key")).toBeTruthy();
   });
 
   it("requires a canonical text deployment, not a multimodal deployment, for text generation", () => {
