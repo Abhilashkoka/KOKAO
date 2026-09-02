@@ -86,7 +86,11 @@ export function planSceneCoverage(scene: ScriptScene): CoverageShot[] {
     ];
   }
   if (speakers.size === 1 && speaking.length === turns.length) {
-    return [whole("single", [...speakers][0]!)];
+    const speakerRoleId = [...speakers][0]!;
+    return [{
+      ...whole("single", speakerRoleId),
+      roleIds: [speakerRoleId],
+    }];
   }
 
   const shots: CoverageShot[] = [];

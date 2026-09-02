@@ -227,6 +227,25 @@ describe("expandScriptCoverage", () => {
     expect(after.scenes[0]).toEqual(solo);
   });
 
+  it("removes non-speaking cast from a single-turn dialogue shot", () => {
+    const after = expandScriptCoverage(
+      script([
+        scene({
+          id: "close-up",
+          roleIds: ["asha", "ravi"],
+          lines: [line("only-asha", "asha", 0, 4000)],
+        }),
+      ]),
+    );
+
+    expect(after.scenes).toHaveLength(1);
+    expect(after.scenes[0]!.roleIds).toEqual(["asha"]);
+    expect(after.scenes[0]!.visualDirection).toContain("only Asha");
+    expect(after.scenes[0]!.visualDirection).toContain(
+      "Do not include any other person",
+    );
+  });
+
   it("derives split ids from the authored beat", () => {
     expect(
       expandScriptCoverage(script([scene()])).scenes.map((item) => item.id),
