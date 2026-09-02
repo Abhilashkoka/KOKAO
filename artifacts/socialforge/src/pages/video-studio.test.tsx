@@ -4325,6 +4325,39 @@ describe("Video Studio", () => {
     expect(screen.queryByTestId("input-narration-s1")).toBeNull();
   });
 
+  it("summarizes guided shot prompts and shows progress inside missing previews", async () => {
+    const board = guidedReviewBoard();
+    board.scenes[0].visual =
+      "Single-subject shot. Frame only Sam: one person, one face, from the chest up, mostly front-facing, turned just slightly toward screen-right.";
+    board.scenes[0].previewPath = null;
+    mockState.activeJob = {
+      ...pausedJob(board),
+      guidedPreviewRender: {
+        version: 1,
+        state: "running",
+        operationId: "preview-1",
+        total: 2,
+        completed: 1,
+        requestedAt: "2026-09-02T00:00:00.000Z",
+        startedAt: "2026-09-02T00:00:01.000Z",
+        finishedAt: null,
+        error: null,
+      },
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+
+    expect(
+      (await screen.findByTestId("summary-guided-shot-s1")).textContent,
+    ).toContain("Sam · Single-speaker shot · Chest-up · Looking screen-right");
+    expect(screen.getByText("Generating scene image…")).toBeTruthy();
+    expect(screen.getByText("1 of 2 scenes ready")).toBeTruthy();
+    expect(screen.getByTestId("text-guided-shot-s1").textContent).toContain(
+      "Frame only Sam",
+    );
+  });
+
   it("renders both inline redefine actions and creates a keep-current candidate with the draft revision", async () => {
     openGuidedReferenceReview();
     const character = await screen.findByTestId("button-redefine-character-s1-hero");

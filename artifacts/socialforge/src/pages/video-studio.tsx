@@ -9151,6 +9151,14 @@ function StoryboardReview({
             sceneEdit(scene, draft, slides, lengths.length > 1, narrated) !==
             null;
           const rolling = rollingScene === scene.id;
+          const guidedPreviewPending =
+            guidedStoryboard &&
+            !scene.previewPath &&
+            guidedPreviewRendering;
+          const guidedPromptSpeaker =
+            visual.match(/Frame only ([^:]+):/i)?.[1]?.trim() ?? null;
+          const guidedPromptEyeline =
+            visual.match(/screen-(left|right)/i)?.[1]?.toLowerCase() ?? null;
           return (
             <div
               key={scene.id}
@@ -9165,8 +9173,35 @@ function StoryboardReview({
                       alt={`Shot ${i + 1} preview`}
                       className="h-full w-full object-cover"
                     />
+                  ) : guidedPreviewPending || rolling ? (
+                    <div
+                      className="flex max-w-[15rem] flex-col items-center gap-3 px-4 text-center"
+                      role="status"
+                      data-testid={`status-scene-preview-rendering-${scene.id}`}
+                    >
+                      <RippleSpinner className="h-7 w-7 text-primary" />
+                      <div>
+                        <p className="text-sm font-medium">
+                          {rolling ? "Regenerating this image…" : "Generating scene image…"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {guidedPreviewRender?.completed ?? 0} of{" "}
+                          {guidedPreviewRender?.total ?? guidedScenes.length} scenes ready
+                        </p>
+                      </div>
+                    </div>
                   ) : (
-                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                    <div
+                      className="flex flex-col items-center gap-2 px-4 text-center text-muted-foreground"
+                      data-testid={`status-scene-preview-waiting-${scene.id}`}
+                    >
+                      <ImageIcon className="h-8 w-8" />
+                      <p className="text-xs">
+                        {guidedStoryboard
+                          ? "Waiting for scene image"
+                          : "No preview generated"}
+                      </p>
+                    </div>
                   )}
                   {rolling && (
                     <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
@@ -9302,7 +9337,36 @@ function StoryboardReview({
                     disabled={rolling || workingOn}
                   />
                 </div>}
-                {guidedStoryboard ? <p className="text-sm whitespace-pre-wrap" data-testid={`text-guided-shot-${scene.id}`}>{visual}</p> : <Textarea
+                {guidedStoryboard ? (
+                  <div className="space-y-2">
+                    <p
+                      className="text-sm font-medium"
+                      data-testid={`summary-guided-shot-${scene.id}`}
+                    >
+                      {[
+                        guidedPromptSpeaker ?? "Single-speaker shot",
+                        guidedPromptSpeaker ? "Single-speaker shot" : null,
+                        /chest up/i.test(visual) ? "Chest-up" : null,
+                        guidedPromptEyeline
+                          ? `Looking screen-${guidedPromptEyeline}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                    <details className="group text-xs text-muted-foreground">
+                      <summary className="cursor-pointer select-none font-medium hover:text-foreground">
+                        View generation details
+                      </summary>
+                      <p
+                        className="mt-2 whitespace-pre-wrap rounded-md border border-border bg-background p-2"
+                        data-testid={`text-guided-shot-${scene.id}`}
+                      >
+                        {visual}
+                      </p>
+                    </details>
+                  </div>
+                ) : <Textarea
                   id={`shot-${scene.id}`}
                   rows={3}
                   maxLength={1000}
