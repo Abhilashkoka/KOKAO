@@ -16,6 +16,7 @@ import {
 } from "../nvidiaCore";
 import { AsrProviderError } from "./types";
 import type { TranscribeInput, TranscriptionResult } from "./types";
+import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
 
 export { AsrNotConfiguredError, AsrProviderError } from "./types";
 export type { TranscribeInput, TranscriptionResult } from "./types";
@@ -263,17 +264,25 @@ export async function transcribeAudio(input: TranscribeInput): Promise<Transcrip
     if (candidate.id === def.id) continue;
     if (await isProviderConfigured(candidate)) alternates.push(candidate);
   }
+  const savedOrder = (await getAiFallbackOrders()).asr;
+  const manualAlternates = applyManualOrder(
+    alternates,
+    savedOrder,
+    (candidate) => candidate.id,
+  );
   // Kill switch (fail-open): with providerScoring off, fallbacks are ordered
   // by circuit-breaker health only, as they were before scoring existed.
   const scoringOn = await isFeatureEnabled("providerScoring").catch(() => true);
-  const ordered = scoringOn
+  const ordered = savedOrder !== undefined
+    ? manualAlternates.slice(0, ASR_FALLBACK_LIMIT)
+    : scoringOn
     ? rankProviders(
-        alternates.map((c) => ({ id: c.id, key: asrHealthKey(c.id) })),
+        manualAlternates.map((c) => ({ id: c.id, key: asrHealthKey(c.id) })),
         { latencyReferenceMs: ASR_LATENCY_REFERENCE_MS },
       )
         .slice(0, ASR_FALLBACK_LIMIT)
-        .map((r) => alternates.find((c) => c.id === r.id)!)
-    : orderByHealth(alternates, (c) => asrHealthKey(c.id)).slice(0, ASR_FALLBACK_LIMIT);
+        .map((r) => manualAlternates.find((c) => c.id === r.id)!)
+    : orderByHealth(manualAlternates, (c) => asrHealthKey(c.id)).slice(0, ASR_FALLBACK_LIMIT);
 
   for (const candidate of ordered) {
     logger.warn(

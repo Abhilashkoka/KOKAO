@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { z } from "zod";
 import {
   db,
   tenantsTable,
@@ -108,6 +109,10 @@ import {
 } from "../lib/replicateVideoPricing";
 import { buildProviderHealthReport } from "../lib/providerHealthReport";
 import { buildAdminAiFallbackReport } from "../lib/adminAiFallbacks";
+import {
+  EDITABLE_AI_FALLBACK_FAMILIES,
+  setAiFallbackOrders,
+} from "../lib/aiFallbackSettings";
 import {
   STOCK_SOURCES,
   getStockSourceDef,
@@ -2668,8 +2673,83 @@ router.get("/admin/nvidia/models", async (req: Request, res: Response) => {
   }
 });
 
-/** Read-only explanation of current AI fallback eligibility and pricing. */
+/** Current AI fallback eligibility, pricing, and the persisted manual order. */
 router.get("/admin/ai-fallbacks", async (_req: Request, res: Response) => {
+  res.json(await buildAdminAiFallbackReport());
+});
+
+const AdminUpdateAiFallbackOrdersBody = z.object({
+  orders: z.object(
+    Object.fromEntries(
+      EDITABLE_AI_FALLBACK_FAMILIES.map((family) => [
+        family,
+        z.array(z.string().min(1).max(200)).max(50).optional(),
+      ]),
+    ) as Record<
+      (typeof EDITABLE_AI_FALLBACK_FAMILIES)[number],
+      z.ZodOptional<z.ZodArray<z.ZodString>>
+    >,
+  ).strict(),
+});
+
+/** Atomically replace all manual fallback family orders. */
+router.put("/admin/ai-fallbacks", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateAiFallbackOrdersBody.safeParse(req.body);
+  if (
+    !parsed.success ||
+    Object.values(parsed.data.orders).some(
+      (ids) => ids !== undefined && new Set(ids).size !== ids.length,
+    )
+  ) {
+    res.status(400).json({ error: "Each fallback order must contain unique provider ids." });
+    return;
+  }
+  const allowed: Record<string, Set<string>> = {
+    image: new Set(IMAGE_GEN_PROVIDERS.map((provider) => provider.id)),
+    text: new Set(["builtin"]),
+    "text-to-video": new Set(VIDEO_GEN_PROVIDERS.flatMap((provider) =>
+      [provider.defaultTextToVideoModel, ...(provider.textModelOptions ?? []).map((model) => model.value)]
+        .filter(Boolean)
+        .map((model) => `${provider.id}::${model}`),
+    )),
+    "image-to-video": new Set(VIDEO_GEN_PROVIDERS.flatMap((provider) =>
+      [provider.defaultImageToVideoModel, ...(provider.imageModelOptions ?? []).map((model) => model.value)]
+        .filter(Boolean)
+        .map((model) => `${provider.id}::${model}`),
+    )),
+    tts: new Set(["openai", "deepgram", "nvidia"]),
+    asr: new Set(ASR_PROVIDERS.map((provider) => provider.id)),
+  };
+  if (
+    Object.entries(parsed.data.orders).some(
+      ([family, ids]) => ids?.some((id) => !allowed[family]?.has(id)),
+    )
+  ) {
+    res.status(400).json({ error: "A fallback order contains an unknown or unsupported candidate id." });
+    return;
+  }
+  const currentReport = await buildAdminAiFallbackReport();
+  const primaries = new Map(currentReport.families.map((family) => {
+    const hasPinnedPrimary =
+      family.family !== "tts" &&
+      !(family.family === "image" && family.selected === IMAGE_GEN_AUTO);
+    if (!hasPinnedPrimary) return [family.family, null];
+    const primary = family.candidates.find((candidate) => candidate.role === "primary");
+    const id = primary
+      ? ((family.family === "text-to-video" || family.family === "image-to-video")
+          ? `${primary.provider}::${primary.model ?? ""}`
+          : primary.provider)
+      : null;
+    return [family.family, id];
+  }));
+  if (Object.entries(parsed.data.orders).some(([family, ids]) => {
+    const primary = primaries.get(family);
+    return primary !== null && primary !== undefined && ids?.includes(primary);
+  })) {
+    res.status(400).json({ error: "The selected primary cannot be added to its fallback chain." });
+    return;
+  }
+  await setAiFallbackOrders(parsed.data.orders);
   res.json(await buildAdminAiFallbackReport());
 });
 

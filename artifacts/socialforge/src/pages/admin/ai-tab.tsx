@@ -44,6 +44,7 @@ import {
   useAdminClearTextGenKey,
   getAdminGetTextGenSettingsQueryKey,
   useAdminGetAiFallbacks,
+  useAdminUpdateAiFallbackOrders,
   getAdminGetAiFallbacksQueryKey,
   useAdminListCustomAiProviders,
   useAdminCreateCustomAiProvider,
@@ -116,7 +117,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
-import { ExternalLink } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import { WalletCard } from "./wallet-card";
 import { ModelPriceImportDialog } from "./model-price-import-dialog";
@@ -129,6 +130,48 @@ const ASR_KEY_PAGES: Record<string, string> = {
 
 export function AiFallbacksCard() {
   const { data, isLoading, isError } = useAdminGetAiFallbacks({ query: { queryKey: getAdminGetAiFallbacksQueryKey(), refetchInterval: 30_000 } });
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const updateOrders = useAdminUpdateAiFallbackOrders({
+    mutation: {
+      onSuccess: (report) => {
+        queryClient.setQueryData(getAdminGetAiFallbacksQueryKey(), report);
+        toast({ title: "Fallback order saved" });
+      },
+      onError: (error) => toast({ title: "Could not save fallback order", description: apiErrorMessage(error, "Try again."), variant: "destructive" }),
+    },
+  });
+  const saveOrder = (family: string, order?: string[]) => {
+    if (!data) return;
+    const orders = Object.fromEntries(
+      data.families
+        .filter(
+          (item) =>
+            item.editable &&
+            (item.family === family ? order !== undefined : item.manualOrderConfigured),
+        )
+        .map((item) => [
+          item.family,
+          item.family === family ? order : item.manualOrder,
+        ]),
+    );
+    updateOrders.mutate({ data: { orders } });
+  };
+  const fallbackId = (family: string, provider: string, model: string | null) =>
+    family === "text-to-video" || family === "image-to-video"
+      ? `${provider}::${model ?? ""}`
+      : provider;
+  const hasPinnedPrimary = (
+    family: NonNullable<typeof data>["families"][number],
+  ) => family.family !== "tts" && !(family.family === "image" && family.selected === "auto");
+  const activeFallbackIds = (family: NonNullable<typeof data>["families"][number]) =>
+    family.manualOrderConfigured
+      ? family.manualOrder
+      : family.candidates
+          .filter((candidate) => !hasPinnedPrimary(family) || candidate.role !== "primary")
+          .map((candidate) =>
+            fallbackId(family.family, candidate.provider, candidate.model),
+          );
   return (
     <Card data-testid="card-ai-fallbacks">
       <CardHeader>
@@ -153,17 +196,165 @@ export function AiFallbacksCard() {
                     {family.selected}
                   </Badge>
                 </div>
-                <ol className="space-y-2">
+                {family.editable && (
+                  <div className="mb-2 flex gap-2">
+                    <Select
+                      onValueChange={(id) => {
+                         const current = activeFallbackIds(family);
+                        saveOrder(family.family, [...current, id]);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs" aria-label={`Add ${family.family} fallback`}>
+                        <SelectValue placeholder="Add fallback…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {family.availableCandidates
+                           .filter((candidate) => {
+                             const primary = hasPinnedPrimary(family)
+                               ? family.candidates.find(
+                                   (item) => item.role === "primary",
+                                 )
+                               : undefined;
+                             const primaryId = primary
+                               ? fallbackId(
+                                   family.family,
+                                   primary.provider,
+                                   primary.model,
+                                 )
+                               : null;
+                             return (
+                               candidate.id !== primaryId &&
+                               !activeFallbackIds(family).includes(candidate.id)
+                             );
+                           })
+                          .map((candidate) => <SelectItem key={candidate.id} value={candidate.id}>{candidate.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                  <ol className="space-y-2">
                   {family.candidates.map((item, index) => (
                     <li key={`${item.provider}-${item.model ?? ""}`} className="rounded bg-muted/40 p-2 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-1">
                         <span className="font-medium">{index + 1}. {item.label}</span>
-                        <div className="flex gap-1">
+                         <div className="flex items-center gap-1">
+                           {family.editable && (!hasPinnedPrimary(family) || item.role !== "primary") && (
+                             <>
+                               <Button
+                                 type="button"
+                                 variant="ghost"
+                                 size="icon"
+                                 className="h-6 w-6"
+                                  disabled={
+                                    activeFallbackIds(family).indexOf(
+                                      fallbackId(
+                                        family.family,
+                                        item.provider,
+                                        item.model,
+                                      ),
+                                    ) <= 0 || updateOrders.isPending
+                                  }
+                                 aria-label={`Move ${item.label} up`}
+                                 onClick={() => {
+                                    const ids = [...activeFallbackIds(family)];
+                                    const itemIndex = ids.indexOf(
+                                      fallbackId(
+                                        family.family,
+                                        item.provider,
+                                        item.model,
+                                      ),
+                                    );
+                                    [ids[itemIndex - 1], ids[itemIndex]] = [
+                                      ids[itemIndex]!,
+                                      ids[itemIndex - 1]!,
+                                    ];
+                                    saveOrder(family.family, ids);
+                                 }}
+                               ><ArrowUp className="h-3 w-3" /></Button>
+                               <Button
+                                 type="button"
+                                 variant="ghost"
+                                 size="icon"
+                                 className="h-6 w-6"
+                                  disabled={
+                                    activeFallbackIds(family).indexOf(
+                                      fallbackId(
+                                        family.family,
+                                        item.provider,
+                                        item.model,
+                                      ),
+                                    ) === activeFallbackIds(family).length - 1 ||
+                                    updateOrders.isPending
+                                  }
+                                 aria-label={`Move ${item.label} down`}
+                                 onClick={() => {
+                                    const ids = [...activeFallbackIds(family)];
+                                    const itemIndex = ids.indexOf(
+                                      fallbackId(
+                                        family.family,
+                                        item.provider,
+                                        item.model,
+                                      ),
+                                    );
+                                    [ids[itemIndex + 1], ids[itemIndex]] = [
+                                      ids[itemIndex]!,
+                                      ids[itemIndex + 1]!,
+                                    ];
+                                    saveOrder(family.family, ids);
+                                 }}
+                               ><ArrowDown className="h-3 w-3" /></Button>
+                               <Button
+                                 type="button"
+                                 variant="ghost"
+                                 size="icon"
+                                 className="h-6 w-6 text-destructive"
+                                  disabled={updateOrders.isPending}
+                                 aria-label={`Remove ${item.label} from fallbacks`}
+                                 onClick={() => saveOrder(
+                                   family.family,
+                                    activeFallbackIds(family).filter(
+                                      (id) =>
+                                        id !==
+                                        fallbackId(
+                                          family.family,
+                                          item.provider,
+                                          item.model,
+                                        ),
+                                    ),
+                                 )}
+                               ><Trash2 className="h-3 w-3" /></Button>
+                             </>
+                           )}
+                           {family.editable && (!hasPinnedPrimary(family) || item.role !== "primary") && (
+                             <Select
+                               value={fallbackId(family.family, item.provider, item.model)}
+                               onValueChange={(replacement) => {
+                                  const current = activeFallbackIds(family);
+                                 const currentId = fallbackId(family.family, item.provider, item.model);
+                                 saveOrder(family.family, current.map((id) => id === currentId ? replacement : id));
+                               }}
+                             >
+                               <SelectTrigger
+                                 className="h-6 w-auto gap-1 border-0 px-2 text-xs"
+                                 aria-label={`Replace ${item.label} fallback`}
+                               >
+                                 <Pencil className="h-3 w-3" />
+                                 <span>Edit</span>
+                               </SelectTrigger>
+                               <SelectContent>
+                                 {family.availableCandidates
+                                    .filter((candidate) => candidate.id === fallbackId(family.family, item.provider, item.model) || !activeFallbackIds(family).includes(candidate.id))
+                                   .map((candidate) => <SelectItem key={candidate.id} value={candidate.id}>{candidate.label}</SelectItem>)}
+                               </SelectContent>
+                             </Select>
+                           )}
+                         <div className="flex gap-1">
                           <Badge variant={item.configured ? "secondary" : "destructive"}>{item.configured ? "Configured" : "Unconfigured"}</Badge>
                           <Badge variant={item.healthy ? "secondary" : "destructive"}>{item.healthy ? "Healthy" : "Unhealthy"}</Badge>
                           <Badge variant={item.eligible ? "default" : "outline"}>{item.eligible ? "Eligible" : "Skipped"}</Badge>
                         </div>
                       </div>
+                       </div>
                       {item.model && <p className="mt-1 break-all font-mono text-muted-foreground">{item.model}</p>}
                       <p className="mt-1 text-muted-foreground">
                         {item.role.replaceAll("-", " ")} · {item.priceLabel}
@@ -180,6 +371,11 @@ export function AiFallbacksCard() {
                     </li>
                   ))}
                 </ol>
+                 {family.editable && family.manualOrderConfigured && (
+                   <Button type="button" variant="ghost" size="sm" className="mt-2 h-7 px-2 text-xs" disabled={updateOrders.isPending} onClick={() => saveOrder(family.family, undefined)}>
+                     <RotateCcw className="mr-1 h-3 w-3" /> Restore automatic order
+                   </Button>
+                 )}
                 {family.noUsableFallback && <p className="mt-3 text-xs font-medium text-destructive">No usable fallback is available for this group.</p>}
                 <p className="mt-3 text-xs text-muted-foreground">{family.note}</p>
               </section>

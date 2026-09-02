@@ -15,12 +15,13 @@ import { IMAGE_GEN_PROVIDERS, effectiveModel, getImageGenSelection, imageGenHeal
 import { VIDEO_GEN_PROVIDERS, getVideoGenSelection, isVideoGenProviderConfigured, videoGenHealthKey } from "./videoGen";
 import { ASR_PROVIDERS, asrHealthKey, getSelectedAsrProviderId, isProviderConfigured } from "./asr";
 import { SARVAM_TTS_MODEL, isSarvamConfigured, sarvamTtsHealthKey } from "./sarvamTts";
-import { isTtsProviderConfigured, orderedTtsProviders, ttsHealthKey } from "./videoGen/topicVideo/tts";
+import { isTtsProviderConfigured, orderedTtsProviders, ttsHealthKey, TTS_PROVIDERS } from "./videoGen/topicVideo/tts";
 import { validateNvidiaTextActivation } from "./nvidiaAdmin";
 import {
   isNvidiaCoreDeploymentActivatable,
   resolveNvidiaCoreDeployment,
 } from "./nvidiaCore";
+import { applyManualOrder, getAiFallbackOrders } from "./aiFallbackSettings";
 
 type PricedKind = "text" | "image" | "video";
 export const FALLBACK_REPORT_VIDEO_DURATION_SEC = 5;
@@ -28,6 +29,23 @@ export interface AdminAiFallbackCandidate {
   provider: string; label: string; model: string | null; role: "primary" | "alternate" | "cross-provider" | "selectable";
   configured: boolean; healthy: boolean; eligible: boolean; skipReason: string | null;
   priceLabel: string; customerEstimatePaise: number | null; estimateDurationSec: number | null;
+}
+export interface AdminAiFallbackAvailableCandidate {
+  id: string; provider: string; model: string | null; label: string;
+}
+function availableCandidates(family: string): AdminAiFallbackAvailableCandidate[] {
+  if (family === "image") return IMAGE_GEN_PROVIDERS.map((p) => ({ id: p.id, provider: p.id, model: p.defaultModel, label: p.label }));
+  if (family === "asr") return ASR_PROVIDERS.map((p) => ({ id: p.id, provider: p.id, model: p.model, label: p.label }));
+  if (family === "tts") return TTS_PROVIDERS.map((p) => ({ id: p.id, provider: p.id, model: null, label: p.label }));
+  if (family === "text") return [{ id: "builtin", provider: "builtin", model: null, label: "Built-in OpenAI" }];
+  if (family === "text-to-video" || family === "image-to-video") {
+    const mode = family === "text-to-video" ? "text" : "image";
+    return VIDEO_GEN_PROVIDERS.flatMap((p) => [...new Set([
+      mode === "text" ? p.defaultTextToVideoModel : p.defaultImageToVideoModel,
+      ...((mode === "text" ? p.textModelOptions : p.imageModelOptions) ?? []).map((option) => option.value),
+    ])].map((model) => ({ id: `${p.id}::${model}`, provider: p.id, model, label: `${p.label} (${model})` })));
+  }
+  return [];
 }
 function healthy(key: string) {
   const breaker = getProviderHealth(key);
@@ -123,37 +141,114 @@ async function isTextProviderConfigured(provider: string, model: string | null):
   return false;
 }
 
-async function videoGroup(mode: "text" | "image", selectedProvider: string, selectedModel: string | null) {
+async function videoGroup(mode: "text" | "image", selectedProvider: string, selectedModel: string | null, manualOrder?: string[]) {
   const selected = VIDEO_GEN_PROVIDERS.find((p) => p.id === selectedProvider);
-  const models = selected
-    ? [selectedModel ?? (mode === "text" ? selected.defaultTextToVideoModel : selected.defaultImageToVideoModel),
-      ...((mode === "text" ? selected.textModelOptions : selected.imageModelOptions) ?? []).map((m) => m.value)]
-        .filter((m, i, all) => Boolean(m) && all.indexOf(m) === i).slice(0, 3)
-    : [];
+  const primaryModel = selected
+    ? selectedModel ??
+      (mode === "text"
+        ? selected.defaultTextToVideoModel
+        : selected.defaultImageToVideoModel)
+    : null;
   const selectedConfigured = selected ? await isVideoGenProviderConfigured(selected) : false;
-  const primary = await Promise.all(models.map((model, index) => makeCandidate({
-    kind: "video", provider: selectedProvider, label: selected?.label ?? selectedProvider, model,
-    role: index === 0 ? "primary" : "alternate", configured: selectedConfigured,
-    healthy: healthy(videoGenHealthKey(selectedProvider)), priceRequired: true,
-  })));
-  const cross = await Promise.all(VIDEO_GEN_PROVIDERS.filter((p) => p.id !== selectedProvider).map(async (p) =>
-    makeCandidate({ kind: "video", provider: p.id, label: p.label,
-      model: mode === "text" ? p.defaultTextToVideoModel : p.defaultImageToVideoModel, role: "cross-provider",
-      configured: await isVideoGenProviderConfigured(p), healthy: healthy(videoGenHealthKey(p.id)), priceRequired: true })));
-  const candidates = [...primary, ...cross];
+  const primary = primaryModel
+    ? [
+        await makeCandidate({
+          kind: "video",
+          provider: selectedProvider,
+          label: selected?.label ?? selectedProvider,
+          model: primaryModel,
+          role: "primary",
+          configured: selectedConfigured,
+          healthy: healthy(videoGenHealthKey(selectedProvider)),
+          priceRequired: true,
+        }),
+      ]
+    : [];
+  const catalog = (
+    await Promise.all(
+      VIDEO_GEN_PROVIDERS.flatMap((provider) => {
+        const models = [
+          mode === "text"
+            ? provider.defaultTextToVideoModel
+            : provider.defaultImageToVideoModel,
+          ...(
+            (mode === "text"
+              ? provider.textModelOptions
+              : provider.imageModelOptions) ?? []
+          ).map((option) => option.value),
+        ].filter(
+          (model, index, all): model is string =>
+            Boolean(model) && all.indexOf(model) === index,
+        );
+        return models.map(async (model) => ({
+          id: `${provider.id}::${model}`,
+          candidate: await makeCandidate({
+            kind: "video",
+            provider: provider.id,
+            label: provider.label,
+            model,
+            role:
+              provider.id === selectedProvider ? "alternate" : "cross-provider",
+            configured: await isVideoGenProviderConfigured(provider),
+            healthy: healthy(videoGenHealthKey(provider.id)),
+            priceRequired: true,
+          }),
+        }));
+      }),
+    )
+  ).filter(({ id }) => id !== `${selectedProvider}::${primaryModel ?? ""}`);
+  const historical = [
+    ...catalog.filter(
+      ({ candidate }) => candidate.provider === selectedProvider,
+    ).slice(0, 2),
+    ...catalog.filter(
+      ({ candidate }) => candidate.provider !== selectedProvider,
+    ),
+  ];
+  const fallbacks =
+    manualOrder === undefined
+      ? historical.map(({ candidate }) => candidate)
+      : applyManualOrder(catalog, manualOrder, ({ id }) => id).map(
+          ({ candidate }) => candidate,
+        );
+  const candidates = [...primary, ...fallbacks];
   return { family: mode === "text" ? "text-to-video" : "image-to-video", selected: selectedProvider, candidates,
     noUsableFallback: hasNoUsableFallback(candidates), note: `Selected provider models are attempted first; up to two catalog alternates precede cross-provider defaults. Price eligibility and estimate use a representative ${FALLBACK_REPORT_VIDEO_DURATION_SEC}s clip.` };
 }
 export async function buildAdminAiFallbackReport() {
   const [text, image, video, asr, sarvam] = await Promise.all([getTextGenSelection(), getImageGenSelection(), getVideoGenSelection(), getSelectedAsrProviderId(), isSarvamConfigured()]);
-  const rankedImages = await rankImageGenProviders(undefined, false);
+  const [rankedImages, manualOrders] = await Promise.all([rankImageGenProviders(undefined, false), getAiFallbackOrders()]);
+  const rankedImageDefs = rankedImages
+    .map((rank) => IMAGE_GEN_PROVIDERS.find((p) => p.id === rank.id)!)
+    .filter(Boolean);
   const imageDefs = image.provider === "auto"
-    ? rankedImages.map((rank) => IMAGE_GEN_PROVIDERS.find((p) => p.id === rank.id)!).filter(Boolean).slice(0, 3)
+    ? rankedImageDefs.slice(0, 3)
     : (() => {
       const selected = IMAGE_GEN_PROVIDERS.find((p) => p.id === image.provider) ?? IMAGE_GEN_PROVIDERS[0]!;
-      return [selected, ...rankedImages.map((r) => IMAGE_GEN_PROVIDERS.find((p) => p.id === r.id)!).filter((p) => p && p.id !== selected.id).slice(0, 2)];
+      return [selected, ...rankedImageDefs.filter((p) => p.id !== selected.id).slice(0, 2)];
     })();
-  const imageCandidates = await Promise.all(imageDefs.map(async (p, index) => makeCandidate({
+  const manualImageCatalog =
+    image.provider === "auto"
+      ? IMAGE_GEN_PROVIDERS
+      : IMAGE_GEN_PROVIDERS.filter((provider) => provider.id !== image.provider);
+  const reportImageDefs =
+    manualOrders.image === undefined
+      ? imageDefs
+      : image.provider === "auto"
+        ? applyManualOrder(
+            manualImageCatalog,
+            manualOrders.image,
+            (provider) => provider.id,
+          )
+        : [
+            imageDefs[0]!,
+            ...applyManualOrder(
+              manualImageCatalog,
+              manualOrders.image,
+              (provider) => provider.id,
+            ),
+          ];
+  const imageCandidates = await Promise.all(reportImageDefs.map(async (p, index) => makeCandidate({
     kind: "image", provider: p.id, label: p.label, model: p.id === image.provider ? effectiveModel(p, image.model) : p.defaultModel,
     role: index === 0 ? "primary" : "alternate", configured: await isImageGenProviderConfigured(p), healthy: healthy(imageGenHealthKey(p.id)),
   })));
@@ -163,7 +258,18 @@ export async function buildAdminAiFallbackReport() {
       model: resolveAiModel(text.defaultModel ?? ""),
       role: "alternate" as const,
     }])];
-  const textCandidates = await Promise.all(textRows.map(async (p) => makeCandidate({
+  const reportTextRows =
+    manualOrders.text === undefined
+      ? textRows
+      : [
+          textRows[0]!,
+          ...applyManualOrder(
+            textRows.slice(1),
+            manualOrders.text,
+            (candidate) => candidate.provider,
+          ),
+        ];
+  const textCandidates = await Promise.all(reportTextRows.map(async (p) => makeCandidate({
     kind: "text", provider: p.provider, label: p.provider === "builtin" ? "Built-in OpenAI" : p.provider, model: p.model,
     role: p.role, configured: await isTextProviderConfigured(p.provider, p.model), healthy: healthy(textGenHealthKey(p.provider, "text")),
     priceRequired: p.role === "alternate",
@@ -190,8 +296,18 @@ export async function buildAdminAiFallbackReport() {
         })
       : null;
   const selectedAsr = ASR_PROVIDERS.find((p) => p.id === asr)!;
-  const asrAlternates = (await Promise.all(ASR_PROVIDERS.filter((p) => p.id !== asr).map(async (p) => ({ p, configured: await isProviderConfigured(p) })))).filter((x) => x.configured).map((x) => x.p);
-  const asrOrder = [selectedAsr, ...rankProviders(asrAlternates.map((p) => ({ id: p.id, key: asrHealthKey(p.id) })), { latencyReferenceMs: 20_000 }).slice(0, 2).map((r) => asrAlternates.find((p) => p.id === r.id)!)];
+  const asrAlternates = ASR_PROVIDERS.filter((provider) => provider.id !== asr);
+  const orderedAsrAlternates = applyManualOrder(asrAlternates, manualOrders.asr, (p) => p.id);
+  const reportAsrAlternates =
+    manualOrders.asr === undefined
+      ? rankProviders(
+          orderedAsrAlternates.map((p) => ({ id: p.id, key: asrHealthKey(p.id) })),
+          { latencyReferenceMs: 20_000 },
+        )
+          .slice(0, 2)
+          .map((r) => orderedAsrAlternates.find((p) => p.id === r.id)!)
+      : orderedAsrAlternates;
+  const asrOrder = [selectedAsr, ...reportAsrAlternates];
   const asrCandidates = await Promise.all(asrOrder.map(async (p, index) => makeCandidate({
     provider: p.id, label: p.label, model: p.model, role: index === 0 ? "primary" : "alternate",
     configured: await isProviderConfigured(p), healthy: healthy(asrHealthKey(p.id)),
@@ -207,8 +323,12 @@ export async function buildAdminAiFallbackReport() {
     healthy: healthy(videoGenHealthKey("replicate")),
     priceRequired: true,
   })];
+  const reportTtsProviders =
+    manualOrders.tts === undefined
+      ? await orderedTtsProviders()
+      : applyManualOrder(TTS_PROVIDERS, manualOrders.tts, (provider) => provider.id);
   const ttsCandidates = await Promise.all(
-    (await orderedTtsProviders()).map(async (provider, index) =>
+    reportTtsProviders.map(async (provider, index) =>
       makeCandidate({
         provider: provider.id,
         label: provider.label,
@@ -220,28 +340,39 @@ export async function buildAdminAiFallbackReport() {
     ),
   );
   const groups = [
-    { family: "text", selected: text.provider, candidates: textCandidates, noUsableFallback: hasNoUsableFallback(textCandidates), note: "Runtime text failover is health-driven; pricing is informational for the selected model. This plain-text status does not establish image_url eligibility." },
+    { family: "text", selected: text.provider, candidates: textCandidates, noUsableFallback: hasNoUsableFallback(textCandidates), editable: true, manualOrder: manualOrders.text ?? [], note: "The selected text provider remains primary. The only safe cross-provider text fallback is built-in OpenAI, subject to health and pricing; its position is retained for compatibility." },
     ...(nvidiaMultimodalCandidate
       ? [{
           family: "multimodal",
           selected: "nvidia",
           candidates: [nvidiaMultimodalCandidate],
           noUsableFallback: !nvidiaMultimodalCandidate.eligible,
+          editable: false,
+          manualOrder: [],
           note: "NVIDIA image_url paths require their separate multimodal deployment to be enabled and independently tested; text activation alone is insufficient.",
         }]
       : []),
-    { family: "image", selected: image.provider, candidates: imageCandidates, noUsableFallback: hasNoUsableFallback(imageCandidates), note: image.provider === "auto" ? "Dynamic scorer order (health, speed, price and quality) for a prompt without reference/transparency constraints." : "Selected provider is first; runtime tries up to two configured alternatives after transient failures." },
-    await videoGroup("text", video.provider, video.textToVideoModel),
-    await videoGroup("image", video.provider, video.imageToVideoModel),
-    { family: "tts", selected: ttsCandidates[0]?.provider ?? "none", candidates: ttsCandidates, noUsableFallback: hasNoUsableFallback(ttsCandidates), note: "Normal narration uses configured providers in health order; OpenAI leads unless its breaker is open. Prices are not tracked." },
+    { family: "image", selected: image.provider, candidates: imageCandidates, noUsableFallback: hasNoUsableFallback(imageCandidates), editable: true, manualOrder: manualOrders.image ?? [], note: image.provider === "auto" ? "Manual order overrides scorer order when saved; capability locks for Guided Story image edits still filter incapable providers." : "Selected provider is first; manual alternatives run only after transient failures." },
+    { ...(await videoGroup("text", video.provider, video.textToVideoModel, manualOrders["text-to-video"])), editable: true, manualOrder: manualOrders["text-to-video"] ?? [] },
+    { ...(await videoGroup("image", video.provider, video.imageToVideoModel, manualOrders["image-to-video"])), editable: true, manualOrder: manualOrders["image-to-video"] ?? [] },
+    { family: "tts", selected: ttsCandidates[0]?.provider ?? "none", candidates: ttsCandidates, noUsableFallback: hasNoUsableFallback(ttsCandidates), editable: true, manualOrder: manualOrders.tts ?? [], note: "Manual order is honored within the health order; an open circuit remains skipped." },
     { family: "localized-tts", selected: "job snapshot", candidates: [
       await makeCandidate({ provider: "openai", label: "OpenAI localized narration", model: "gpt-audio", role: "selectable", configured: true, healthy: healthy(ttsHealthKey("openai")) }),
       await makeCandidate({ provider: "sarvam", label: "Sarvam localized narration", model: SARVAM_TTS_MODEL, role: "selectable", configured: sarvam, healthy: healthy(sarvamTtsHealthKey()) }),
-    ], noUsableFallback: true, note: "Each localized job snapshots either OpenAI gpt-audio or Sarvam bulbul:v3; these are selectable routes, not a fallback chain." },
-    { family: "asr", selected: asr, candidates: asrCandidates, noUsableFallback: hasNoUsableFallback(asrCandidates), note: "ASR prices are not tracked in ai_model_prices." },
-    { family: "lip-sync-standard", selected: "replicate", candidates: [await makeCandidate({ kind: "video", provider: "replicate", label: "LatentSync standard", model: "bytedance/latentsync", role: "primary", configured: replicate ? await isVideoGenProviderConfigured(replicate) : false, healthy: healthy(videoGenHealthKey("replicate")), priceRequired: true })], noUsableFallback: true, note: "Standard video lip-sync route; no alternate provider." },
-    { family: "lip-sync-high-quality", selected: "replicate", candidates: lipSyncCandidates, noUsableFallback: true, note: "High Quality video lip-sync uses sync/lipsync-2; no alternate provider." },
-    { family: "lip-sync-portrait", selected: video.lipSyncPortraitModel ?? "none", candidates: video.lipSyncPortraitModel ? [await makeCandidate({ kind: "video", provider: "replicate", label: "Admin-configured portrait lip-sync", model: video.lipSyncPortraitModel, role: "primary", configured: replicate ? await isVideoGenProviderConfigured(replicate) : false, healthy: healthy(videoGenHealthKey("replicate")), priceRequired: true })] : [], noUsableFallback: true, note: "Portrait route is available only when an admin configures a portrait model; no alternate provider." },
+    ], noUsableFallback: true, editable: false, manualOrder: [], note: "Read-only: each localized job snapshots either OpenAI gpt-audio or Sarvam bulbul:v3; these are selectable routes, not a fallback chain." },
+    { family: "asr", selected: asr, candidates: asrCandidates, noUsableFallback: hasNoUsableFallback(asrCandidates), editable: true, manualOrder: manualOrders.asr ?? [], note: "Selected ASR remains primary; manual alternatives run only after transient failures." },
+    { family: "lip-sync-standard", selected: "replicate", candidates: [await makeCandidate({ kind: "video", provider: "replicate", label: "LatentSync standard", model: "bytedance/latentsync", role: "primary", configured: replicate ? await isVideoGenProviderConfigured(replicate) : false, healthy: healthy(videoGenHealthKey("replicate")), priceRequired: true })], noUsableFallback: true, editable: false, manualOrder: [], note: "Read-only: standard video lip-sync has no alternate provider." },
+    { family: "lip-sync-high-quality", selected: "replicate", candidates: lipSyncCandidates, noUsableFallback: true, editable: false, manualOrder: [], note: "Read-only: High Quality video lip-sync uses sync/lipsync-2; no alternate provider." },
+    { family: "lip-sync-portrait", selected: video.lipSyncPortraitModel ?? "none", candidates: video.lipSyncPortraitModel ? [await makeCandidate({ kind: "video", provider: "replicate", label: "Admin-configured portrait lip-sync", model: video.lipSyncPortraitModel, role: "primary", configured: replicate ? await isVideoGenProviderConfigured(replicate) : false, healthy: healthy(videoGenHealthKey("replicate")), priceRequired: true })] : [], noUsableFallback: true, editable: false, manualOrder: [], note: "Read-only: portrait lip-sync has no alternate provider." },
   ];
-  return { generatedAt: new Date().toISOString(), families: groups };
+  return {
+    generatedAt: new Date().toISOString(),
+    families: groups.map((group) => ({
+      ...group,
+      manualOrderConfigured:
+        group.editable === true &&
+        Object.prototype.hasOwnProperty.call(manualOrders, group.family),
+      availableCandidates: group.editable === true ? availableCandidates(group.family) : [],
+    })),
+  };
 }

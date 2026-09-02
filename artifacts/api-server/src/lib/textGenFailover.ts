@@ -19,6 +19,7 @@ import {
   type TextGenChatCapability,
   type TextGenProvider,
 } from "./textGen";
+import { getAiFallbackOrders } from "./aiFallbackSettings";
 
 /**
  * Text-generation failover: when the admin-selected provider is DOWN
@@ -114,6 +115,10 @@ export async function resolveTextGenFailoverCandidate(
   tenantModel: string,
 ): Promise<FailoverCandidate | null> {
   if (primaryProvider === "builtin") return null;
+  // A saved text chain is exact. Today builtin is the only safe portable
+  // substitute, so [] explicitly opts out while ["builtin"] retains it.
+  const textOrder = (await getAiFallbackOrders()).text;
+  if (textOrder !== undefined && !textOrder.includes("builtin")) return null;
   if (!isProviderHealthy(textGenHealthKey("builtin"))) return null;
   const model = resolveAiModel(tenantModel);
   // Pricing gate: no price row for the substitute → no failover. Uses the

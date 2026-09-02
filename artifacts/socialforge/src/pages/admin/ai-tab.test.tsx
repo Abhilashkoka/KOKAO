@@ -46,13 +46,14 @@ const mockState: {
 const updateMutate = vi.fn((vars: { data: Record<string, unknown> }) => {
   mockState.lastUpdateVars = vars;
 });
+const fallbackMutate = vi.fn();
 
 describe("AI fallback sequence", () => {
   it("shows server pricing, customer estimate, and an unavailable fallback warning", () => {
     mockState.fallbacks = {
       generatedAt: "2026-01-01T00:00:00.000Z",
       families: [{
-        family: "text-to-video", selected: "replicate", noUsableFallback: true,
+        family: "text-to-video", selected: "replicate", noUsableFallback: true, editable: true, manualOrder: [], manualOrderConfigured: false, availableCandidates: [],
         note: "Video models require a price row.",
         candidates: [{
           provider: "replicate", label: "Replicate", model: "wan/test", role: "primary",
@@ -66,6 +67,80 @@ describe("AI fallback sequence", () => {
     expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("Missing price");
     expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("Estimated charge for a representative 5-second clip: ₹1.25");
     expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("No usable fallback");
+  });
+
+  it("adds and deletes exact fallback entries from the card", async () => {
+    mockState.fallbacks = {
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      families: [{
+        family: "image",
+        selected: "openai",
+        noUsableFallback: false,
+        editable: true,
+        manualOrder: ["gemini"],
+        manualOrderConfigured: true,
+        availableCandidates: [
+          { id: "openai", provider: "openai", model: "gpt-image-1", label: "OpenAI" },
+          { id: "gemini", provider: "gemini", model: "gemini-image", label: "Gemini" },
+          { id: "bfl", provider: "bfl", model: "flux", label: "BFL" },
+        ],
+        note: "Selected provider remains primary.",
+        candidates: [
+          {
+            provider: "openai", label: "OpenAI", model: "gpt-image-1", role: "primary",
+            configured: true, healthy: true, eligible: true, skipReason: null,
+            priceLabel: "$1/image", customerEstimatePaise: 100, estimateDurationSec: null,
+          },
+          {
+            provider: "gemini", label: "Gemini", model: "gemini-image", role: "alternate",
+            configured: true, healthy: true, eligible: true, skipReason: null,
+            priceLabel: "$1/image", customerEstimatePaise: 100, estimateDurationSec: null,
+          },
+        ],
+      }],
+    };
+    render(<QueryClientProvider client={new QueryClient()}><AiFallbacksCard /></QueryClientProvider>);
+
+    await userEvent.click(screen.getByLabelText("Add image fallback"));
+    await userEvent.click(await screen.findByRole("option", { name: "BFL" }));
+    expect(fallbackMutate).toHaveBeenLastCalledWith({
+      data: { orders: { image: ["gemini", "bfl"] } },
+    });
+
+    await userEvent.click(screen.getByLabelText("Remove Gemini from fallbacks"));
+    expect(fallbackMutate).toHaveBeenLastCalledWith({
+      data: { orders: { image: [] } },
+    });
+  });
+
+  it("restores one family to automatic without clearing other manual families", async () => {
+    mockState.fallbacks = {
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      families: [
+        {
+          family: "image", selected: "openai", editable: true,
+          manualOrder: ["gemini"], manualOrderConfigured: true,
+          availableCandidates: [], noUsableFallback: false, note: "",
+          candidates: [{
+            provider: "openai", label: "OpenAI", model: "gpt-image-1", role: "primary",
+            configured: true, healthy: true, eligible: true, skipReason: null,
+            priceLabel: "$1/image", customerEstimatePaise: 100, estimateDurationSec: null,
+          }],
+        },
+        {
+          family: "tts", selected: "openai", editable: true,
+          manualOrder: ["openai", "deepgram"], manualOrderConfigured: true,
+          availableCandidates: [], noUsableFallback: false, note: "",
+          candidates: [],
+        },
+      ],
+    };
+    render(<QueryClientProvider client={new QueryClient()}><AiFallbacksCard /></QueryClientProvider>);
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Restore automatic order" })[0]!);
+    expect(fallbackMutate).toHaveBeenLastCalledWith({
+      data: { orders: { tts: ["openai", "deepgram"] } },
+    });
   });
 });
 
@@ -87,6 +162,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useAdminGetAiFallbacks: () => ({ data: mockState.fallbacks, isLoading: false, isError: false }),
     getAdminGetAiFallbacksQueryKey: () => ["/admin/ai-fallbacks"],
+    useAdminUpdateAiFallbackOrders: () => ({ mutate: fallbackMutate, isPending: false }),
     useAdminGetVideoGenSettings: () => ({
       data: mockState.videoSettings,
       isLoading: false,
@@ -174,11 +250,13 @@ function renderCard() {
 beforeEach(() => {
   cleanup();
   updateMutate.mockClear();
+  fallbackMutate.mockClear();
   mockState.lastUpdateVars = null;
   mockState.settings = baseSettings("openai", []);
   mockState.costReport = undefined;
   mockState.campaignReport = undefined;
   mockState.videoSettings = undefined;
+  mockState.fallbacks = undefined;
 });
 
 describe("video provider validation guidance", () => {

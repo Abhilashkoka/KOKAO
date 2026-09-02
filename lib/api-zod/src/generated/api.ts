@@ -6824,6 +6824,62 @@ export const AdminGetAiFallbacksResponse = zod.object({
   "skipReason": zod.string().nullable().describe('Server-derived reason this candidate is unavailable or unpriced.')
 })),
   "noUsableFallback": zod.boolean(),
+  "editable": zod.boolean().describe('Whether this family accepts a persisted manual provider order.'),
+  "manualOrder": zod.array(zod.string()).describe('Saved provider order; empty means historical automatic ordering.'),
+  "manualOrderConfigured": zod.boolean().describe('True when an exact manual chain is saved, including an explicitly empty chain.'),
+  "availableCandidates": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string().nullable(),
+  "label": zod.string()
+})),
+  "note": zod.string()
+}))
+})
+
+
+/**
+ * @summary Atomically save manual AI fallback provider orders (superadmin only)
+ */
+export const AdminUpdateAiFallbackOrdersBody = zod.object({
+  "orders": zod.object({
+  "image": zod.array(zod.string()).optional(),
+  "text": zod.array(zod.string()).optional(),
+  "text-to-video": zod.array(zod.string()).optional(),
+  "image-to-video": zod.array(zod.string()).optional(),
+  "tts": zod.array(zod.string()).optional(),
+  "asr": zod.array(zod.string()).optional()
+})
+})
+
+export const AdminUpdateAiFallbackOrdersResponse = zod.object({
+  "generatedAt": zod.coerce.date(),
+  "families": zod.array(zod.object({
+  "family": zod.enum(['text', 'multimodal', 'image', 'text-to-video', 'image-to-video', 'tts', 'localized-tts', 'asr', 'lip-sync-standard', 'lip-sync-high-quality', 'lip-sync-portrait']),
+  "selected": zod.string(),
+  "candidates": zod.array(zod.object({
+  "provider": zod.string(),
+  "label": zod.string(),
+  "model": zod.string().nullable(),
+  "role": zod.enum(['primary', 'alternate', 'cross-provider', 'selectable']),
+  "configured": zod.boolean(),
+  "eligible": zod.boolean().describe('Whether the provider is configured for this use case.'),
+  "healthy": zod.boolean().describe('False while its circuit breaker is open.'),
+  "priceLabel": zod.string().describe('Provider price and unit, or \"Missing price\" \/ \"Price not tracked\".'),
+  "customerEstimatePaise": zod.number().nullable().describe('One-unit INR customer estimate including the current platform fee where calculable.'),
+  "estimateDurationSec": zod.number().nullable().describe('Representative clip duration used for a video customer estimate; null for non-video or unavailable estimates.'),
+  "skipReason": zod.string().nullable().describe('Server-derived reason this candidate is unavailable or unpriced.')
+})),
+  "noUsableFallback": zod.boolean(),
+  "editable": zod.boolean().describe('Whether this family accepts a persisted manual provider order.'),
+  "manualOrder": zod.array(zod.string()).describe('Saved provider order; empty means historical automatic ordering.'),
+  "manualOrderConfigured": zod.boolean().describe('True when an exact manual chain is saved, including an explicitly empty chain.'),
+  "availableCandidates": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string().nullable(),
+  "label": zod.string()
+})),
   "note": zod.string()
 }))
 })

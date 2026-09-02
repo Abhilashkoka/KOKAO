@@ -31,6 +31,7 @@ import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
 import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
 import { generateWithNvidia, NVIDIA_SDXL_MODEL } from "./providers/nvidia";
 import sharp from "sharp";
+import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
 import {
   ImageGenNotConfiguredError,
   ImageGenProviderError,
@@ -844,6 +845,7 @@ export async function generateImage(
   const auto =
     selection.provider === IMAGE_GEN_AUTO &&
     (await isFeatureEnabled("providerScoring").catch(() => true));
+  const imageManualOrder = (await getAiFallbackOrders()).image;
   const input = { prompt, size: routedSize };
 
   // Under auto the ranking IS the decision, so it is computed up front. With a
@@ -857,11 +859,21 @@ export async function generateImage(
       { ranking: ranked.map((r) => ({ id: r.id, score: r.score, why: r.reason })) },
       "Image provider ranking",
     );
-    for (const scored of ranked.slice(0, selection.fallbackEnabled ? 1 + IMAGE_GEN_FALLBACK_LIMIT : 1)) {
+    const manuallyOrdered = applyManualOrder(
+      ranked,
+      imageManualOrder,
+      (candidate) => candidate.id,
+    );
+    for (const scored of manuallyOrdered.slice(0, selection.fallbackEnabled ? 1 + IMAGE_GEN_FALLBACK_LIMIT : 1)) {
       const candidate = getImageGenProviderDef(scored.id);
       if (candidate) chain.push(candidate);
     }
     firstReason = explainWinner(ranked);
+  }
+  if (auto && imageManualOrder !== undefined && chain.length === 0) {
+    throw new ImageGenNotConfiguredError(
+      "The manual image fallback sequence has no configured provider available.",
+    );
   }
   if (chain.length === 0) {
     // Pinned, or auto with nothing configured to rank. Falling through to the
@@ -886,10 +898,14 @@ export async function generateImage(
         );
       }
       // Capability beats the pin when fallback is enabled.
-      const capable = await autoCandidates(
-        routedReference,
-        transparent,
-        !!exactMaskedEdit,
+      const capable = applyManualOrder(
+        await autoCandidates(
+          routedReference,
+          transparent,
+          !!exactMaskedEdit,
+        ),
+        imageManualOrder,
+        (candidate) => candidate.id,
       );
       if (capable.length === 0) {
         throw new ImageGenNotConfiguredError(
@@ -971,7 +987,12 @@ export async function generateImage(
           transparent,
           !!exactMaskedEdit,
         );
-        for (const scored of ranked) {
+        const manuallyOrdered = applyManualOrder(
+          ranked,
+          imageManualOrder,
+          (candidate) => candidate.id,
+        );
+        for (const scored of manuallyOrdered) {
           if (scored.id === chain[0].id) continue;
           const candidate = getImageGenProviderDef(scored.id);
           if (candidate) chain.push(candidate);

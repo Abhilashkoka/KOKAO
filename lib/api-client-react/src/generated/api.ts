@@ -396,6 +396,7 @@ import type {
   TwitterStatus,
   UpdateAiCostMarkupRequest,
   UpdateAiCostRateRequest,
+  UpdateAiFallbackOrdersRequest,
   UpdateAiSpendSettingsRequest,
   UpdateAsrSettingsRequest,
   UpdateCustomAiProviderRequest,
@@ -11461,6 +11462,76 @@ export function useAdminGetAiFallbacks<TData = Awaited<ReturnType<typeof adminGe
 
 
 
+
+export const getAdminUpdateAiFallbackOrdersUrl = () => {
+
+
+
+
+  return `/api/admin/ai-fallbacks`
+}
+
+/**
+ * @summary Atomically save manual AI fallback provider orders (superadmin only)
+ */
+export const adminUpdateAiFallbackOrders = async (updateAiFallbackOrdersRequest: UpdateAiFallbackOrdersRequest, options?: RequestInit): Promise<AdminAiFallbackReportView> => {
+
+  return customFetch<AdminAiFallbackReportView>(getAdminUpdateAiFallbackOrdersUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAiFallbackOrdersRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateAiFallbackOrdersMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiFallbackOrders>>, TError,{data: BodyType<UpdateAiFallbackOrdersRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiFallbackOrders>>, TError,{data: BodyType<UpdateAiFallbackOrdersRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateAiFallbackOrders'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateAiFallbackOrders>>, {data: BodyType<UpdateAiFallbackOrdersRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateAiFallbackOrders(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateAiFallbackOrdersMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateAiFallbackOrders>>>
+    export type AdminUpdateAiFallbackOrdersMutationBody = BodyType<UpdateAiFallbackOrdersRequest>
+    export type AdminUpdateAiFallbackOrdersMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Atomically save manual AI fallback provider orders (superadmin only)
+ */
+export const useAdminUpdateAiFallbackOrders = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiFallbackOrders>>, TError,{data: BodyType<UpdateAiFallbackOrdersRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateAiFallbackOrders>>,
+        TError,
+        {data: BodyType<UpdateAiFallbackOrdersRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateAiFallbackOrdersMutationOptions(options));
+    }
 
 export const getListAiModelsUrl = () => {
 

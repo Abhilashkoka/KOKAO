@@ -8,6 +8,25 @@ import {
 import { generateImage, setImageGenSelection } from "./index";
 import { ImageGenProviderError, type ImageGenResult } from "./types";
 
+const fallbackOrderState = vi.hoisted(() => ({
+  image: undefined as string[] | undefined,
+}));
+vi.mock("../aiFallbackSettings", () => ({
+  getAiFallbackOrders: async () => ({ image: fallbackOrderState.image }),
+  applyManualOrder: <T,>(
+    items: readonly T[],
+    order: string[] | undefined,
+    id: (item: T) => string,
+  ) => {
+    if (order === undefined) return [...items];
+    const byId = new Map(items.map((item) => [id(item), item]));
+    return order.flatMap((value) => {
+      const item = byId.get(value);
+      return item === undefined ? [] : [item];
+    });
+  },
+}));
+
 vi.mock("./providers/openaiBuiltin", () => ({
   OPENAI_BUILTIN_MODEL: "gpt-image-1",
   generateWithOpenAIBuiltin: vi.fn(),
@@ -52,6 +71,7 @@ describe("generateImage provider fallback", () => {
     vi.mocked(generateWithSeedream).mockReset();
     vi.mocked(generateWithBfl).mockReset();
     resetProviderHealthForTests();
+    fallbackOrderState.image = undefined;
     for (const key of ENV_KEYS) delete process.env[key];
     // Stored admin keys would override env config; clear them for determinism.
     await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "imagegen_%"));
@@ -157,5 +177,30 @@ describe("generateImage provider fallback", () => {
 
     const out = await generateImage("p", "1024x1024");
     expect(out.provider).toBe("seedream");
+  });
+
+  it("uses the saved exact fallback order", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.ARK_API_KEY = "test-ark-key";
+    fallbackOrderState.image = ["seedream", "gemini"];
+    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
+      new ImageGenProviderError("upstream down", 503),
+    );
+    vi.mocked(generateWithSeedream).mockResolvedValue(result("seedream"));
+
+    const out = await generateImage("p", "1024x1024");
+    expect(out.provider).toBe("seedream");
+    expect(generateWithGemini).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit empty fallback chain", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    fallbackOrderState.image = [];
+    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
+      new ImageGenProviderError("upstream down", 503),
+    );
+
+    await expect(generateImage("p", "1024x1024")).rejects.toThrow("upstream down");
+    expect(generateWithGemini).not.toHaveBeenCalled();
   });
 });

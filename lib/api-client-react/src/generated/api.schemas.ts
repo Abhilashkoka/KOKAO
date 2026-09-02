@@ -1921,12 +1921,40 @@ export const AdminAiFallbackFamilyViewFamily = {
   'lip-sync-portrait': 'lip-sync-portrait',
 } as const;
 
+export interface AdminAiFallbackAvailableCandidateView {
+  id: string;
+  provider: string;
+  /** @nullable */
+  model: string | null;
+  label: string;
+}
+
 export interface AdminAiFallbackFamilyView {
   family: AdminAiFallbackFamilyViewFamily;
   selected: string;
   candidates: AdminAiFallbackCandidateView[];
   noUsableFallback: boolean;
+  /** Whether this family accepts a persisted manual provider order. */
+  editable: boolean;
+  /** Saved provider order; empty means historical automatic ordering. */
+  manualOrder: string[];
+  /** True when an exact manual chain is saved, including an explicitly empty chain. */
+  manualOrderConfigured: boolean;
+  availableCandidates: AdminAiFallbackAvailableCandidateView[];
   note: string;
+}
+
+export type UpdateAiFallbackOrdersRequestOrders = {
+  image?: string[];
+  text?: string[];
+  'text-to-video'?: string[];
+  'image-to-video'?: string[];
+  tts?: string[];
+  asr?: string[];
+};
+
+export interface UpdateAiFallbackOrdersRequest {
+  orders: UpdateAiFallbackOrdersRequestOrders;
 }
 
 export interface AdminAiFallbackReportView {

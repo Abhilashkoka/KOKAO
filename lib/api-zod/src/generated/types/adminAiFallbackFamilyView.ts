@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminAiFallbackAvailableCandidateView } from './adminAiFallbackAvailableCandidateView';
 import type { AdminAiFallbackCandidateView } from './adminAiFallbackCandidateView';
 import type { AdminAiFallbackFamilyViewFamily } from './adminAiFallbackFamilyViewFamily';
 
@@ -13,5 +14,12 @@ export interface AdminAiFallbackFamilyView {
   selected: string;
   candidates: AdminAiFallbackCandidateView[];
   noUsableFallback: boolean;
+  /** Whether this family accepts a persisted manual provider order. */
+  editable: boolean;
+  /** Saved provider order; empty means historical automatic ordering. */
+  manualOrder: string[];
+  /** True when an exact manual chain is saved, including an explicitly empty chain. */
+  manualOrderConfigured: boolean;
+  availableCandidates: AdminAiFallbackAvailableCandidateView[];
   note: string;
 }

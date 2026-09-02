@@ -51,6 +51,7 @@ import {
   supportsMode,
   type VideoModelDef,
 } from "./modelCatalog";
+import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
 
 export { VideoGenNotConfiguredError, VideoGenProviderError, compiledClipPrompt } from "./types";
 export type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
@@ -744,13 +745,31 @@ export async function resolveVideoGenFailoverCandidate(
   mode: VideoGenMode,
   variantCriteria = videoPriceCriteria({}),
 ): Promise<VideoGenFailoverCandidate | null> {
-  for (const def of VIDEO_GEN_PROVIDERS) {
-    if (def.id === primaryProviderId) continue;
+  const family = mode === "text" ? "text-to-video" : "image-to-video";
+  const savedOrder = (await getAiFallbackOrders())[family];
+  const historical = VIDEO_GEN_PROVIDERS
+    .filter((def) => savedOrder !== undefined || def.id !== primaryProviderId)
+    .flatMap((def) => {
+      const defaultModel = mode === "text" ? def.defaultTextToVideoModel : def.defaultImageToVideoModel;
+      // Historical chain had one default model/provider. A configured manual
+      // chain may deliberately select any catalog model, including another
+      // model from the same provider.
+      const models = savedOrder === undefined
+        ? [defaultModel]
+        : [...new Set([defaultModel, ...((mode === "text" ? def.textModelOptions : def.imageModelOptions) ?? []).map((option) => option.value)])];
+      return models
+        .filter((model) => savedOrder !== undefined || def.id !== primaryProviderId)
+        .map((model) => ({ def, model }));
+    });
+  const candidates = applyManualOrder(
+    historical,
+    savedOrder,
+    (candidate) => `${candidate.def.id}::${candidate.model}`,
+  );
+  for (const { def, model } of candidates) {
     if (!isProviderHealthy(videoGenHealthKey(def.id))) continue;
     const apiKey = await resolveVideoGenApiKey(def);
     if (!apiKey) continue;
-    const model =
-      mode === "text" ? def.defaultTextToVideoModel : def.defaultImageToVideoModel;
     if (!model) continue;
     // Pricing gate: no price row for the substitute → no failover. Same
     // lookup semantics as cost capture (model-only fallback included).

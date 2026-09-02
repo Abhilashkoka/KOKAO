@@ -3915,6 +3915,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateAiFallbackOrders
+      tags: [admin]
+      summary: Atomically save manual AI fallback provider orders (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAiFallbackOrdersRequest"
+      responses:
+        "200":
+          description: Updated AI fallback snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAiFallbackReportView"
+        "400":
+          description: Invalid order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/models:
     get:
       operationId: listAiModels
@@ -14471,7 +14500,7 @@ components:
           description: Server-derived reason this candidate is unavailable or unpriced.
     AdminAiFallbackFamilyView:
       type: object
-      required: [family, selected, candidates, noUsableFallback, note]
+      required: [family, selected, candidates, noUsableFallback, note, editable, manualOrder, manualOrderConfigured, availableCandidates]
       properties:
         family:
           type: string
@@ -14484,8 +14513,57 @@ components:
             $ref: "#/components/schemas/AdminAiFallbackCandidateView"
         noUsableFallback:
           type: boolean
+        editable:
+          type: boolean
+          description: Whether this family accepts a persisted manual provider order.
+        manualOrder:
+          type: array
+          items:
+            type: string
+          description: Saved provider order; empty means historical automatic ordering.
+        manualOrderConfigured:
+          type: boolean
+          description: True when an exact manual chain is saved, including an explicitly empty chain.
+        availableCandidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAiFallbackAvailableCandidateView"
         note:
           type: string
+    UpdateAiFallbackOrdersRequest:
+      type: object
+      required: [orders]
+      properties:
+        orders:
+          type: object
+          additionalProperties: false
+          properties:
+            image:
+              type: array
+              items: { type: string }
+            text:
+              type: array
+              items: { type: string }
+            text-to-video:
+              type: array
+              items: { type: string }
+            image-to-video:
+              type: array
+              items: { type: string }
+            tts:
+              type: array
+              items: { type: string }
+            asr:
+              type: array
+              items: { type: string }
+    AdminAiFallbackAvailableCandidateView:
+      type: object
+      required: [id, provider, model, label]
+      properties:
+        id: { type: string }
+        provider: { type: string }
+        model: { type: ["string", "null"] }
+        label: { type: string }
     AdminAiFallbackReportView:
       type: object
       required: [generatedAt, families]

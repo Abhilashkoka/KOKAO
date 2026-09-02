@@ -17,6 +17,7 @@ import {
   NVIDIA_TIMEOUT_MS,
 } from "../../nvidiaCore";
 import { boundedProviderFetch } from "../../aiProviderFetch";
+import { applyManualOrder, getAiFallbackOrders } from "../../aiFallbackSettings";
 
 /**
  * Text-to-speech provider registry for narration.
@@ -316,7 +317,15 @@ export async function orderedTtsProviders(): Promise<TtsProviderDef[]> {
   for (const def of TTS_PROVIDERS) {
     if (await isTtsProviderConfigured(def)) configured.push(def);
   }
-  return orderByHealth(configured, (def) => ttsHealthKey(def.id));
+  const savedOrder = (await getAiFallbackOrders()).tts;
+  const manuallyOrdered = applyManualOrder(
+    configured,
+    savedOrder,
+    (def) => def.id,
+  );
+  return savedOrder === undefined
+    ? orderByHealth(manuallyOrdered, (def) => ttsHealthKey(def.id))
+    : manuallyOrdered;
 }
 
 /**
