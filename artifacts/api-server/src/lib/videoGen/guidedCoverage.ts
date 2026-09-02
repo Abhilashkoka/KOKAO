@@ -138,6 +138,7 @@ export function expandScriptCoverage(
   maxScenes = MAX_SCRIPT_SCENES,
 ): GuidedStoryScript {
   const scenes: GuidedStoryScript["scenes"] = [];
+  const nameOf = new Map(script.roles.map((role) => [role.id, role.name]));
   let total = script.scenes.length;
   for (const scene of script.scenes) {
     const shots = planSceneCoverage(scene);
@@ -161,7 +162,13 @@ export function expandScriptCoverage(
         startMs: shot.startMs,
         endMs: shot.endMs,
         roleIds: shot.roleIds,
-        visualDirection: shotVisualDirection(scene.visualDirection, shot),
+        visualDirection: shotVisualDirection(scene.visualDirection, shot, {
+          speaker: shot.speakerRoleId ? nameOf.get(shot.speakerRoleId) : null,
+          others: scene.roleIds
+            .filter((id) => id !== shot.speakerRoleId)
+            .map((id) => nameOf.get(id) ?? "")
+            .filter(Boolean),
+        }),
         lines: shot.lineIds
           .map((lineId) => linesById.get(lineId)!)
           .filter(Boolean),
@@ -171,29 +178,74 @@ export function expandScriptCoverage(
   return { ...script, scenes };
 }
 
+const MULTI_SUBJECT_CUES = [
+  "both",
+  "they",
+  "them",
+  "their",
+  "together",
+  "each other",
+  "couple",
+  "beside",
+  "next to",
+  "two of",
+  "pair of",
+  "one another",
+  "mirror",
+  "reflect",
+  "selfie",
+];
+
+export function settingOnly(
+  sceneDirection: string,
+  otherNames: readonly string[],
+): string {
+  const names = otherNames.map((name) => name.toLowerCase()).filter(Boolean);
+  return sceneDirection
+    .split(/(?<=[.;])\s+/)
+    .filter((clause) => {
+      const lower = clause.toLowerCase();
+      if (
+        names.some((name) => new RegExp(`\\b${name}\\b`).test(lower))
+      ) {
+        return false;
+      }
+      return !MULTI_SUBJECT_CUES.some((cue) =>
+        new RegExp(`\\b${cue}`).test(lower),
+      );
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[;,]$/, ".");
+}
+
 export function shotVisualDirection(
   sceneDirection: string,
   shot: CoverageShot,
+  names: { speaker?: string | null; others?: readonly string[] } = {},
 ): string {
-  const base = sceneDirection.trim().replace(/\s+$/, "");
-  const facing =
-    shot.eyeline === "center"
-      ? "facing the camera"
-      : `turned slightly to face screen-${shot.eyeline}, looking at the person they are speaking with just off-frame`;
-  if (shot.kind === "single") {
+  if (shot.kind === "group") {
     return (
-      `${base} This shot frames only the speaking character, ${facing}, from the chest up. ` +
+      `${sceneDirection.trim()} This shot shows the characters together in the location. ` +
       "Same location, same lighting and same time of day as the rest of the scene."
     );
   }
-  if (shot.kind === "reaction") {
-    return (
-      `${base} This shot frames only the listening character, ${facing}, from the chest up, ` +
-      "reacting without speaking. Same location, same lighting and same time of day as the rest of the scene."
-    );
-  }
+  const who = names.speaker
+    ? `only ${names.speaker}`
+    : "only the speaking character";
+  const facing =
+    shot.eyeline === "center"
+      ? "facing the camera"
+      : `mostly front-facing, turned just slightly toward screen-${shot.eyeline}, ` +
+        "eyes toward the person they are speaking with just off-frame";
+  const setting = settingOnly(sceneDirection, names.others ?? []);
   return (
-    `${base} This shot shows the characters together in the location. ` +
-    "Same location, same lighting and same time of day as the rest of the scene."
+    `Single-subject shot. Frame ${who}: one person, one face, from the chest up, ` +
+    `${facing}. The face and mouth are fully visible and unobstructed. ` +
+    "Do not include any other person, any second face, any mirror or any reflection. " +
+    (shot.kind === "reaction" ? "They are listening, not speaking. " : "") +
+    (setting ? `Setting: ${setting} ` : "") +
+    "Same location, lighting, wardrobe and time of day as the rest of the scene."
   );
 }

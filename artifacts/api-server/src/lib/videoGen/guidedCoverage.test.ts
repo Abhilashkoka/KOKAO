@@ -5,6 +5,7 @@ import {
   expandScriptCoverage,
   eyelineForRole,
   planSceneCoverage,
+  settingOnly,
   shotVisualDirection,
 } from "./guidedCoverage";
 
@@ -308,7 +309,9 @@ describe("shotVisualDirection", () => {
         shot,
       );
       expect(text).toContain("A busy hospital corridor");
-      expect(text).toMatch(/same location, same lighting and same time of day/i);
+      expect(text).toMatch(
+        /same location, lighting, wardrobe and time of day/i,
+      );
     }
   });
 
@@ -322,5 +325,86 @@ describe("shotVisualDirection", () => {
     expect(
       shotVisualDirection("X.", planSceneCoverage(scene())[0]!),
     ).toMatch(/only the speaking character/i);
+  });
+});
+
+const MIRROR_SCENE =
+  "Vertical 9:16. Keep both faces and all text centered within the safe 1080x1420 area. " +
+  "Bathroom mirror selfie setup. Ava holds a medication box like a game-show prize; " +
+  "Ben appears beside her holding a tiny calendar and looking nervous-excited.";
+
+describe("settingOnly", () => {
+  it("removes other-character and multi-subject staging", () => {
+    const text = settingOnly(MIRROR_SCENE, ["Ben"]);
+    expect(text).not.toMatch(/\bBen\b|both faces|mirror|selfie|reflect/i);
+    expect(text).toContain("Ava holds a medication box");
+  });
+
+  it("removes unnamed joint staging while retaining the setting", () => {
+    const text = settingOnly(
+      "Same couch, softer light. They lean in together, smiling.",
+      ["Ben"],
+    );
+    expect(text).toBe("Same couch, softer light.");
+  });
+
+  it("permits a direction made entirely of staging to become empty", () => {
+    expect(settingOnly("They stand together beside each other.", [])).toBe("");
+  });
+});
+
+describe("single-speaker staging safety", () => {
+  it("leads with a named single-face constraint and strips conflicting staging", () => {
+    const shot = planSceneCoverage(scene())[0]!;
+    const text = shotVisualDirection(MIRROR_SCENE, shot, {
+      speaker: "Ava",
+      others: ["Ben"],
+    });
+    expect(text).toMatch(/^Single-subject shot\. Frame only Ava: one person, one face/);
+    expect(text).not.toMatch(/\bBen\b|both faces|mirror selfie|bathroom mirror/i);
+    expect(text).toContain(
+      "Do not include any other person, any second face, any mirror or any reflection.",
+    );
+    expect(text).toMatch(/mostly front-facing, turned just slightly toward screen-right/);
+  });
+
+  it("keeps group-shot staging unchanged", () => {
+    const [shot] = planSceneCoverage(
+      scene({
+        roleIds: ["asha", "ravi", "meera"],
+        lines: [line("n", null, 0, 8000)],
+      }),
+    );
+    expect(shotVisualDirection(MIRROR_SCENE, shot!)).toContain(
+      "Bathroom mirror selfie",
+    );
+  });
+
+  it("applies role names and strips other speakers during expansion", () => {
+    const after = expandScriptCoverage({
+      ...script([]),
+      title: "Scheduled Romance",
+      scenes: [
+        {
+          id: "mirror",
+          startMs: 0,
+          endMs: 6000,
+          roleIds: ["asha", "ravi"],
+          visualDirection: MIRROR_SCENE.replaceAll("Ava", "Asha").replaceAll(
+            "Ben",
+            "Ravi",
+          ),
+          lines: [
+            line("a", "asha", 0, 3000),
+            line("b", "ravi", 3000, 6000),
+          ],
+        },
+      ],
+    });
+    expect(after.scenes).toHaveLength(2);
+    expect(after.scenes[0]!.visualDirection).toContain("Frame only Asha");
+    expect(after.scenes[0]!.visualDirection).not.toMatch(/\bRavi\b|mirror selfie/i);
+    expect(after.scenes[1]!.visualDirection).toContain("Frame only Ravi");
+    expect(after.scenes[1]!.visualDirection).not.toMatch(/\bAsha\b|mirror selfie/i);
   });
 });

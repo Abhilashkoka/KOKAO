@@ -1,0 +1,387 @@
+From a773ee29089c678a4df100e535d4364c04322ada Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 05:00:58 +0000
+Subject: [PATCH] Strip the staging out of a single-speaker shot instead of
+ arguing with it
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 16 appended "This shot frames only the speaking character" to the
+scene's authored direction and left that direction intact. So every shot of
+a two-hander asked for both of them and then for one of them:
+
+  "Keep both faces ... centered. Bathroom mirror selfie setup. Ava holds a
+   medication box ...; Ben appears beside her ... This shot frames only the
+   speaking character."
+
+Two contradictory instructions, and the model follows whichever half is
+more concrete. Authored staging is always more concrete than a framing note
+tacked on after it, so all nine dialogue shots of job #51875 came back with
+two people in them, and the mirror scene handed the sync model four faces —
+two actors and their reflections — and crashed it.
+
+Appending cannot be made to work. The staging has to be removed.
+
+`settingOnly` drops any clause that names someone other than this shot's
+speaker, and any clause carrying a multi-subject cue — both, they, together,
+beside, each other, and so on. Mirrors, reflections and selfies go with
+them: a reflection is a second face even when it is the speaker's own, which
+is the specific thing that killed scene1-s2. What survives is setting.
+
+Stripping this hard is safe because prose is not what holds a guided scene's
+location together. Every scene renders against a frozen approved backdrop
+image and the prompt already orders the model to preserve it. The words only
+have to avoid contradicting the picture — so a direction reduced to almost
+nothing still renders the right room.
+
+The rebuilt direction leads with the constraint and trails the setting,
+which is the same lesson as scoping the character reference: state the rule
+before the material it governs, and make the negatives rules rather than
+preferences — "no second face, no mirror, no reflection" rather than a
+preference for one person.
+
+The turn is now explicitly slight and front-facing. A full profile is the
+one thing every lip-sync model fails on, so the eyeline has to sell the
+conversation without turning the mouth away from camera.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../src/lib/videoGen/guidedCoverage.test.ts   | 163 ++++++++++++++++--
+ .../src/lib/videoGen/guidedCoverage.ts        | 111 +++++++++---
+ 2 files changed, 242 insertions(+), 32 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts b/artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts
+index ec752705..efcf8809 100644
+--- a/artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts
+@@ -5,6 +5,7 @@ import {
+   expandScriptCoverage,
+   eyelineForRole,
+   shotVisualDirection,
++  settingOnly,
+   MIN_SHOT_MS,
+ } from "./guidedCoverage";
+ 
+@@ -259,26 +260,164 @@ describe("expandScriptCoverage", () => {
+   });
+ });
+ 
++// The direction that actually shipped nine unusable shots and crashed the sync
++// model on scene1-s2.
++const MIRROR_SCENE =
++  "Vertical 9:16. Keep both faces and all text centered within the safe 1080x1420 area. " +
++  "Bathroom mirror selfie setup. Ava holds a medication box like a game-show prize; " +
++  "Ben appears beside her holding a tiny calendar and looking nervous-excited.";
++
++describe("settingOnly", () => {
++  it("removes the other character's staging by name", () => {
++    const text = settingOnly(MIRROR_SCENE, ["Ben"]);
++    expect(text).not.toMatch(/\bBen\b/);
++    expect(text).toContain("Ava holds a medication box");
++  });
++
++  it("removes the instruction to keep BOTH faces in frame", () => {
++    // This clause is why every shot came back with two people: it is a direct
++    // order to include them, sitting in front of a framing note that merely
++    // preferred one.
++    expect(settingOnly(MIRROR_SCENE, ["Ben"])).not.toMatch(/both faces/i);
++  });
++
++  it("removes mirrors, reflections and selfies", () => {
++    // A reflection is a second face even when it is the speaker's own — the
++    // sync model gets two Avas and cannot choose. This is the exact clause
++    // that made scene1-s2 crash.
++    const text = settingOnly(MIRROR_SCENE, ["Ben"]);
++    expect(text).not.toMatch(/mirror|selfie|reflect/i);
++  });
++
++  it("removes joint staging that names nobody", () => {
++    // "They lean in together" carries no name to filter on, so the cue list
++    // has to catch it.
++    const text = settingOnly(
++      "Same couch, softer light. They lean in together, smiling.",
++      ["Ben"],
++    );
++    expect(text).toContain("Same couch, softer light.");
++    expect(text).not.toMatch(/lean in together/i);
++  });
++
++  it("keeps the setting when there is nothing to strip", () => {
++    expect(settingOnly("A busy hospital corridor, afternoon light.", ["Ravi"]))
++      .toBe("A busy hospital corridor, afternoon light.");
++  });
++
++  it("survives a direction that is entirely staging", () => {
++    // Everything filtered out is fine: the frozen approved backdrop image is
++    // what actually holds the location, not this prose.
++    expect(settingOnly("They stand together beside each other.", [])).toBe("");
++  });
++});
++
+ describe("shotVisualDirection", () => {
+-  it("carries the location into every shot so cuts stay in one room", () => {
+-    // Two shots of one conversation generated independently become two
+-    // different corridors. The scene's own direction has to travel with each.
++  it("leads with the constraint instead of appending it to the staging", () => {
++    // Appending lost every time. When a prompt contradicts itself the model
++    // follows the more concrete half, and authored staging is always more
++    // concrete than a framing note tacked on after it.
++    const shots = planSceneCoverage(scene());
++    const text = shotVisualDirection(MIRROR_SCENE, shots[0]!, { speaker: "Ava", others: ["Ben"] });
++
++    expect(text.indexOf("Single-subject shot")).toBe(0);
++    expect(text).toMatch(/Frame only Ava: one person, one face/);
++    expect(text.indexOf("Setting:")).toBeGreaterThan(text.indexOf("Frame only Ava"));
++  });
++
++  it("forbids the second face as a rule, not a preference", () => {
++    const shots = planSceneCoverage(scene());
++    const text = shotVisualDirection(MIRROR_SCENE, shots[0]!, { speaker: "Ava", others: ["Ben"] });
++
++    expect(text).toMatch(/Do not include any other person, any second face, any mirror or any reflection/);
++    expect(text).toMatch(/face and mouth are fully visible and unobstructed/i);
++  });
++
++  it("keeps the turn slight, because a profile breaks every sync model", () => {
++    const shots = planSceneCoverage(scene());
++    const right = shotVisualDirection("X.", shots[0]!, { speaker: "Ava" });
++    const left = shotVisualDirection("X.", shots[1]!, { speaker: "Ravi" });
++
++    expect(right).toMatch(/mostly front-facing, turned just slightly toward screen-right/);
++    expect(left).toMatch(/mostly front-facing, turned just slightly toward screen-left/);
++  });
++
++  it("carries location continuity without carrying the staging", () => {
+     const shots = planSceneCoverage(scene());
+     for (const shot of shots) {
+-      const text = shotVisualDirection("A busy hospital corridor, afternoon light.", shot);
++      const text = shotVisualDirection("A busy hospital corridor, afternoon light.", shot, {
++        speaker: "Ava",
++      });
+       expect(text).toContain("A busy hospital corridor");
+-      expect(text).toMatch(/same location, same lighting and same time of day/i);
++      expect(text).toMatch(/same location, lighting, wardrobe and time of day/i);
+     }
+   });
+ 
+-  it("states the eyeline in terms a camera department would use", () => {
+-    const shots = planSceneCoverage(scene());
+-    expect(shotVisualDirection("X.", shots[0]!)).toMatch(/screen-right/);
+-    expect(shotVisualDirection("X.", shots[1]!)).toMatch(/screen-left/);
++  it("leaves a group shot's direction alone", () => {
++    // Nothing is synced there, so the staging is exactly what is wanted.
++    const shots = planSceneCoverage(
++      scene({ roleIds: ["asha", "ravi", "meera"], lines: [line("n", null, 0, 8000)] }),
++    );
++    expect(shotVisualDirection(MIRROR_SCENE, shots[0]!)).toContain("Bathroom mirror selfie");
+   });
++});
+ 
+-  it("frames a speaking shot on one character", () => {
+-    const shots = planSceneCoverage(scene());
+-    expect(shotVisualDirection("X.", shots[0]!)).toMatch(/only the speaking character/i);
++describe("the script that failed to generate", () => {
++  // Job #51875: nine dialogue shots, every one of them returned with both
++  // characters in frame. Each direction must now name one speaker and mention
++  // no one else.
++  const ivf = (): GuidedStoryScript => ({
++    version: 1,
++    title: "Scheduled Romance",
++    logline: "IVF",
++    runtimeSeconds: 30,
++    roles: [
++      { id: "ava", name: "Ava", description: "" },
++      { id: "ben", name: "Ben", description: "" },
++    ],
++    warnings: [],
++    scenes: [
++      {
++        id: "scene1", startMs: 0, endMs: 6000, roleIds: ["ava", "ben"],
++        visualDirection: MIRROR_SCENE,
++        lines: [
++          line("l1", "ava", 0, 3000),
++          line("l2", "ben", 3000, 6000),
++        ],
++      },
++      {
++        id: "scene4", startMs: 6000, endMs: 15000, roleIds: ["ava", "ben"],
++        visualDirection: "Same couch, softer light. They lean in together, smiling.",
++        lines: [
++          line("l7", "ava", 6000, 9000),
++          line("l8", "ben", 9000, 12000),
++          line("l9", "ava", 12000, 15000),
++        ],
++      },
++    ],
++  });
++
++  it("names one speaker per shot and nobody else", () => {
++    const after = expandScriptCoverage(ivf());
++    const speaking = after.scenes.filter((s) => s.roleIds.length === 1);
++    expect(speaking).toHaveLength(5);
++
++    for (const shot of speaking) {
++      const me = shot.roleIds[0] === "ava" ? "Ava" : "Ben";
++      const them = shot.roleIds[0] === "ava" ? "Ben" : "Ava";
++      expect(shot.visualDirection).toContain(`Frame only ${me}`);
++      expect(shot.visualDirection).not.toMatch(new RegExp(`\\b${them}\\b`));
++    }
++  });
++
++  it("leaves no mirror, reflection or both-faces instruction anywhere", () => {
++    const after = expandScriptCoverage(ivf());
++    for (const shot of after.scenes.filter((s) => s.roleIds.length === 1)) {
++      expect(shot.visualDirection).not.toMatch(/both faces/i);
++      expect(shot.visualDirection).not.toMatch(/selfie/i);
++      expect(shot.visualDirection).not.toMatch(/lean in together/i);
++      // "no mirror" as a prohibition is fine; the staging word is not.
++      expect(shot.visualDirection).not.toMatch(/mirror selfie|bathroom mirror/i);
++    }
+   });
+ });
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedCoverage.ts b/artifacts/api-server/src/lib/videoGen/guidedCoverage.ts
+index 92bd92fa..c5494e7a 100644
+--- a/artifacts/api-server/src/lib/videoGen/guidedCoverage.ts
++++ b/artifacts/api-server/src/lib/videoGen/guidedCoverage.ts
+@@ -211,6 +211,7 @@ export function expandScriptCoverage(
+   maxScenes = MAX_SCRIPT_SCENES,
+ ): GuidedStoryScript {
+   const scenes: GuidedStoryScript["scenes"] = [];
++  const nameOf = new Map(script.roles.map((role) => [role.id, role.name]));
+   // The script validator accepts 1-40 scenes, and coverage multiplies them. The
+   // budget is spent greedily in script order: a scene that cannot afford its
+   // coverage keeps its authored form rather than pushing the script into a
+@@ -235,7 +236,15 @@ export function expandScriptCoverage(
+         startMs: shot.startMs,
+         endMs: shot.endMs,
+         roleIds: shot.roleIds,
+-        visualDirection: shotVisualDirection(scene.visualDirection, shot),
++        visualDirection: shotVisualDirection(scene.visualDirection, shot, {
++          speaker: shot.speakerRoleId ? nameOf.get(shot.speakerRoleId) : null,
++          // Every role in the SCENE except this shot's subject, so their
++          // staging can be removed from the direction by name.
++          others: scene.roleIds
++            .filter((id) => id !== shot.speakerRoleId)
++            .map((id) => nameOf.get(id) ?? "")
++            .filter(Boolean),
++        }),
+         lines: shot.lineIds.map((id) => byId.get(id)!).filter(Boolean),
+       });
+     });
+@@ -244,30 +253,92 @@ export function expandScriptCoverage(
+ }
+ 
+ /**
+- * The scene's own direction plus what this shot is. The location text is
+- * carried through unchanged so every shot cut together is the same place —
+- * without that, two shots of one conversation are two different rooms.
++ * Phrases that put a second person, or a second FACE, in frame.
++ *
++ * A reflection counts even when it is the speaker's own: "bathroom mirror
++ * selfie" hands the sync model two faces of the same actor and it has no way
++ * to choose. A selfie implies the phone, the arm and the mirror together, so
++ * it goes with them.
+  */
+-export function shotVisualDirection(sceneDirection: string, shot: CoverageShot): string {
+-  const base = sceneDirection.trim().replace(/\s+$/, "");
+-  const facing =
+-    shot.eyeline === "center"
+-      ? "facing the camera"
+-      : `turned slightly to face screen-${shot.eyeline}, looking at the person they are speaking with just off-frame`;
+-  if (shot.kind === "single") {
++const MULTI_SUBJECT_CUES = [
++  "both", "they", "them", "their", "together", "each other", "couple",
++  "beside", "next to", "two of", "pair of", "one another",
++  "mirror", "reflect", "selfie",
++];
++
++/**
++ * Reduce an authored scene direction to the part that survives being shot on
++ * one person.
++ *
++ * A scene is written as staging — "Ava holds a medication box; Ben appears
++ * beside her" — and that staging is exactly what must not reach a
++ * single-speaker shot. Appending "only the speaking character" to it does not
++ * work: the two instructions contradict, and the concrete, detailed staging
++ * wins. That is how nine shots of a two-hander came back with both faces in
++ * them, and why the sync model crashed on the mirror scene.
++ *
++ * So the staging is removed rather than argued with. Clauses naming anyone but
++ * the speaker are dropped, as are clauses carrying a multi-subject cue. What
++ * remains is setting.
++ *
++ * Stripping this hard is safe because prose is not what holds the location
++ * together: every guided scene renders against a frozen approved backdrop
++ * image, and the scene prompt already instructs the model to preserve it. The
++ * words only have to avoid contradicting the picture.
++ */
++export function settingOnly(sceneDirection: string, otherNames: readonly string[]): string {
++  const names = otherNames.map((n) => n.toLowerCase()).filter(Boolean);
++  return sceneDirection
++    .split(/(?<=[.;])\s+/)
++    .filter((clause) => {
++      const lower = clause.toLowerCase();
++      if (names.some((name) => new RegExp(`\\b${name}\\b`).test(lower))) return false;
++      return !MULTI_SUBJECT_CUES.some((cue) => new RegExp(`\\b${cue}`).test(lower));
++    })
++    .join(" ")
++    .replace(/\s+/g, " ")
++    .trim()
++    // Dropping the clause after a semicolon leaves the semicolon behind.
++    .replace(/[;,]$/, ".");
++}
++
++/**
++ * What this shot is, and only then where it is.
++ *
++ * The constraint leads and the inherited setting trails, because when a prompt
++ * contradicts itself the model follows whichever half is more concrete — and
++ * authored staging is always more concrete than a framing note appended after
++ * it. The negatives are explicit for the same reason: "only the speaker" is a
++ * preference, "no second face, no mirror, no reflection" is a rule.
++ *
++ * The turn is deliberately slight. A full profile is the one thing that breaks
++ * every lip-sync model, so the eyeline sells the conversation without ever
++ * turning the mouth away from camera.
++ */
++export function shotVisualDirection(
++  sceneDirection: string,
++  shot: CoverageShot,
++  names: { speaker?: string | null; others?: readonly string[] } = {},
++): string {
++  if (shot.kind === "group") {
+     return (
+-      `${base} This shot frames only the speaking character, ${facing}, from the chest up. ` +
++      `${sceneDirection.trim()} This shot shows the characters together in the location. ` +
+       "Same location, same lighting and same time of day as the rest of the scene."
+     );
+   }
+-  if (shot.kind === "reaction") {
+-    return (
+-      `${base} This shot frames only the listening character, ${facing}, from the chest up, ` +
+-      "reacting without speaking. Same location, same lighting and same time of day as the rest of the scene."
+-    );
+-  }
++  const who = names.speaker ? `only ${names.speaker}` : "only the speaking character";
++  const facing =
++    shot.eyeline === "center"
++      ? "facing the camera"
++      : `mostly front-facing, turned just slightly toward screen-${shot.eyeline}, ` +
++        "eyes toward the person they are speaking with just off-frame";
++  const setting = settingOnly(sceneDirection, names.others ?? []);
+   return (
+-    `${base} This shot shows the characters together in the location. ` +
+-    "Same location, same lighting and same time of day as the rest of the scene."
++    `Single-subject shot. Frame ${who}: one person, one face, from the chest up, ` +
++    `${facing}. The face and mouth are fully visible and unobstructed. ` +
++    "Do not include any other person, any second face, any mirror or any reflection. " +
++    (shot.kind === "reaction" ? "They are listening, not speaking. " : "") +
++    (setting ? `Setting: ${setting} ` : "") +
++    "Same location, lighting, wardrobe and time of day as the rest of the scene."
+   );
+ }
+-- 
+2.43.0
+
