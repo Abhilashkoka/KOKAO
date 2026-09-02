@@ -22,6 +22,7 @@ import {
   invalidateGuidedStoryDownstream,
   normalizeGuidedStoryLocale,
   planGuidedStoryDialogueReplay,
+  planGuidedStoryIntrinsicDialogue,
   validateAndRepairGuidedScript,
   validateGuidedStoryDialogueReplayInputs,
   validateGuidedStoryGeneratedSpeech,
@@ -206,6 +207,66 @@ function approvalFixture() {
   };
   return { script, cast, castApprovals, snapshot, storyboard, state };
 }
+
+describe("automatic Guided Story intrinsic dialogue planning", () => {
+  it.each(["en", "hi", "te", "ta"] as const)(
+    "selects an approved one-role dialogue shot in %s",
+    (locale) => {
+      const { snapshot } = approvalFixture();
+      const roleId = snapshot.script.roles[0]!.id;
+      const line = {
+        ...snapshot.script.scenes[0]!.lines[0]!,
+        ownerRoleId: roleId,
+        kind: "dialogue" as const,
+        startMs: 0,
+        endMs: 10_000,
+      };
+      const localized = {
+        ...snapshot,
+        locale,
+        script: {
+          ...snapshot.script,
+          scenes: [{
+            ...snapshot.script.scenes[0]!,
+            endMs: 10_000,
+            roleIds: [roleId],
+            lines: [line],
+          }],
+        },
+      };
+      const plan = planGuidedStoryIntrinsicDialogue(localized);
+      expect(plan).toHaveLength(1);
+      expect(plan[0]).toMatchObject({
+        roleId,
+        text: line.text,
+        startMs: 0,
+        endMs: 10_000,
+        voiceId: "voice-0",
+        providerVoiceId: "provider-0",
+      });
+    },
+  );
+
+  it("leaves group, narration, offscreen, reaction-like and ambiguous shots normal", () => {
+    const { snapshot } = approvalFixture();
+    const first = snapshot.script.scenes[0]!;
+    const roleId = snapshot.script.roles[0]!.id;
+    const variants = [
+      first,
+      { ...first, roleIds: [roleId], lines: [{ ...first.lines[0]!, kind: "narration" as const, ownerRoleId: null }] },
+      { ...first, roleIds: [roleId], lines: [{ ...first.lines[0]!, ownerRoleId: null }] },
+      { ...first, roleIds: [roleId], lines: [] },
+      { ...first, roleIds: [roleId], lines: [{ ...first.lines[0]!, ownerRoleId: snapshot.script.roles[1]!.id }] },
+    ];
+    for (const scene of variants) {
+      expect(planGuidedStoryIntrinsicDialogue({
+        ...snapshot,
+        locale: "en",
+        script: { ...snapshot.script, scenes: [scene] },
+      })).toEqual([]);
+    }
+  });
+});
 
 describe("guided story platform contracts", () => {
   it("normalizes supported BCP-47 tags and rejects unsupported or ambiguous locales", () => {

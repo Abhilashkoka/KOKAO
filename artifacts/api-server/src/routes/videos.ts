@@ -288,6 +288,7 @@ import {
   guidedBackdropChoices,
   guidedStoryBackdropsAreApproved,
   planGuidedStoryDialogueReplay,
+  planGuidedStoryIntrinsicDialogue,
 } from "../lib/videoGen/guidedStory";
 
 const router: IRouter = Router();
@@ -666,6 +667,10 @@ async function resolveStudioLipSyncSnapshot(args: {
   /** The character engine will already sync every scene itself. */
   characterLipSyncActive: boolean;
 }): Promise<VideoJobOptions["studioLipSync"]> {
+  // Guided Story now has an intrinsic approved-still dialogue pipeline. Older
+  // clients may still submit the retired optional checkbox; ignore it rather
+  // than stacking a second native-audio finishing pass and charging twice.
+  if (args.guidedDraft?.state.script) return null;
   if (args.body.studioLipSync !== true) return null;
   if (!(await isFeatureEnabled("studioLipSync"))) {
     throw new Error("Optional Studio lip-sync is currently turned off.");
@@ -8051,6 +8056,71 @@ async function generateVideoHandler(
     }
   } else {
     options.resolvedVideoModel = null;
+  }
+
+  // New Guided Story jobs automatically freeze the safe single-speaker shots.
+  // Historical rows have no snapshot and therefore retain their old rendering.
+  if (options.guidedStory && options.resolvedVideoModel) {
+    const planned = planGuidedStoryIntrinsicDialogue(options.guidedStory);
+    const permitted = options.resolvedVideoModel.permittedDurationSec ??
+      [options.resolvedVideoModel.durationSec];
+    const scenes = [];
+    for (const scene of planned) {
+      const durationSec = (scene.endMs - scene.startMs) / 1000;
+      const animationDurationSec = [...permitted]
+        .filter((value) => value >= durationSec)
+        .sort((a, b) => a - b)[0];
+      if (!animationDurationSec) continue;
+      const estimatedAnimationPaise = await computeVideoCostPaise({
+        provider: options.resolvedVideoModel.provider,
+        model: options.resolvedVideoModel.model,
+        durationSec: animationDurationSec,
+        // Intrinsic plates are deliberately silent; price that exact variant
+        // before reserving funds rather than the caller's base-video setting.
+        variantCriteria: videoPriceCriteria({
+          ...options.resolvedVideoModel,
+          generateAudio: false,
+        }),
+      });
+      const estimatedLipSyncPaise = await computeVideoCostPaise({
+        provider: "replicate",
+        model: SYNC_LIPSYNC_2.model,
+        durationSec,
+        variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
+      });
+      if (!estimatedAnimationPaise || !estimatedLipSyncPaise) {
+        res.status(400).json({
+          error: "Automatic Guided Story dialogue animation has no authoritative provider price.",
+        });
+        return;
+      }
+      scenes.push({
+        ...scene,
+        estimatedAnimationPaise,
+        estimatedLipSyncPaise,
+      });
+    }
+    options.guidedStoryIntrinsicLipSync = scenes.length
+      ? {
+          version: 1,
+          locale: options.guidedStory.locale ?? "en",
+          provider: "replicate",
+          model: SYNC_LIPSYNC_2.model as "sync/lipsync-2",
+          scenes,
+          estimatedAdditionalPaise: scenes.reduce(
+            (sum, scene) =>
+              sum + scene.estimatedAnimationPaise + scene.estimatedLipSyncPaise,
+            0,
+          ),
+          checkpoint: {
+            state: "prepared",
+            scenes: scenes.map((scene) => ({
+              sceneId: scene.sceneId,
+              state: "prepared",
+            })),
+          },
+        }
+      : null;
   }
 
   // Dependency preflight BEFORE funding: a job that will die four minutes in

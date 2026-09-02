@@ -190,6 +190,76 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /**
+   * Automatic Guided Story single-speaker finishing. This is frozen when the
+   * initial job is funded; it is never inferred for historical rows.
+   */
+  guidedStoryIntrinsicLipSync?: {
+    version: 1;
+    locale: "en" | "hi" | "te" | "ta";
+    provider: "replicate";
+    model: "sync/lipsync-2";
+    scenes: Array<{
+      sceneId: string;
+      roleId: string;
+      text: string;
+      startMs: number;
+      endMs: number;
+      voiceProvider: string;
+      voiceId: string;
+      providerVoiceId: string | null;
+      characterName: string;
+      characterDescription: string;
+      outfitDescription: string;
+      inputFingerprint: string;
+      estimatedAnimationPaise: number;
+      estimatedLipSyncPaise: number;
+    }>;
+    estimatedAdditionalPaise: number;
+    checkpoint?: {
+      state: "prepared" | "complete";
+      basePath?: string;
+      outputPath?: string;
+      scenes: Array<{
+        sceneId: string;
+        state:
+          | "prepared"
+          | "animation_succeeded"
+          | "animation_complete"
+          | "lipsync_succeeded"
+          | "complete"
+          | "skipped";
+        audioPath?: string;
+        platePath?: string;
+        outputPath?: string;
+        skipReason?: string;
+        animationEvent?: {
+          eventId?: string;
+          provider: string;
+          model: string;
+          durationSec: number | null;
+          requestBytes: number;
+          label: string;
+          costPaise: number | null;
+          criteria?: VideoPriceCriteria;
+          accounted?: boolean;
+          unitWeight?: number;
+        };
+        lipSyncEvent?: {
+          eventId?: string;
+          provider: string;
+          model: string;
+          durationSec: number | null;
+          requestBytes: number;
+          label: string;
+          costPaise: number | null;
+          criteria?: VideoPriceCriteria;
+          accounted?: boolean;
+          unitWeight?: number;
+        };
+      }>;
+    };
+  } | null;
+  /**
    * Immutable server-resolved optional finishing contract. Dedicated
    * lip_sync/dialogue_lip_sync jobs never carry this snapshot.
    */

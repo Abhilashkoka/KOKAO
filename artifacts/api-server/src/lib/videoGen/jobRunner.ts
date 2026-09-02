@@ -274,7 +274,27 @@ function durableCheckpointEvents(options: VideoGeneration["options"]): VideoProv
     ...(options?.studioLipSync?.checkpoint?.scenes?.flatMap((scene) =>
       scene.event ? [scene.event] : [],
     ) ?? []),
+    ...(options?.guidedStoryIntrinsicLipSync?.checkpoint?.scenes.flatMap((scene) =>
+      [scene.animationEvent, scene.lipSyncEvent].filter(
+        (event): event is VideoProviderEvent => Boolean(event),
+      )
+    ) ?? []),
   ];
+}
+
+/** Mark only settled intrinsic receipts before a failed job can be recovered. */
+export function markGuidedStoryIntrinsicEventsAccounted(
+  options: VideoJobOptions,
+  labels: ReadonlySet<string>,
+): void {
+  for (const scene of options.guidedStoryIntrinsicLipSync?.checkpoint?.scenes ?? []) {
+    if (scene.animationEvent && labels.has(scene.animationEvent.label)) {
+      scene.animationEvent.accounted = true;
+    }
+    if (scene.lipSyncEvent && labels.has(scene.lipSyncEvent.label)) {
+      scene.lipSyncEvent.accounted = true;
+    }
+  }
 }
 
 function previewCheckpointEvents(
@@ -5651,6 +5671,314 @@ async function extractStudioLipSyncSegment(
 }
 
 /**
+ * Automatic Guided Story dialogue finishing. Unlike the optional Studio pass,
+ * this uses the frozen role voice and approved still, then the same controlled
+ * image-to-video + Sync Lipsync 2 primitives as Character Dialogue.
+ */
+async function finishGuidedStoryIntrinsicDialogue(
+  job: VideoGeneration,
+  base: Buffer,
+  baseEvents: VideoProviderEvent[],
+  onStage: (stage: string) => void,
+): Promise<{ buffer: Buffer; events: VideoProviderEvent[] }> {
+  const snapshot = job.options?.guidedStoryIntrinsicLipSync;
+  if (!snapshot?.scenes.length) return { buffer: base, events: [] };
+  const board = job.storyboard;
+  if (!board || board.mode !== "guided_story" || board.timelineLocked !== true) {
+    throw new VideoJobInputError("Automatic Guided Story dialogue requires its locked storyboard.");
+  }
+  if (snapshot.checkpoint?.state === "complete" && snapshot.checkpoint.outputPath) {
+    return {
+      buffer: (await loadTenantObject(
+        snapshot.checkpoint.outputPath,
+        job.tenantId,
+        MAX_SOURCE_VIDEO_BYTES,
+        "Saved automatic Guided Story dialogue",
+      )).buffer,
+      events: snapshot.checkpoint.scenes.flatMap((scene) =>
+        [scene.animationEvent, scene.lipSyncEvent].filter(
+          (event): event is VideoProviderEvent => Boolean(event),
+        )
+      ),
+    };
+  }
+
+  const basePath = snapshot.checkpoint?.basePath ??
+    await uploadToStorage(job.tenantId, base, "video/mp4");
+  let options = structuredClone(job.options!);
+  const prior = new Map(
+    (snapshot.checkpoint?.scenes ?? []).map((scene) => [scene.sceneId, scene]),
+  );
+  options.renderCheckpoint = {
+    stage: "final",
+    path: basePath,
+    provider: null,
+    model: null,
+    durationSec: job.options?.guidedStory?.platform.durationSeconds ?? 0,
+    providerEvents: baseEvents,
+  };
+  options.guidedStoryIntrinsicLipSync = {
+    ...snapshot,
+    checkpoint: {
+      state: "prepared",
+      basePath,
+      scenes: snapshot.scenes.map((scene) =>
+        prior.get(scene.sceneId) ?? { sceneId: scene.sceneId, state: "prepared" }
+      ),
+    },
+  };
+  const save = async () => setJob(job.id, { options });
+  await save();
+
+  const clips: Buffer[] = [];
+  const events: VideoProviderEvent[] = [];
+  let cursor = 0;
+  const model = resolveModelOptions(options, 5);
+  const replicateDef = getVideoGenProviderDef("replicate");
+  const replicateKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+
+  for (const planned of snapshot.scenes) {
+    const scene = board.scenes.find((candidate) => candidate.id === planned.sceneId);
+    const startSec = planned.startMs / 1000;
+    const durationSec = (planned.endMs - planned.startMs) / 1000;
+    const endSec = startSec + durationSec;
+    if (startSec > cursor) {
+      clips.push(await extractStudioLipSyncSegment(base, cursor, startSec - cursor));
+    }
+    const checkpoint = () =>
+      options.guidedStoryIntrinsicLipSync!.checkpoint!.scenes.find(
+        (item) => item.sceneId === planned.sceneId,
+      )!;
+    const update = async (
+      patch: Partial<ReturnType<typeof checkpoint>>,
+    ) => {
+      Object.assign(checkpoint(), patch);
+      await save();
+    };
+    if (
+      !scene?.guidedStory ||
+      scene.guidedStory.inputFingerprint !== planned.inputFingerprint ||
+      scene.guidedStory.inconsistencyFlags.length ||
+      scene.guidedStory.roleIds.length !== 1 ||
+      scene.guidedStory.roleIds[0] !== planned.roleId ||
+      !scene.previewPath ||
+      scene.previewCheckpoint?.status !== "complete" ||
+      scene.previewCheckpoint.targetPath !== scene.previewPath
+    ) {
+      await update({ state: "skipped", skipReason: "The approved one-face storyboard still is unavailable." });
+      clips.push(await extractStudioLipSyncSegment(base, startSec, durationSec));
+      cursor = endSec;
+      continue;
+    }
+    const existing = checkpoint();
+    if (existing.state === "complete" && existing.outputPath) {
+      clips.push((await loadTenantObject(
+        existing.outputPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES,
+        "Saved automatic Guided Story dialogue scene",
+      )).buffer);
+      if (existing.animationEvent) events.push(existing.animationEvent);
+      if (existing.lipSyncEvent) events.push(existing.lipSyncEvent);
+      cursor = endSec;
+      continue;
+    }
+    if (existing.state === "skipped") {
+      clips.push(await extractStudioLipSyncSegment(base, startSec, durationSec));
+      cursor = endSec;
+      continue;
+    }
+    if (
+      existing.state === "animation_succeeded" ||
+      existing.state === "lipsync_succeeded"
+    ) {
+      throw new VideoGenProviderError(
+        `Automatic Guided Story dialogue scene ${planned.sceneId} has a provider receipt without saved output; provider outcome is unknown.`,
+      );
+    }
+
+    try {
+      onStage(`Voicing Guided Story scene ${planned.sceneId}`);
+      const narration = existing.audioPath
+        ? (await loadTenantObject(
+            existing.audioPath, job.tenantId, MAX_NARRATION_BYTES,
+            "Saved Guided Story dialogue audio",
+          )).buffer
+        : await fitGuidedReplayWavToSlot(
+            planned.voiceProvider === "stock"
+              ? (await synthesizeNarration(
+                  [planned.text],
+                  resolveNarrationVoice(planned.voiceId, null),
+                )).wav
+              : await speakLocalizedBrandVoiceCue({
+                  tenantId: job.tenantId,
+                  jobId: job.id,
+                  cueIndex: snapshot.scenes.indexOf(planned),
+                  voice: {
+                    provider: planned.voiceProvider,
+                    voiceId: planned.providerVoiceId!,
+                  },
+                  text: planned.text,
+                  modelId: "eleven_v3",
+                  languageCode: snapshot.locale,
+                }),
+            Math.round(durationSec * 1000),
+          );
+      if (!existing.audioPath) {
+        await update({
+          audioPath: await uploadToStorage(job.tenantId, narration, "audio/wav"),
+        });
+      }
+      const approved = await loadTenantObject(
+        scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES,
+        "Approved Guided Story still",
+      );
+      if (!ALLOWED_IMAGE_TYPES.has(approved.mimeType)) {
+        throw new VideoJobInputError("Approved Guided Story still is not a supported image.");
+      }
+      const permitted = options.resolvedVideoModel?.permittedDurationSec ?? [model.durationSec];
+      const animationDurationSec = [...permitted]
+        .filter((value) => value >= durationSec)
+        .sort((a, b) => a - b)[0];
+      if (!animationDurationSec) {
+        throw new VideoJobInputError(`No funded animation duration covers scene ${planned.sceneId}.`);
+      }
+      let plate: Buffer;
+      let animationEvent = existing.animationEvent;
+      if (existing.platePath) {
+        if (!animationEvent) {
+          throw new VideoGenProviderError(
+            `Automatic Guided Story dialogue scene ${planned.sceneId} has a saved plate without its provider receipt.`,
+          );
+        }
+        plate = (await loadTenantObject(
+          existing.platePath, job.tenantId, MAX_SOURCE_VIDEO_BYTES,
+          "Saved Guided Story dialogue plate",
+        )).buffer;
+      } else {
+        onStage(`Animating Guided Story scene ${planned.sceneId}`);
+        const animated = await generateVideo({
+          mode: "image",
+          prompt: [
+            "Animate this exact approved composition without reframing or replacement.",
+            `Only ${planned.characterName} (${planned.roleId}) is visible and speaking.`,
+            `Match the approved identity exactly: ${planned.characterDescription}.`,
+            `Keep the approved outfit unchanged: ${planned.outfitDescription}.`,
+            "One person, one face, fully visible mouth. Stable backdrop, camera, lighting and body position. No text or subtitles.",
+          ].join(" "),
+          aspectRatio: options.aspectRatio ?? "9:16",
+          image: { buffer: approved.buffer, mimeType: approved.mimeType },
+          ...model,
+          durationSec: animationDurationSec,
+          // A selected model must not re-enable provider-native audio after
+          // this silent approved-still plate contract was chosen.
+          generateAudio: false,
+        });
+        animationEvent = {
+          eventId: videoProviderEventId(job, `guided_intrinsic_animation:${planned.sceneId}`),
+          provider: animated.provider,
+          model: animated.model,
+          durationSec: animationDurationSec,
+          requestBytes: approved.buffer.length,
+          label: `guided_intrinsic_animation:${planned.sceneId}`,
+          criteria: videoPriceCriteria({
+            resolution: model.resolution,
+            quality: model.quality,
+            generateAudio: false,
+          }),
+          costPaise: planned.estimatedAnimationPaise,
+        };
+        await update({ state: "animation_succeeded", animationEvent });
+        await verifyRenderedVideo(animated.buffer, {
+          minDurationSec: 0.1,
+          label: "Guided Story intrinsic animation",
+        });
+        plate = animated.buffer;
+        await update({
+          state: "animation_complete",
+          platePath: await uploadToStorage(job.tenantId, plate, "video/mp4"),
+        });
+      }
+      onStage(`Syncing Guided Story scene ${planned.sceneId}`);
+      const synced = await generateLipSyncWithReplicate({
+        source: {
+          buffer: await loopVideoPlateToDuration(plate, durationSec),
+          mimeType: "video/mp4",
+        },
+        audio: { buffer: narration, mimeType: "audio/wav" },
+        def: SYNC_LIPSYNC_2,
+      }, replicateKey);
+      const lipSyncEvent: VideoProviderEvent = {
+        eventId: videoProviderEventId(job, `guided_intrinsic_lipsync:${planned.sceneId}`),
+        provider: synced.provider,
+        model: synced.model,
+        durationSec,
+        requestBytes: narration.length,
+        label: `guided_intrinsic_lipsync:${planned.sceneId}`,
+        criteria: videoPriceCriteria({ hasReferenceVideo: true }),
+        costPaise: planned.estimatedLipSyncPaise,
+      };
+      await update({ state: "lipsync_succeeded", animationEvent, lipSyncEvent });
+      await verifyRenderedVideo(synced.buffer, {
+        minDurationSec: 0.1,
+        label: "Guided Story intrinsic lip-sync",
+      });
+      const output = await trimCharacterDialogueClipStrict(
+        await normalizeVideo(synced.buffer, options.aspectRatio ?? "9:16"),
+        durationSec,
+        narration,
+      );
+      // The base soundtrack contains mixed dialogue and has no guaranteed
+      // music-only stem. Preserve the exact WAV submitted to Sync Lipsync 2
+      // rather than muxing potentially different speech back over its mouth.
+      const outputPath = await uploadToStorage(job.tenantId, output, "video/mp4");
+      await update({ state: "complete", outputPath, animationEvent, lipSyncEvent });
+      clips.push(output);
+      events.push(animationEvent!, lipSyncEvent);
+    } catch (error) {
+      const current = checkpoint();
+      if (
+        current.state === "animation_succeeded" ||
+        current.state === "lipsync_succeeded"
+      ) throw error;
+      logger.warn(
+        { err: error, jobId: job.id, sceneId: planned.sceneId },
+        "automatic Guided Story dialogue failed without receipt; retaining base scene",
+      );
+      await update({
+        state: "skipped",
+        skipReason: error instanceof Error ? error.message.slice(0, 300) : "Dialogue finishing failed.",
+      });
+      clips.push(await extractStudioLipSyncSegment(base, startSec, durationSec));
+    }
+    cursor = endSec;
+  }
+  const totalSec = Math.max(
+    cursor,
+    ...board.scenes.map((scene) => scene.guidedStory?.endMs
+      ? scene.guidedStory.endMs / 1000
+      : 0),
+  );
+  if (cursor < totalSec) {
+    clips.push(await extractStudioLipSyncSegment(base, cursor, totalSec - cursor));
+  }
+  const output = clips.length === 1 ? clips[0]! : await concatClips(clips);
+  const outputPath = await uploadToStorage(job.tenantId, output, "video/mp4");
+  options.guidedStoryIntrinsicLipSync!.checkpoint = {
+    ...options.guidedStoryIntrinsicLipSync!.checkpoint!,
+    state: "complete",
+    outputPath,
+  };
+  await save();
+  return {
+    buffer: output,
+    events: options.guidedStoryIntrinsicLipSync!.checkpoint!.scenes.flatMap(
+      (scene) => [scene.animationEvent, scene.lipSyncEvent].filter(
+        (event): event is VideoProviderEvent => Boolean(event),
+      ),
+    ),
+  };
+}
+
+/**
  * Shared post-render finishing pass. Its input audio is extracted from the
  * completed base render, so approved narration/dialogue timing remains the
  * only timing authority. Dedicated lip-sync engines never enter this stage.
@@ -6035,6 +6363,22 @@ async function executeVideoJob(
           ),
         }).catch(() => null),
       }];
+    }
+    if (job.options?.guidedStoryIntrinsicLipSync) {
+      const finished = await finishGuidedStoryIntrinsicDialogue(
+        job,
+        buffer,
+        completedProviderEvents,
+        onStage,
+      );
+      buffer = finished.buffer;
+      completedProviderEvents = [...completedProviderEvents, ...finished.events];
+      clipDurationSec = (
+        await verifyRenderedVideo(buffer, {
+          ...qa,
+          label: "automatic Guided Story dialogue output",
+        })
+      ).durationSec;
     }
     if (job.options?.studioLipSync) {
       const finished = await finishWithStudioLipSync(
@@ -6479,6 +6823,7 @@ async function executeVideoJob(
         for (const scene of failedOptions.studioLipSync?.checkpoint?.scenes ?? []) {
           if (scene.event && labels.has(scene.event.label)) scene.event.accounted = true;
         }
+        markGuidedStoryIntrinsicEventsAccounted(failedOptions, labels);
         if (failedOptions.musicCheckpoint?.event && labels.has(failedOptions.musicCheckpoint.event.label)) {
           failedOptions.musicCheckpoint.event.accounted = true;
         }

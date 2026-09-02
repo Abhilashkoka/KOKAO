@@ -955,6 +955,67 @@ export function planGuidedStoryDialogueReplay(
 }
 
 /**
+ * Select only unambiguous, one-visible-character speaking shots. Approval of
+ * the actual still is checked by the runner after storyboard review; this
+ * enqueue-time plan deliberately contains only immutable approved inputs.
+ */
+export function planGuidedStoryIntrinsicDialogue(
+  snapshot: NonNullable<VideoJobOptions["guidedStory"]>,
+): Array<{
+  sceneId: string;
+  roleId: string;
+  text: string;
+  startMs: number;
+  endMs: number;
+  voiceProvider: string;
+  voiceId: string;
+  providerVoiceId: string | null;
+  characterName: string;
+  characterDescription: string;
+  outfitDescription: string;
+  inputFingerprint: string;
+}> {
+  const board = guidedStoryStoryboard(snapshot);
+  const cast = new Map(snapshot.cast.map((member) => [member.roleId, member]));
+  return snapshot.script.scenes.flatMap((scene, index) => {
+    if (scene.roleIds.length !== 1 || scene.lines.length === 0) return [];
+    const roleId = scene.roleIds[0]!;
+    if (scene.lines.some((line) =>
+      line.kind !== "dialogue" || line.ownerRoleId !== roleId
+    )) return [];
+    const member = cast.get(roleId);
+    const approval = snapshot.castApprovals?.roles[roleId];
+    const planned = board.scenes[index];
+    if (
+      !member ||
+      !approval ||
+      !member.character.referenceImagePath ||
+      !member.outfit?.referenceImagePath ||
+      (
+        member.voice.provider.toLowerCase() !== "stock" &&
+        !member.voice.providerVoiceId
+      ) ||
+      !planned?.guidedStory ||
+      planned.guidedStory.inconsistencyFlags.length
+    ) return [];
+    return [{
+      sceneId: scene.id,
+      roleId,
+      text: scene.lines.map((line) => line.text).join(" "),
+      startMs: scene.startMs,
+      endMs: scene.endMs,
+      voiceProvider: member.voice.provider,
+      voiceId: member.voice.id,
+      providerVoiceId: member.voice.providerVoiceId,
+      characterName: member.character.name,
+      characterDescription: member.character.description,
+      outfitDescription: member.outfit.description,
+      inputFingerprint: planned.guidedStory.inputFingerprint,
+    }];
+  });
+}
+
+/**
  * Adapts the immutable guided snapshot into the existing storyboard contract.
  * It deliberately does no replanning: scene ids, boundaries, line ownership,
  * appearance references, and voices are copied byte-for-byte from the approved

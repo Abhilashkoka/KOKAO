@@ -806,6 +806,7 @@ import {
   resumeInterruptedGuidedPreviewRenders,
   runGuidedSceneCorrectionJob,
   resumeInterruptedGuidedSceneCorrections,
+  markGuidedStoryIntrinsicEventsAccounted,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
 import { guidedBackdropFingerprint, guidedStoryStoryboard } from "./guidedStory";
@@ -2943,6 +2944,41 @@ describe("dialogue_lip_sync runner", () => {
     // Three events were settled on the failed source; the child records only
     // its newly funded missing lip-sync operation.
     expect(state.usage).toHaveLength(4);
+  });
+
+  it("marks intrinsic Guided Story receipts accounted before failed-job recovery", () => {
+    const options = {
+      guidedStoryIntrinsicLipSync: {
+        version: 1,
+        locale: "en",
+        provider: "replicate",
+        model: "sync/lipsync-2",
+        scenes: [],
+        estimatedAdditionalPaise: 0,
+        checkpoint: {
+          state: "prepared",
+          scenes: [{
+            sceneId: "scene-1",
+            state: "lipsync_succeeded",
+            animationEvent: {
+              provider: "video", model: "plate", durationSec: 5,
+              requestBytes: 0, label: "guided_intrinsic_animation:scene-1", costPaise: 10,
+            },
+            lipSyncEvent: {
+              provider: "replicate", model: "sync/lipsync-2", durationSec: 5,
+              requestBytes: 20, label: "guided_intrinsic_lipsync:scene-1", costPaise: 10,
+            },
+          }],
+        },
+      },
+    } as any;
+    markGuidedStoryIntrinsicEventsAccounted(options, new Set([
+      "guided_intrinsic_animation:scene-1",
+      "guided_intrinsic_lipsync:scene-1",
+    ]));
+    const receipt = options.guidedStoryIntrinsicLipSync.checkpoint.scenes[0];
+    expect(receipt.animationEvent.accounted).toBe(true);
+    expect(receipt.lipSyncEvent.accounted).toBe(true);
   });
 
   it("checkpoints MusicGen once and a zero-unit compositor retry records no prior events", async () => {

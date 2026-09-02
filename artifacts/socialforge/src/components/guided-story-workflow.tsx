@@ -32,7 +32,7 @@ import {
   type GuidedStoryVoiceCatalogItem,
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
-import { track, trackStudioLipSyncSelection } from "@/lib/analytics";
+import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -263,16 +263,6 @@ export function GuidedStoryWorkflow({
   const [strategy, setStrategy] = useState<"generated" | "saved">("generated");
   const [assignments, setAssignments] = useState<Record<string, Assignment>>({});
   const [consent, setConsent] = useState(false);
-  const [studioLipSync, setStudioLipSync] = useState(
-    studioLipSyncCapability?.defaultOn ?? false,
-  );
-  const [studioLipSyncConsent, setStudioLipSyncConsent] = useState(false);
-  const studioLipSyncDefaultApplied = useRef(false);
-  useEffect(() => {
-    if (!studioLipSyncCapability || studioLipSyncDefaultApplied.current) return;
-    setStudioLipSync(studioLipSyncCapability.defaultOn);
-    studioLipSyncDefaultApplied.current = true;
-  }, [studioLipSyncCapability]);
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
   const [castSaveError, setCastSaveError] = useState<string | null>(null);
   const [enqueueError, setEnqueueError] = useState<string | null>(null);
@@ -326,8 +316,6 @@ export function GuidedStoryWorkflow({
   const updateDraft = useUpdateGuidedStoryDraft();
   const castDraft = useCastGuidedStoryDraft();
   const enqueueDraftMutation = useEnqueueGuidedStoryDraft();
-  const studioLipSyncAvailable =
-    studioLipSyncCapability?.enabled === true && studioLipSyncCapability.ready === true;
   const enqueueDraft = {
     ...enqueueDraftMutation,
     mutate: (
@@ -341,9 +329,11 @@ export function GuidedStoryWorkflow({
             ...variables.data,
             ...(studioLipSyncCapability
               ? {
-                  studioLipSync: studioLipSyncAvailable && studioLipSync,
-                  studioLipSyncConsent:
-                    studioLipSyncAvailable && studioLipSync ? studioLipSyncConsent : false,
+                  // Guided Story now owns its eligible dialogue shots
+                  // intrinsically; never request the separate native-audio
+                  // Studio finishing pass on top.
+                  studioLipSync: false,
+                  studioLipSyncConsent: false,
                 }
               : {}),
           },
@@ -518,8 +508,6 @@ export function GuidedStoryWorkflow({
     setStrategy("generated");
     setAssignments({});
     setConsent(false);
-    setStudioLipSync(studioLipSyncCapability?.defaultOn ?? false);
-    setStudioLipSyncConsent(false);
     setDuplicateConfirmed(false);
     setCastSaveError(null);
     setEnqueueError(null);
@@ -537,7 +525,7 @@ export function GuidedStoryWorkflow({
     setVisualUploading(null);
     mutationLockRef.current = false;
     setMutationLocked(false);
-  }, [storageKey, studioLipSyncCapability?.defaultOn]);
+  }, [storageKey]);
   const acquireMutation = () => {
     if (mutationLockRef.current) return false;
     mutationLockRef.current = true;
@@ -788,47 +776,14 @@ export function GuidedStoryWorkflow({
   const studioLipSyncControls = (
     <div
       className="space-y-2 rounded-md border p-3"
-      data-testid="guided-studio-lipsync-control"
+      data-testid="guided-intrinsic-lipsync-notice"
     >
-      <label className="flex items-start gap-2 text-sm">
-        <Checkbox
-          checked={studioLipSync}
-          disabled={
-            !studioLipSyncCapability?.enabled ||
-            !studioLipSyncCapability.ready
-          }
-          onCheckedChange={(checked) => {
-            const enabled = checked === true;
-            setStudioLipSync(enabled);
-            if (!enabled) setStudioLipSyncConsent(false);
-            trackStudioLipSyncSelection("guided_story", enabled);
-          }}
-          data-testid="checkbox-guided-studio-lipsync"
-        />
-        <span>
-          Lip-sync eligible single-speaker scenes
-          <span className="block text-xs text-muted-foreground">
-            Only scenes with exactly one visible approved speaker use their
-            native dialogue timing; narration-only and multi-person scenes
-            stay unchanged.
-          </span>
-        </span>
-      </label>
-      {studioLipSyncAvailable && studioLipSync && (
-        <label className="flex items-start gap-2 text-sm">
-          <Checkbox
-            checked={studioLipSyncConsent}
-            onCheckedChange={(checked) =>
-              setStudioLipSyncConsent(checked === true)
-            }
-            data-testid="checkbox-guided-studio-lipsync-consent"
-          />
-          <span>
-            I authorize the approved cast likenesses and voices for this
-            lip-sync pass.
-          </span>
-        </label>
-      )}
+      <p className="text-sm font-medium">Automatic character dialogue</p>
+      <p className="text-xs text-muted-foreground">
+        Eligible one-character, one-face dialogue shots automatically use the
+        approved role voice and exact timing. Narration, reactions, buildup and
+        group shots stay on normal Guided Story rendering.
+      </p>
     </div>
   );
   return <div className="space-y-5" data-testid="guided-story-workflow">

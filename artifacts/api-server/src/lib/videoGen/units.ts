@@ -98,6 +98,10 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
   const studioLipSyncUnits = options?.studioLipSync
     ? Math.max(1, options.studioLipSync.plan.length)
     : 0;
+  const guidedIntrinsicUnits =
+    engine === "topic_to_video" && options?.guidedStoryIntrinsicLipSync
+      ? options.guidedStoryIntrinsicLipSync.scenes.length * 2
+      : 0;
   if (engine === "dialogue_lip_sync" && options?.guidedStoryDialogueReplay) {
     // Replay TTS is independently settled. The aggregate reservation covers
     // exactly one approved-still animation and one lip-sync per owned line.
@@ -110,7 +114,7 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     // One cast-aware approved keyframe plus one image-to-video operation for
     // every immutable script scene. Generated cast references are funded
     // separately during casting and are not hidden in this number.
-    return studioLipSyncUnits + (
+    return studioLipSyncUnits + guidedIntrinsicUnits + (
       options.guidedStory.script.scenes.length *
       2 *
       videoModelMultiplier(options.modelId)

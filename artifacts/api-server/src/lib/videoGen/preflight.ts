@@ -24,6 +24,7 @@ import { TTS_PROVIDERS, isTtsProviderConfigured, ttsHealthKey } from "./topicVid
 import {
   VOICE_CLONE_PROVIDERS,
   isVoiceCloneProviderConfigured,
+  resolveElevenLabsSpeechLanguage,
 } from "../voiceClone";
 import { isSarvamConfigured, sarvamTtsHealthKey } from "../sarvamTts";
 import { findVideoModel, resolveModelOptions } from "./modelCatalog";
@@ -329,7 +330,8 @@ export async function preflightVideoJob(
   if (
     engine === "lip_sync" ||
     engine === "dialogue_lip_sync" ||
-    options?.characterLipSync === true
+    options?.characterLipSync === true ||
+    Boolean(options?.guidedStoryIntrinsicLipSync?.scenes.length)
   ) {
     const replicate = getVideoGenProviderDef("replicate");
     const configured = replicate ? await isVideoGenProviderConfigured(replicate) : false;
@@ -353,7 +355,10 @@ export async function preflightVideoJob(
         };
       }
       selectedLipSyncModel = configuredModel!;
-    } else if (options?.characterDialogue?.lipSyncModel === SYNC_LIPSYNC_2.model) {
+    } else if (
+      options?.characterDialogue?.lipSyncModel === SYNC_LIPSYNC_2.model ||
+      options?.guidedStoryIntrinsicLipSync?.model === SYNC_LIPSYNC_2.model
+    ) {
       selectedLipSyncModel = SYNC_LIPSYNC_2.model;
     } else if (options?.characterDialogue?.lipSyncModel === LATENT_SYNC.model) {
       selectedLipSyncModel = LATENT_SYNC.model;
@@ -385,6 +390,46 @@ export async function preflightVideoJob(
         `Every narration voice provider is failing right now. ${TRY_AGAIN}`,
       );
       if (tts) return tts;
+    }
+  }
+
+  // Guided Story's intrinsic dialogue is not allowed to silently fall back
+  // from an approved role voice. Validate every frozen non-stock provider and
+  // the locale/model contract before the job reserves any video funding.
+  if (options?.guidedStoryIntrinsicLipSync?.scenes.length) {
+    const voices = new Map(
+      options.guidedStoryIntrinsicLipSync.scenes
+        .filter((scene) => scene.voiceProvider !== "stock")
+        .map((scene) => [`${scene.voiceProvider}:${scene.providerVoiceId}`, scene]),
+    );
+    for (const scene of voices.values()) {
+      const def = VOICE_CLONE_PROVIDERS.find(
+        (candidate) => candidate.id === scene.voiceProvider,
+      );
+      if (!def || !scene.providerVoiceId || !(await isVoiceCloneProviderConfigured(def))) {
+        return {
+          status: 400,
+          message: `Guided Story role ${scene.roleId} needs its approved ${scene.voiceProvider} voice configured before generation.`,
+        };
+      }
+      try {
+        if (scene.voiceProvider === "elevenlabs") {
+          resolveElevenLabsSpeechLanguage("eleven_v3", options.guidedStoryIntrinsicLipSync.locale);
+        }
+      } catch (error) {
+        return {
+          status: 400,
+          message: error instanceof Error
+            ? error.message
+            : "The approved Guided Story voice does not support this locale.",
+        };
+      }
+      const health = evaluate(
+        [`voice_clone:${scene.voiceProvider}`],
+        `Guided Story role ${scene.roleId} voice is not configured.`,
+        `The approved ${scene.voiceProvider} voice provider is not responding right now. ${TRY_AGAIN}`,
+      );
+      if (health) return health;
     }
   }
 

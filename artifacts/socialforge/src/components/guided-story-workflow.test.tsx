@@ -326,7 +326,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.queryByTestId("button-guided-new-story")).toBeNull();
     expect((screen.getByTestId("input-guided-topic") as HTMLTextAreaElement).value).toBe("");
     expect(screen.getByTestId("button-guided-create-draft").textContent).toBe("Generate script");
-    expect(screen.queryByTestId("guided-studio-lipsync-control")).toBeNull();
+    expect(screen.queryByTestId("guided-intrinsic-lipsync-notice")).toBeNull();
   });
 
   it("shows native text, Romanized pronunciation, then English meaning without duplicating English stories", async () => {
@@ -974,7 +974,12 @@ describe("GuidedStoryWorkflow", () => {
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
     renderWorkflow();
 
-    expect(screen.getByTestId("guided-studio-lipsync-control")).toBeTruthy();
+    expect(
+      screen.getByTestId("guided-intrinsic-lipsync-notice").textContent,
+    ).toContain(
+      "Eligible one-character, one-face dialogue shots automatically use the approved role voice and exact timing.",
+    );
+    expect(screen.queryByTestId("checkbox-guided-studio-lipsync")).toBeNull();
     expect(screen.getByTestId("section-guided-attempt-consent")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Reapprove" })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();

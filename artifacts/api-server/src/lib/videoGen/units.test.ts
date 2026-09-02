@@ -171,6 +171,29 @@ describe("Guided Story dialogue replay units", () => {
   });
 });
 
+describe("automatic Guided Story intrinsic dialogue funding", () => {
+  it("reserves animation and Sync Lipsync 2 for each frozen eligible shot", () => {
+    const options = {
+      aspectRatio: "9:16",
+      guidedStory: {
+        script: { scenes: [{ id: "a" }, { id: "b" }] },
+      },
+      guidedStoryIntrinsicLipSync: {
+        version: 1,
+        locale: "en",
+        provider: "replicate",
+        model: "sync/lipsync-2",
+        scenes: [{ sceneId: "a" }],
+        estimatedAdditionalPaise: 50,
+      },
+    } as any;
+    // Normal Guided Story is keyframe + animation per scene (4), then the
+    // eligible shot adds its controlled plate + lip-sync (2).
+    expect(videoJobFullUnits("topic_to_video", options)).toBe(6);
+    expect(videoJobUnits("topic_to_video", options)).toBe(6);
+  });
+});
+
 describe("hybrid character story units", () => {
   it("reserves the shared narration once plus every immutable beat operation", () => {
     expect(videoJobFullUnits("topic_to_video", {
