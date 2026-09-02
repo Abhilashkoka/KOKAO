@@ -97,6 +97,7 @@ describe("automatic image provider routing", () => {
       provider: IMAGE_GEN_AUTO,
       model: null,
       customBaseUrl: null,
+      fallbackEnabled: true,
     });
   });
 

@@ -14,6 +14,7 @@ import type {
   GuidedStoryBackdropChoices,
   GuidedStoryLocale,
   GuidedStoryScript,
+  GuidedStoryImageModelSnapshot,
 } from "./guidedStories";
 
 /**
@@ -955,6 +956,8 @@ export interface VideoJobOptions {
     };
     script: GuidedStoryScript;
     cast: GuidedStoryCastSnapshot[];
+    /** Image model lock inherited from the draft at enqueue. */
+    imageModelSnapshot?: GuidedStoryImageModelSnapshot;
     /** Exact reference paths and content hashes approved before enqueue. */
     castApprovals?: GuidedStoryCastApprovalManifest;
     /** Immutable logo and shared-location direction resolved before enqueue. */

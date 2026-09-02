@@ -388,6 +388,7 @@ import {
   usageEventsTable,
   videoStyleProfilesTable,
   aiModelPricesTable,
+  imageGenSettingsTable,
   guidedStoryDraftsTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
@@ -406,6 +407,9 @@ import {
   getVideoGenProviderDef,
   isVideoGenProviderConfigured,
 } from "../lib/videoGen";
+import {
+  setImageGenSelection,
+} from "../lib/imageGen";
 import { grantCredits, getCreditBalances, spendCredit } from "../lib/credits";
 import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
 import {
@@ -2809,6 +2813,114 @@ describe("guided story route fail-closed regressions", () => {
         .returning()
     )[0]!;
   }
+
+  it("freezes a new draft image snapshot and copies it exactly to its enqueued job", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    // This is a singleton settings row. Preserve its physical absence as well
+    // as its values: selection resolution synthesizes defaults when no row
+    // exists, and restoring that synthesized value would leak a new global row
+    // into unrelated tests.
+    const previousSelectionRow = (
+      await db.select().from(imageGenSettingsTable).limit(1)
+    )[0] ?? null;
+    try {
+      await setImageGenSelection({
+        provider: "openai",
+        model: null,
+        customBaseUrl: null,
+        fallbackEnabled: false,
+      });
+      const created = await request(app).post("/api/ai/guided-story/drafts").send({
+        genre: "drama",
+        platform: "tiktok",
+        durationSeconds: 30,
+        locale: "en",
+        topic: "A storm rescue",
+        roleCount: 2,
+      });
+      expect(created.status, created.body.error).toBe(201);
+      expect(created.body.imageModelSnapshot).toMatchObject({
+        provider: "openai",
+        fallbackEnabled: false,
+        customBaseUrl: null,
+        model: expect.any(String),
+        lockedAt: expect.any(String),
+      });
+
+      const [draft] = await db.select().from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, created.body.id));
+      expect(draft!.state.imageModelSnapshot).toEqual(created.body.imageModelSnapshot);
+
+      const script = routeScript();
+      const approvedAt = new Date().toISOString();
+      const cast: GuidedStoryDraftState["cast"] = script.roles.map((role, index) => ({
+        roleId: role.id,
+        source: "saved",
+        characterId: index + 1,
+        outfitId: index + 11,
+        brandKitId: null,
+        voiceId: index === 0 ? "alloy" : "echo",
+        character: {
+          name: role.name,
+          description: role.description,
+          referenceImagePath: `/objects/${tenant.tenantId}/character-${index}.png`,
+        },
+        outfit: {
+          name: "Approved outfit",
+          description: "Approved wardrobe",
+          referenceImagePath: `/objects/${tenant.tenantId}/outfit-${index}.png`,
+        },
+        voice: {
+          id: index === 0 ? "alloy" : "echo",
+          label: `Voice ${index + 1}`,
+          provider: "stock",
+          providerVoiceId: null,
+        },
+        isUserRole: false,
+        consentGranted: true,
+      }));
+      const backdropInput = {
+        prompt: "A storm shelter",
+        imagePath: `/objects/${tenant.tenantId}/uploads/backdrop.png`,
+        sceneIds: script.scenes.map((scene) => scene.id),
+      };
+      const state: GuidedStoryDraftState = {
+        ...draft!.state,
+        script,
+        scriptApprovedAt: approvedAt,
+        castStrategy: "saved",
+        cast,
+        castApprovals: castApprovals(cast, draft!.revision),
+        duplicateAssignmentConfirmed: true,
+        visualChoices: {
+          ...draft!.state.visualChoices!,
+          backdropReference: {
+            version: 1,
+            ...backdropInput,
+            fingerprint: guidedBackdropFingerprint(backdropInput),
+            approvedAt,
+          },
+        },
+      };
+      await db.update(guidedStoryDraftsTable).set({ state })
+        .where(eq(guidedStoryDraftsTable.id, draft!.id));
+
+      const enqueued = await request(app)
+        .post(`/api/ai/guided-story/drafts/${draft!.id}/enqueue`)
+        .send({ revision: draft!.revision, consentGranted: true });
+      expect(enqueued.status, enqueued.body.error).toBe(201);
+      const [job] = await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, enqueued.body.id));
+      expect(job!.options!.guidedStory!.imageModelSnapshot)
+        .toEqual(created.body.imageModelSnapshot);
+    } finally {
+      await db.delete(imageGenSettingsTable);
+      if (previousSelectionRow) {
+        await db.insert(imageGenSettingsTable).values(previousSelectionRow);
+      }
+    }
+  });
 
   it("refreshes only one saved non-English line's pronunciation and meaning while preserving approved source inputs", async () => {
     const tenant = await newTenant("pro");

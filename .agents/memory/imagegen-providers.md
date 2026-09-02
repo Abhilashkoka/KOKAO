@@ -18,3 +18,8 @@ Any URL that arrives inside a provider/stock API response (image result URLs, st
 Image/video provider cards must enter DRAFT mode when a provider supports model override — saving on select runs the activation pricing gate on the provider's DEFAULT model, and Replicate's default image model (black-forest-labs/flux-schnell) has NO published/scrapable price, so the provider 400'd instantly and could never be selected. Drafts fall back to empty model/base-url inputs (saved values belong to the previous provider) and are discarded when a refetch changes the saved provider.
 **Why:** prod incident: admin could not switch the image provider to Replicate at all.
 **How to apply:** any new gen-settings card with a pricing/activation gate: gate on the user's chosen model at explicit Save, not on dropdown change.
+
+## Guided Story image model lock
+Every new Guided Story freezes the effective explicit image provider/model before any paid asset work. Cast references, backdrops, storyboard previews, corrections, and retries must use that server-owned snapshot.
+**Why:** resolving mutable global settings per operation mixed character and storyboard models inside one approved story. Client-generated backdrops were a subtle bypass.
+**How to apply:** pass only draft id + revision from browser image requests; the server must tenant-scope the draft and load its snapshot. Auto and mutable custom-provider refs are not valid locked-story selections. Historical drafts without a snapshot keep legacy behavior.

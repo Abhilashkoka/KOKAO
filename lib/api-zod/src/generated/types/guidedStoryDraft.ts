@@ -10,6 +10,7 @@ import type { GuidedStoryCastSnapshot } from './guidedStoryCastSnapshot';
 import type { GuidedStoryDraftCastStrategy } from './guidedStoryDraftCastStrategy';
 import type { GuidedStoryDraftEstimates } from './guidedStoryDraftEstimates';
 import type { GuidedStoryDraftScriptGeneration } from './guidedStoryDraftScriptGeneration';
+import type { GuidedStoryImageModelSnapshot } from './guidedStoryImageModelSnapshot';
 import type { GuidedStoryReferenceOperation } from './guidedStoryReferenceOperation';
 import type { GuidedStoryScript } from './guidedStoryScript';
 import type { GuidedStorySetup } from './guidedStorySetup';
@@ -20,6 +21,7 @@ export interface GuidedStoryDraft {
   revision: number;
   version: 1;
   setup: GuidedStorySetup | null;
+  imageModelSnapshot?: GuidedStoryImageModelSnapshot;
   script: GuidedStoryScript | null;
   /** @nullable */
   scriptApprovedAt: Date | null;

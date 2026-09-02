@@ -140,6 +140,7 @@ function baseSettings(
     provider,
     model: null,
     customBaseUrl: null,
+    fallbackEnabled: true,
     providers: [
       {
         id: "openai",
@@ -297,6 +298,7 @@ describe("image provider card ranking", () => {
       provider: "auto",
       model: null,
       customBaseUrl: null,
+      fallbackEnabled: true,
     });
   });
 
@@ -323,6 +325,7 @@ describe("image provider card ranking", () => {
       provider: "gemini",
       model: "imagen-4-ultra",
       customBaseUrl: null,
+      fallbackEnabled: true,
     });
   });
 
@@ -339,6 +342,7 @@ describe("image provider card ranking", () => {
       provider: "openai",
       model: null,
       customBaseUrl: null,
+      fallbackEnabled: true,
     });
   });
 
@@ -348,6 +352,34 @@ describe("image provider card ranking", () => {
     // "auto" is not in the catalog, so there is no provider whose model or key
     // could be edited here.
     expect(screen.queryByTestId("input-image-gen-model")).toBeNull();
+  });
+
+  it("maps every image scenario to a fixed model and saves fallback changes", async () => {
+    mockState.settings = {
+      ...baseSettings("gemini", []),
+      model: "imagen-4-ultra",
+      fallbackEnabled: true,
+    };
+    renderCard();
+    const user = userEvent.setup();
+
+    const mapping = screen.getByTestId("image-gen-scenario-mapping");
+    expect(mapping.textContent).toContain("Image Studio");
+    expect(mapping.textContent).toContain("Guided Story characters");
+    expect(mapping.textContent).toContain("Guided Story backdrops");
+    expect(mapping.textContent).toContain("Guided Story storyboards/corrections");
+    expect(mapping.textContent).toContain("Google Gemini · imagen-4-ultra");
+
+    await user.click(screen.getByTestId("switch-image-gen-fallback"));
+    expect(screen.getByText(/Fallback off locks this exact provider and model/)).toBeTruthy();
+    await user.click(screen.getByTestId("button-save-image-gen-settings"));
+
+    expect(mockState.lastUpdateVars!.data).toEqual({
+      provider: "gemini",
+      model: "imagen-4-ultra",
+      customBaseUrl: null,
+      fallbackEnabled: false,
+    });
   });
 });
 

@@ -1123,6 +1123,7 @@ async function serializeImageGenSettings() {
     provider: selection.provider,
     model: selection.model,
     customBaseUrl: selection.customBaseUrl,
+    fallbackEnabled: selection.fallbackEnabled,
     autoRanking: ranking.map((r) => ({
       id: r.id,
       label: getImageGenProviderDef(r.id)?.label ?? r.id,
@@ -1188,6 +1189,12 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   // model to override and no base URL to enter, so both are forced to null
   // rather than trusting the client to omit them.
   if (parsed.data.provider === IMAGE_GEN_AUTO) {
+    if (parsed.data.fallbackEnabled !== true) {
+      res.status(400).json({
+        error: "Automatic image routing requires fallbackEnabled to be true.",
+      });
+      return;
+    }
     // Auto routing can serve ANY provider's default model, so sync catalog
     // prices for all of them best-effort (no gate: builtin providers have no
     // public catalog and refusing auto until each is hand-priced would make
@@ -1200,7 +1207,12 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
       })),
     );
     const before = await getImageGenSelection();
-    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
+    await setImageGenSelection({
+      provider: IMAGE_GEN_AUTO,
+      model: null,
+      customBaseUrl: null,
+      fallbackEnabled: true,
+    });
     if (before.provider !== IMAGE_GEN_AUTO) {
       try {
         await recordAdminAction({
@@ -1209,8 +1221,8 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
           actorEmail: req.tenantEmail,
           targetTenantId: null,
           targetEmail: null,
-          oldValue: `${before.provider}${before.model ? `:${before.model}` : ""}`,
-          newValue: IMAGE_GEN_AUTO,
+          oldValue: `${before.provider}${before.model ? `:${before.model}` : ""};fallback=${before.fallbackEnabled}`,
+          newValue: `${IMAGE_GEN_AUTO};fallback=true`,
         });
       } catch (error) {
         req.log.error({ err: error }, "Failed to write image-gen settings audit log");
@@ -1287,12 +1299,14 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
     provider: def.id,
     model: def.supportsModelOverride ? model : null,
     customBaseUrl,
+    fallbackEnabled: parsed.data.fallbackEnabled ?? true,
   });
 
   const changed =
     before.provider !== def.id ||
     before.model !== model ||
-    before.customBaseUrl !== customBaseUrl;
+    before.customBaseUrl !== customBaseUrl ||
+    before.fallbackEnabled !== (parsed.data.fallbackEnabled ?? true);
   if (changed) {
     try {
       await recordAdminAction({
@@ -1301,8 +1315,8 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
         actorEmail: req.tenantEmail,
         targetTenantId: null,
         targetEmail: null,
-        oldValue: `${before.provider}${before.model ? `:${before.model}` : ""}`,
-        newValue: `${def.id}${model ? `:${model}` : ""}`,
+        oldValue: `${before.provider}${before.model ? `:${before.model}` : ""};fallback=${before.fallbackEnabled}`,
+        newValue: `${def.id}${model ? `:${model}` : ""};fallback=${parsed.data.fallbackEnabled ?? true}`,
       });
     } catch (error) {
       req.log.error({ err: error }, "Failed to write image-gen settings audit log");

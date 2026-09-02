@@ -581,6 +581,26 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("text-guided-estimate-total").textContent).toContain("No paise estimate is supplied");
   });
 
+  it("shows the image model snapshot locked for the story during review", async () => {
+    state.draft = draft({
+      imageModelSnapshot: {
+        provider: "gemini",
+        model: "imagen-4-ultra",
+        customBaseUrl: null,
+        fallbackEnabled: false,
+        lockedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    const lock = await screen.findByTestId("card-guided-image-model-lock");
+    expect(lock.getAttribute("role")).toBe("status");
+    expect(lock.textContent).toContain("Locked for this story");
+    expect(lock.textContent).toContain("gemini · imagen-4-ultra");
+    expect(lock.textContent).toContain("Fallback not allowed");
+  });
+
   it("prioritizes an explicit failed-job draft and opens its scene editor", async () => {
     state.draft = draft({
       id: 81,
@@ -1392,6 +1412,10 @@ describe("GuidedStoryWorkflow", () => {
     await waitFor(() => expect(state.generatedImageRequest).not.toBeNull());
     expect(state.generatedImageRequest.prompt).toContain('Guided Story "The plan"');
     expect(state.generatedImageRequest.prompt).toContain("Scene 1: A desk");
+    expect(state.generatedImageRequest).toMatchObject({
+      guidedStoryDraftId: state.draft.id,
+      guidedStoryRevision: state.draft.revision,
+    });
   });
 
   it("keeps expanded story backdrop prompts inside the API limit", () => {

@@ -2,7 +2,7 @@ import { db, charactersTable, characterOutfitsTable } from "@workspace/db";
 import type { Character, CharacterOutfit, VideoJobAspect } from "@workspace/db";
 import { and, eq, asc } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
-import { generateImage } from "./imageGen";
+import { generateImage, type ImageGenSelectionPolicy } from "./imageGen";
 import type {
   ExactMaskedEdit,
   ImageSize,
@@ -242,8 +242,11 @@ export async function loadReferenceImage(
 }
 
 /** Generate a fresh character reference image from a description. */
-export async function generateCharacterReference(description: string): Promise<ImageGenResult> {
-  return generateImage(characterReferencePrompt(description), "1024x1536");
+export async function generateCharacterReference(
+  description: string,
+  selectionPolicy?: ImageGenSelectionPolicy,
+): Promise<ImageGenResult> {
+  return generateImage(characterReferencePrompt(description), "1024x1536", undefined, { selectionPolicy });
 }
 
 /** Build an explicit alpha mask: clothing may change; protected identity pixels may not. */
@@ -299,6 +302,7 @@ export async function generateOutfitVariant(
     provider: string;
     model: string;
   }) => Promise<void>,
+  selectionPolicy?: ImageGenSelectionPolicy,
 ): Promise<ImageGenResult> {
   return generateImage(
     outfitVariantPrompt(character, outfitDescription),
@@ -307,8 +311,8 @@ export async function generateOutfitVariant(
     // requireReferenceInput: a costume variant that ignored the base reference
     // would be a different person in the right clothes. See generateSceneKeyframe.
     exactMaskedEdit
-      ? { exactMaskedEdit, onProviderSuccess, requireReferenceInput: true }
-      : { requireReferenceInput: true },
+      ? { exactMaskedEdit, onProviderSuccess, requireReferenceInput: true, selectionPolicy }
+      : { requireReferenceInput: true, selectionPolicy },
   );
 }
 
@@ -320,6 +324,7 @@ export async function generateSceneKeyframe(
   aspect: VideoJobAspect,
   outfitReference: ReferenceImage,
   shotSize: "wide" | "medium" | "close" = "medium",
+  selectionPolicy?: ImageGenSelectionPolicy,
 ): Promise<ImageGenResult> {
   return generateImage(
     sceneKeyframePrompt(character, outfit, sceneVisual, shotSize),
@@ -330,6 +335,6 @@ export async function generateSceneKeyframe(
     // — it does a different job, inventing a new face and a new costume per
     // scene from prompt text alone, with nothing in the result to say so.
     // requireReferenceInput reroutes to a capable provider, or refuses.
-    { requireReferenceInput: true },
+    { requireReferenceInput: true, selectionPolicy },
   );
 }

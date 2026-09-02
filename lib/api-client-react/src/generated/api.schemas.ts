@@ -1776,6 +1776,8 @@ export interface ImageGenSettingsView {
      * @nullable
      */
   customBaseUrl: string | null;
+  /** Whether transient failures and unsupported capabilities may route to another provider. */
+  fallbackEnabled: boolean;
   providers: ImageGenProviderInfo[];
   /** How automatic routing currently ranks the configured providers, best first. Shown whether or not "auto" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured. */
   autoRanking: ImageGenRankedProvider[];
@@ -1802,6 +1804,8 @@ export interface UpdateImageGenSettingsRequest {
      * @nullable
      */
   customBaseUrl?: string | null;
+  /** Must be true when provider is auto; explicit providers may disable all fallback. */
+  fallbackEnabled?: boolean;
 }
 
 export type ProviderHealthEntryViewFamily = typeof ProviderHealthEntryViewFamily[keyof typeof ProviderHealthEntryViewFamily];
@@ -3784,6 +3788,10 @@ export interface ImageRequest {
      * @nullable
      */
   referenceImagePath?: string | null;
+  /** Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision. */
+  guidedStoryDraftId?: number;
+  /** Current revision of guidedStoryDraftId. Must be supplied together with guidedStoryDraftId. */
+  guidedStoryRevision?: number;
   /** Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only. */
   layered?: boolean;
   /** The plan the user was quoted, sent back verbatim so the billed layer count is the quoted layer count. Re-validated and capped server-side. */
@@ -6513,11 +6521,21 @@ export type GuidedStoryDraftEstimates = {
   savedStrategyCastUnits: number;
 };
 
+export interface GuidedStoryImageModelSnapshot {
+  provider: string;
+  model: string;
+  /** @nullable */
+  customBaseUrl: string | null;
+  fallbackEnabled: boolean;
+  lockedAt: string;
+}
+
 export interface GuidedStoryDraft {
   id: number;
   revision: number;
   version: 1;
   setup: GuidedStorySetup | null;
+  imageModelSnapshot?: GuidedStoryImageModelSnapshot;
   script: GuidedStoryScript | null;
   /** @nullable */
   scriptApprovedAt: string | null;

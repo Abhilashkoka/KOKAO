@@ -823,6 +823,17 @@ describe("cross-catalog pricing fallback for videos", () => {
 });
 
 describe("PUT /admin/image-gen-settings pricing gate", () => {
+  it("requires fallback to stay enabled for Auto routing", async () => {
+    const before = await getImageGenSelection();
+    const res = await request(app)
+      .put("/api/admin/image-gen-settings")
+      .send({ provider: "auto", fallbackEnabled: false });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("requires fallbackEnabled to be true");
+    expect(await getImageGenSelection()).toEqual(before);
+  });
+
   it("refuses NVIDIA image selection until its deployment is activatable", async () => {
     const before = await getImageGenSelection();
     const res = await request(app)

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 
 /**
  * App-level (platform-wide) image generation configuration, stored as a
@@ -17,6 +17,8 @@ export const imageGenSettingsTable = pgTable("image_gen_settings", {
   provider: text("provider").notNull().default("openai"),
   model: text("model"),
   customBaseUrl: text("custom_base_url"),
+  /** Permit capability routing and transient-provider failover. */
+  fallbackEnabled: boolean("fallback_enabled").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

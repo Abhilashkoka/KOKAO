@@ -6,7 +6,9 @@ import {
   db,
   tenantsTable,
   contentItemsTable,
+  guidedStoryDraftsTable,
   type BrandKitPayload,
+  type GuidedStoryImageModelSnapshot,
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -1291,6 +1293,52 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     return;
   }
 
+  const guidedStoryDraftId = parsed.data.guidedStoryDraftId;
+  const guidedStoryRevision = parsed.data.guidedStoryRevision;
+  if ((guidedStoryDraftId === undefined) !== (guidedStoryRevision === undefined)) {
+    res.status(400).json({
+      error: "guidedStoryDraftId and guidedStoryRevision must be supplied together.",
+    });
+    return;
+  }
+  let selectionPolicy: GuidedStoryImageModelSnapshot | undefined;
+  if (guidedStoryDraftId !== undefined && guidedStoryRevision !== undefined) {
+    const draft = (
+      await db
+        .select({
+          revision: guidedStoryDraftsTable.revision,
+          state: guidedStoryDraftsTable.state,
+        })
+        .from(guidedStoryDraftsTable)
+        .where(
+          and(
+            eq(guidedStoryDraftsTable.id, guidedStoryDraftId),
+            eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    // Tenant-scoped lookup avoids disclosing another tenant's draft.
+    if (!draft) {
+      res.status(404).json({ error: "Guided Story draft not found." });
+      return;
+    }
+    if (draft.revision !== guidedStoryRevision) {
+      res.status(409).json({
+        error: "This Guided Story draft changed. Reload it before generating.",
+      });
+      return;
+    }
+    if (!draft.state.imageModelSnapshot) {
+      res.status(409).json({
+        error:
+          "This Guided Story draft has no frozen image selection. Create a new draft before generating a backdrop.",
+      });
+      return;
+    }
+    selectionPolicy = draft.state.imageModelSnapshot;
+  }
+
   // Reference image (optional): kill-switch gated, tenant-scope asserted, and
   // loaded BEFORE any funding is reserved so a bad upload never burns quota.
   const referenceImagePath = parsed.data.referenceImagePath ?? null;
@@ -1368,6 +1416,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       size,
       brandKitId: parsed.data.brandKitId ?? null,
       referenceImage,
+      selectionPolicy,
     });
     if (imageGoverned) {
       await logCompiledPrompt({

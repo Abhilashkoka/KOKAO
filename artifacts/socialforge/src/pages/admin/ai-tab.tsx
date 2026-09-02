@@ -839,6 +839,7 @@ export function ImageGenProviderCard() {
   const [modelInput, setModelInput] = useState<string | null>(null);
   const [baseUrlInput, setBaseUrlInput] = useState<string | null>(null);
   const [draftProvider, setDraftProvider] = useState<string | null>(null);
+  const [fallbackInput, setFallbackInput] = useState<boolean | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getAdminGetImageGenSettingsQueryKey() });
@@ -855,6 +856,7 @@ export function ImageGenProviderCard() {
     setDraftProvider(null);
     setModelInput(null);
     setBaseUrlInput(null);
+    setFallbackInput(null);
   }, [savedProvider]);
 
   // While drafting a different provider, the saved model/base URL belong to
@@ -863,14 +865,21 @@ export function ImageGenProviderCard() {
     draftProvider !== null && settings !== undefined && draftProvider !== settings.provider;
   const modelValue = modelInput ?? (isDraft ? "" : (settings?.model ?? ""));
   const baseUrlValue = baseUrlInput ?? (isDraft ? "" : (settings?.customBaseUrl ?? ""));
+  const fallbackEnabled = fallbackInput ?? settings?.fallbackEnabled ?? true;
 
-  const saveSelection = (provider: string, model: string, customBaseUrl: string) => {
+  const saveSelection = (
+    provider: string,
+    model: string,
+    customBaseUrl: string,
+    nextFallbackEnabled = fallbackEnabled,
+  ) => {
     updateSettings.mutate(
       {
         data: {
           provider,
           model: model.trim() || null,
           customBaseUrl: customBaseUrl.trim() || null,
+          fallbackEnabled: provider === IMAGE_GEN_AUTO ? true : nextFallbackEnabled,
         },
       },
       {
@@ -879,6 +888,7 @@ export function ImageGenProviderCard() {
           setDraftProvider(null);
           setModelInput(null);
           setBaseUrlInput(null);
+          setFallbackInput(null);
           const chosen = result.providers.find((p) => p.id === result.provider);
           toast({
             title: "Image provider updated",
@@ -908,6 +918,7 @@ export function ImageGenProviderCard() {
       setDraftProvider(null);
       setModelInput(null);
       setBaseUrlInput(null);
+      setFallbackInput(null);
       return;
     }
     const def = settings.providers.find((p) => p.id === provider);
@@ -924,12 +935,12 @@ export function ImageGenProviderCard() {
       return;
     }
     setDraftProvider(null);
-    saveSelection(provider, "", "");
+    saveSelection(provider, "", "", provider === IMAGE_GEN_AUTO ? true : fallbackEnabled);
   };
 
   const { flags } = useFeatureFlags();
   const effectiveProvider = draftProvider ?? settings?.provider ?? "openai";
-  const isAuto = effectiveProvider === IMAGE_GEN_AUTO && flags.providerScoring;
+  const isAuto = effectiveProvider === IMAGE_GEN_AUTO;
   const shown = settings?.providers.find((p) => p.id === effectiveProvider);
   const nvidiaImageReady = nvidiaSettings?.deployments.find(
     (deployment) => deployment.capability === "image",
@@ -979,18 +990,24 @@ export function ImageGenProviderCard() {
     );
   };
 
-  const needsSaveButton = isDraft || Boolean(shown?.supportsModelOverride);
+  const needsSaveButton =
+    isDraft || fallbackInput !== null || Boolean(shown?.supportsModelOverride);
+  const effectiveModel =
+    isAuto
+      ? "Provider-selected model"
+      : modelValue.trim() || shown?.defaultModel || "Provider default";
 
   return (
     <Card data-testid="card-image-gen-provider">
       <CardHeader>
         <CardTitle>Image Generation Provider</CardTitle>
         <CardDescription>
-          Which service creates images in the Studio. Auto scores every
-          configured provider per request and falls back down the ranking when
-          one fails. The built-in OpenAI option needs no key. Other providers use
-          your own API key (stored encrypted). The Custom option works with any
-          OpenAI-compatible provider — enter its base URL and model name.
+          Choose the provider and model used for every image scenario. Turn
+          fallback off to lock the exact provider/model; Auto requires fallback
+          and chooses a provider per request. The built-in OpenAI option needs no
+          key. Other providers use your own API key (stored encrypted). The
+          Custom option works with any OpenAI-compatible provider — enter its base
+          URL and model name.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1032,6 +1049,55 @@ export function ImageGenProviderCard() {
                   <Badge variant="destructive">Needs key</Badge>
                 ))
               )}
+            </div>
+            <div
+              className="space-y-2 rounded-md border p-3"
+              data-testid="image-gen-scenario-mapping"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">Image scenario mapping</p>
+                <Badge variant={isAuto ? "secondary" : "outline"}>
+                  {isAuto
+                    ? "Auto routing"
+                    : fallbackEnabled
+                      ? "Preferred selection / fallback possible"
+                      : "Locked selection"}
+                </Badge>
+              </div>
+              <ul className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+                {[
+                  "Image Studio",
+                  "Guided Story characters",
+                  "Guided Story backdrops",
+                  "Guided Story storyboards/corrections",
+                ].map((scenario) => (
+                  <li key={scenario} className="flex min-w-0 justify-between gap-2">
+                    <span>{scenario}</span>
+                    <span className="truncate font-medium text-foreground">
+                      {isAuto ? "Auto" : shown?.label} · {effectiveModel}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Allow fallback</p>
+                <p className="text-xs text-muted-foreground">
+                  {isAuto
+                    ? "Auto requires fallback so another eligible provider can be used."
+                    : fallbackEnabled
+                      ? "An eligible provider may be used if this selection cannot serve a request."
+                      : "Fallback off locks this exact provider and model for all image scenarios."}
+                </p>
+              </div>
+              <Switch
+                checked={isAuto ? true : fallbackEnabled}
+                onCheckedChange={(checked) => setFallbackInput(checked)}
+                disabled={isAuto || updateSettings.isPending}
+                aria-label="Allow image generation fallback"
+                data-testid="switch-image-gen-fallback"
+              />
             </div>
             {effectiveProvider === "nvidia" && !nvidiaImageReady?.enabled && (
               <p className="text-sm text-destructive">NVIDIA is unavailable until its deployment is enabled, tested, and priced in NVIDIA AI Provider settings.</p>
@@ -1140,6 +1206,16 @@ export function ImageGenProviderCard() {
                   </Button>
                 )}
               </div>
+            )}
+            {needsSaveButton && !(shown && (shown.supportsModelOverride || shown.requiresBaseUrl)) && (
+              <Button
+                size="sm"
+                onClick={() => saveSelection(effectiveProvider, modelValue, baseUrlValue)}
+                disabled={updateSettings.isPending}
+                data-testid="button-save-image-gen-settings"
+              >
+                {updateSettings.isPending ? "Saving..." : "Save settings"}
+              </Button>
             )}
             {shown && shown.envKey && (
               <div className="space-y-2 rounded-md border p-3">

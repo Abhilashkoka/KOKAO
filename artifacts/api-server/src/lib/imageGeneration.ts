@@ -1,6 +1,10 @@
 import type { Tenant, BrandKitPayload } from "@workspace/db";
 import { generateImage } from "./imageGen";
-import type { ReferenceImage, ImageSize } from "./imageGen";
+import type {
+  ReferenceImage,
+  ImageSize,
+  ImageGenSelectionPolicy,
+} from "./imageGen";
 import { ObjectStorageService } from "./objectStorage";
 import { loadActivePayload } from "./brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "./designSkill";
@@ -42,6 +46,8 @@ export interface ImageGenerationInput {
   size: ImageSize;
   brandKitId: number | null;
   referenceImage?: ReferenceImage | null;
+  /** Server-owned frozen provider/model policy for durable Guided Story work. */
+  selectionPolicy?: ImageGenSelectionPolicy;
 }
 
 export interface ImageGenerationOutcome {
@@ -172,7 +178,9 @@ export async function performImageGeneration(
     usage: imageUsage,
     fallbackStep,
     routingReason,
-  } = await generateImage(prompt, input.size, input.referenceImage ?? undefined);
+  } = await generateImage(prompt, input.size, input.referenceImage ?? undefined, {
+    selectionPolicy: input.selectionPolicy,
+  });
 
   // Plans with the watermark switch ON get a "Made with KOKAO.in" stamp,
   // subject to the platform-wide "freeWatermark" kill switch (default-ON: a

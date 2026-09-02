@@ -421,7 +421,12 @@ export interface ImageGenSelection {
   /** Admin model override (null = provider default). */
   model: string | null;
   customBaseUrl: string | null;
+  /** Whether an incapable pin or transient provider failure may be rerouted. */
+  fallbackEnabled: boolean;
 }
+
+/** A caller-owned, immutable routing contract (for durable jobs). */
+export type ImageGenSelectionPolicy = Readonly<ImageGenSelection>;
 
 /** The current selection (falls back to the default when the settings row is
  * missing or names a provider no longer in the catalog). */
@@ -432,27 +437,41 @@ export async function getImageGenSelection(): Promise<ImageGenSelection> {
   // and no base URL — reported as null rather than as whatever a previously
   // pinned provider left behind in those columns.
   if (id === IMAGE_GEN_AUTO) {
-    return { provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null };
+    return {
+      provider: IMAGE_GEN_AUTO,
+      model: null,
+      customBaseUrl: null,
+      fallbackEnabled: row?.fallbackEnabled ?? true,
+    };
   }
   if (!(await resolveImageGenProviderDef(id))) {
-    return { provider: DEFAULT_IMAGE_GEN_PROVIDER, model: null, customBaseUrl: null };
+    return {
+      provider: DEFAULT_IMAGE_GEN_PROVIDER,
+      model: null,
+      customBaseUrl: null,
+      fallbackEnabled: true,
+    };
   }
   return {
     provider: id,
     model: row?.model ?? null,
     customBaseUrl: row?.customBaseUrl ?? null,
+    fallbackEnabled: row?.fallbackEnabled ?? true,
   };
 }
 
 /** Persist the platform-wide selection (superadmin only; the route validates
  * the provider id against the catalog). */
-export async function setImageGenSelection(selection: ImageGenSelection): Promise<void> {
+export async function setImageGenSelection(
+  selection: Omit<ImageGenSelection, "fallbackEnabled"> & { fallbackEnabled?: boolean },
+): Promise<void> {
+  const normalized = { ...selection, fallbackEnabled: selection.fallbackEnabled ?? true };
   await db
     .insert(imageGenSettingsTable)
-    .values({ id: 1, ...selection })
+    .values({ id: 1, ...normalized })
     .onConflictDoUpdate({
       target: imageGenSettingsTable.id,
-      set: { ...selection, updatedAt: new Date() },
+      set: { ...normalized, updatedAt: new Date() },
     });
 }
 
@@ -763,7 +782,8 @@ function shortMessage(error: unknown): string {
 /** Generate an image using the currently selected provider. The reference
  * image is only forwarded to providers that support image input. Callers that
  * require the reference for correctness must set `requireReferenceInput`; that
- * mode overrides an incapable pin rather than silently degrading to prompt-only.
+ * mode overrides an incapable pin only while fallback is enabled. A locked
+ * no-fallback selection fails explicitly rather than silently degrading.
  *
  * Reliability: the first provider is always attempted (that attempt doubles as
  * the circuit breaker's half-open probe). If it fails with a TRANSIENT error
@@ -775,9 +795,8 @@ function shortMessage(error: unknown): string {
  * picks per generation and the whole chain comes from the ranking.
  *
  * `opts.transparent` (layered generation) narrows the whole chain to providers
- * that can return real alpha, INCLUDING a pinned one: honouring a pin that
- * cannot do the job would hand back an opaque layer that silently ruins the
- * composite, so the pin is overridden and the reason is logged. */
+ * that can return real alpha. A no-fallback lock is never overridden; it
+ * receives a clear incapable-provider error instead. */
 export async function generateImage(
   prompt: string,
   size: ImageSize,
@@ -790,6 +809,11 @@ export async function generateImage(
       provider: string;
       model: string;
     }) => Promise<void>;
+    /**
+     * Durable caller-provided selection. When supplied this is never reread
+     * from global settings and is therefore safe for jobs/retries.
+     */
+    selectionPolicy?: ImageGenSelectionPolicy;
   },
 ): Promise<RoutedImageGenResult> {
   const transparent = opts?.transparent === true;
@@ -809,7 +833,12 @@ export async function generateImage(
   const routedReference = prepared?.referenceImage ?? referenceImage;
   // Exact preservation has one canonical coordinate system and output size.
   const routedSize = exactMaskedEdit ? "1024x1536" : size;
-  const selection = await getImageGenSelection();
+  const selection = opts?.selectionPolicy ?? (await getImageGenSelection());
+  if (opts?.selectionPolicy?.provider === IMAGE_GEN_AUTO) {
+    throw new ImageGenNotConfiguredError(
+      "A locked image generation cannot use Auto. Ask an administrator to select an explicit image provider and model.",
+    );
+  }
   // Kill switch (fail-open): with providerScoring off, an `auto` selection is
   // treated as unconfigured and falls through to the built-in default below.
   const auto =
@@ -828,7 +857,7 @@ export async function generateImage(
       { ranking: ranked.map((r) => ({ id: r.id, score: r.score, why: r.reason })) },
       "Image provider ranking",
     );
-    for (const scored of ranked.slice(0, 1 + IMAGE_GEN_FALLBACK_LIMIT)) {
+    for (const scored of ranked.slice(0, selection.fallbackEnabled ? 1 + IMAGE_GEN_FALLBACK_LIMIT : 1)) {
       const candidate = getImageGenProviderDef(scored.id);
       if (candidate) chain.push(candidate);
     }
@@ -846,7 +875,17 @@ export async function generateImage(
       (!!exactMaskedEdit && !pinned.supportsExactMaskedEdits) ||
       (requireReferenceInput && !pinned.supportsImageInput)
     ) {
-      // Capability beats the pin — see the doc comment above.
+      if (!selection.fallbackEnabled) {
+        const capability = exactMaskedEdit
+          ? "exact masked edits"
+          : requireReferenceInput
+            ? "approved reference images"
+            : "transparent PNG output";
+        throw new ImageGenNotConfiguredError(
+          `The locked image provider ${pinned.id}/${effectiveModel(pinned, selection.model)} cannot perform ${capability}. Enable fallback or select a capable provider in the admin dashboard.`,
+        );
+      }
+      // Capability beats the pin when fallback is enabled.
       const capable = await autoCandidates(
         routedReference,
         transparent,
@@ -924,7 +963,7 @@ export async function generateImage(
       // just costs the tenant time.
       if (!isTransientImageGenError(error)) throw error;
     }
-    if (step === chain.length - 1 && !extended) {
+    if (step === chain.length - 1 && !extended && selection.fallbackEnabled) {
       extended = true;
       if (await isFeatureEnabled("providerScoring").catch(() => true)) {
         const ranked = await rankImageGenProviders(

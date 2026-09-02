@@ -61,6 +61,7 @@ import {
   resolveOutfit,
 } from "../../characters";
 import { generateImage } from "../../imageGen";
+import type { ImageGenSelectionPolicy } from "../../imageGen";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 import type { ResolvedModelOptions } from "../modelCatalog";
@@ -936,6 +937,8 @@ export interface StoryboardPlanParams {
     error: unknown;
   }) => Promise<void>;
   onStage?: (stage: string) => void;
+  /** Frozen Guided Story image route; absent preserves legacy current settings. */
+  imageSelectionPolicy?: ImageGenSelectionPolicy;
 }
 
 /** Plan a topic video and stop: everything up to (but not including) the
@@ -993,6 +996,7 @@ export async function planTopicStoryboard(
               scene, scenes: base.scenes, sceneIndex, attemptIndex, error,
             });
           },
+          imageSelectionPolicy: params.guidedStory.imageModelSnapshot,
         });
         const receipt = receipts[0];
         if (receipt) rememberGuidedContinuityImage(scene, receipt.buffer, latestByRole);
@@ -1773,6 +1777,7 @@ export async function regenerateStoryboardPreview(params: {
   onProviderStart?: (args: { attemptIndex: number }) => Promise<void>;
   onProviderFailure?: (args: { attemptIndex: number; error: unknown }) => Promise<void>;
   uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
+  imageSelectionPolicy?: ImageGenSelectionPolicy;
 }): Promise<string> {
   if (params.scene.guidedStory) {
     // Old paused attempts predate visual metadata; preserve their exact
@@ -1892,7 +1897,7 @@ export async function regenerateStoryboardPreview(params: {
       `${params.scene.visual}\nReference sheet order: ${allRefs.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. Reproduce the APPROVED SHARED BACKDROP consistently in this scene; camera angle and crop may change, but its architecture, layout, colors, fixtures, and permanent objects must not. PRIOR ACCEPTED SAME-CHARACTER SHOT tiles guide face, hair, clothing presentation, lighting, and style continuity only; they never override approved identity, outfit, or backdrop tiles, and their pose, expression, framing, and action must change to follow the current shot direction. ADDITIONAL LOCATION GUIDANCE and LOGO OVERLAY tiles are supplementary only and must never alter character identities.`,
         size,
         referenceImage,
-        { requireReferenceInput: true },
+        { requireReferenceInput: true, selectionPolicy: params.imageSelectionPolicy },
       );
     } catch (error) {
       await params.onProviderFailure?.({ attemptIndex: 0, error });

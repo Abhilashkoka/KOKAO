@@ -36,6 +36,10 @@ export interface ImageRequest {
      * @nullable
      */
   referenceImagePath?: string | null;
+  /** Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision. */
+  guidedStoryDraftId?: number;
+  /** Current revision of guidedStoryDraftId. Must be supplied together with guidedStoryDraftId. */
+  guidedStoryRevision?: number;
   /** Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only. */
   layered?: boolean;
   /** The plan the user was quoted, sent back verbatim so the billed layer count is the quoted layer count. Re-validated and capped server-side. */

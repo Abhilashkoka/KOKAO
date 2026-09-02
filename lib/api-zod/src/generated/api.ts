@@ -2707,6 +2707,7 @@ export const AdminGetImageGenSettingsResponse = zod.object({
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "fallbackEnabled": zod.boolean().describe('Whether transient failures and unsupported capabilities may route to another provider.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -2734,10 +2735,13 @@ export const AdminGetImageGenSettingsResponse = zod.object({
 /**
  * @summary Select the image generation provider for the whole app (superadmin only)
  */
+export const adminUpdateImageGenSettingsBodyFallbackEnabledDefault = true;
+
 export const AdminUpdateImageGenSettingsBody = zod.object({
   "provider": zod.string().describe('Provider id from the catalog, or \"auto\" to let the scorer pick per request. With \"auto\" the model and customBaseUrl fields are ignored.'),
   "model": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
-  "customBaseUrl": zod.string().nullish().describe('Base URL for the custom provider (https only).')
+  "customBaseUrl": zod.string().nullish().describe('Base URL for the custom provider (https only).'),
+  "fallbackEnabled": zod.boolean().default(adminUpdateImageGenSettingsBodyFallbackEnabledDefault).describe('Must be true when provider is auto; explicit providers may disable all fallback.')
 })
 
 export const AdminUpdateImageGenSettingsResponse = zod.object({
@@ -2745,6 +2749,7 @@ export const AdminUpdateImageGenSettingsResponse = zod.object({
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "fallbackEnabled": zod.boolean().describe('Whether transient failures and unsupported capabilities may route to another provider.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -2788,6 +2793,7 @@ export const AdminSetImageGenProviderKeyResponse = zod.object({
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "fallbackEnabled": zod.boolean().describe('Whether transient failures and unsupported capabilities may route to another provider.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -2824,6 +2830,7 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "fallbackEnabled": zod.boolean().describe('Whether transient failures and unsupported capabilities may route to another provider.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -12311,6 +12318,8 @@ export const GenerateImageBody = zod.object({
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
   "contentId": zod.number().nullish().describe('Library\/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
+  "guidedStoryDraftId": zod.number().optional().describe('Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision.'),
+  "guidedStoryRevision": zod.number().optional().describe('Current revision of guidedStoryDraftId. Must be supplied together with guidedStoryDraftId.'),
   "layered": zod.boolean().optional().describe('Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only.'),
   "layerPlan": zod.union([zod.object({
   "styleDna": zod.string().describe('Subject-agnostic look (medium, lens, light, palette, grain) copied verbatim into every layer prompt so independently rendered layers match each other.'),
@@ -12439,6 +12448,8 @@ export const GenerateImageAsyncBody = zod.object({
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
   "contentId": zod.number().nullish().describe('Library\/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
+  "guidedStoryDraftId": zod.number().optional().describe('Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision.'),
+  "guidedStoryRevision": zod.number().optional().describe('Current revision of guidedStoryDraftId. Must be supplied together with guidedStoryDraftId.'),
   "layered": zod.boolean().optional().describe('Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only.'),
   "layerPlan": zod.union([zod.object({
   "styleDna": zod.string().describe('Subject-agnostic look (medium, lens, light, palette, grain) copied verbatim into every layer prompt so independently rendered layers match each other.'),
@@ -13406,6 +13417,13 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -13685,6 +13703,13 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -14096,6 +14121,13 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -14382,6 +14414,13 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -14678,6 +14717,13 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -15075,6 +15121,13 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -15377,6 +15430,13 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -15665,6 +15725,13 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -16044,6 +16111,13 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -16338,6 +16412,13 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -16625,6 +16706,13 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -16912,6 +17000,13 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),
@@ -17199,6 +17294,13 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "height": zod.number(),
   "safeArea": zod.string()
 })),zod.null()]),
+  "imageModelSnapshot": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "customBaseUrl": zod.string().nullable(),
+  "fallbackEnabled": zod.boolean(),
+  "lockedAt": zod.coerce.date()
+}).optional(),
   "script": zod.union([zod.object({
   "version": zod.number(),
   "title": zod.string(),

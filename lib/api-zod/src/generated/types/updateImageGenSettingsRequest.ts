@@ -19,4 +19,6 @@ export interface UpdateImageGenSettingsRequest {
      * @nullable
      */
   customBaseUrl?: string | null;
+  /** Must be true when provider is auto; explicit providers may disable all fallback. */
+  fallbackEnabled?: boolean;
 }

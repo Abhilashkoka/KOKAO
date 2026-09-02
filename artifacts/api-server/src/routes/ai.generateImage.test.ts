@@ -90,9 +90,13 @@ type ImageOutcome = {
   meta: Record<string, unknown>;
 };
 let imageGenScript: () => Promise<ImageOutcome>;
+const imageGenerationCalls: unknown[] = [];
 
 vi.mock("../lib/imageGeneration", () => ({
-  performImageGeneration: vi.fn(async () => imageGenScript()),
+  performImageGeneration: vi.fn(async (input: unknown) => {
+    imageGenerationCalls.push(input);
+    return imageGenScript();
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -119,7 +123,15 @@ vi.mock("../lib/promptKit", async (importOriginal) => {
 // ---------------------------------------------------------------------------
 // Imports — after all vi.mock() calls so Vitest hoists correctly.
 // ---------------------------------------------------------------------------
-import { db, pool, usageEventsTable, creditLedgerTable, creditBalancesTable } from "@workspace/db";
+import {
+  db,
+  pool,
+  usageEventsTable,
+  creditLedgerTable,
+  creditBalancesTable,
+  guidedStoryDraftsTable,
+  type GuidedStoryDraftState,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import aiRouter from "./ai";
 import { grantCredits, getCreditBalances } from "../lib/credits";
@@ -139,6 +151,7 @@ beforeEach(async () => {
   walletCalls.reserve.length = 0;
   walletCalls.settle.length = 0;
   walletCalls.refund.length = 0;
+  imageGenerationCalls.length = 0;
 
   // Default: generation succeeds with minimal meta.
   imageGenScript = async () => ({
@@ -170,6 +183,7 @@ afterEach(async () => {
   await db.delete(usageEventsTable).where(eq(usageEventsTable.tenantId, tenant.tenantId));
   await db.delete(creditLedgerTable).where(eq(creditLedgerTable.tenantId, tenant.tenantId));
   await db.delete(creditBalancesTable).where(eq(creditBalancesTable.tenantId, tenant.tenantId));
+  await db.delete(guidedStoryDraftsTable).where(eq(guidedStoryDraftsTable.tenantId, tenant.tenantId));
   await deleteTenant(tenant.tenantId);
 });
 
@@ -177,7 +191,7 @@ afterAll(async () => {
   await pool.end();
 });
 
-function postImage(): Promise<{ status: number; body: Record<string, unknown> }> {
+function postImage(body: Record<string, unknown> = { prompt: "A mountain at sunset" }): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -199,8 +213,45 @@ function postImage(): Promise<{ status: number; body: Record<string, unknown> }>
       },
     );
     req.on("error", reject);
-    req.end(JSON.stringify({ prompt: "A mountain at sunset" }));
+    req.end(JSON.stringify(body));
   });
+}
+
+async function createGuidedDraft(
+  tenantId = tenant.tenantId,
+  revision = 3,
+  withSnapshot = true,
+) {
+  const state = {
+    version: 1,
+    setup: null,
+    ...(withSnapshot
+      ? {
+          imageModelSnapshot: {
+            provider: "openai",
+            model: "gpt-image-1",
+            customBaseUrl: null,
+            fallbackEnabled: false,
+            lockedAt: "2025-01-01T00:00:00.000Z",
+          },
+        }
+      : {}),
+    script: null,
+    scriptApprovedAt: null,
+    userRoleId: null,
+    castStrategy: null,
+    cast: [],
+    duplicateAssignmentConfirmed: false,
+    scriptGeneration: null,
+    castOperations: {},
+    storyboardJobId: null,
+  } as GuidedStoryDraftState;
+  return (
+    await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId, revision, state })
+      .returning()
+  )[0]!;
 }
 
 async function usageRows() {
@@ -215,6 +266,66 @@ async function ledgerRows() {
 // Core billing invariants
 // ---------------------------------------------------------------------------
 describe("image generation endpoint billing", () => {
+  it("uses only the authenticated draft's frozen image selection policy", async () => {
+    const draft = await createGuidedDraft();
+    planState.images = 100;
+
+    const res = await postImage({
+      prompt: "A mountain at sunset",
+      guidedStoryDraftId: draft.id,
+      guidedStoryRevision: draft.revision,
+    });
+
+    expect(res.status).toBe(200);
+    expect(imageGenerationCalls[0]).toMatchObject({
+      selectionPolicy: draft.state.imageModelSnapshot,
+    });
+  });
+
+  it("rejects stale guided draft revisions before funding or generation", async () => {
+    const draft = await createGuidedDraft();
+    const res = await postImage({
+      prompt: "A mountain at sunset",
+      guidedStoryDraftId: draft.id,
+      guidedStoryRevision: draft.revision + 1,
+    });
+
+    expect(res.status).toBe(409);
+    expect(imageGenerationCalls).toHaveLength(0);
+  });
+
+  it("does not allow a tenant to use another tenant's frozen selection", async () => {
+    const other = await createTenant();
+    try {
+      const draft = await createGuidedDraft(other.tenantId);
+      const res = await postImage({
+        prompt: "A mountain at sunset",
+        guidedStoryDraftId: draft.id,
+        guidedStoryRevision: draft.revision,
+      });
+
+      expect(res.status).toBe(404);
+      expect(imageGenerationCalls).toHaveLength(0);
+    } finally {
+      await db
+        .delete(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.tenantId, other.tenantId));
+      await deleteTenant(other.tenantId);
+    }
+  });
+
+  it("rejects guided drafts without a frozen image selection", async () => {
+    const draft = await createGuidedDraft(tenant.tenantId, 3, false);
+    const res = await postImage({
+      prompt: "A mountain at sunset",
+      guidedStoryDraftId: draft.id,
+      guidedStoryRevision: draft.revision,
+    });
+
+    expect(res.status).toBe(409);
+    expect(imageGenerationCalls).toHaveLength(0);
+  });
+
   it("records exactly one quota-funded usage event on success", async () => {
     planState.images = 100; // quota funding
 

@@ -20,6 +20,7 @@ import {
   type GuidedStoryDraft,
   type GuidedStoryDraftState,
   type GuidedStoryCastSnapshot,
+  type GuidedStoryImageModelSnapshot,
 } from "@workspace/db";
 import { and, eq, desc, isNotNull, ne, sql } from "drizzle-orm";
 import {
@@ -167,7 +168,12 @@ import {
   loadReferenceImage,
   resolveOutfit,
 } from "../lib/characters";
-import { generateImage } from "../lib/imageGen";
+import {
+  effectiveModel,
+  generateImage,
+  getImageGenSelection,
+  resolveImageGenProviderDef,
+} from "../lib/imageGen";
 import { ImageGenNotConfiguredError } from "../lib/imageGen/types";
 import { logger } from "../lib/logger";
 import { VIDEO_ASPECTS, type VideoAspect } from "../lib/videoGen/types";
@@ -2634,9 +2640,40 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Brand Kit not found." });
     return;
   }
+  const imageSelection = await getImageGenSelection();
+  if (imageSelection.provider === "auto") {
+    res.status(409).json({
+      error:
+        "Guided Story requires a locked image provider and model. Ask an administrator to replace Auto image routing with an explicit provider before creating a draft.",
+    });
+    return;
+  }
+  const imageDef = await resolveImageGenProviderDef(imageSelection.provider);
+  if (!imageDef) {
+    res.status(409).json({
+      error:
+        "Guided Story cannot lock the currently selected image provider. Ask an administrator to choose an available explicit image provider and model.",
+    });
+    return;
+  }
+  if (imageDef.id.startsWith("custom:")) {
+    res.status(409).json({
+      error:
+        "Guided Story cannot use a custom image provider because its endpoint cannot be frozen for later backdrop generation. Ask an administrator to select a built-in provider.",
+    });
+    return;
+  }
+  const imageModelSnapshot: GuidedStoryImageModelSnapshot = {
+    provider: imageDef.id,
+    model: effectiveModel(imageDef, imageSelection.model),
+    customBaseUrl: imageSelection.customBaseUrl,
+    fallbackEnabled: imageSelection.fallbackEnabled,
+    lockedAt: new Date().toISOString(),
+  };
   const state: GuidedStoryDraftState = {
     version: 1,
     setup,
+    imageModelSnapshot,
     script: null,
     scriptApprovedAt: null,
     userRoleId: null,
@@ -4005,7 +4042,7 @@ router.put(
                         refId: `${row.id}:${row.revision}:${role.id}`,
                       },
                     },
-                    () => generateCharacterReference(castPrompt),
+                    () => generateCharacterReference(castPrompt, row?.state.imageModelSnapshot),
                     (result) => ({
                       provider: result.provider,
                       model: result.model,
@@ -4014,7 +4051,8 @@ router.put(
                   )
                 : null;
             const generated =
-              executed?.value ?? (await generateCharacterReference(castPrompt));
+              executed?.value ??
+              (await generateCharacterReference(castPrompt, row?.state.imageModelSnapshot));
             operationId = executed?.operationId ?? null;
             provider = generated.provider;
             model = generated.model;
@@ -5353,7 +5391,7 @@ router.post(
             if (!boundary) throw new Error("Reference provider boundary checkpoint failed.");
             durableCheckpoint = "provider_running";
             providerStarted = true;
-            return generateCharacterReference(description);
+            return generateCharacterReference(description, row?.state.imageModelSnapshot);
           }
           if (member.characterId == null || !member.character.referenceImagePath) {
             throw new Error("Outfits can only be generated for a saved canonical identity.");
@@ -5377,7 +5415,14 @@ router.post(
           if (!boundary) throw new Error("Reference provider boundary checkpoint failed.");
             durableCheckpoint = "provider_running";
           providerStarted = true;
-          return generateOutfitVariant(detail.character, description, reference, mask);
+          return generateOutfitVariant(
+            detail.character,
+            description,
+            reference,
+            mask,
+            undefined,
+            row?.state.imageModelSnapshot,
+          );
         };
         let generated: Awaited<ReturnType<typeof generateCharacterReference>>;
         let providerOperationId: number | null = checkpoint?.providerOperationId ?? null;
@@ -7743,6 +7788,9 @@ async function generateVideoHandler(
             },
             script: guidedDraft.state.script,
             cast: guidedDraft.state.cast,
+            ...(guidedDraft.state.imageModelSnapshot
+              ? { imageModelSnapshot: guidedDraft.state.imageModelSnapshot }
+              : {}),
             castApprovals: guidedDraft.state.castApprovals!,
             visuals: guidedDraft.state.visualChoices,
             backdropReference: {

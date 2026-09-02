@@ -91,6 +91,23 @@ describe("generateImage provider fallback", () => {
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
 
+  it("does not fail over when an explicit global lock disables fallback", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    await setImageGenSelection({
+      provider: "openai",
+      model: null,
+      customBaseUrl: null,
+      fallbackEnabled: false,
+    });
+    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
+      new ImageGenProviderError("upstream down", 503),
+    );
+    vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
+
+    await expect(generateImage("p", "1024x1024")).rejects.toThrow("upstream down");
+    expect(generateWithGemini).not.toHaveBeenCalled();
+  });
+
   it("rethrows the primary error when no alternate is configured", async () => {
     vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
       new ImageGenProviderError("rate limited", 429),

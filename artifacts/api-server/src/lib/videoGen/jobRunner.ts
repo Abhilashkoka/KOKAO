@@ -3526,6 +3526,7 @@ async function produceVideo(
             characterId: null,
             upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
             priorImages: priorSelectedImages,
+            imageSelectionPolicy: options.guidedStory?.imageModelSnapshot,
             onProviderSuccess: async ({ attemptIndex, result }) => {
               const current = board.scenes.find((candidate) => candidate.id === scene.id)!;
               const checkpoint = current.previewCheckpoint;
@@ -4560,6 +4561,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         characterId: null,
         upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
         priorImages: guidedContinuityImages(scene, latestByRole),
+        imageSelectionPolicy: claimed.options?.guidedStory?.imageModelSnapshot,
         onProviderStart: async () => {
           scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
           const checkpoint = scene.previewCheckpoint;
@@ -4834,6 +4836,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         characterId: null,
         upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
         priorImages: guidedContinuityImages(scene, latestByRole),
+        imageSelectionPolicy: claimed.options?.guidedStory?.imageModelSnapshot,
         onProviderStart: async () => {
           scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
           const checkpoint = scene.previewCheckpoint;
@@ -5131,6 +5134,7 @@ export async function runGuidedSceneCorrectionJob(
       aspectRatio: claimedJob.options?.aspectRatio ?? "9:16",
       upload: (bytes, contentType) => uploadToStorage(claimedJob.tenantId, bytes, contentType),
       priorImages,
+      imageSelectionPolicy: claimedJob.options?.guidedStory?.imageModelSnapshot,
       onProviderStart: async () => {
         providerStarted = true;
         await persistAttempt((current) => { current.state = "provider_started"; });
@@ -5550,6 +5554,7 @@ export async function refreshStoryboardScenePreview(
     characterId: job.options?.characterId ?? null,
     selectedOutfitId: job.options?.outfitId ?? null,
     characterSnapshot: job.options?.characterSnapshot,
+    imageSelectionPolicy: job.options?.guidedStory?.imageModelSnapshot,
     upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
     priorImages,
   });

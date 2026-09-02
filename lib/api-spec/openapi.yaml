@@ -14239,7 +14239,7 @@ components:
           description: Tenant-storage path of the generated voiceover WAV.
     ImageGenSettingsView:
       type: object
-      required: [provider, model, customBaseUrl, providers, autoRanking]
+      required: [provider, model, customBaseUrl, fallbackEnabled, providers, autoRanking]
       properties:
         pricingWarning:
           type: ["string", "null"]
@@ -14258,6 +14258,9 @@ components:
         customBaseUrl:
           type: ["string", "null"]
           description: Base URL for the custom (OpenAI-compatible) provider.
+        fallbackEnabled:
+          type: boolean
+          description: Whether transient failures and unsupported capabilities may route to another provider.
         providers:
           type: array
           items:
@@ -14350,6 +14353,10 @@ components:
         customBaseUrl:
           type: ["string", "null"]
           description: Base URL for the custom provider (https only).
+        fallbackEnabled:
+          type: boolean
+          default: true
+          description: Must be true when provider is auto; explicit providers may disable all fallback.
     ProviderHealthEntryView:
       type: object
       required:
@@ -16618,6 +16625,16 @@ components:
             tenant-uploaded reference image to guide the generation. The server
             analyzes it into a style guide and, when the selected provider supports
             image input, also passes the image itself.
+        guidedStoryDraftId:
+          type: integer
+          description: >-
+            Guided Story draft whose server-owned frozen image selection must be
+            used. Must be supplied together with guidedStoryRevision.
+        guidedStoryRevision:
+          type: integer
+          description: >-
+            Current revision of guidedStoryDraftId. Must be supplied together
+            with guidedStoryDraftId.
         layered:
           type: boolean
           description: >-
@@ -17945,6 +17962,8 @@ components:
           oneOf:
             - $ref: "#/components/schemas/GuidedStorySetup"
             - type: "null"
+        imageModelSnapshot:
+          $ref: "#/components/schemas/GuidedStoryImageModelSnapshot"
         script:
           oneOf:
             - $ref: "#/components/schemas/GuidedStoryScript"
@@ -17995,6 +18014,15 @@ components:
               description: Quote available before choosing Saved Cast.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    GuidedStoryImageModelSnapshot:
+      type: object
+      required: [provider, model, customBaseUrl, fallbackEnabled, lockedAt]
+      properties:
+        provider: { type: string }
+        model: { type: string }
+        customBaseUrl: { type: ["string", "null"] }
+        fallbackEnabled: { type: boolean }
+        lockedAt: { type: string, format: date-time }
     VideoGenerateRequest:
       type: object
       required: [engine]

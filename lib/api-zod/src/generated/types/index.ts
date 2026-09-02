@@ -405,6 +405,7 @@ export * from './guidedStoryDraftEstimates';
 export * from './guidedStoryDraftScriptGeneration';
 export * from './guidedStoryDraftUpdate';
 export * from './guidedStoryEnqueueInput';
+export * from './guidedStoryImageModelSnapshot';
 export * from './guidedStoryLine';
 export * from './guidedStoryLineKind';
 export * from './guidedStoryLineTranslationInput';

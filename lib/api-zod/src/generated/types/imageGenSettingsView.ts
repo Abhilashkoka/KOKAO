@@ -26,6 +26,8 @@ export interface ImageGenSettingsView {
      * @nullable
      */
   customBaseUrl: string | null;
+  /** Whether transient failures and unsupported capabilities may route to another provider. */
+  fallbackEnabled: boolean;
   providers: ImageGenProviderInfo[];
   /** How automatic routing currently ranks the configured providers, best first. Shown whether or not "auto" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured. */
   autoRanking: ImageGenRankedProvider[];

@@ -162,6 +162,16 @@ export interface GuidedStoryVisualChoices {
   backdrops?: GuidedStoryBackdropChoices;
 }
 
+/** Immutable image-generation contract captured when a Guided Story starts. */
+export interface GuidedStoryImageModelSnapshot {
+  provider: string;
+  /** The effective (never merely override) model name. */
+  model: string;
+  customBaseUrl: string | null;
+  fallbackEnabled: boolean;
+  lockedAt: string;
+}
+
 export interface GuidedStoryDraftState {
   version: 1;
 
@@ -179,6 +189,11 @@ export interface GuidedStoryDraftState {
     brandKitId: number | null;
 
   } | null;
+  /**
+   * New drafts freeze the platform image choice so review assets and retries
+   * cannot drift when an administrator changes the global setting.
+   */
+  imageModelSnapshot?: GuidedStoryImageModelSnapshot;
   /** Revision-bound, per-role paid cast work. Binary payload is retained only
    * between provider success and object-storage upload, then removed. */
 
