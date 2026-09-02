@@ -1,0 +1,676 @@
+From 0c871f353d41ed11d3fcf112ee94525b31c325c4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 1 Sep 2026 22:14:12 +0000
+Subject: [PATCH] Cover Guided dialogue scenes shot by shot
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A Guided scene is authored the way a scene is written: "these three are
+in the corridor, and here is what they say." That is the right way to
+write it and the wrong way to shoot it. Lip sync works on ONE visible
+speaking face; a frame holding three faces gives the model no way to know
+whose mouth to move. Which is why the eligibility rule reads
+
+    owners.size === 1 && scene.roleIds.length === 1
+
+and why every multi-person dialogue scene is skipped today and gets no
+sync at all.
+
+So the scene declares its cast and COVERAGE decides what is in each shot,
+the way a production does it. Nothing here caps how many characters a
+scene may hold: a scene with six people keeps all six, together in the
+group shots, and when one of them speaks we cut to them. The cast drives
+the coverage; the coverage never constrains the cast.
+
+Coverage splits the SCRIPT rather than inventing a shot concept. Guided
+is 1 script scene <-> 1 storyboard scene, and that identity is load-bearing
+in positional scenes[index] pairing, immutable fingerprints, per-scene
+funding and cast approval checkpoints — the machinery the repo's own notes
+say must fail closed and must never strand paid work. A shot simply IS a
+scene, which also makes it individually reviewable and individually
+payable: the right unit for a user to approve.
+
+Lines are never moved, merged, retimed or rewritten, so a scene at
+0-6000ms with lines at 0-2500 and 2500-6000 becomes two scenes over the
+same spans carrying the same lines. Narration is synthesised by flattening
+every line onto one global timeline, so the WAV is what it would have
+been, and narration reuse — which turns on transcript text, timing, line
+ownership and voice bindings — is untouched. Coverage buys keyframes, it
+never re-buys voices.
+
+The craft that decides whether cut dialogue reads as a scene or a
+slideshow is in here too. Eyelines are assigned by cast position and held
+across every shot, so two speakers look at each other instead of both
+staring the same way — the 180-degree rule, without which sync quality
+cannot save you. Turns under 1.2s hold on the running shot instead of
+flashing past. Adjacent lines by one speaker merge into one turn. A scene
+that would gain nothing is left exactly alone, byte-identical, so its
+preview and its paid work survive.
+
+Expansion runs where the generated script becomes canonical, not at
+enqueue: the approval check hashes the draft's script and the snapshot's
+script and requires them equal, and backdrops are approved against scene
+ids. Expanding later fails both, closed. Existing drafts keep their
+scripts and are unaffected.
+
+The 1-40 scene ceiling is spent greedily in script order, since a shot is
+a scene and coverage multiplies them — a script too dense to cover keeps
+the scenes its writer gave it rather than becoming one the validator would
+reject on the next rebuild.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../src/lib/videoGen/guidedCoverage.test.ts   | 284 ++++++++++++++++++
+ .../src/lib/videoGen/guidedCoverage.ts        | 273 +++++++++++++++++
+ .../src/lib/videoGen/guidedStory.ts           |  15 +-
+ 3 files changed, 570 insertions(+), 2 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/guidedCoverage.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts b/artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts
+new file mode 100644
+index 00000000..ec752705
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/guidedCoverage.test.ts
+@@ -0,0 +1,284 @@
++import { describe, it, expect } from "vitest";
++import type { GuidedStoryScript } from "@workspace/db";
++import {
++  planSceneCoverage,
++  expandScriptCoverage,
++  eyelineForRole,
++  shotVisualDirection,
++  MIN_SHOT_MS,
++} from "./guidedCoverage";
++
++type Scene = GuidedStoryScript["scenes"][number];
++
++const line = (id: string, owner: string | null, startMs: number, endMs: number) => ({
++  id,
++  ownerRoleId: owner,
++  kind: (owner ? "dialogue" : "narration") as "dialogue" | "narration",
++  text: `${id} text`,
++  startMs,
++  endMs,
++});
++
++const scene = (over: Partial<Scene> = {}): Scene => ({
++  id: "sc1",
++  startMs: 0,
++  endMs: 8000,
++  visualDirection: "A busy hospital corridor, afternoon light.",
++  roleIds: ["asha", "ravi"],
++  lines: [
++    line("l1", "asha", 0, 2500),
++    line("l2", "ravi", 2500, 5200),
++    line("l3", "asha", 5200, 8000),
++  ],
++  ...over,
++});
++
++const script = (scenes: Scene[]): GuidedStoryScript => ({
++  version: 1,
++  title: "t",
++  logline: "l",
++  runtimeSeconds: 30,
++  roles: [
++    { id: "asha", name: "Asha", description: "" },
++    { id: "ravi", name: "Ravi", description: "" },
++    { id: "meera", name: "Meera", description: "" },
++  ],
++  scenes,
++  warnings: [],
++});
++
++describe("planSceneCoverage", () => {
++  it("gives every speaking turn a shot framed on exactly one speaker", () => {
++    // This is the whole point: lip sync works on ONE visible speaking face.
++    // A frame with two faces gives the model no way to know whose mouth to
++    // move, which is why these scenes get skipped entirely today.
++    const shots = planSceneCoverage(scene());
++
++    expect(shots).toHaveLength(3);
++    for (const shot of shots) {
++      expect(shot.roleIds).toHaveLength(1);
++      expect(shot.roleIds[0]).toBe(shot.speakerRoleId);
++    }
++    expect(shots.map((s) => s.speakerRoleId)).toEqual(["asha", "ravi", "asha"]);
++  });
++
++  it("never caps how many characters a scene may hold", () => {
++    // The cast drives the coverage; the coverage must never constrain the
++    // cast. Six people in the café stay six people in the café.
++    const cast = ["a", "b", "c", "d", "e", "f"];
++    const shots = planSceneCoverage(
++      scene({ roleIds: cast, lines: [line("l1", null, 0, 8000)] }),
++    );
++
++    expect(shots).toHaveLength(1);
++    expect(shots[0]!.roleIds).toEqual(cast);
++  });
++
++  it("keeps the whole cast in shots where nobody is singled out", () => {
++    const shots = planSceneCoverage(
++      scene({
++        roleIds: ["asha", "ravi", "meera"],
++        lines: [line("l1", null, 0, 3000), line("l2", "asha", 3000, 5500), line("l3", "ravi", 5500, 8000)],
++      }),
++    );
++    const group = shots.find((s) => s.kind === "group");
++    expect(group?.roleIds).toEqual(["asha", "ravi", "meera"]);
++    expect(shots.filter((s) => s.kind === "single").every((s) => s.roleIds.length === 1)).toBe(true);
++  });
++
++  it("leaves a scene alone when coverage would gain nothing", () => {
++    // One visible role, or nobody speaking, or one unbroken turn. Cutting away
++    // from a single continuous speaker buys nothing and costs a keyframe.
++    expect(planSceneCoverage(scene({ roleIds: ["asha"] }))).toHaveLength(1);
++    expect(planSceneCoverage(scene({ lines: [line("n", null, 0, 8000)] }))).toHaveLength(1);
++    expect(
++      planSceneCoverage(
++        scene({ lines: [line("l1", "asha", 0, 4000), line("l2", "asha", 4000, 8000)] }),
++      ),
++    ).toHaveLength(1);
++  });
++
++  it("holds on the running shot rather than flashing a one-word line", () => {
++    // A shot shorter than the minimum registers as a cut before it registers
++    // as a face. A rapid exchange of short lines would strobe.
++    const shots = planSceneCoverage(
++      scene({
++        lines: [
++          line("l1", "asha", 0, 3000),
++          line("l2", "ravi", 3000, 3400),
++          line("l3", "asha", 3400, 8000),
++        ],
++      }),
++    );
++
++    expect(shots.every((s) => s.endMs - s.startMs >= MIN_SHOT_MS)).toBe(true);
++    expect(shots.length).toBeLessThan(3);
++  });
++
++  it("merges adjacent lines by the same speaker into one turn", () => {
++    const shots = planSceneCoverage(
++      scene({
++        lines: [
++          line("l1", "asha", 0, 2000),
++          line("l2", "asha", 2000, 4000),
++          line("l3", "ravi", 4000, 8000),
++        ],
++      }),
++    );
++    expect(shots).toHaveLength(2);
++    expect(shots[0]!.lineIds).toEqual(["l1", "l2"]);
++  });
++
++  it("tiles the scene's own span exactly, leaving no gap or overlap", () => {
++    // Coverage redistributes time INSIDE a scene. It must never change when
++    // the scene starts or ends, or every downstream timeline shifts.
++    const s = scene();
++    const shots = planSceneCoverage(s);
++
++    expect(shots[0]!.startMs).toBe(s.startMs);
++    expect(shots[shots.length - 1]!.endMs).toBe(s.endMs);
++    for (let i = 1; i < shots.length; i++) {
++      expect(shots[i]!.startMs).toBe(shots[i - 1]!.endMs);
++    }
++  });
++});
++
++describe("eyelineForRole", () => {
++  it("puts two speakers on opposite eyelines so they read as talking to each other", () => {
++    // The 180-degree rule. Both looking the same way turns a conversation into
++    // two monologues, and no amount of sync quality rescues that.
++    expect(eyelineForRole("asha", ["asha", "ravi"])).toBe("right");
++    expect(eyelineForRole("ravi", ["asha", "ravi"])).toBe("left");
++  });
++
++  it("holds a role's eyeline across every shot in the scene", () => {
++    const shots = planSceneCoverage(scene());
++    const asha = shots.filter((s) => s.speakerRoleId === "asha");
++    expect(asha).toHaveLength(2);
++    expect(new Set(asha.map((s) => s.eyeline)).size).toBe(1);
++  });
++
++  it("faces camera beyond two, where there is no single axis to hold", () => {
++    expect(eyelineForRole("meera", ["asha", "ravi", "meera"])).toBe("center");
++  });
++});
++
++describe("expandScriptCoverage", () => {
++  it("preserves every line's identity, ownership and timing exactly", () => {
++    // Narration is reused whenever transcript text, timing, line ownership and
++    // voice bindings are unchanged. Splitting must change NONE of them, or the
++    // user re-buys audio they already paid for.
++    const before = script([scene()]);
++    const after = expandScriptCoverage(before);
++
++    const flat = (s: GuidedStoryScript) =>
++      s.scenes.flatMap((sc) => sc.lines).map((l) => [l.id, l.ownerRoleId, l.startMs, l.endMs, l.text]);
++    expect(flat(after)).toEqual(flat(before));
++  });
++
++  it("keeps the script's overall timeline continuous", () => {
++    const after = expandScriptCoverage(script([scene(), scene({ id: "sc2", startMs: 8000, endMs: 16000,
++      lines: [line("m1", "asha", 8000, 11000), line("m2", "ravi", 11000, 16000)] })]));
++
++    expect(after.scenes[0]!.startMs).toBe(0);
++    expect(after.scenes.at(-1)!.endMs).toBe(16000);
++    for (let i = 1; i < after.scenes.length; i++) {
++      expect(after.scenes[i]!.startMs).toBe(after.scenes[i - 1]!.endMs);
++    }
++  });
++
++  it("leaves an unsplit scene byte-identical so its paid work survives", () => {
++    // Scene ids are the reuse boundary for previews, approvals and funding. A
++    // scene that did not need coverage must come out the same object it went in.
++    const solo = scene({ id: "solo", roleIds: ["asha"] });
++    const after = expandScriptCoverage(script([solo]));
++    expect(after.scenes).toHaveLength(1);
++    expect(after.scenes[0]).toEqual(solo);
++  });
++
++  it("derives split ids from the beat the user wrote", () => {
++    const after = expandScriptCoverage(script([scene()]));
++    expect(after.scenes.map((s) => s.id)).toEqual(["sc1-s1", "sc1-s2", "sc1-s3"]);
++  });
++
++  it("makes every speaking shot eligible for lip sync", () => {
++    // The existing rule: exactly one visible role, and it owns every dialogue
++    // line in the scene. Before coverage this scene was skipped entirely.
++    const after = expandScriptCoverage(script([scene()]));
++
++    const eligible = after.scenes.filter((sc) => {
++      const owners = new Set(
++        sc.lines.filter((l) => l.kind === "dialogue" && l.ownerRoleId).map((l) => l.ownerRoleId!),
++      );
++      return owners.size === 1 && sc.roleIds.length === 1 && sc.roleIds[0] === [...owners][0];
++    });
++    expect(eligible).toHaveLength(3);
++  });
++
++  it("is idempotent, so a rebuild does not split a split", () => {
++    const once = expandScriptCoverage(script([scene()]));
++    expect(expandScriptCoverage(once)).toEqual(once);
++  });
++
++  it("stays inside the validator's scene ceiling", () => {
++    // A shot IS a scene here, and the validator accepts 1-40. Expanding past
++    // that would reject, on the next rebuild, a script the user had already
++    // approved — the worst possible time to fail.
++    const many = Array.from({ length: 20 }, (_, i) =>
++      scene({
++        id: `sc${i}`,
++        startMs: i * 8000,
++        endMs: (i + 1) * 8000,
++        lines: [
++          line(`a${i}`, "asha", i * 8000, i * 8000 + 2500),
++          line(`b${i}`, "ravi", i * 8000 + 2500, i * 8000 + 5200),
++          line(`c${i}`, "asha", i * 8000 + 5200, (i + 1) * 8000),
++        ],
++      }),
++    );
++    const after = expandScriptCoverage(script(many));
++
++    expect(after.scenes.length).toBeLessThanOrEqual(40);
++    expect(after.scenes.length).toBeGreaterThan(20);
++    // Whatever the budget allows, the timeline still tiles without a gap.
++    expect(after.scenes[0]!.startMs).toBe(0);
++    expect(after.scenes.at(-1)!.endMs).toBe(160000);
++    for (let i = 1; i < after.scenes.length; i++) {
++      expect(after.scenes[i]!.startMs).toBe(after.scenes[i - 1]!.endMs);
++    }
++  });
++
++  it("spends the budget rather than giving up when it cannot cover everything", () => {
++    // Partial coverage beats none: the scenes that fit are covered, and the
++    // rest keep exactly the form the writer gave them.
++    const after = expandScriptCoverage(script([scene(), scene({ id: "sc2", startMs: 8000, endMs: 16000,
++      lines: [line("m1", "asha", 8000, 11000), line("m2", "ravi", 11000, 16000)] })]), 4);
++
++    expect(after.scenes.length).toBeLessThanOrEqual(4);
++    expect(after.scenes.length).toBeGreaterThan(2);
++  });
++});
++
++describe("shotVisualDirection", () => {
++  it("carries the location into every shot so cuts stay in one room", () => {
++    // Two shots of one conversation generated independently become two
++    // different corridors. The scene's own direction has to travel with each.
++    const shots = planSceneCoverage(scene());
++    for (const shot of shots) {
++      const text = shotVisualDirection("A busy hospital corridor, afternoon light.", shot);
++      expect(text).toContain("A busy hospital corridor");
++      expect(text).toMatch(/same location, same lighting and same time of day/i);
++    }
++  });
++
++  it("states the eyeline in terms a camera department would use", () => {
++    const shots = planSceneCoverage(scene());
++    expect(shotVisualDirection("X.", shots[0]!)).toMatch(/screen-right/);
++    expect(shotVisualDirection("X.", shots[1]!)).toMatch(/screen-left/);
++  });
++
++  it("frames a speaking shot on one character", () => {
++    const shots = planSceneCoverage(scene());
++    expect(shotVisualDirection("X.", shots[0]!)).toMatch(/only the speaking character/i);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedCoverage.ts b/artifacts/api-server/src/lib/videoGen/guidedCoverage.ts
+new file mode 100644
+index 00000000..92bd92fa
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/guidedCoverage.ts
+@@ -0,0 +1,273 @@
++import type { GuidedStoryScript } from "@workspace/db";
++
++/**
++ * Coverage: turning a written scene into the shots that cover it.
++ *
++ * A Guided scene is authored the way a scene is written — "these three people
++ * are in the café, and here is what they say." That is the right way to write
++ * it and the wrong way to shoot it. Lip sync works on ONE visible speaking
++ * face; a frame holding three faces gives the sync model no way to know whose
++ * mouth to move, which is why multi-role scenes are skipped today and get no
++ * sync at all.
++ *
++ * The fix is the one every film production uses: the scene declares its cast,
++ * and COVERAGE decides what is in each shot. Nothing here caps how many
++ * characters a scene may have. A scene with six people keeps all six — they
++ * appear together in the establishing shot and in reactions, and when one of
++ * them speaks we cut to them. The cast drives the coverage; the coverage never
++ * constrains the cast.
++ *
++ * WHY THIS SPLITS THE SCRIPT RATHER THAN INVENTING A "SHOT" CONCEPT
++ *
++ * Guided Story is 1 script scene ⇄ 1 storyboard scene, and that identity is
++ * load-bearing in a dozen places: positional scenes[index] pairing in the
++ * runner, immutable input fingerprints, per-scene funding, cast approval
++ * checkpoints. Adding a shots[] array inside a scene would mean touching every
++ * one of those, in exactly the machinery the repo's own notes warn must fail
++ * closed and must never strand paid work.
++ *
++ * Splitting the SCRIPT instead keeps that 1:1 intact. Downstream, nothing
++ * changes: the storyboard builder still maps one scene to one scene, the
++ * fingerprint still hashes a scene, funding still counts scenes. A shot simply
++ * IS a scene, which is also what makes it individually reviewable and
++ * individually payable — the right unit for the user to approve.
++ *
++ * WHY THE AUDIO SURVIVES
++ *
++ * Lines are never moved, merged, retimed or rewritten. A scene spanning
++ * 0-6000ms with lines at 0-2500 and 2500-6000 becomes two scenes covering
++ * 0-2500 and 2500-6000, carrying those same lines with those same timings.
++ * Narration is synthesised by flattening every line onto one global timeline,
++ * so the resulting WAV is byte-for-byte what it would have been. Narration
++ * reuse is preserved whenever transcript text, timing, line ownership and role
++ * voice bindings are unchanged — and this changes none of them. Splitting
++ * costs new keyframes; it never re-buys the voices.
++ */
++
++/** Which way a character looks, so cut shots read as a conversation. */
++export type Eyeline = "left" | "right" | "center";
++
++export interface CoverageShot {
++  /** Roles visible in this shot. Never capped; a group shot keeps everyone. */
++  roleIds: string[];
++  /** The role speaking, when exactly one does. null for group and reaction shots. */
++  speakerRoleId: string | null;
++  kind: "single" | "group" | "reaction";
++  /** Which way the visible subject faces. */
++  eyeline: Eyeline;
++  startMs: number;
++  endMs: number;
++  lineIds: string[];
++}
++
++/**
++ * A shot shorter than this is a flash frame — the cut registers before the
++ * face does, and a rapid exchange of one-word lines turns into a strobe. Short
++ * turns stay with the shot before them instead of earning their own.
++ */
++export const MIN_SHOT_MS = 1200;
++
++/**
++ * The script validator accepts 1-40 scenes, and a shot IS a scene here, so
++ * coverage has to live inside that same ceiling — otherwise the first rebuild
++ * after expansion would reject a script the user had already approved.
++ */
++export const MAX_SCRIPT_SCENES = 40;
++
++/**
++ * Eyelines are assigned by the role's position in the scene's cast and then
++ * held for the whole scene — the 180-degree rule, which is the difference
++ * between a conversation and two people staring the same way. The first role
++ * looks screen-right (toward the next person), the second looks screen-left
++ * (back at them). A third and beyond face camera: with more than two people
++ * there is no single axis to hold, and a centred look reads as addressing the
++ * group rather than contradicting the geometry.
++ */
++export function eyelineForRole(roleId: string, sceneRoleIds: readonly string[]): Eyeline {
++  const index = sceneRoleIds.indexOf(roleId);
++  if (index === 0) return "right";
++  if (index === 1) return "left";
++  return "center";
++}
++
++type ScriptScene = GuidedStoryScript["scenes"][number];
++type ScriptLine = ScriptScene["lines"][number];
++
++/** Turns adjacent lines by the same owner into one speaking turn. */
++function turnsOf(lines: readonly ScriptLine[]): Array<{
++  ownerRoleId: string | null;
++  lines: ScriptLine[];
++  startMs: number;
++  endMs: number;
++}> {
++  const turns: Array<{ ownerRoleId: string | null; lines: ScriptLine[]; startMs: number; endMs: number }> = [];
++  for (const line of [...lines].sort((a, b) => a.startMs - b.startMs)) {
++    const owner = line.kind === "dialogue" ? line.ownerRoleId : null;
++    const last = turns[turns.length - 1];
++    if (last && last.ownerRoleId === owner) {
++      last.lines.push(line);
++      last.endMs = Math.max(last.endMs, line.endMs);
++    } else {
++      turns.push({ ownerRoleId: owner, lines: [line], startMs: line.startMs, endMs: line.endMs });
++    }
++  }
++  return turns;
++}
++
++/**
++ * The shots that cover one scene.
++ *
++ * A scene earns coverage only when it would actually benefit: more than one
++ * visible role AND more than one speaking turn. A monologue in a crowd stays
++ * one shot — cutting away from a single continuous speaker gains nothing and
++ * costs a keyframe. A scene nobody speaks in stays one shot too.
++ */
++export function planSceneCoverage(scene: ScriptScene): CoverageShot[] {
++  const whole = (kind: CoverageShot["kind"], speakerRoleId: string | null): CoverageShot => ({
++    roleIds: [...scene.roleIds],
++    speakerRoleId,
++    kind,
++    eyeline:
++      speakerRoleId && scene.roleIds.length > 1
++        ? eyelineForRole(speakerRoleId, scene.roleIds)
++        : "center",
++    startMs: scene.startMs,
++    endMs: scene.endMs,
++    lineIds: scene.lines.map((l) => l.id),
++  });
++
++  const turns = turnsOf(scene.lines);
++  const speaking = turns.filter((t) => t.ownerRoleId !== null);
++  const speakers = new Set(speaking.map((t) => t.ownerRoleId!));
++
++  // Already coverable as-is: one visible role, or nobody speaking, or a single
++  // unbroken turn. Leave it exactly alone.
++  if (scene.roleIds.length <= 1 || speaking.length === 0) {
++    return [whole(speaking.length === 1 ? "single" : "group", speaking.length === 1 ? speaking[0]!.ownerRoleId : null)];
++  }
++  if (speakers.size === 1 && speaking.length === turns.length) {
++    return [whole("single", [...speakers][0]!)];
++  }
++
++  const shots: CoverageShot[] = [];
++  for (const turn of turns) {
++    const prev = shots[shots.length - 1];
++    const tooShort = turn.endMs - turn.startMs < MIN_SHOT_MS;
++    // A short turn, or narration between two lines, holds on the shot already
++    // running rather than flashing past. Narration over a face is normal
++    // grammar; narration with nothing established yet opens on the group.
++    if (prev && (tooShort || turn.ownerRoleId === null)) {
++      prev.endMs = turn.endMs;
++      prev.lineIds.push(...turn.lines.map((l) => l.id));
++      continue;
++    }
++    if (turn.ownerRoleId === null) {
++      shots.push({
++        roleIds: [...scene.roleIds],
++        speakerRoleId: null,
++        kind: "group",
++        eyeline: "center",
++        startMs: turn.startMs,
++        endMs: turn.endMs,
++        lineIds: turn.lines.map((l) => l.id),
++      });
++      continue;
++    }
++    // A speaking shot frames its speaker alone: exactly what the sync model
++    // needs, and the only shape that makes multi-person dialogue syncable at all.
++    shots.push({
++      roleIds: [turn.ownerRoleId],
++      speakerRoleId: turn.ownerRoleId,
++      kind: "single",
++      eyeline: eyelineForRole(turn.ownerRoleId, scene.roleIds),
++      startMs: turn.startMs,
++      endMs: turn.endMs,
++      lineIds: turn.lines.map((l) => l.id),
++    });
++  }
++
++  // Merging can collapse a scene back to one shot; then it was never coverage.
++  if (shots.length <= 1) return [whole(speakers.size === 1 ? "single" : "group", null)];
++
++  // The scene's own bounds are the contract with the timeline: coverage
++  // redistributes time inside a scene, it never changes when the scene starts
++  // or ends.
++  shots[0]!.startMs = scene.startMs;
++  shots[shots.length - 1]!.endMs = scene.endMs;
++  for (let i = 1; i < shots.length; i++) shots[i]!.startMs = shots[i - 1]!.endMs;
++  return shots;
++}
++
++/**
++ * Expand a whole script into coverage.
++ *
++ * Scene ids stay stable for scenes that did not split, so an unchanged scene
++ * keeps its preview, its approval and its paid work. A split scene's shots are
++ * suffixed from its original id, which keeps them traceable to the beat the
++ * user actually wrote.
++ */
++export function expandScriptCoverage(
++  script: GuidedStoryScript,
++  maxScenes = MAX_SCRIPT_SCENES,
++): GuidedStoryScript {
++  const scenes: GuidedStoryScript["scenes"] = [];
++  // The script validator accepts 1-40 scenes, and coverage multiplies them. The
++  // budget is spent greedily in script order: a scene that cannot afford its
++  // coverage keeps its authored form rather than pushing the script into a
++  // state the validator would reject on the next rebuild.
++  let total = script.scenes.length;
++  for (const scene of script.scenes) {
++    const shots = planSceneCoverage(scene);
++    if (total + (shots.length - 1) > maxScenes) {
++      scenes.push(scene);
++      continue;
++    }
++    total += shots.length - 1;
++    if (shots.length === 1 && shots[0]!.roleIds.length === scene.roleIds.length) {
++      scenes.push(scene);
++      continue;
++    }
++    const byId = new Map(scene.lines.map((l) => [l.id, l]));
++    shots.forEach((shot, i) => {
++      scenes.push({
++        ...scene,
++        id: shots.length === 1 ? scene.id : `${scene.id}-s${i + 1}`,
++        startMs: shot.startMs,
++        endMs: shot.endMs,
++        roleIds: shot.roleIds,
++        visualDirection: shotVisualDirection(scene.visualDirection, shot),
++        lines: shot.lineIds.map((id) => byId.get(id)!).filter(Boolean),
++      });
++    });
++  }
++  return { ...script, scenes };
++}
++
++/**
++ * The scene's own direction plus what this shot is. The location text is
++ * carried through unchanged so every shot cut together is the same place —
++ * without that, two shots of one conversation are two different rooms.
++ */
++export function shotVisualDirection(sceneDirection: string, shot: CoverageShot): string {
++  const base = sceneDirection.trim().replace(/\s+$/, "");
++  const facing =
++    shot.eyeline === "center"
++      ? "facing the camera"
++      : `turned slightly to face screen-${shot.eyeline}, looking at the person they are speaking with just off-frame`;
++  if (shot.kind === "single") {
++    return (
++      `${base} This shot frames only the speaking character, ${facing}, from the chest up. ` +
++      "Same location, same lighting and same time of day as the rest of the scene."
++    );
++  }
++  if (shot.kind === "reaction") {
++    return (
++      `${base} This shot frames only the listening character, ${facing}, from the chest up, ` +
++      "reacting without speaking. Same location, same lighting and same time of day as the rest of the scene."
++    );
++  }
++  return (
++    `${base} This shot shows the characters together in the location. ` +
++    "Same location, same lighting and same time of day as the rest of the scene."
++  );
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedStory.ts b/artifacts/api-server/src/lib/videoGen/guidedStory.ts
+index 3b313487..b1f332bb 100644
+--- a/artifacts/api-server/src/lib/videoGen/guidedStory.ts
++++ b/artifacts/api-server/src/lib/videoGen/guidedStory.ts
+@@ -18,6 +18,7 @@ import { isDeepStrictEqual } from "node:util";
+ import { usageAccountingParams } from "../aiCost";
+ import { parseModelJsonObject } from "../modelJson";
+ import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
++import { expandScriptCoverage } from "./guidedCoverage";
+ import { getTextGenClient } from "../textGen";
+ import { VideoGenProviderError } from "./types";
+ 
+@@ -1381,8 +1382,18 @@ export async function generateGuidedStoryScript(params: {
+   const rawText = completion.choices[0]?.message?.content ?? "";
+   const parsed = parseModelJsonObject(rawText);
+   if (!parsed) throw new VideoGenProviderError("The AI returned unreadable script JSON.");
+-  const script = validateAndRepairGuidedScript(parsed, params, params.locale);
+-  assertGeneratedDisplayMetadata(script, params.locale);
++  const written = validateAndRepairGuidedScript(parsed, params, params.locale);
++  assertGeneratedDisplayMetadata(written, params.locale);
++  // The model writes beats — "these three are in the corridor, and here is
++  // what they say". Coverage turns each beat into the shots that cover it,
++  // before the user ever sees the script, so what they review and approve is
++  // what will actually be shot.
++  //
++  // It has to happen HERE rather than at enqueue. The approval check hashes
++  // the draft's script and the job snapshot's script and requires them equal,
++  // and backdrops are approved against scene ids. Expanding any later fails
++  // both of those, closed.
++  const script = expandScriptCoverage(written);
+   if (governed) {
+     await logCompiledPrompt({
+       tenantId: params.tenantId,
+-- 
+2.43.0
+

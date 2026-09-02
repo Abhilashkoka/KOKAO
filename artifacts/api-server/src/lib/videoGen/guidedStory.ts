@@ -18,6 +18,7 @@ import { isDeepStrictEqual } from "node:util";
 import { usageAccountingParams } from "../aiCost";
 import { parseModelJsonObject } from "../modelJson";
 import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
+import { expandScriptCoverage } from "./guidedCoverage";
 import { getTextGenClient } from "../textGen";
 import { VideoGenProviderError } from "./types";
 
@@ -1427,6 +1428,7 @@ export async function generateGuidedStoryScript(params: {
     script = validateAndRepairGuidedScript(repaired, params, params.locale);
   }
   assertGeneratedDisplayMetadata(script, params.locale);
+  script = expandScriptCoverage(script);
   const inputTokens =
     (completion.usage?.prompt_tokens ?? 0) +
     (repairCompletion?.usage?.prompt_tokens ?? 0);

@@ -140,6 +140,7 @@
 - [ElevenLabs language controls](elevenlabs-language-controls.md) — multilingual v2 rejects explicit language_code and lacks Telugu; v3 handles explicit Guided Story locales.
 - [Approval snapshot invalidation](approval-snapshot-invalidation.md) — pending replacements must revoke executable snapshot approval atomically and serialize against active workers.
 - [Guided dialogue replay](guided-dialogue-replay.md) — reuse approved inputs only; pin active-speaker lip sync and validate every nested checkpoint artifact before retry funding.
+- [Guided dialogue coverage](guided-dialogue-coverage.md) — split authored multi-role beats into single-speaker shots before approval so dialogue becomes safely lip-syncable.
 - [Guided meaning metadata](guided-meaning-metadata.md) — English meanings do not advance source revisions; full-state saves must preserve concurrent meanings for unchanged source lines.
 - [Studio lip-sync insights](studio-lipsync-insights.md) — suppress cohorts by accepted jobs; rank by finished output; never merge incompatible scene-bucket meanings.
 - [Video cover selection](video-cover-selection.md) — every finished Video Studio module offers extracted, uploaded, and explicitly requested generated covers.
