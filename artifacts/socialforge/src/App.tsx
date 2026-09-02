@@ -49,7 +49,7 @@ import {
   ClerkLoaded,
   ClerkLoading,
   ClerkProvider,
-  Show,
+  useAuth,
   useClerk,
 } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
@@ -148,28 +148,44 @@ function ProtectedRoute({
   feature?: FeatureId;
   featureLabel?: string;
 }) {
+  const { isLoaded, isSignedIn } = useAuth();
+
+  if (!isLoaded || typeof isSignedIn !== "boolean") {
+    return <AuthStateLoader />;
+  }
+
+  if (!isSignedIn) {
+    return (
+      <Redirect
+        to={`/sign-in?redirect_url=${encodeURIComponent(
+          `${window.location.pathname}${window.location.search}`,
+        )}`}
+        replace
+      />
+    );
+  }
+
   return (
-    <>
-      <Show when="signed-in">
-        <AppLayout>
-          {feature ? (
-            <FeatureGate feature={feature} label={featureLabel ?? "This feature"}>
-              <Component />
-            </FeatureGate>
-          ) : (
-            <Component />
-          )}
-        </AppLayout>
-      </Show>
-      <Show when="signed-out">
-        <Redirect
-          to={`/sign-in?redirect_url=${encodeURIComponent(
-            `${window.location.pathname}${window.location.search}`,
-          )}`}
-          replace
-        />
-      </Show>
-    </>
+    <AppLayout>
+      {feature ? (
+        <FeatureGate feature={feature} label={featureLabel ?? "This feature"}>
+          <Component />
+        </FeatureGate>
+      ) : (
+        <Component />
+      )}
+    </AppLayout>
+  );
+}
+
+function AuthStateLoader() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <div className="space-y-2 text-center" role="status" aria-live="polite">
+        <p className="text-base font-semibold">KOKAO</p>
+        <p className="text-sm text-muted-foreground">Loading your workspace…</p>
+      </div>
+    </main>
   );
 }
 
@@ -190,16 +206,13 @@ function SignedInHome() {
 }
 
 function HomeRoute() {
-  return (
-    <>
-      <Show when="signed-in">
-        <SignedInHome />
-      </Show>
-      <Show when="signed-out">
-        <LandingPage />
-      </Show>
-    </>
-  );
+  const { isLoaded, isSignedIn } = useAuth();
+
+  if (!isLoaded || typeof isSignedIn !== "boolean") {
+    return <AuthStateLoader />;
+  }
+
+  return isSignedIn ? <SignedInHome /> : <LandingPage />;
 }
 
 const clerkAppearance = {
