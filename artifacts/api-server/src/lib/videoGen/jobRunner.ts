@@ -5618,9 +5618,13 @@ async function finishWithStudioLipSync(
   base: Buffer,
   baseEvents: VideoProviderEvent[],
   onStage: (stage: string) => void,
-): Promise<{ buffer: Buffer; events: VideoProviderEvent[] }> {
+): Promise<{
+  buffer: Buffer;
+  events: VideoProviderEvent[];
+  outputPath: string | null;
+}> {
   const snapshot = job.options?.studioLipSync;
-  if (!snapshot) return { buffer: base, events: [] };
+  if (!snapshot) return { buffer: base, events: [], outputPath: null };
   if (job.engine === "lip_sync" || job.engine === "dialogue_lip_sync") {
     throw new VideoJobInputError("A dedicated lip-sync job cannot run the optional finishing pass.");
   }
@@ -5636,6 +5640,7 @@ async function finishWithStudioLipSync(
       ).buffer,
       events: snapshot.checkpoint.scenes?.flatMap((scene) => scene.event ? [scene.event] : []) ??
         (snapshot.checkpoint.event ? [snapshot.checkpoint.event] : []),
+      outputPath: snapshot.checkpoint.outputPath,
     };
   }
   // Retain the completed base before the optional provider starts. A finishing
@@ -5697,6 +5702,39 @@ async function finishWithStudioLipSync(
       try {
         result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
       } catch (err) {
+        const concurrentOptions = (
+          await db.select({ options: videoGenerationsTable.options })
+            .from(videoGenerationsTable)
+            .where(eq(videoGenerationsTable.id, job.id))
+            .limit(1)
+        )[0]?.options;
+        const concurrentCheckpoint =
+          concurrentOptions?.studioLipSync?.checkpoint?.state === "complete" &&
+          concurrentOptions.studioLipSync.checkpoint.outputPath
+            ? concurrentOptions.studioLipSync.checkpoint
+            : null;
+        if (concurrentCheckpoint) {
+          logger.warn(
+            { jobId: job.id, sceneId: scene.sceneId },
+            "Adopting Studio lip-sync output completed by a newer worker",
+          );
+          return {
+            buffer: (
+              await loadTenantObject(
+                concurrentCheckpoint.outputPath!,
+                job.tenantId,
+                MAX_SOURCE_VIDEO_BYTES,
+                "Concurrently completed optional lip-sync output",
+              )
+            ).buffer,
+            events:
+              concurrentCheckpoint.scenes?.flatMap((item) =>
+                item.event ? [item.event] : []
+              ) ??
+              (concurrentCheckpoint.event ? [concurrentCheckpoint.event] : []),
+            outputPath: concurrentCheckpoint.outputPath!,
+          };
+        }
         // This is optional finishing work over a completed base render. A
         // provider refusal costs this scene its sync, not the whole video.
         // Receipt-bearing provider_succeeded checkpoints still fail above.
@@ -5771,7 +5809,7 @@ async function finishWithStudioLipSync(
   const outputPath = await uploadToStorage(job.tenantId, output, "video/mp4");
   latestOptions.studioLipSync = { ...snapshot, checkpoint: { state: "complete", outputPath, event: events[events.length - 1], scenes: latestOptions.studioLipSync!.checkpoint!.scenes } };
   await setJob(job.id, { options: latestOptions });
-  return { buffer: output, events };
+  return { buffer: output, events, outputPath };
 }
 
 async function executeVideoJob(
@@ -5781,6 +5819,11 @@ async function executeVideoJob(
   const jobId = job.id;
   const startedAt = Date.now();
   let completedProviderEvents: VideoProviderEvent[] = [];
+  // Identifies a finishing output completed by this worker. If the database
+  // later contains a different completed output while this worker is failing,
+  // a newer recovery worker won the race and this stale worker must not
+  // overwrite that progress with a terminal failure.
+  let completedStudioLipSyncOutputPath: string | null = null;
 
   // Live progress: fire-and-forget stage writes; clients poll them. A stage
   // write must never fail (or slow down) the actual pipeline.
@@ -5944,6 +5987,7 @@ async function executeVideoJob(
         onStage,
       );
       buffer = finished.buffer;
+      completedStudioLipSyncOutputPath = finished.outputPath;
       if (finished.events.length > 0) {
         completedProviderEvents = [
           ...completedProviderEvents,
@@ -5972,8 +6016,8 @@ async function executeVideoJob(
 
     onStage("Saving to your library");
     let videoPath =
-      job.options?.studioLipSync?.checkpoint?.state === "complete"
-        ? (job.options.studioLipSync.checkpoint.outputPath ?? null)
+      completedStudioLipSyncOutputPath
+        ? completedStudioLipSyncOutputPath
         : (savedRender?.path ?? null);
     if (!videoPath) {
       videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
@@ -6241,11 +6285,30 @@ async function executeVideoJob(
       await db.select({
         options: videoGenerationsTable.options,
         storyboard: videoGenerationsTable.storyboard,
+        status: videoGenerationsTable.status,
       })
         .from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, jobId))
         .limit(1)
     )[0];
+    const latestStudioOutput =
+      latestCheckpointRow?.options?.studioLipSync?.checkpoint?.state === "complete"
+        ? latestCheckpointRow.options.studioLipSync.checkpoint.outputPath ?? null
+        : null;
+    if (
+      latestStudioOutput &&
+      latestStudioOutput !== completedStudioLipSyncOutputPath
+    ) {
+      logger.warn(
+        {
+          jobId,
+          staleWorkerStatus: latestCheckpointRow?.status,
+          completedOutputPath: latestStudioOutput,
+        },
+        "Ignoring stale video worker failure after a newer worker completed Studio lip-sync",
+      );
+      return;
+    }
     const partialEvents: VideoProviderEvent[] = [
       ...(partialWork ? partialWork.providerEvents : completedProviderEvents),
       ...durableCheckpointEvents(latestCheckpointRow?.options),

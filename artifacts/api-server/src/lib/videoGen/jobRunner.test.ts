@@ -79,6 +79,7 @@ const state = vi.hoisted(() => ({
   dialogueStrictTrimDurations: [] as number[],
   dialogueCompositions: [] as Array<{ scenes: Array<{ text: string; narrationDurationSec: number }>; clips: number; subtitles: boolean }>,
   failLipSyncCall: null as number | null,
+  beforeLipSyncFailure: null as null | (() => Promise<void>),
   concatenatedClips: [] as Buffer[][],
   dialogueBrandVoice: false,
   dialogueCompositionError: null as unknown,
@@ -736,6 +737,7 @@ vi.mock("./providers/replicate", async (importOriginal) => ({
     const model = args.model ?? args.def?.model ?? "bytedance/latentsync";
     state.lipSyncModels.push(model);
     if (state.lipSyncError || state.failLipSyncCall === state.lipSyncCalls) {
+      await state.beforeLipSyncFailure?.();
       throw state.lipSyncError ?? new VideoGenProviderError("LatentSync unavailable.", 503);
     }
     return {
@@ -887,6 +889,7 @@ beforeEach(() => {
   state.dialogueLipSyncDurations.length = 0;
   state.dialogueCompositions.length = 0;
   state.failLipSyncCall = null;
+  state.beforeLipSyncFailure = null;
   state.concatenatedClips.length = 0;
   state.dialogueBrandVoice = false;
   state.dialogueStrictTrimDurations.length = 0;
@@ -990,6 +993,9 @@ describe("optional Studio lip-sync finishing", () => {
     const completed = await readJob(job.id);
     expect(completed.status, completed.error ?? "no job error").toBe("succeeded");
     expect(completed.videoPath).toBeTruthy();
+    expect(completed.videoPath).toBe(
+      completed.options!.studioLipSync!.checkpoint!.outputPath,
+    );
     expect(state.lipSyncCalls).toBe(2);
     expect(state.concatenatedClips).toHaveLength(1);
     expect(state.concatenatedClips[0]!.map((clip) => clip.toString())).toEqual([
@@ -1012,6 +1018,45 @@ describe("optional Studio lip-sync finishing", () => {
       ],
     });
     expect(completed.options!.studioLipSync!.checkpoint!.scenes![1]!.event).toBeUndefined();
+  });
+
+  it("does not let a stale worker overwrite a newer completed finishing result", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      options: studioLipSyncOptions(),
+    });
+    state.failLipSyncCall = 2;
+    const newerOutputPath = `/objects/${tenant.tenantId}/uploads/newer-finished-output`;
+    state.beforeLipSyncFailure = async () => {
+      const current = await readJob(job.id);
+      const options = structuredClone(current.options!);
+      options.studioLipSync!.checkpoint = {
+        state: "complete",
+        outputPath: newerOutputPath,
+        scenes: options.studioLipSync!.checkpoint!.scenes,
+      };
+      await db
+        .update(videoGenerationsTable)
+        .set({
+          status: "succeeded",
+          error: null,
+          stage: null,
+          videoPath: newerOutputPath,
+          options,
+        })
+        .where(eq(videoGenerationsTable.id, job.id));
+    };
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const completed = await readJob(job.id);
+    expect(completed.status).toBe("succeeded");
+    expect(completed.error).toBeNull();
+    expect(completed.videoPath).toBe(newerOutputPath);
+    expect(completed.options!.studioLipSync!.checkpoint).toMatchObject({
+      state: "complete",
+      outputPath: newerOutputPath,
+    });
   });
 
   it("fails closed when a scene has a provider receipt but no retained output", async () => {
