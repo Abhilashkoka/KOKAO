@@ -40,14 +40,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AnalyticsTracker } from "@/components/analytics-tracker";
-import {
-  ClerkBootstrapReady,
-  ClerkBootstrapRecovery,
-} from "@/components/clerk-bootstrap-recovery";
 
 import {
-  ClerkLoaded,
-  ClerkLoading,
   ClerkProvider,
   useAuth,
   useClerk,
@@ -150,11 +144,7 @@ function ProtectedRoute({
 }) {
   const { isLoaded, isSignedIn } = useAuth();
 
-  if (!isLoaded || typeof isSignedIn !== "boolean") {
-    return <AuthStateLoader />;
-  }
-
-  if (!isSignedIn) {
+  if (!isLoaded || !isSignedIn) {
     return (
       <Redirect
         to={`/sign-in?redirect_url=${encodeURIComponent(
@@ -178,17 +168,6 @@ function ProtectedRoute({
   );
 }
 
-function AuthStateLoader() {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-      <div className="space-y-2 text-center" role="status" aria-live="polite">
-        <p className="text-base font-semibold">KOKAO</p>
-        <p className="text-sm text-muted-foreground">Loading your workspace…</p>
-      </div>
-    </main>
-  );
-}
-
 /**
  * Signed-in landing: if the user picked a plan on the public pricing page
  * right before signing up, honor it — send them straight to the billing tab,
@@ -208,8 +187,8 @@ function SignedInHome() {
 function HomeRoute() {
   const { isLoaded, isSignedIn } = useAuth();
 
-  if (!isLoaded || typeof isSignedIn !== "boolean") {
-    return <AuthStateLoader />;
+  if (!isLoaded) {
+    return <LandingPage />;
   }
 
   return isSignedIn ? <SignedInHome /> : <LandingPage />;
@@ -234,55 +213,49 @@ function ClerkProviderWithRoutes() {
       routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
     >
       <QueryClientProvider client={queryClient}>
-        <ClerkLoading>
-          <ClerkBootstrapRecovery />
-        </ClerkLoading>
-        <ClerkLoaded>
-          <ClerkBootstrapReady />
-          <ClerkQueryClientCacheInvalidator />
-          <AnalyticsTracker />
-          <BrandProvider>
-            <TooltipProvider>
-              <Switch>
-                  <Route path="/" component={HomeRoute} />
-                  <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
-                  <Route path="/sign-in/*?" component={SignInPage} />
-                  <Route path="/sign-up/*?" component={SignUpPage} />
-                  {/* Public marketing page: plans are served by the unauthenticated
-                      GET /plans endpoint, so crawlers and signed-out buyers see prices. */}
-                  <Route path="/pricing" component={PricingPage} />
-                  {/* Public CMS-managed privacy policy. */}
-                  <Route path="/privacy" component={PrivacyPage} />
+        <ClerkQueryClientCacheInvalidator />
+        <AnalyticsTracker />
+        <BrandProvider>
+          <TooltipProvider>
+            <Switch>
+              <Route path="/" component={HomeRoute} />
+              <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
+              <Route path="/sign-in/*?" component={SignInPage} />
+              <Route path="/sign-up/*?" component={SignUpPage} />
+              {/* Public marketing page: plans are served by the unauthenticated
+                  GET /plans endpoint, so crawlers and signed-out buyers see prices. */}
+              <Route path="/pricing" component={PricingPage} />
+              {/* Public CMS-managed privacy policy. */}
+              <Route path="/privacy" component={PrivacyPage} />
 
-                  <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
-                  {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
-                  <Route path="/video-studio" component={VideoStudioRedirect} />
-                  <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
-                  {/* Full-page image editor for one library item. The quick dialog stays
-                      for small tweaks; this is where masks, adjustments and the AI tools live. */}
-                  <Route path="/editor/:id" component={() => <ProtectedRoute component={EditorPage} feature="contentLibrary" featureLabel="Content Library" />} />
-                  <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
-                  <Route path="/calendar" component={() => <ProtectedRoute component={CalendarPage} feature="calendar" featureLabel="Calendar" />} />
-                  <Route path="/campaigns" component={() => <ProtectedRoute component={CampaignsPage} feature="campaigns" featureLabel="Campaigns" />} />
-                  <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />
-                  <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} feature="connectedAccounts" featureLabel="Connected Accounts" />} />
-                  <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
-                  <Route path="/ai-styles" component={() => <ProtectedRoute component={PromptCustomizationsPage} />} />
-                  <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
-                  <Route path="/help" component={() => <ProtectedRoute component={HelpPage} />} />
-                  <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
-                  <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />
-                  <Route path="/health" component={() => <ProtectedRoute component={HealthPage} />} />
-                  <Route path="/video-pricing" component={() => <ProtectedRoute component={VideoPricingPage} />} />
-                  {/* Branding moved into Settings; keep old links working. */}
-                  <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
+              <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
+              {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
+              <Route path="/video-studio" component={VideoStudioRedirect} />
+              <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
+              {/* Full-page image editor for one library item. The quick dialog stays
+                  for small tweaks; this is where masks, adjustments and the AI tools live. */}
+              <Route path="/editor/:id" component={() => <ProtectedRoute component={EditorPage} feature="contentLibrary" featureLabel="Content Library" />} />
+              <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
+              <Route path="/calendar" component={() => <ProtectedRoute component={CalendarPage} feature="calendar" featureLabel="Calendar" />} />
+              <Route path="/campaigns" component={() => <ProtectedRoute component={CampaignsPage} feature="campaigns" featureLabel="Campaigns" />} />
+              <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />
+              <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} feature="connectedAccounts" featureLabel="Connected Accounts" />} />
+              <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
+              <Route path="/ai-styles" component={() => <ProtectedRoute component={PromptCustomizationsPage} />} />
+              <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
+              <Route path="/help" component={() => <ProtectedRoute component={HelpPage} />} />
+              <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
+              <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />
+              <Route path="/health" component={() => <ProtectedRoute component={HealthPage} />} />
+              <Route path="/video-pricing" component={() => <ProtectedRoute component={VideoPricingPage} />} />
+              {/* Branding moved into Settings; keep old links working. */}
+              <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
 
-                <Route component={NotFound} />
-              </Switch>
-              <Toaster />
-            </TooltipProvider>
-          </BrandProvider>
-        </ClerkLoaded>
+              <Route component={NotFound} />
+            </Switch>
+            <Toaster />
+          </TooltipProvider>
+        </BrandProvider>
       </QueryClientProvider>
     </ClerkProvider>
   );

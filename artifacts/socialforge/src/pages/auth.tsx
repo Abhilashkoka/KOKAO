@@ -4,6 +4,8 @@ import { useBrand } from "@/lib/brand";
 import { usePageMeta } from "@/lib/seo";
 import { savePlanIntent } from "@/lib/planIntent";
 
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 function AuthHeader({ subtitle }: { subtitle: string }) {
   const { logoUrl, appName } = useBrand();
   return (
@@ -29,9 +31,9 @@ export function SignInPage() {
         <AuthHeader subtitle="Sign in to your workspace" />
         <SignIn
           routing="path"
-          path="/sign-in"
-          signUpUrl="/sign-up"
-          fallbackRedirectUrl="/dashboard"
+          path={`${basePath}/sign-in`}
+          signUpUrl={`${basePath}/sign-up`}
+          fallbackRedirectUrl={`${basePath}/dashboard`}
         />
       </div>
     </div>
@@ -58,7 +60,11 @@ export function SignUpPage() {
     <div className="min-h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-zinc-950 p-4">
       <div className="w-full max-w-md">
         <AuthHeader subtitle="Create your workspace" />
-        <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" />
+        <SignUp
+          routing="path"
+          path={`${basePath}/sign-up`}
+          signInUrl={`${basePath}/sign-in`}
+        />
       </div>
     </div>
   );
