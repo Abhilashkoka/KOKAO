@@ -63,7 +63,23 @@ function VideoStudioRedirect() {
     const extra = window.location.search ? "&" + window.location.search.slice(1) : "";
     navigate(`/studio?tab=video${extra}`, { replace: true });
   }, []);
-  return null;
+  return (
+    <main
+      className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground"
+      data-testid="video-studio-redirect"
+    >
+      <div className="max-w-sm space-y-2 text-center">
+        <p className="text-base font-medium">Opening Video Studio…</p>
+        <p className="text-sm text-muted-foreground">
+          If this page does not continue,{" "}
+          <a className="font-medium text-primary underline" href="/studio?tab=video">
+            open Video Studio
+          </a>
+          .
+        </p>
+      </div>
+    </main>
+  );
 }
 
 // Global 403 handling: when any /admin request is rejected (live superadmin
