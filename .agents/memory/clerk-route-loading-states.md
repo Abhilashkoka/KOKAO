@@ -13,7 +13,7 @@ Keep the startup and route graph static, and serve SocialForge's compiled bundle
 
 **Why:** Runtime imports worked in a new tab but the embedded iframe failed them with `Failed to fetch dynamically imported module` for `/src/App.tsx`. With static imports, the iframe still stalled fetching the roughly 4,000-module dev graph. The compiled single bundle rendered reliably.
 
-**How to apply:** Import App, routes, and Video Studio statically. The SocialForge development workflow builds and runs Vite preview; restart that workflow after web code changes because HMR is intentionally unavailable.
+**How to apply:** Import App, routes, and Video Studio statically. The SocialForge development workflow builds and runs Vite preview; restart it after web changes because HMR is unavailable. Use shell `exec` for the final preview process so workflow restarts terminate it instead of leaving port 18493 occupied.
 
 Never auto-reload the static boot fallback on a timer in the managed preview.
 
