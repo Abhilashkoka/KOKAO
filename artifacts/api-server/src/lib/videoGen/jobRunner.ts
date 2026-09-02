@@ -5694,12 +5694,22 @@ async function finishWithStudioLipSync(
         throw new VideoJobInputError("Optional Studio lip-sync was turned off before provider dispatch.");
       }
       onStage(`Syncing eligible scene ${scene.sceneId} for video #${job.id}`);
-      const source = await extractStudioLipSyncSegment(base, startSec, endSec - startSec);
-      const audio = await extractNativeAudio(source);
       const replicateDef = getVideoGenProviderDef("replicate");
       const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+      let source: Buffer | null = null;
+      let audioBytes = 0;
       let result: Awaited<ReturnType<typeof generateLipSyncWithReplicate>>;
       try {
+        // The optional-scene boundary includes its local ffmpeg preparation.
+        // A bad span or missing audio stream must preserve the finished base
+        // video just like a provider refusal does.
+        source = await extractStudioLipSyncSegment(
+          base,
+          startSec,
+          endSec - startSec,
+        );
+        const audio = await extractNativeAudio(source);
+        audioBytes = audio.byteLength;
         result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
       } catch (err) {
         const concurrentOptions = (
@@ -5760,8 +5770,13 @@ async function finishWithStudioLipSync(
           checkpoint: { state: "prepared", scenes: skipped },
         };
         await setJob(job.id, { options: latestOptions });
-        clips.push(source);
-        cursor = endSec;
+        // If segment extraction succeeded, retain that exact unsynced span and
+        // advance normally. If it failed, leave the cursor in place so the next
+        // gap fill (or trailing fill) copies the original span from the base.
+        if (source) {
+          clips.push(source);
+          cursor = endSec;
+        }
         continue;
       }
       // Persist the durable provider receipt before *any* fallible work on the
@@ -5770,7 +5785,7 @@ async function finishWithStudioLipSync(
       const receiptEvent: VideoProviderEvent = {
         eventId: videoProviderEventId(job, `studio_lip_sync:${scene.sceneId}`), provider: snapshot.provider, model: snapshot.model,
         durationSec: scene.durationSec,
-        requestBytes: source.byteLength + audio.byteLength, label: `studio_lip_sync:${scene.sceneId}`,
+        requestBytes: source!.byteLength + audioBytes, label: `studio_lip_sync:${scene.sceneId}`,
         criteria: videoPriceCriteria({ hasReferenceVideo: true }),
         costPaise: scene.estimatedPricePaise,
       };

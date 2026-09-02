@@ -80,6 +80,7 @@ const state = vi.hoisted(() => ({
   dialogueCompositions: [] as Array<{ scenes: Array<{ text: string; narrationDurationSec: number }>; clips: number; subtitles: boolean }>,
   failLipSyncCall: null as number | null,
   beforeLipSyncFailure: null as null | (() => Promise<void>),
+  failNativeAudioExtraction: false,
   concatenatedClips: [] as Buffer[][],
   dialogueBrandVoice: false,
   dialogueCompositionError: null as unknown,
@@ -366,6 +367,9 @@ vi.mock("./slideshow", async (importOriginal) => {
       const { writeFile } = await import("node:fs/promises");
       const output = args.at(-1)!;
       if (output === "native.wav") {
+        if (state.failNativeAudioExtraction) {
+          throw new VideoGenProviderError("Scene has no usable audio stream.");
+        }
         await writeFile(`${cwd}/${output}`, pcmWav());
         return;
       }
@@ -890,6 +894,7 @@ beforeEach(() => {
   state.dialogueCompositions.length = 0;
   state.failLipSyncCall = null;
   state.beforeLipSyncFailure = null;
+  state.failNativeAudioExtraction = false;
   state.concatenatedClips.length = 0;
   state.dialogueBrandVoice = false;
   state.dialogueStrictTrimDurations.length = 0;
@@ -1057,6 +1062,34 @@ describe("optional Studio lip-sync finishing", () => {
       state: "complete",
       outputPath: newerOutputPath,
     });
+  });
+
+  it("ships unsynced base footage when scene audio extraction fails", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      options: studioLipSyncOptions(),
+    });
+    state.failNativeAudioExtraction = true;
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const completed = await readJob(job.id);
+    expect(completed.status, completed.error ?? "no job error").toBe("succeeded");
+    expect(state.lipSyncCalls).toBe(0);
+    expect(completed.options!.studioLipSync!.checkpoint).toMatchObject({
+      state: "complete",
+      scenes: [
+        { sceneId: "scene-1", state: "skipped" },
+        { sceneId: "scene-2", state: "skipped" },
+      ],
+    });
+    expect(completed.options!.studioLipSync!.checkpoint!.scenes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          skipReason: "Scene has no usable audio stream.",
+        }),
+      ]),
+    );
   });
 
   it("fails closed when a scene has a provider receipt but no retained output", async () => {

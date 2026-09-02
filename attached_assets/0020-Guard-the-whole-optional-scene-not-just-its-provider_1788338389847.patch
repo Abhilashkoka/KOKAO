@@ -1,0 +1,99 @@
+From 86184be48f87db4d2433752a34b87d3f07548603 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 08:34:39 +0000
+Subject: [PATCH] Guard the whole optional scene, not just its provider call
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Job #51887 stopped on scene3-s2 nearly an hour after the fail-soft
+deployed. It should have been impossible: a refused optional scene is
+supposed to ship unsynced and let the video finish.
+
+The guard was one line too late. Cutting the segment out of the base video
+and pulling its audio both sat outside the try block, and both are ffmpeg
+calls on one specific span of one specific file — they fail for
+scene-shaped reasons, a span that does not line up or a segment carrying no
+audio stream. So an optional finishing pass could still destroy a finished
+video through the two calls the guard did not cover.
+
+Skipping is per scene, so everything done on that scene's behalf now sits
+inside it. A scene whose segment cannot even be cut deliberately does NOT
+advance the cursor, so the next iteration's gap-fill copies that span out of
+the base video untouched and the finished video keeps its full length.
+
+The `provider_succeeded` guard still throws, because a receipt exists for
+that work and it must not be silently repeated or discarded.
+
+Worth recording for the next person reading an error history: a job-wide
+failure entry takes its provider and model from
+`options.resolvedVideoModel`, the job's configured VIDEO model — not from
+whatever actually failed. So a LatentSync refusal is filed against
+wan-video/wan-2.2-i2v-fast, and reads like an animation bug. The operation
+string is right; the model is not.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  | 34 +++++++++++++++++--
+ 1 file changed, 31 insertions(+), 3 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 5558b24c..e46cc7eb 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -5654,12 +5654,40 @@ async function finishWithStudioLipSync(
+         throw new VideoJobInputError("Optional Studio lip-sync was turned off before provider dispatch.");
+       }
+       onStage(`Syncing eligible scene ${scene.sceneId} for video #${job.id}`);
+-      const source = await extractStudioLipSyncSegment(base, startSec, endSec - startSec);
+-      const audio = await extractNativeAudio(source);
++      // Skipping is per SCENE, so everything done on that scene's behalf has to
++      // be inside the guard. Cutting the segment and pulling its audio are
++      // ffmpeg calls on a specific span of a specific file, and they fail for
++      // scene-shaped reasons — a span that does not line up, a segment with no
++      // audio stream. Leaving them outside meant an optional pass could still
++      // destroy a finished video, which is the whole thing this guard exists to
++      // prevent.
++      let source: Buffer;
++      try {
++        source = await extractStudioLipSyncSegment(base, startSec, endSec - startSec);
++      } catch (err) {
++        // The segment could not even be cut. Deliberately do NOT advance the
++        // cursor: the next iteration's gap-fill (or the trailing fill) then
++        // copies this span out of the base video untouched, so the finished
++        // video keeps its full length.
++        logger.warn({ err, jobId: job.id, sceneId: scene.sceneId }, "optional lip-sync segment could not be cut; leaving base footage in place");
++        const skipped = latestOptions.studioLipSync!.checkpoint!.scenes!.map((item) =>
++          item.sceneId === scene.sceneId
++            ? { ...item, state: "skipped" as const, skipReason: err instanceof Error ? err.message.slice(0, 300) : "this scene's segment could not be cut" }
++            : item,
++        );
++        latestOptions = structuredClone(latestOptions);
++        latestOptions.studioLipSync = { ...snapshot, checkpoint: { state: "prepared", scenes: skipped } };
++        await setJob(job.id, { options: latestOptions });
++        continue;
++      }
+       const replicateDef = getVideoGenProviderDef("replicate");
+       const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+       let result: Awaited<ReturnType<typeof generateLipSyncWithReplicate>>;
++      // Kept for the billing receipt below, which is written outside the guard.
++      let audioBytes = 0;
+       try {
++        const audio = await extractNativeAudio(source);
++        audioBytes = audio.byteLength;
+         result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
+       } catch (err) {
+         // Fail soft, per scene. This is an OPTIONAL finishing pass over a video
+@@ -5700,7 +5728,7 @@ async function finishWithStudioLipSync(
+       const receiptEvent: VideoProviderEvent = {
+         eventId: videoProviderEventId(job, `studio_lip_sync:${scene.sceneId}`), provider: snapshot.provider, model: snapshot.model,
+         durationSec: scene.durationSec,
+-        requestBytes: source.byteLength + audio.byteLength, label: `studio_lip_sync:${scene.sceneId}`,
++        requestBytes: source.byteLength + audioBytes, label: `studio_lip_sync:${scene.sceneId}`,
+         criteria: videoPriceCriteria({ hasReferenceVideo: true }),
+         costPaise: scene.estimatedPricePaise,
+       };
+-- 
+2.43.0
+
