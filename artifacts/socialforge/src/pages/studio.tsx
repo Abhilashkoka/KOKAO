@@ -1,5 +1,5 @@
 import { WalletBalancePill } from "@/components/wallet-balance";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -114,6 +114,7 @@ import {
   Pencil,
   Languages,
 } from "lucide-react";
+import { VideoStudioPage } from "@/pages/video-studio";
 import { LocalizeStudioPage } from "@/pages/localize-studio";
 import { navigate } from "wouter/use-browser-location";
 import { useSearch } from "wouter";
@@ -131,12 +132,6 @@ import { VoiceNoteButton } from "@/components/voice-note-button";
 import { LogoLoader } from "@/components/logo-loader";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { useFeatureFlags } from "@/lib/features";
-const VideoStudioPage = lazy(() =>
-  import("@/pages/video-studio").then(({ VideoStudioPage }) => ({
-    default: VideoStudioPage,
-  })),
-);
-
 import {
   useWalletBilling,
   ownerQuotaMessage,
@@ -555,15 +550,7 @@ export function StudioPage() {
           forceMount
           className="mt-6 data-[state=inactive]:hidden"
         >
-          <Suspense
-            fallback={
-              <div className="flex min-h-64 items-center justify-center">
-                <LogoLoader label="Loading Video Studio…" />
-              </div>
-            }
-          >
-            <VideoStudioPage />
-          </Suspense>
+          <VideoStudioPage />
         </TabsContent>
         {flags.videoLocalization && (
           <TabsContent

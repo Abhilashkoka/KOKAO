@@ -9,11 +9,11 @@ Mount the router directly beneath ClerkProvider; never gate the whole route tree
 
 **How to apply:** Follow the canonical Replit-managed Clerk structure: ClerkProvider → query provider → router. The home route falls back to the public landing page while auth loads; protected routes redirect to the base-aware branded sign-in route unless positively signed in.
 
-Keep protected feature pages off the pre-mount import graph. Mount the router and public/auth routes eagerly, then load protected pages behind one visible Suspense boundary; exceptionally large nested features may use an additional component-local boundary.
+Keep the startup and route graph static in the managed development preview; do not use runtime `import()` for App, protected routes, or nested Studio features.
 
-**Why:** Eager transformation of every protected page left some managed preview panes indefinitely on the static pre-JavaScript loader even though fresh probes could render. An earlier experiment that delayed the whole route tree was unreliable; keeping the router/auth shell eager avoids that failure mode.
+**Why:** Runtime imports worked in a new tab but the embedded iframe failed them with `Failed to fetch dynamically imported module` for `/src/App.tsx`. Moving the boundary deeper only moved the same failure to route/feature chunks.
 
-**How to apply:** Mount the app, router, public pages, auth recovery, and global providers eagerly. Split protected pages by route with an outer visible fallback, and split unusually large nested bodies inside the page with a local fallback.
+**How to apply:** Import App, routes, and Video Studio statically. Configure Vite `server.warmup.clientFiles` for the main entry so the large static transform graph is cached before the embedded pane requests it.
 
 Never auto-reload the static boot fallback on a timer in the managed preview.
 
