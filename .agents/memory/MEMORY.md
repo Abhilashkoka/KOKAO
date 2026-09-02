@@ -122,7 +122,7 @@
 - [Character dialogue recovery](character-dialogue-recovery.md) — retry via immutable child jobs funded only for missing checkpoints; locale-aware segmentation keeps lip-sync scenes bounded.
 - [Video cost estimates](video-cost-estimates.md) — model/duration estimate and flat wallet reservation are separate; unknown model prices must show unavailable, never a guessed total.
 - [Video wallet reconciliation](video-wallet-reconciliation.md) — price each durable provider event; reconcile only after the original settlement is immutable.
-- [Clerk route loading states](clerk-route-loading-states.md) — signed-in/out branches render nothing during Clerk handshake; always provide a global Clerk loading surface.
+- [Clerk route loading states](clerk-route-loading-states.md) — mount routing outside ClerkLoaded; public pages stay available and protected routes recover visibly during auth stalls.
 - [Creative direction briefs](creative-direction-briefs.md) — resolve typed guidance once at enqueue; retries reuse the immutable brief, and topic remains separate from visual subject.
 - [Video recovery accounting](video-recovery-accounting.md) — failed jobs cost ₹0; successful retries charge only receipts proven present in the delivered final snapshot.
 - [Fresh video restarts](fresh-video-restarts.md) — retry and clean restart share one child-lineage lock; fresh jobs reserve current price and never inherit generated work.

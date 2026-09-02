@@ -3,8 +3,8 @@ name: Clerk route loading states
 description: Prevent blank app shells while Clerk restores or changes browser sessions.
 ---
 
-Wrap the authenticated route tree in Clerk's loaded boundary and render a visible, branded loading surface from its loading boundary. Do not rely only on parallel signed-in and signed-out conditionals. In preview, a stale Clerk bootstrap can remain in the loading boundary even while the SDK reports no page error; a normal reload may immediately recover it. Bound that state with one guarded automatic reload, then show a manual retry instead of looping.
+Mount the router directly beneath ClerkProvider; never gate the whole route tree behind ClerkLoaded. Public routes must render while Clerk initializes. Protected routes must resolve indeterminate auth to a visible sign-in recovery rather than an uncovered blank or unbounded loader.
 
-**Why:** During Clerk's initial handshake, neither signed-in nor signed-out conditions render. Without a separate loading state, the React app can present a completely empty white screen even though no runtime exception occurred. A preview test reproduced a stale bootstrap that recovered on reload despite healthy Clerk CDN responses and canonical key/proxy wiring.
+**Why:** A signed-in production session stalled indefinitely inside the global ClerkLoaded gate while the same public deployment worked for signed-out visitors and emitted no runtime error. Reload guards were unreliable across sandboxed panes.
 
-**How to apply:** Use this at the application root for browser routes that branch on Clerk state, especially protected landing pages and post-sign-in redirects. Keep page-level auth loading states as secondary safeguards. Persist a session-scoped reload guard, clear it when Clerk loads, and never auto-reload repeatedly.
+**How to apply:** Follow the canonical Replit-managed Clerk structure: ClerkProvider → query provider → router. The home route falls back to the public landing page while auth loads; protected routes redirect to the base-aware branded sign-in route unless positively signed in.
