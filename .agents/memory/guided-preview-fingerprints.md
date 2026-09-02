@@ -19,6 +19,12 @@ An approved default backdrop covers every scene unless that scene has its own in
 
 **How to apply:** Replacing the default invalidates only inheriting scene previews; replacing an override invalidates only its scene. Enqueue, preview, correction, retry, and final-render gates revalidate each effective backdrop, including its stored-byte SHA when available, before reservation or provider dispatch. Final image-to-video work uses the already approved preview still, but still re-hashes the source backdrop bytes immediately before dispatch so mutable storage cannot bypass approval.
 
+Guided previews use the most recent completed prior shot for each role as supplementary continuity guidance. Approved identity, outfit, and backdrop tiles remain first and authoritative; prior shots may guide face, hair, clothing presentation, lighting, and style, but never replace approved assets or override the current pose, expression, framing, or action.
+
+**Why:** Independent generations drift, while chaining generated images without permanent approved anchors compounds small identity and wardrobe errors. Alternating dialogue also makes the immediately previous shot the wrong character reference.
+
+**How to apply:** Track the latest completed image per role. For each new, resumed, corrected, or manually rerolled Guided shot, pass only prior images associated with that shot's cast. Update role continuity only after the image is durably accepted; never use failed, uncertain, current, or later shots.
+
 Narration reuse is independent from visual-scene reuse. Character, outfit, or backdrop changes invalidate affected previews and render receipts, but preserve narration whenever transcript text, timing, line ownership, and role voice bindings are unchanged.
 
 **Why:** Tying narration reuse to the full visual fingerprint discarded valid paid audio after a cast-reference replacement and made final approval fail before rendering.

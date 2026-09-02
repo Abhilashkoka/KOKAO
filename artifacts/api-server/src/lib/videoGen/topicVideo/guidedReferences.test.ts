@@ -39,7 +39,11 @@ vi.mock("../../imageGen", () => ({
   }),
 }));
 
-import { regenerateStoryboardPreview } from "./index";
+import {
+  guidedContinuityImages,
+  regenerateStoryboardPreview,
+  rememberGuidedContinuityImage,
+} from "./index";
 
 beforeEach(async () => {
   state.loadedPaths.length = 0;
@@ -50,6 +54,21 @@ beforeEach(async () => {
 });
 
 describe("Guided Story preview references", () => {
+  it("uses each role's own latest accepted shot across alternating dialogue", () => {
+    const latestByRole = new Map<string, Buffer>();
+    const asha = Buffer.from("asha-shot");
+    const ravi = Buffer.from("ravi-shot");
+    const sceneFor = (roleId: string) => ({
+      guidedStory: { cast: [{ roleId }] },
+    }) as never;
+
+    rememberGuidedContinuityImage(sceneFor("asha"), asha, latestByRole);
+    rememberGuidedContinuityImage(sceneFor("ravi"), ravi, latestByRole);
+
+    expect(guidedContinuityImages(sceneFor("asha"), latestByRole)).toEqual([asha]);
+    expect(guidedContinuityImages(sceneFor("ravi"), latestByRole)).toEqual([ravi]);
+  });
+
   it("loads the approved backdrop into a compact reference sheet and requires a reference-capable provider", async () => {
     const sha256 = createHash("sha256").update(state.image).digest("hex");
     const characterPath = "/objects/7/uploads/character.png";
@@ -92,6 +111,57 @@ describe("Guided Story preview references", () => {
     const metadata = await sharp(state.generated[0]!.referenceImage.buffer).metadata();
     expect(metadata.width).toBe(1536);
     expect(metadata.height).toBe(512);
+  });
+
+  it("adds the prior accepted same-character shot as supplementary continuity guidance", async () => {
+    const sha256 = createHash("sha256").update(state.image).digest("hex");
+    await regenerateStoryboardPreview({
+      tenantId: 7,
+      storyboard: {} as never,
+      scene: {
+        id: "scene-2",
+        visual: "The lead reacts with surprise in a tighter frame.",
+        guidedStory: {
+          cast: [{
+            roleId: "lead",
+            characterName: "Lead",
+            referenceImagePath: "/objects/7/uploads/character.png",
+            outfitReferenceImagePath: "/objects/7/uploads/outfit.png",
+            characterReferenceSha256: sha256,
+            outfitReferenceSha256: sha256,
+          }],
+          visuals: {
+            logoPath: null,
+            locationMode: "none",
+            locationImagePath: null,
+            locationDescription: null,
+            backdropReferencePath: "/objects/7/uploads/backdrop.png",
+            backdropReferenceFingerprint: "approved-fingerprint",
+          },
+        },
+      } as never,
+      aspectRatio: "16:9",
+      priorImages: [state.image],
+      upload: async () => "/objects/7/uploads/generated.png",
+    });
+
+    expect(state.loadedPaths).toEqual([
+      "/objects/7/uploads/character.png",
+      "/objects/7/uploads/outfit.png",
+      "/objects/7/uploads/backdrop.png",
+    ]);
+    expect(state.generated[0]!.prompt).toMatch(
+      /PRIOR ACCEPTED SAME-CHARACTER SHOT 1 — CONTINUITY ONLY/,
+    );
+    expect(state.generated[0]!.prompt).toMatch(
+      /never override approved identity, outfit, or backdrop/i,
+    );
+    expect(state.generated[0]!.prompt).toMatch(
+      /pose, expression, framing, and action must change/i,
+    );
+    const metadata = await sharp(state.generated[0]!.referenceImage.buffer).metadata();
+    expect(metadata.width).toBe(1536);
+    expect(metadata.height).toBe(1024);
   });
 
   it("binds a scene override by its approved bytes, not just its path", async () => {

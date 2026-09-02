@@ -106,6 +106,8 @@ import {
   renderTopicStoryboard,
   refreshEditedNarration,
   regenerateStoryboardPreview,
+  guidedContinuityImages,
+  rememberGuidedContinuityImage,
   synthesizeGuidedNarration,
   NARRATION_VOICES,
   type NarrationVoice,
@@ -4477,7 +4479,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
           (scene.previewCheckpoint.status === "complete" &&
             scene.previewPath === scene.previewCheckpoint.targetPath))),
     ).length;
-    const priorImages: Buffer[] = [];
+    const latestByRole = new Map<string, Buffer>();
     for (const sceneSnapshot of board.scenes) {
       let scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
       if (scene.previewPath && !scene.previewCheckpoint) {
@@ -4492,9 +4494,9 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         scene.previewPath &&
         scene.previewPath === scene.previewCheckpoint.targetPath
       ) {
-        priorImages.push((await loadTenantObject(
+        rememberGuidedContinuityImage(scene, (await loadTenantObject(
           scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
-        )).buffer);
+        )).buffer, latestByRole);
         continue;
       }
       if (scene.previewCheckpoint?.status === "provider_succeeded") {
@@ -4511,9 +4513,9 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         scene.previewCheckpoint = { ...scene.previewCheckpoint, status: "complete" };
         completed += 1;
         await persist(board, { completed });
-        priorImages.push((await loadTenantObject(
+        rememberGuidedContinuityImage(scene, (await loadTenantObject(
           scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
-        )).buffer);
+        )).buffer, latestByRole);
         continue;
       }
       if (scene.previewCheckpoint?.status === "provider_started") {
@@ -4537,7 +4539,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         aspectRatio: claimed.options?.aspectRatio ?? "9:16",
         characterId: null,
         upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
-        priorImages,
+        priorImages: guidedContinuityImages(scene, latestByRole),
         onProviderStart: async () => {
           scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
           const checkpoint = scene.previewCheckpoint;
@@ -4606,7 +4608,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
           };
           completed += 1;
           await persist(board, { completed });
-          priorImages.push(result.buffer);
+          rememberGuidedContinuityImage(scene, result.buffer, latestByRole);
           return path;
         },
       });
@@ -4751,7 +4753,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
           (scene.previewCheckpoint.status === "complete" &&
             scene.previewPath === scene.previewCheckpoint.targetPath))),
     ).length;
-    const priorImages: Buffer[] = [];
+    const latestByRole = new Map<string, Buffer>();
     for (const sceneSnapshot of board.scenes) {
       let scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
       if (scene.previewPath && !scene.previewCheckpoint) {
@@ -4766,9 +4768,9 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         scene.previewPath &&
         scene.previewPath === scene.previewCheckpoint.targetPath
       ) {
-        priorImages.push((await loadTenantObject(
+        rememberGuidedContinuityImage(scene, (await loadTenantObject(
           scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
-        )).buffer);
+        )).buffer, latestByRole);
         continue;
       }
       if (scene.previewCheckpoint?.status === "provider_succeeded") {
@@ -4785,9 +4787,9 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         scene.previewCheckpoint = { ...scene.previewCheckpoint, status: "complete" };
         completed += 1;
         await persist(board, { completed });
-        priorImages.push((await loadTenantObject(
+        rememberGuidedContinuityImage(scene, (await loadTenantObject(
           scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
-        )).buffer);
+        )).buffer, latestByRole);
         continue;
       }
       if (scene.previewCheckpoint?.status === "provider_started") {
@@ -4811,7 +4813,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         aspectRatio: claimed.options?.aspectRatio ?? "9:16",
         characterId: null,
         upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
-        priorImages,
+        priorImages: guidedContinuityImages(scene, latestByRole),
         onProviderStart: async () => {
           scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
           const checkpoint = scene.previewCheckpoint;
@@ -4880,7 +4882,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
           };
           completed += 1;
           await persist(board, { completed });
-          priorImages.push(result.buffer);
+          rememberGuidedContinuityImage(scene, result.buffer, latestByRole);
           return path;
         },
       });
@@ -5094,6 +5096,11 @@ export async function runGuidedSceneCorrectionJob(
           : "Keep the frozen approved shared backdrop unchanged."
       }\nCorrection request (${attempt.category}): ${attempt.note}`,
     };
+    const priorImages = await loadGuidedContinuityBeforeScene(
+      claimedStoryboard,
+      scene.id,
+      claimedJob.tenantId,
+    );
     let walletOperationId: number | null = null;
     const generate = async (
       confirmSuccess?: (meta?: { provider?: string; model?: string; costPaise?: number }) => Promise<void>,
@@ -5103,6 +5110,7 @@ export async function runGuidedSceneCorrectionJob(
       scene: correctedScene,
       aspectRatio: claimedJob.options?.aspectRatio ?? "9:16",
       upload: (bytes, contentType) => uploadToStorage(claimedJob.tenantId, bytes, contentType),
+      priorImages,
       onProviderStart: async () => {
         providerStarted = true;
         await persistAttempt((current) => { current.state = "provider_started"; });
@@ -5509,6 +5517,11 @@ export async function refreshStoryboardScenePreview(
   storyboard: VideoStoryboard,
   scene: VideoStoryboardScene,
 ): Promise<VideoStoryboard> {
+  const priorImages = await loadGuidedContinuityBeforeScene(
+    storyboard,
+    scene.id,
+    job.tenantId,
+  );
   const previewPath = await regenerateStoryboardPreview({
     tenantId: job.tenantId,
     storyboard,
@@ -5518,6 +5531,7 @@ export async function refreshStoryboardScenePreview(
     selectedOutfitId: job.options?.outfitId ?? null,
     characterSnapshot: job.options?.characterSnapshot,
     upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+    priorImages,
   });
   // Note: does NOT touch the regenerations counter — the preview route spends
   // a re-roll with an atomic conditional UPDATE before calling this, so
@@ -5537,6 +5551,34 @@ export async function refreshStoryboardScenePreview(
         : s.guidedStory,
     } : s)),
   };
+}
+
+async function loadGuidedContinuityBeforeScene(
+  storyboard: VideoStoryboard,
+  sceneId: string,
+  tenantId: number,
+): Promise<Buffer[]> {
+  const target = storyboard.scenes.find((scene) => scene.id === sceneId);
+  if (!target?.guidedStory) return [];
+  const latestByRole = new Map<string, Buffer>();
+  for (const scene of storyboard.scenes) {
+    if (scene.id === sceneId) break;
+    const accepted =
+      scene.guidedStory &&
+      scene.previewPath &&
+      (!scene.previewCheckpoint ||
+        (scene.previewCheckpoint.status === "complete" &&
+          scene.previewCheckpoint.targetPath === scene.previewPath));
+    if (!accepted) continue;
+    const image = (await loadTenantObject(
+      scene.previewPath!,
+      tenantId,
+      MAX_SOURCE_IMAGE_BYTES,
+      "Guided Story continuity preview",
+    )).buffer;
+    rememberGuidedContinuityImage(scene, image, latestByRole);
+  }
+  return guidedContinuityImages(target, latestByRole);
 }
 
 /**

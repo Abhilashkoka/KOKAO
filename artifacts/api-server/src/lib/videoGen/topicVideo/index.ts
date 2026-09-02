@@ -974,6 +974,7 @@ export async function planTopicStoryboard(
     });
     if (params.materializePreviews !== false) {
       params.onStage?.("Creating cast-aware storyboard previews");
+      const latestByRole = new Map<string, Buffer>();
       for (const [sceneIndex, scene] of base.scenes.entries()) {
         const receipts: import("../../imageGen/types").ImageGenResult[] = [];
         const previewPath = await regenerateStoryboardPreview({
@@ -982,6 +983,7 @@ export async function planTopicStoryboard(
           scene,
           aspectRatio: params.aspectRatio,
           upload: params.upload,
+          priorImages: guidedContinuityImages(scene, latestByRole),
           onProviderSuccess: ({ result }) => {
             receipts.push(result);
             return Promise.resolve();
@@ -993,6 +995,7 @@ export async function planTopicStoryboard(
           },
         });
         const receipt = receipts[0];
+        if (receipt) rememberGuidedContinuityImage(scene, receipt.buffer, latestByRole);
         base = {
           ...base,
           provider: receipt?.provider ?? base.provider,
@@ -1840,10 +1843,21 @@ export async function regenerateStoryboardPreview(params: {
       value.replace(/[<>&"'']/g, (character) => ({
         "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;",
       })[character]!);
-    const tiles = await Promise.all(refs.map(async (ref, index) => {
+    const continuityRefs = (params.priorImages ?? [])
+      .slice(-Math.max(1, params.scene.guidedStory.cast.length))
+      .map((buffer, index) => ({
+        buffer,
+        mimeType: "image/png",
+        label: `PRIOR ACCEPTED SAME-CHARACTER SHOT ${index + 1} — CONTINUITY ONLY`,
+      }));
+    const allRefs = [
+      ...refs.map((ref, index) => ({ ...ref, label: visualReferences[index]!.label })),
+      ...continuityRefs,
+    ];
+    const tiles = await Promise.all(allRefs.map(async (ref) => {
       const image = await sharp(ref.buffer).rotate().resize(512, 456, { fit: "cover" }).png().toBuffer();
       const label = Buffer.from(
-        `<svg width="512" height="56"><rect width="512" height="56" fill="#111827"/><text x="12" y="34" fill="white" font-family="sans-serif" font-size="14">${xmlEscape(visualReferences[index]!.label)}</text></svg>`,
+        `<svg width="512" height="56"><rect width="512" height="56" fill="#111827"/><text x="12" y="34" fill="white" font-family="sans-serif" font-size="14">${xmlEscape(ref.label)}</text></svg>`,
       );
       return sharp({
         create: { width: 512, height: 512, channels: 3, background: "#ffffff" },
@@ -1875,7 +1889,7 @@ export async function regenerateStoryboardPreview(params: {
     try {
       await params.onProviderStart?.({ attemptIndex: 0 });
       result = await generateImage(
-      `${params.scene.visual}\nReference sheet order: ${visualReferences.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. Reproduce the APPROVED SHARED BACKDROP consistently in this scene; camera angle and crop may change, but its architecture, layout, colors, fixtures, and permanent objects must not. ADDITIONAL LOCATION GUIDANCE and LOGO OVERLAY tiles are supplementary only and must never alter character identities.`,
+      `${params.scene.visual}\nReference sheet order: ${allRefs.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. Reproduce the APPROVED SHARED BACKDROP consistently in this scene; camera angle and crop may change, but its architecture, layout, colors, fixtures, and permanent objects must not. PRIOR ACCEPTED SAME-CHARACTER SHOT tiles guide face, hair, clothing presentation, lighting, and style continuity only; they never override approved identity, outfit, or backdrop tiles, and their pose, expression, framing, and action must change to follow the current shot direction. ADDITIONAL LOCATION GUIDANCE and LOGO OVERLAY tiles are supplementary only and must never alter character identities.`,
         size,
         referenceImage,
         { requireReferenceInput: true },
@@ -1947,4 +1961,26 @@ export async function regenerateStoryboardPreview(params: {
   return params.uploadGenerated
     ? params.uploadGenerated(generated.results[0]!)
     : params.upload(generated.images[0]!, "image/png");
+}
+
+export function guidedContinuityImages(
+  scene: VideoStoryboardScene,
+  latestByRole: ReadonlyMap<string, Buffer>,
+): Buffer[] {
+  if (!scene.guidedStory) return [];
+  return Array.from(new Set(
+    scene.guidedStory.cast
+      .map((member) => latestByRole.get(member.roleId))
+      .filter((image): image is Buffer => Boolean(image)),
+  ));
+}
+
+export function rememberGuidedContinuityImage(
+  scene: VideoStoryboardScene,
+  image: Buffer,
+  latestByRole: Map<string, Buffer>,
+): void {
+  for (const member of scene.guidedStory?.cast ?? []) {
+    latestByRole.set(member.roleId, image);
+  }
 }
