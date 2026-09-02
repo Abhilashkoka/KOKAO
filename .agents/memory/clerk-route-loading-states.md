@@ -9,11 +9,11 @@ Mount the router directly beneath ClerkProvider; never gate the whole route tree
 
 **How to apply:** Follow the canonical Replit-managed Clerk structure: ClerkProvider → query provider → router. The home route falls back to the public landing page while auth loads; protected routes redirect to the base-aware branded sign-in route unless positively signed in.
 
-Keep the startup and route graph static in the managed development preview; do not use runtime `import()` for App, protected routes, or nested Studio features.
+Keep the startup and route graph static, and serve SocialForge's compiled bundle in the managed workspace preview rather than Vite's source-module dev graph.
 
-**Why:** Runtime imports worked in a new tab but the embedded iframe failed them with `Failed to fetch dynamically imported module` for `/src/App.tsx`. Moving the boundary deeper only moved the same failure to route/feature chunks.
+**Why:** Runtime imports worked in a new tab but the embedded iframe failed them with `Failed to fetch dynamically imported module` for `/src/App.tsx`. With static imports, the iframe still stalled fetching the roughly 4,000-module dev graph. The compiled single bundle rendered reliably.
 
-**How to apply:** Import App, routes, and Video Studio statically. Configure Vite `server.warmup.clientFiles` for the main entry so the large static transform graph is cached before the embedded pane requests it.
+**How to apply:** Import App, routes, and Video Studio statically. The SocialForge development workflow builds and runs Vite preview; restart that workflow after web code changes because HMR is intentionally unavailable.
 
 Never auto-reload the static boot fallback on a timer in the managed preview.
 
