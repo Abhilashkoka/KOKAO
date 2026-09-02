@@ -59,6 +59,63 @@ interface SnapshotFile {
   snapshots: TableSnapshot[];
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+export function isValidSnapshotFile(value: unknown): value is SnapshotFile {
+  if (!isPlainObject(value)) return false;
+  if (
+    value.version !== 1 ||
+    typeof value.createdAt !== "string" ||
+    !Number.isFinite(Date.parse(value.createdAt)) ||
+    !Array.isArray(value.snapshots)
+  ) {
+    return false;
+  }
+
+  const allowedTables = new Set<string>(GUARDED_TABLES);
+  const seenTables = new Set<string>();
+  return value.snapshots.every((snapshot) => {
+    if (!isPlainObject(snapshot)) return false;
+    if (
+      typeof snapshot.table !== "string" ||
+      !allowedTables.has(snapshot.table) ||
+      seenTables.has(snapshot.table) ||
+      !Array.isArray(snapshot.columns) ||
+      snapshot.columns.length === 0 ||
+      !Array.isArray(snapshot.rows)
+    ) {
+      return false;
+    }
+    seenTables.add(snapshot.table);
+
+    const columns = snapshot.columns;
+    const uniqueColumns = new Set(columns);
+    if (
+      uniqueColumns.size !== columns.length ||
+      !columns.every(
+        (column) =>
+          typeof column === "string" &&
+          /^[A-Za-z_][A-Za-z0-9_]*$/.test(column),
+      )
+    ) {
+      return false;
+    }
+
+    return snapshot.rows.every(
+      (row) =>
+        isPlainObject(row) &&
+        Object.keys(row).every((key) => uniqueColumns.has(key)),
+    );
+  });
+}
+
 // Lives next to the artifact (not os.tmpdir()) so it survives container
 // restarts; gitignored via the repo root .gitignore.
 const SNAPSHOT_FILE = path.join(
@@ -74,45 +131,72 @@ async function restoreSnapshots(
   // Drop whatever the tests left behind (fake rows inserted by fixtures
   // would otherwise masquerade as real admin configuration) and put back
   // exactly the rows that existed before the run.
-  for (const snap of snapshots) {
-    await client.query(`DELETE FROM ${snap.table}`);
-    for (const row of snap.rows) {
-      const cols = snap.columns.map((c) => `"${c}"`).join(", ");
-      const params = snap.columns.map((_, i) => `$${i + 1}`).join(", ");
-      await client.query(
-        `INSERT INTO ${snap.table} (${cols}) VALUES (${params})`,
-        snap.columns.map((c) => row[c]),
-      );
+  await client.query("BEGIN");
+  try {
+    for (const snap of snapshots) {
+      await client.query(`DELETE FROM ${snap.table}`);
+      for (const row of snap.rows) {
+        const cols = snap.columns.map((c) => `"${c}"`).join(", ");
+        const params = snap.columns.map((_, i) => `$${i + 1}`).join(", ");
+        await client.query(
+          `INSERT INTO ${snap.table} (${cols}) VALUES (${params})`,
+          snap.columns.map((c) => row[c]),
+        );
+      }
     }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
   }
 }
 
 /** Restore an orphaned snapshot left behind by a force-killed previous run. */
-async function restoreOrphanedSnapshot(client: pg.Client): Promise<void> {
-  if (!fs.existsSync(SNAPSHOT_FILE)) return;
-  let parsed: SnapshotFile;
+export async function restoreOrphanedSnapshot(
+  client: pg.Client,
+  snapshotFile = SNAPSHOT_FILE,
+): Promise<void> {
+  if (!fs.existsSync(snapshotFile)) return;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(SNAPSHOT_FILE, "utf8")) as SnapshotFile;
+    parsed = JSON.parse(fs.readFileSync(snapshotFile, "utf8"));
   } catch {
     // Corrupt (e.g. killed mid-write). Nothing recoverable; don't let a bad
     // file block every future run.
     console.warn(
       "[credentials-guard] Ignoring corrupt orphaned snapshot file:",
-      SNAPSHOT_FILE,
+      snapshotFile,
     );
-    fs.rmSync(SNAPSHOT_FILE, { force: true });
+    fs.rmSync(snapshotFile, { force: true });
     return;
   }
-  if (parsed.version !== 1 || !Array.isArray(parsed.snapshots)) {
-    fs.rmSync(SNAPSHOT_FILE, { force: true });
+  if (!isValidSnapshotFile(parsed)) {
+    console.warn(
+      "[credentials-guard] Ignoring invalid orphaned snapshot file:",
+      snapshotFile,
+    );
+    fs.rmSync(snapshotFile, { force: true });
     return;
   }
   console.warn(
     `[credentials-guard] Found orphaned snapshot from ${parsed.createdAt} ` +
       "(previous test run was killed before teardown); restoring admin configuration.",
   );
-  await restoreSnapshots(client, parsed.snapshots);
-  fs.rmSync(SNAPSHOT_FILE, { force: true });
+  try {
+    await restoreSnapshots(client, parsed.snapshots);
+  } catch (error) {
+    // restoreSnapshots is transactional, so a rejected value cannot leave the
+    // live configuration half-deleted. The orphan is not safely recoverable;
+    // remove it so it cannot block discovery on every subsequent test run.
+    console.warn(
+      "[credentials-guard] Could not restore orphaned snapshot; " +
+        "live configuration was left unchanged and the invalid snapshot was quarantined:",
+      snapshotFile,
+      error instanceof Error ? error.message : "unknown restore error",
+    );
+  } finally {
+    fs.rmSync(snapshotFile, { force: true });
+  }
 }
 
 /**
