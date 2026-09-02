@@ -151,6 +151,23 @@ async function restoreSnapshots(
   }
 }
 
+async function restoreOrphanedSnapshotsIndependently(
+  client: pg.Client,
+  snapshots: TableSnapshot[],
+): Promise<string[]> {
+  const skippedTables: string[] = [];
+
+  for (const snapshot of snapshots) {
+    try {
+      await restoreSnapshots(client, [snapshot]);
+    } catch {
+      skippedTables.push(snapshot.table);
+    }
+  }
+
+  return skippedTables;
+}
+
 /** Restore an orphaned snapshot left behind by a force-killed previous run. */
 export async function restoreOrphanedSnapshot(
   client: pg.Client,
@@ -183,17 +200,16 @@ export async function restoreOrphanedSnapshot(
       "(previous test run was killed before teardown); restoring admin configuration.",
   );
   try {
-    await restoreSnapshots(client, parsed.snapshots);
-  } catch (error) {
-    // restoreSnapshots is transactional, so a rejected value cannot leave the
-    // live configuration half-deleted. The orphan is not safely recoverable;
-    // remove it so it cannot block discovery on every subsequent test run.
-    console.warn(
-      "[credentials-guard] Could not restore orphaned snapshot; " +
-        "live configuration was left unchanged and the invalid snapshot was quarantined:",
-      snapshotFile,
-      error instanceof Error ? error.message : "unknown restore error",
+    const skippedTables = await restoreOrphanedSnapshotsIndependently(
+      client,
+      parsed.snapshots,
     );
+    if (skippedTables.length > 0) {
+      console.warn(
+        "[credentials-guard] Skipped invalid table snapshot(s); each skipped " +
+          `table was rolled back without changing its live configuration: ${skippedTables.join(", ")}`,
+      );
+    }
   } finally {
     fs.rmSync(snapshotFile, { force: true });
   }

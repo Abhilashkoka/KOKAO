@@ -57,7 +57,7 @@ describe("credentials guard orphan recovery", () => {
     expect(fs.existsSync(snapshotFile)).toBe(false);
   });
 
-  it("rolls back and quarantines a snapshot whose values cannot be restored", async () => {
+  it("rolls back a damaged table and restores intact tables from the same snapshot", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "credentials-guard-"));
     tempDirs.push(dir);
     const snapshotFile = path.join(dir, "snapshot.json");
@@ -72,6 +72,11 @@ describe("credentials guard orphan recovery", () => {
             columns: ["id", "credentials"],
             rows: [{ id: 1, credentials: "malformed database JSON" }],
           },
+          {
+            table: "video_gen_settings",
+            columns: ["id", "provider"],
+            rows: [{ id: 2, provider: "replicate" }],
+          },
         ],
       }),
     );
@@ -82,9 +87,13 @@ describe("credentials guard orphan recovery", () => {
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce(undefined)
         .mockRejectedValueOnce(restoreError)
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce(undefined),
     };
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await restoreOrphanedSnapshot(
       client as unknown as Parameters<typeof restoreOrphanedSnapshot>[0],
@@ -96,7 +105,18 @@ describe("credentials guard orphan recovery", () => {
       "DELETE FROM app_credentials",
       'INSERT INTO app_credentials ("id", "credentials") VALUES ($1, $2)',
       "ROLLBACK",
+      "BEGIN",
+      "DELETE FROM video_gen_settings",
+      'INSERT INTO video_gen_settings ("id", "provider") VALUES ($1, $2)',
+      "COMMIT",
     ]);
+    expect(client.query.mock.calls[6]?.[1]).toEqual([2, "replicate"]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("app_credentials"),
+    );
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("malformed database JSON"),
+    );
     expect(fs.existsSync(snapshotFile)).toBe(false);
   });
 });
