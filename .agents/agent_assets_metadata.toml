@@ -199,3 +199,17 @@ mtime_ms = 1788284175086
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/dd8f94c0-393b-4bc7-88c4-26ce87b5d578/3a57066c-8667-4548-99b9-d16f5fe2e0e7"
 storage_version_token = "1788284213459554"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "yuVb7ohqaRWjeMfDAi2Gq"
+uri = "file://exports/job-51878-base-video.mp4"
+type = "video"
+title = "Job #51878 — Base Video"
+description = "The preserved base MP4 rendered before the lip-sync stage failed."
+logical_id = "c63cbeba-1005-4124-8fb7-428c1d9226c6"
+content_hash = "sha256:166575325b4e0a6df6ef83210e3dd0d4851a4d2305f160531cc71e815c9a56fb"
+size = 21566869
+mtime_ms = 1788330221916
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/c63cbeba-1005-4124-8fb7-428c1d9226c6/68cdf1f4-7089-48a7-9c43-3d3295fc9c6f"
+storage_version_token = "1788330229519815"
+content_type = "video/mp4"
