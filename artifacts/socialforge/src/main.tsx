@@ -3,7 +3,7 @@ import App from "./App";
 import { AppErrorBoundary } from "./components/app-error-boundary";
 import "./index.css";
 
-const previewBootstrapVersion = "kokao-preview-bootstrap-2026-09-02-2";
+const previewBootstrapVersion = "kokao-preview-bootstrap-2026-09-02-3";
 let shouldRender = true;
 
 if (import.meta.hot) {
