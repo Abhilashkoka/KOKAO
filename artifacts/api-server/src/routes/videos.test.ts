@@ -6482,6 +6482,69 @@ describe("lip-sync (spokesperson) videos", () => {
     }
   });
 
+  it("serializes the number of optional Studio lip-sync scenes that were skipped", async () => {
+    const tenant = await newTenant();
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "Finished video with one preserved interval",
+      videoPath: `/objects/${tenant.tenantId}/uploads/finished.mp4`,
+      options: {
+        aspectRatio: "9:16",
+        studioLipSync: {
+          version: 1,
+          requested: true,
+          provider: "replicate",
+          model: "bytedance/latentsync",
+          consent: {
+            likeness: true,
+            voice: true,
+            source: "uploaded_person",
+          },
+          plan: [
+            {
+              sceneId: "scene-1",
+              speakerId: "speaker",
+              audioSource: "native_generated_audio",
+              durationSec: 4,
+              estimatedPricePaise: 25,
+            },
+            {
+              sceneId: "scene-2",
+              speakerId: "speaker",
+              audioSource: "native_generated_audio",
+              durationSec: 4,
+              estimatedPricePaise: 25,
+            },
+          ],
+          estimatedAdditionalPaise: 50,
+          checkpoint: {
+            state: "complete",
+            outputPath: `/objects/${tenant.tenantId}/uploads/finished.mp4`,
+            scenes: [
+              { sceneId: "scene-1", state: "complete" },
+              {
+                sceneId: "scene-2",
+                state: "skipped",
+                skipReason: "Provider refused the scene.",
+              },
+            ],
+          },
+        },
+      },
+    }).returning();
+
+    const response = await request(app).get(`/api/ai/video-jobs/${job!.id}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.studioLipSync).toMatchObject({
+      sceneCount: 2,
+      skippedSceneCount: 1,
+      state: "complete",
+    });
+  });
+
   it("rejects a blank or undersized spokesperson topic", async () => {
     await newTenant();
     const res = await request(app)

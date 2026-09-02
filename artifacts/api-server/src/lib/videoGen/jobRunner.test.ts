@@ -79,6 +79,7 @@ const state = vi.hoisted(() => ({
   dialogueStrictTrimDurations: [] as number[],
   dialogueCompositions: [] as Array<{ scenes: Array<{ text: string; narrationDurationSec: number }>; clips: number; subtitles: boolean }>,
   failLipSyncCall: null as number | null,
+  concatenatedClips: [] as Buffer[][],
   dialogueBrandVoice: false,
   dialogueCompositionError: null as unknown,
   unpricedVideoModels: new Set<string>(),
@@ -354,15 +355,36 @@ vi.mock("./topicVideo/narration", async (importOriginal) => {
   };
 });
 
-vi.mock("./slideshow", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./slideshow")>()),
-  renderSlideshow: vi.fn(async () => ({ buffer: Buffer.from("slides"), totalSec: 4 })),
-  extractPosterFrame: vi.fn(async () => Buffer.from("poster-png")),
-}));
+vi.mock("./slideshow", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./slideshow")>();
+  return {
+    ...actual,
+    renderSlideshow: vi.fn(async () => ({ buffer: Buffer.from("slides"), totalSec: 4 })),
+    extractPosterFrame: vi.fn(async () => Buffer.from("poster-png")),
+    runFfmpeg: vi.fn(async (args: string[], cwd: string) => {
+      const { writeFile } = await import("node:fs/promises");
+      const output = args.at(-1)!;
+      if (output === "native.wav") {
+        await writeFile(`${cwd}/${output}`, pcmWav());
+        return;
+      }
+      if (output === "segment.mp4") {
+        const startIndex = args.indexOf("-ss");
+        const start = startIndex >= 0 ? args[startIndex + 1] : "0.000";
+        await writeFile(`${cwd}/${output}`, Buffer.from(`base-segment:${start}`));
+        return;
+      }
+      await actual.runFfmpeg(args, cwd);
+    }),
+  };
+});
 
 vi.mock("./postprocess", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./postprocess")>()),
-  concatClips: vi.fn(async () => Buffer.from("concatenated-replay")),
+  concatClips: vi.fn(async (clips: Buffer[]) => {
+    state.concatenatedClips.push(clips);
+    return Buffer.from("concatenated-replay");
+  }),
   normalizeVideo: vi.fn(async (video: Buffer) => {
     if (state.normalizeError) throw state.normalizeError;
     return video;
@@ -865,6 +887,7 @@ beforeEach(() => {
   state.dialogueLipSyncDurations.length = 0;
   state.dialogueCompositions.length = 0;
   state.failLipSyncCall = null;
+  state.concatenatedClips.length = 0;
   state.dialogueBrandVoice = false;
   state.dialogueStrictTrimDurations.length = 0;
   state.dialogueCompositionError = null;
@@ -912,6 +935,114 @@ describe("guided-story storyboard routing", () => {
         visualsSource: "ai_video",
       }),
     ).toBe(true);
+  });
+});
+
+describe("optional Studio lip-sync finishing", () => {
+  function studioLipSyncOptions(): VideoJobOptions {
+    return {
+      aspectRatio: "9:16",
+      reviewStoryboard: false,
+      studioLipSync: {
+        version: 1,
+        requested: true,
+        provider: "replicate",
+        model: "bytedance/latentsync",
+        consent: {
+          likeness: true,
+          voice: true,
+          source: "uploaded_person",
+        },
+        plan: [
+          {
+            sceneId: "scene-1",
+            speakerId: "speaker",
+            audioSource: "native_generated_audio",
+            durationSec: 4,
+            estimatedPricePaise: 25,
+            startSec: 0,
+            endSec: 4,
+          },
+          {
+            sceneId: "scene-2",
+            speakerId: "speaker",
+            audioSource: "native_generated_audio",
+            durationSec: 4,
+            estimatedPricePaise: 25,
+            startSec: 4,
+            endSec: 8,
+          },
+        ],
+        estimatedAdditionalPaise: 50,
+      },
+    };
+  }
+
+  it("ships the finished base video when one optional scene is refused", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      options: studioLipSyncOptions(),
+    });
+    state.failLipSyncCall = 2;
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const completed = await readJob(job.id);
+    expect(completed.status, completed.error ?? "no job error").toBe("succeeded");
+    expect(completed.videoPath).toBeTruthy();
+    expect(state.lipSyncCalls).toBe(2);
+    expect(state.concatenatedClips).toHaveLength(1);
+    expect(state.concatenatedClips[0]!.map((clip) => clip.toString())).toEqual([
+      "lip-synced-video",
+      "base-segment:4.000",
+    ]);
+    expect(completed.options!.studioLipSync!.checkpoint).toMatchObject({
+      state: "complete",
+      scenes: [
+        {
+          sceneId: "scene-1",
+          state: "complete",
+          event: { label: "studio_lip_sync:scene-1", costPaise: 25 },
+        },
+        {
+          sceneId: "scene-2",
+          state: "skipped",
+          skipReason: "LatentSync unavailable.",
+        },
+      ],
+    });
+    expect(completed.options!.studioLipSync!.checkpoint!.scenes![1]!.event).toBeUndefined();
+  });
+
+  it("fails closed when a scene has a provider receipt but no retained output", async () => {
+    const tenant = await newTenant();
+    const options = studioLipSyncOptions();
+    options.studioLipSync!.checkpoint = {
+      state: "prepared",
+      scenes: [
+        {
+          sceneId: "scene-1",
+          state: "provider_succeeded",
+          event: {
+            provider: "replicate",
+            model: "bytedance/latentsync",
+            durationSec: 4,
+            requestBytes: 100,
+            label: "studio_lip_sync:scene-1",
+            costPaise: 25,
+          },
+        },
+        { sceneId: "scene-2", state: "prepared" },
+      ],
+    };
+    const job = await seedJob(tenant.tenantId, { options });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toMatch(/provider could not complete/i);
+    expect(state.lipSyncCalls).toBe(0);
   });
 });
 
