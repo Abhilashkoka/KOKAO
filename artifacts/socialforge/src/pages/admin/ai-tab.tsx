@@ -1683,6 +1683,7 @@ export function VideoGenProviderCard() {
     boolean | null
   >(null);
   const [draftProvider, setDraftProvider] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getAdminGetVideoGenSettingsQueryKey() });
@@ -1746,6 +1747,7 @@ export function VideoGenProviderCard() {
           setImageModelInput(null);
           setPortraitLipSyncModelInput(null);
           setStudioLipSyncDefaultInput(null);
+          setExpanded(false);
           const chosen = result.providers.find((p) => p.id === result.provider);
           toast({
             title: "Video settings updated",
@@ -1876,19 +1878,54 @@ export function VideoGenProviderCard() {
 
   return (
     <Card data-testid="card-video-gen-provider">
-      <CardHeader>
-        <CardTitle>Video Generation Provider</CardTitle>
-        <CardDescription>
-          Which service and models power the Studio's Video tab. "Text to Video"
-          and "Animate Photo" each have their own model; the Slideshow engine
-          runs locally and needs no AI model. A model can be saved only when
-          that exact provider/model combination has credentials and its own
-          authoritative price.
-        </CardDescription>
+      <CardHeader className={expanded ? undefined : "pb-3"}>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Video Generation Provider</CardTitle>
+          {!isLoading && settings && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setExpanded((value) => !value)}
+              data-testid="button-toggle-video-gen-settings"
+            >
+              {expanded ? "Collapse" : "Configure"}
+            </Button>
+          )}
+        </div>
+        {expanded && (
+          <CardDescription>
+            Which service and models power the Studio's Video tab. "Text to Video"
+            and "Animate Photo" each have their own model; the Slideshow engine
+            runs locally and needs no AI model. A model can be saved only when
+            that exact provider/model combination has credentials and its own
+            authoritative price.
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading || !settings ? (
           <Skeleton className="h-9 w-64" />
+        ) : !expanded ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{shown?.label ?? settings.provider}</span>
+              <Badge variant={shown?.configured ? "secondary" : "destructive"}>
+                {shown?.configured ? "Ready" : "Needs key"}
+              </Badge>
+            </div>
+            <span className="text-muted-foreground">
+              Text: {settings.textToVideoModel || shown?.defaultTextToVideoModel || "Default"}
+            </span>
+            <span className="text-muted-foreground">
+              Animate photo: {settings.imageToVideoModel || shown?.defaultImageToVideoModel || "Default"}
+            </span>
+            {settings.lipSyncPortraitModel && (
+              <span className="text-muted-foreground">
+                Portrait lip-sync: {settings.lipSyncPortraitModel}
+              </span>
+            )}
+          </div>
         ) : (
           <>
             <div className="flex items-center gap-3">

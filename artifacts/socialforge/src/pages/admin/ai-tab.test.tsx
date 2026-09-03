@@ -291,6 +291,13 @@ describe("video provider validation guidance", () => {
       </QueryClientProvider>,
     );
 
+    expect(screen.getByTestId("card-video-gen-provider").textContent).toContain(
+      "Text: wan-video/t2v",
+    );
+    expect(screen.queryByTestId("video-model-pricing-requirement")).toBeNull();
+    await userEvent
+      .setup()
+      .click(screen.getByTestId("button-toggle-video-gen-settings"));
     expect(
       screen.getByTestId("video-model-pricing-requirement").textContent,
     ).toContain(
