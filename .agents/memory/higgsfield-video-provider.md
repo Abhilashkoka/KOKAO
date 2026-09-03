@@ -14,3 +14,9 @@ Completed output URLs may be nested differently across Higgsfield status respons
 **Why:** Assuming one undocumented nesting path can mark a billed successful generation as failed, while retaining the provider URL would eventually leave a broken asset.
 
 **How to apply:** Search bounded status payloads for a credible video-file URL while excluding status/cancel/non-video links, download immediately, and persist the bytes in tenant storage.
+
+Higgsfield is also an image provider. Its default image route is the documented `higgsfield-ai/soul/v2/standard` endpoint, using the same account credential as video.
+
+**Why:** Higgsfield credentials are account-wide, while image and video settings are separate capabilities in KOKAO.
+
+**How to apply:** Reuse the saved video credential when no image-specific key exists. Soul v2 Standard is text-to-image only in the current adapter; do not claim reference-image, transparency, or masked-edit support.

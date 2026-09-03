@@ -30,6 +30,7 @@ import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
 import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
 import { generateWithNvidia, NVIDIA_SDXL_MODEL } from "./providers/nvidia";
+import { generateWithHiggsfield, HIGGSFIELD_IMAGE_MODEL } from "./providers/higgsfield";
 import sharp from "sharp";
 import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
 import {
@@ -225,6 +226,26 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     generate: generateWithOpenRouter,
   },
   {
+    id: "higgsfield",
+    label: "Higgsfield",
+    defaultModel: HIGGSFIELD_IMAGE_MODEL,
+    envKey: "HIGGSFIELD_API_KEY",
+    supportsModelOverride: true,
+    requiresBaseUrl: false,
+    modelOptions: [
+      {
+        value: HIGGSFIELD_IMAGE_MODEL,
+        label: "Soul v2 Standard (higgsfield-ai/soul/v2/standard)",
+      },
+    ],
+    supportsImageInput: false,
+    supportsTransparency: false,
+    supportsExactMaskedEdits: false,
+    quality: 0.85,
+    requiresPrice: true,
+    generate: generateWithHiggsfield,
+  },
+  {
     id: "nvidia",
     label: "NVIDIA API Catalog / image NIM",
     defaultModel: NVIDIA_SDXL_MODEL,
@@ -339,12 +360,12 @@ export async function getStoredImageGenKey(providerId: string): Promise<string |
       // Try the shared Replicate credential below when this legacy row is bad.
     }
   }
-  if (providerId !== "replicate") return null;
+  if (providerId !== "replicate" && providerId !== "higgsfield") return null;
   const shared = (
     await db
       .select()
       .from(appCredentialsTable)
-      .where(eq(appCredentialsTable.provider, "videogen_replicate"))
+      .where(eq(appCredentialsTable.provider, `videogen_${providerId}`))
       .limit(1)
   )[0];
   if (!shared) return null;

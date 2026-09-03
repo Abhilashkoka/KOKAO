@@ -146,4 +146,4 @@
 - [Video cover selection](video-cover-selection.md) — every finished Video Studio module offers extracted, uploaded, and explicitly requested generated covers.
 - [Optional lip-sync finishing](optional-lipsync-finishing.md) — scene refusals ship preserved base footage; solo animation holds one subject without off-frame-person prose.
 - [Guided intrinsic lip sync](guided-intrinsic-lipsync.md) — new Guided jobs auto-sync only unambiguous solo dialogue; exact synced audio, frozen funding, and receipt-safe base fallback.
-- [Higgsfield video provider](higgsfield-video-provider.md) — model strings are endpoint paths; Veo uses strict enums, while Kling/Seedance accept only prompt plus image.
+- [Higgsfield media provider](higgsfield-video-provider.md) — shared image/video credential; endpoint-path models have route-specific request contracts.

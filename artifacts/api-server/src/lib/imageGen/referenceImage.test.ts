@@ -39,6 +39,7 @@ describe("reference image support", () => {
       gemini: true,
       seedream: true,
       openrouter: true,
+      higgsfield: false,
       bfl: false,
       stability: false,
       replicate: false,
