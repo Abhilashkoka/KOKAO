@@ -5733,6 +5733,54 @@ describe("guided story route fail-closed regressions", () => {
       .toBeNull();
   });
 
+  it("approves and migrates a displayed legacy default backdrop", async () => {
+    const tenant = await newTenant("pro");
+    const script = routeScript();
+    const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
+    const legacyInput = {
+      prompt: "Warm kitchen",
+      imagePath: `/objects/${tenant.tenantId}/uploads/legacy-kitchen.png`,
+      sceneIds: script.scenes.map((scene) => scene.id),
+    };
+    const legacy = {
+      version: 1 as const,
+      ...legacyInput,
+      fingerprint: guidedBackdropFingerprint(legacyInput),
+      approvedAt: null,
+    };
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          visualChoices: {
+            ...draft.state.visualChoices!,
+            backdropReference: legacy,
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/backdrop/approve`)
+      .send({
+        revision: draft.revision,
+        fingerprint: legacy.fingerprint,
+        sceneId: null,
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.visualChoices.backdrops.default).toMatchObject({
+      prompt: legacy.prompt,
+      imagePath: legacy.imagePath,
+      approvedAt: expect.any(String),
+      revision: 1,
+    });
+    expect(response.body.visualChoices.backdrops.default.fingerprint).not.toBe(
+      legacy.fingerprint,
+    );
+  });
+
   it("queues one funded Guided scene correction and keeps every preview unchanged until the runner commits", async () => {
     const tenant = await newTenant("pro");
     const script = routeScript();

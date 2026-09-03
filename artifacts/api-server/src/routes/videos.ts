@@ -6089,6 +6089,12 @@ router.post(
       const backdrops = guidedBackdropChoices(
         draft.state.visualChoices ?? emptyGuidedVisualChoices(),
       );
+      const legacyDefault =
+        sceneId === null &&
+        !draft.state.visualChoices?.backdrops &&
+        draft.state.visualChoices?.backdropReference
+          ? draft.state.visualChoices.backdropReference
+          : null;
       const reference = sceneId
         ? backdrops.sceneOverrides[sceneId]
         : backdrops.default;
@@ -6098,14 +6104,24 @@ router.post(
          !draft.state.script ||
         (sceneId !== null && !draft.state.script.scenes.some((scene) => scene.id === sceneId)) ||
         reference.fingerprint !== parsed.data.fingerprint ||
-        guidedBackdropFingerprint({
-          ...reference,
-          sceneId,
-        }) !== reference.fingerprint ||
+        (!legacyDefault &&
+          guidedBackdropFingerprint({
+            ...reference,
+            sceneId,
+          }) !== reference.fingerprint) ||
         unresolvedGuidedReferenceOperation(draft.state)
       ) return { kind: "stale" as const };
       const approvedAt = new Date().toISOString();
-      const approved = { ...reference, approvedAt };
+      const approvable = legacyDefault
+        ? {
+            ...reference,
+            fingerprint: guidedBackdropFingerprint({
+              ...reference,
+              sceneId: null,
+            }),
+          }
+        : reference;
+      const approved = { ...approvable, approvedAt };
       const nextBackdrops = {
         version: 1 as const,
         default: sceneId ? backdrops.default : approved,
