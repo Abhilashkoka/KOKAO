@@ -1010,8 +1010,9 @@ describe("GuidedStoryWorkflow", () => {
     );
     expect(screen.queryByTestId("checkbox-guided-studio-lipsync")).toBeNull();
     expect(screen.getByTestId("section-guided-attempt-consent")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Reapprove" })).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reapprove Ari" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reapprove Bo" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Approve / })).toBeNull();
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
 
     await userEvent.click(screen.getByTestId("checkbox-guided-attempt-consent"));
@@ -1289,8 +1290,11 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("card-guided-backdrop-review")).toBeTruthy();
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("status-guided-enqueue-blocked").textContent).toBe(
-      "Approve every current cast role before building the storyboard.",
+      "Approve Ari and Bo before building the storyboard.",
     );
+    expect(screen.getByTestId("button-guided-approve-cast-r1").textContent).toBe("Approve Ari");
+    expect(screen.getByTestId("button-guided-approve-cast-r1").className).toContain("ring-amber");
+    expect(screen.getByTestId("card-guided-cast-approval-r2").className).toContain("border-amber");
     await userEvent.click(screen.getByTestId("button-enlarge-guided-backdrop"));
     expect(screen.getByTestId("image-enlarged-guided-backdrop")).toBeTruthy();
     await userEvent.keyboard("{Escape}");
