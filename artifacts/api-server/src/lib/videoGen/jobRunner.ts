@@ -54,6 +54,7 @@ import {
 import { ImageGenProviderError } from "../imageGen";
 import {
   generateVideo,
+  hasNativeSynchronizedAudio,
   getVideoGenProviderDef,
   getVideoGenSelection,
   resolveVideoGenApiKey,
@@ -5688,6 +5689,13 @@ async function finishGuidedStoryIntrinsicDialogue(
 ): Promise<{ buffer: Buffer; events: VideoProviderEvent[] }> {
   const snapshot = job.options?.guidedStoryIntrinsicLipSync;
   if (!snapshot?.scenes.length) return { buffer: base, events: [] };
+  const resolved = job.options?.resolvedVideoModel;
+  if (
+    resolved?.generateAudio === true &&
+    hasNativeSynchronizedAudio(resolved.provider, resolved.model)
+  ) {
+    return { buffer: base, events: [] };
+  }
   const board = job.storyboard;
   if (!board || board.mode !== "guided_story" || board.timelineLocked !== true) {
     throw new VideoJobInputError("Automatic Guided Story dialogue requires its locked storyboard.");

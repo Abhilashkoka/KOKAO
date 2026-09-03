@@ -5,9 +5,13 @@ description: Rules for automatic locale-aware lip sync of eligible Guided Story 
 
 New Guided Story jobs automatically apply intrinsic dialogue finishing only to unambiguous shots with exactly one visible role and dialogue owned by that role. Build-up, group, narration, reaction, ambiguous, and historical jobs keep their normal rendering. Manual Replay Native Dialogue remains a separate unchanged workflow.
 
+Models explicitly allowlisted as providing synchronized native dialogue audio (currently OpenRouter Seedance 2.5) bypass the Replicate intrinsic-finishing snapshot. Their frozen Guided Story model enables native audio, and the runner defensively preserves the base result rather than replacing its soundtrack with Replicate output.
+
 **Why:** The Character Dialogue sequence is more reliable when the provider receives one approved face, exact role-owned audio, and a controlled silent plate. Applying it to multi-face or ownerless scenes recreates active-speaker ambiguity.
 
-**How to apply:** Freeze eligible scenes, locale, role voice, model, authoritative prices, and checkpoints before funding. Preflight the exact animation, advanced lip-sync, and non-stock voice providers before reservation. Generate exact locale-aware audio, fit it to the immutable slot, animate the approved still with provider audio disabled, lip-sync per scene, and deliver that exact synced audio rather than remuxing an independently synthesized base track.
+**Why:** Re-running a native synchronized-audio model through Replicate adds an unnecessary credential, cost, and second transformation that can replace the model's intended lip-sync/audio result.
+
+**How to apply:** Check the frozen provider/model native-audio capability before planning, pricing, funding, preflighting, or dispatching intrinsic Replicate work. For all other eligible models, freeze scenes, locale, role voice, model, prices, and checkpoints; generate exact locale-aware audio, animate a silent approved-still plate, and deliver the exact synced audio.
 
 Receipt-free failures are fail-soft and retain the corresponding completed base segment. A provider receipt without durable output is outcome-unknown and must fail closed; record and mark partial receipts accounted before recovery so completed work is never charged twice.
 

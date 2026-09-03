@@ -61,6 +61,20 @@ export const DEFAULT_VIDEO_GEN_PROVIDER = "replicate";
 /** Which AI video engine a model override applies to. */
 export type VideoGenMode = "text" | "image";
 
+const NATIVE_SYNCHRONIZED_AUDIO_MODELS = new Set([
+  "openrouter/bytedance/seedance-2.5",
+]);
+
+/**
+ * Models whose normal generation call creates its own synchronized dialogue
+ * audio. Guided Story must not replace that audio with a second Replicate pass.
+ */
+export function hasNativeSynchronizedAudio(provider: string, model: string): boolean {
+  return NATIVE_SYNCHRONIZED_AUDIO_MODELS.has(
+    `${provider.trim().toLowerCase()}/${model.trim().toLowerCase()}`,
+  );
+}
+
 export interface VideoGenProviderDef {
   id: string;
   label: string;

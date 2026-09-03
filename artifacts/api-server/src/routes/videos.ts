@@ -112,6 +112,7 @@ import {
   compiledClipPrompt,
   effectiveVideoModel,
   getVideoGenSelection,
+  hasNativeSynchronizedAudio,
   resolveVideoModelSnapshot,
   resolveVideoGenProviderDef,
   isVideoGenProviderConfigured,
@@ -8116,7 +8117,7 @@ async function generateVideoHandler(
             : null;
   if (resolvedMode) {
     try {
-      options.resolvedVideoModel = await resolveVideoModelSnapshot({
+      const resolvedVideoModel = await resolveVideoModelSnapshot({
         mode: resolvedMode,
         modelId: options.modelId,
         durationSec: options.durationSec ?? 5,
@@ -8125,6 +8126,14 @@ async function generateVideoHandler(
         generateAudio: options.generateAudio,
         permittedDurationSec: compositeVideoDurations(body.engine, options),
       });
+      options.resolvedVideoModel =
+        options.guidedStory &&
+        hasNativeSynchronizedAudio(
+          resolvedVideoModel.provider,
+          resolvedVideoModel.model,
+        )
+          ? { ...resolvedVideoModel, generateAudio: true }
+          : resolvedVideoModel;
     } catch (error) {
       if (error instanceof VideoModelResolutionError) {
         res.status(400).json({
@@ -8143,7 +8152,17 @@ async function generateVideoHandler(
 
   // New Guided Story jobs automatically freeze the safe single-speaker shots.
   // Historical rows have no snapshot and therefore retain their old rendering.
-  if (options.guidedStory && options.resolvedVideoModel) {
+  if (
+    options.guidedStory &&
+    options.resolvedVideoModel &&
+    !(
+      options.resolvedVideoModel.generateAudio === true &&
+      hasNativeSynchronizedAudio(
+        options.resolvedVideoModel.provider,
+        options.resolvedVideoModel.model,
+      )
+    )
+  ) {
     const planned = planGuidedStoryIntrinsicDialogue(options.guidedStory);
     const permitted = options.resolvedVideoModel.permittedDurationSec ??
       [options.resolvedVideoModel.durationSec];
