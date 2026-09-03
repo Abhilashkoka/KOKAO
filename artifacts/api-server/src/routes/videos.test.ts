@@ -510,10 +510,13 @@ async function installHighLipSyncTestPrice(): Promise<() => Promise<void>> {
   };
 }
 
-async function installVideoTestPrice(model: string): Promise<() => Promise<void>> {
+async function installVideoTestPrice(
+  model: string,
+  provider = "replicate",
+): Promise<() => Promise<void>> {
   const match = and(
     eq(aiModelPricesTable.kind, "video"),
-    eq(aiModelPricesTable.provider, "replicate"),
+    eq(aiModelPricesTable.provider, provider),
     eq(aiModelPricesTable.model, model),
   );
   const existing = await db.select().from(aiModelPricesTable).where(match);
@@ -524,7 +527,7 @@ async function installVideoTestPrice(model: string): Promise<() => Promise<void>
   }
   await upsertModelPrice({
     kind: "video",
-    provider: "replicate",
+    provider,
     model,
     inputUsdPerMtok: null,
     outputUsdPerMtok: null,
@@ -2813,6 +2816,147 @@ describe("guided story route fail-closed regressions", () => {
         .returning()
     )[0]!;
   }
+
+  async function makeEnqueueableGuidedDraft(tenantId: number) {
+    const script = routeScript();
+    script.scenes[0]!.endMs = 2_500;
+    script.scenes[0]!.roleIds = ["hero"];
+    script.scenes[0]!.lines = [script.scenes[0]!.lines[0]!];
+    script.scenes[0]!.lines[0]!.endMs = 2_500;
+    script.runtimeSeconds = 3;
+    const draft = await insertEditableGuidedDraft(tenantId, script);
+    const approvedAt = new Date().toISOString();
+    const cast: GuidedStoryDraftState["cast"] = draft.state.script!.roles.map(
+      (role, index) => ({
+        roleId: role.id,
+        source: "saved",
+        characterId: index + 1,
+        outfitId: index + 11,
+        brandKitId: null,
+        voiceId: index === 0 ? "alloy" : "echo",
+        character: {
+          name: role.name,
+          description: role.description,
+          referenceImagePath: `/objects/${tenantId}/character-${index}.png`,
+        },
+        outfit: {
+          name: "Approved outfit",
+          description: "Approved wardrobe",
+          referenceImagePath: `/objects/${tenantId}/outfit-${index}.png`,
+        },
+        voice: {
+          id: index === 0 ? "alloy" : "echo",
+          label: `Voice ${index + 1}`,
+          provider: "stock",
+          providerVoiceId: null,
+        },
+        isUserRole: false,
+        consentGranted: true,
+      }),
+    );
+    const backdropInput = {
+      prompt: "A storm shelter",
+      imagePath: `/objects/${tenantId}/uploads/backdrop.png`,
+      sceneIds: draft.state.script!.scenes.map((scene) => scene.id),
+    };
+    const state: GuidedStoryDraftState = {
+      ...draft.state,
+      scriptApprovedAt: approvedAt,
+      castStrategy: "saved",
+      cast,
+      castApprovals: castApprovals(cast, draft.revision),
+      duplicateAssignmentConfirmed: true,
+      visualChoices: {
+        ...draft.state.visualChoices!,
+        backdropReference: {
+          version: 1,
+          ...backdropInput,
+          fingerprint: guidedBackdropFingerprint(backdropInput),
+          approvedAt,
+        },
+      },
+    };
+    const [saved] = await db
+      .update(guidedStoryDraftsTable)
+      .set({ state })
+      .where(eq(guidedStoryDraftsTable.id, draft.id))
+      .returning();
+    return saved!;
+  }
+
+  it("freezes native Guided Story audio routing before the worker receives the job", async () => {
+    const tenant = await newTenant("pro");
+    const restoreSeedancePrice = await installVideoTestPrice(
+      "bytedance/seedance-2.5",
+      "openrouter",
+    );
+    const restoreLipSyncPrice = await installHighLipSyncTestPrice();
+    const restoreReplicateImagePrice = await installVideoTestPrice(
+      "wan-video/wan-2.2-i2v-fast",
+    );
+    await setStoredVideoGenKey("openrouter", "test-token");
+    try {
+      await setVideoGenSelection({
+        provider: "openrouter",
+        textToVideoModel: "bytedance/seedance-2.5",
+        imageToVideoModel: "bytedance/seedance-2.5",
+        enabledModelIds: null,
+      });
+      const nativeDraft = await makeEnqueueableGuidedDraft(tenant.tenantId);
+      const nativeResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${nativeDraft.id}/enqueue`)
+        .send({ revision: nativeDraft.revision, consentGranted: true });
+      expect(nativeResponse.status, nativeResponse.body.error).toBe(201);
+      const nativeJob = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, nativeResponse.body.id))
+      )[0]!;
+      expect(nativeJob.options!.resolvedVideoModel).toMatchObject({
+        provider: "openrouter",
+        model: "bytedance/seedance-2.5",
+        generateAudio: true,
+      });
+      expect(nativeJob.options!.guidedStoryIntrinsicLipSync).toBeFalsy();
+
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
+      const replicateDraft = await makeEnqueueableGuidedDraft(tenant.tenantId);
+      const replicateResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${replicateDraft.id}/enqueue`)
+        .send({ revision: replicateDraft.revision, consentGranted: true });
+      expect(replicateResponse.status, replicateResponse.body.error).toBe(201);
+      const replicateJob = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, replicateResponse.body.id))
+      )[0]!;
+      expect(replicateJob.options!.guidedStoryIntrinsicLipSync).toMatchObject({
+        provider: "replicate",
+        model: HIGH_LIP_SYNC_MODEL,
+        scenes: expect.any(Array),
+      });
+      expect(replicateJob.options!.guidedStoryIntrinsicLipSync!.scenes.length)
+        .toBeGreaterThan(0);
+    } finally {
+      await clearStoredVideoGenKey("openrouter");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
+      await restoreSeedancePrice();
+      await restoreLipSyncPrice();
+      await restoreReplicateImagePrice();
+    }
+  });
 
   it("freezes a new draft image snapshot and copies it exactly to its enqueued job", async () => {
     const tenant = await newTenant("pro");
