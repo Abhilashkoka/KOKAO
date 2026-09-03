@@ -22,6 +22,7 @@ import {
   dedupeModelPrices,
   canonicalVideoVariantKey,
   seedPublishedModelPrices,
+  hasVideoModelPriceConfiguration,
 } from "./aiCost";
 
 // Unique names so runs against the shared dev DB never collide.
@@ -331,6 +332,12 @@ describe("variant-aware video pricing", () => {
     expect(await computeVideoCostPaise({
       provider: "replicate", model: MODEL, variantCriteria: { quality: "standard" },
     })).toBeNull();
+    expect(await hasVideoModelPriceConfiguration({
+      provider: "replicate", model: MODEL,
+    })).toBe(true);
+    expect(await hasVideoModelPriceConfiguration({
+      provider: "openrouter", model: MODEL,
+    })).toBe(false);
   });
 
   it("retains the legacy default-row fallback when no conditional rows exist", async () => {

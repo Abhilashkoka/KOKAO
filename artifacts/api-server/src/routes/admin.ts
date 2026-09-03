@@ -288,6 +288,7 @@ import {
   modelPriceGroupKey,
   isImageModelPriced,
   isVideoModelPriced,
+  hasVideoModelPriceConfiguration,
 } from "../lib/aiCost";
 import {
   FEATURES,
@@ -1634,11 +1635,9 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
         const catalogPriced = await isCatalogVideoModelPriced(def.id, model);
         const priced =
           catalogPriced ??
-          (await isVideoModelPriced({
+          (await hasVideoModelPriceConfiguration({
             provider: def.id,
             model,
-            durationSec: 5,
-            variantCriteria: {},
           }).catch(() => false));
         if (!priced) {
           unpriced.push(model);

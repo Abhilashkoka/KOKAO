@@ -602,6 +602,35 @@ export async function findVideoPrice(
   return resolveVideoPrice(exactRows, variantCriteria);
 }
 
+/**
+ * Activation-time pricing gate for models that are not in KOKAO's curated
+ * video catalog. At this point there is no concrete generation variant to
+ * price, so requiring an empty variant to resolve incorrectly rejects models
+ * that have valid conditional rows. Runtime generation remains strict and
+ * still requires the actual requested variant to match.
+ */
+export async function hasVideoModelPriceConfiguration(args: {
+  provider: string;
+  model: string;
+}): Promise<boolean> {
+  const modelMatches = sql`lower(trim(${aiModelPricesTable.model})) = lower(${args.model.trim()})`;
+  const providerMatches = sql`lower(trim(${aiModelPricesTable.provider})) = lower(${args.provider.trim()})`;
+  const rows = await db
+    .select()
+    .from(aiModelPricesTable)
+    .where(and(eq(aiModelPricesTable.kind, "video"), providerMatches, modelMatches));
+  const { usdToInrPaise } = await getAiCostConfig();
+  return rows.some((row) => {
+    if (row.usdPerSecond !== null) {
+      return usdToPaise(row.usdPerSecond, usdToInrPaise) !== null;
+    }
+    if (row.usdPerVideo !== null) {
+      return usdToPaise(row.usdPerVideo, usdToInrPaise) !== null;
+    }
+    return false;
+  });
+}
+
 /** Exported price lookup used by the model activation pricing sync. */
 export async function findModelPrice(
   kind: "text" | "image" | "video",
