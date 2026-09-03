@@ -1280,7 +1280,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("card-guided-backdrop-review")).toBeTruthy();
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("status-guided-enqueue-blocked").textContent).toBe(
-      "Approve the default backdrop and every scene override.",
+      "Approve every current cast role before building the storyboard.",
     );
     await userEvent.click(screen.getByTestId("button-enlarge-guided-backdrop"));
     expect(screen.getByTestId("image-enlarged-guided-backdrop")).toBeTruthy();

@@ -912,7 +912,7 @@ function StoryFlow(props: any) {
       : props.existingJobId === null &&
           !props.failedBeforeStoryboard &&
           !props.castApprovalsComplete
-        ? "Approve the default backdrop and every scene override."
+        ? "Approve every current cast role before building the storyboard."
         : props.existingJobId === null &&
             !props.failedBeforeStoryboard &&
             !guidedStoryBackdropsAreReady(draft)
