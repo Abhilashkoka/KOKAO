@@ -939,6 +939,9 @@ export function VideoStudioPage() {
   const studioLipSyncDefaultApplied = useRef(false);
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [unrecreatableJobIds, setUnrecreatableJobIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [boardOpen, setBoardOpen] = useState(false);
   const [guidedStoryEditRequest, setGuidedStoryEditRequest] = useState<{
     key: number;
@@ -960,6 +963,10 @@ export function VideoStudioPage() {
   const activeVideoJobKey = me?.tenant?.id
     ? `kokao-active-video-job-v1:${me.tenant.id}`
     : null;
+  const dismissActiveJob = () => {
+    if (activeVideoJobKey) localStorage.removeItem(activeVideoJobKey);
+    setActiveJobId(null);
+  };
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
@@ -7056,7 +7063,29 @@ export function VideoStudioPage() {
                       storyboard={activeJob.storyboard}
                     />
                   )}
-                {activeJob.guidedStoryDraftId && (
+                {unrecreatableJobIds.has(activeJob.id) ? (
+                  <div
+                    className="rounded-lg border-2 border-destructive/50 bg-destructive/5 p-3"
+                    data-testid="guided-story-unrecreatable"
+                  >
+                    <p className="text-sm font-medium text-destructive">
+                      Unable to recreate this story
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      The editable story draft or storyboard is no longer available, so this
+                      failed job cannot be reopened or resumed. No new generation is running.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-3"
+                      onClick={dismissActiveJob}
+                      data-testid="button-dismiss-unrecreatable-job"
+                    >
+                      Dismiss failed job
+                    </Button>
+                  </div>
+                ) : activeJob.guidedStoryDraftId ? (
                   <div className="rounded-lg border-2 border-amber-500/70 bg-amber-50/70 p-3 dark:bg-amber-950/20">
                     <p className="text-sm font-medium">
                       Required action
@@ -7104,15 +7133,21 @@ export function VideoStudioPage() {
                           { jobId: activeJob.id },
                           {
                             onSuccess: reopenDraft,
-                            onError: (error) =>
+                            onError: (error) => {
+                              setUnrecreatableJobIds((current) => {
+                                const next = new Set(current);
+                                next.add(activeJob.id);
+                                return next;
+                              });
                               toast({
-                                title: "Could not reopen this story",
+                                title: "Unable to recreate this story",
                                 description: apiErrorMessage(
                                   error,
-                                  "Detach the failed storyboard and try again.",
+                                  "The editable draft or storyboard is no longer available.",
                                 ),
                                 variant: "destructive",
-                              }),
+                              });
+                            },
                           },
                         );
                       }}
@@ -7123,8 +7158,8 @@ export function VideoStudioPage() {
                         : "Edit story and rebuild storyboard"}
                     </Button>
                   </div>
-                )}
-                {activeJob.retryable && (
+                ) : null}
+                {activeJob.retryable && !unrecreatableJobIds.has(activeJob.id) && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">
                       {activeJob.privacyRecoveryCapability?.eligible
