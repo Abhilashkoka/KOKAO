@@ -110,6 +110,7 @@ vi.mock("../lib/usage", async (importOriginal) => {
 // deterministic.
 const genState = vi.hoisted(() => ({
   referenceCalls: [] as string[],
+  sheetCalls: [] as string[],
   variantCalls: [] as string[],
   loadedPaths: [] as string[],
   failNext: null as null | { kind: "notConfigured" | "provider" },
@@ -153,6 +154,11 @@ vi.mock("../lib/characters", async (importOriginal) => {
       maybeFail();
       genState.referenceCalls.push(description);
       return { buffer: Buffer.from("ref-png"), provider: "openai", model: "gpt-image-1" };
+    }),
+    generateCharacterReferenceSheet: vi.fn(async (character: { name: string }) => {
+      maybeFail();
+      genState.sheetCalls.push(character.name);
+      return { buffer: Buffer.from("sheet-png"), provider: "openai", model: "gpt-image-1" };
     }),
     generateOutfitVariant: vi.fn(async (
       _c: unknown,
@@ -256,6 +262,7 @@ beforeEach(() => {
   logMock.warn.mockClear();
   logMock.debug.mockClear();
   genState.referenceCalls.length = 0;
+  genState.sheetCalls.length = 0;
   genState.variantCalls.length = 0;
   genState.loadedPaths.length = 0;
   genState.failNext = null;
@@ -506,7 +513,7 @@ describe("POST /api/characters", () => {
       .send({ name: "Maya", description: "a cheerful woman" });
 
     expect(res.status).toBe(201);
-    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.settleCalls).toHaveLength(2);
     expect(billingState.refundCalls).toHaveLength(0);
     expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
   });

@@ -3430,6 +3430,9 @@ export const ListCharactersResponseItem = zod.union([zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
+  "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
+  "referenceSheetError": zod.string().nullable(),
   "protectedRegion": zod.union([zod.object({
   "x": zod.number().min(listCharactersResponseOneProtectedRegionOneXMin).max(listCharactersResponseOneProtectedRegionOneXMax),
   "y": zod.number().min(listCharactersResponseOneProtectedRegionOneYMin).max(listCharactersResponseOneProtectedRegionOneYMax),
@@ -3506,7 +3509,7 @@ export const createCharacterBodyDescriptionMax = 1000;
 export const CreateCharacterBody = zod.object({
   "name": zod.string().min(1).max(createCharacterBodyNameMax),
   "description": zod.string().max(createCharacterBodyDescriptionMax).nullish().describe('Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).'),
-  "sourceImagePath": zod.string().nullish().describe('Optional uploaded reference photo (\/objects\/... path). Used as the character\'s canonical reference; no AI cost.')
+  "sourceImagePath": zod.string().nullish().describe('Optional uploaded reference photo (\/objects\/... path). Used as the character\'s canonical reference. The separate multi-view sheet is still generated as a billed, reference-required image.')
 })
 
 export const createCharacterResponseProtectedRegionOneXMin = 0;
@@ -3540,6 +3543,9 @@ export const CreateCharacterResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
+  "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
+  "referenceSheetError": zod.string().nullable(),
   "protectedRegion": zod.union([zod.object({
   "x": zod.number().min(createCharacterResponseProtectedRegionOneXMin).max(createCharacterResponseProtectedRegionOneXMax),
   "y": zod.number().min(createCharacterResponseProtectedRegionOneYMin).max(createCharacterResponseProtectedRegionOneYMax),
@@ -3560,6 +3566,143 @@ export const CreateCharacterResponse = zod.object({
   "y": zod.number().min(createCharacterResponseOutfitsItemProtectedRegionOneYMin).max(createCharacterResponseOutfitsItemProtectedRegionOneYMax),
   "width": zod.number().gt(createCharacterResponseOutfitsItemProtectedRegionOneWidthExclusiveMin).max(createCharacterResponseOutfitsItemProtectedRegionOneWidthMax),
   "height": zod.number().gt(createCharacterResponseOutfitsItemProtectedRegionOneHeightExclusiveMin).max(createCharacterResponseOutfitsItemProtectedRegionOneHeightMax)
+}),zod.null()]).optional()
+})),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Generate or regenerate the character's multi-view reference sheet
+ */
+export const GenerateCharacterReferenceSheetParams = zod.object({
+  "characterId": zod.coerce.number()
+})
+
+export const generateCharacterReferenceSheetResponseProtectedRegionOneXMin = 0;
+export const generateCharacterReferenceSheetResponseProtectedRegionOneXMax = 1;
+
+export const generateCharacterReferenceSheetResponseProtectedRegionOneYMin = 0;
+export const generateCharacterReferenceSheetResponseProtectedRegionOneYMax = 1;
+
+export const generateCharacterReferenceSheetResponseProtectedRegionOneWidthExclusiveMin = 0;
+export const generateCharacterReferenceSheetResponseProtectedRegionOneWidthMax = 1;
+
+export const generateCharacterReferenceSheetResponseProtectedRegionOneHeightExclusiveMin = 0;
+export const generateCharacterReferenceSheetResponseProtectedRegionOneHeightMax = 1;
+
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMin = 0;
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMax = 1;
+
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMin = 0;
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMax = 1;
+
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthExclusiveMin = 0;
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthMax = 1;
+
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightExclusiveMin = 0;
+export const generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightMax = 1;
+
+
+
+export const GenerateCharacterReferenceSheetResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().describe('Appearance description used in generation prompts.'),
+  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
+  "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
+  "referenceSheetError": zod.string().nullable(),
+  "protectedRegion": zod.union([zod.object({
+  "x": zod.number().min(generateCharacterReferenceSheetResponseProtectedRegionOneXMin).max(generateCharacterReferenceSheetResponseProtectedRegionOneXMax),
+  "y": zod.number().min(generateCharacterReferenceSheetResponseProtectedRegionOneYMin).max(generateCharacterReferenceSheetResponseProtectedRegionOneYMax),
+  "width": zod.number().gt(generateCharacterReferenceSheetResponseProtectedRegionOneWidthExclusiveMin).max(generateCharacterReferenceSheetResponseProtectedRegionOneWidthMax),
+  "height": zod.number().gt(generateCharacterReferenceSheetResponseProtectedRegionOneHeightExclusiveMin).max(generateCharacterReferenceSheetResponseProtectedRegionOneHeightMax)
+}),zod.null()]).optional(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
+  "isDefault": zod.boolean(),
+  "status": zod.enum(['preview', 'approved', 'rejected']),
+  "identityVerified": zod.boolean(),
+  "canonicalReferenceImagePath": zod.string().nullish(),
+  "protectedRegion": zod.union([zod.object({
+  "x": zod.number().min(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMin).max(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMax),
+  "y": zod.number().min(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMin).max(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMax),
+  "width": zod.number().gt(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthExclusiveMin).max(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthMax),
+  "height": zod.number().gt(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightExclusiveMin).max(generateCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightMax)
+}),zod.null()]).optional()
+})),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Explicitly approve or reject the current generated reference sheet
+ */
+export const ReviewCharacterReferenceSheetParams = zod.object({
+  "characterId": zod.coerce.number(),
+  "decision": zod.enum(['approve', 'reject'])
+})
+
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneXMin = 0;
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneXMax = 1;
+
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneYMin = 0;
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneYMax = 1;
+
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneWidthExclusiveMin = 0;
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneWidthMax = 1;
+
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneHeightExclusiveMin = 0;
+export const reviewCharacterReferenceSheetResponseProtectedRegionOneHeightMax = 1;
+
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMin = 0;
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMax = 1;
+
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMin = 0;
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMax = 1;
+
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthExclusiveMin = 0;
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthMax = 1;
+
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightExclusiveMin = 0;
+export const reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightMax = 1;
+
+
+
+export const ReviewCharacterReferenceSheetResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().describe('Appearance description used in generation prompts.'),
+  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
+  "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
+  "referenceSheetError": zod.string().nullable(),
+  "protectedRegion": zod.union([zod.object({
+  "x": zod.number().min(reviewCharacterReferenceSheetResponseProtectedRegionOneXMin).max(reviewCharacterReferenceSheetResponseProtectedRegionOneXMax),
+  "y": zod.number().min(reviewCharacterReferenceSheetResponseProtectedRegionOneYMin).max(reviewCharacterReferenceSheetResponseProtectedRegionOneYMax),
+  "width": zod.number().gt(reviewCharacterReferenceSheetResponseProtectedRegionOneWidthExclusiveMin).max(reviewCharacterReferenceSheetResponseProtectedRegionOneWidthMax),
+  "height": zod.number().gt(reviewCharacterReferenceSheetResponseProtectedRegionOneHeightExclusiveMin).max(reviewCharacterReferenceSheetResponseProtectedRegionOneHeightMax)
+}),zod.null()]).optional(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
+  "isDefault": zod.boolean(),
+  "status": zod.enum(['preview', 'approved', 'rejected']),
+  "identityVerified": zod.boolean(),
+  "canonicalReferenceImagePath": zod.string().nullish(),
+  "protectedRegion": zod.union([zod.object({
+  "x": zod.number().min(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMin).max(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneXMax),
+  "y": zod.number().min(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMin).max(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneYMax),
+  "width": zod.number().gt(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthExclusiveMin).max(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneWidthMax),
+  "height": zod.number().gt(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightExclusiveMin).max(reviewCharacterReferenceSheetResponseOutfitsItemProtectedRegionOneHeightMax)
 }),zod.null()]).optional()
 })),
   "createdAt": zod.coerce.date(),
@@ -3990,6 +4133,9 @@ export const UpdateCharacterResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
+  "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
+  "referenceSheetError": zod.string().nullable(),
   "protectedRegion": zod.union([zod.object({
   "x": zod.number().min(updateCharacterResponseProtectedRegionOneXMin).max(updateCharacterResponseProtectedRegionOneXMax),
   "y": zod.number().min(updateCharacterResponseProtectedRegionOneYMin).max(updateCharacterResponseProtectedRegionOneYMax),
@@ -4084,6 +4230,9 @@ export const CreateCharacterOutfitResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
+  "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
+  "referenceSheetError": zod.string().nullable(),
   "protectedRegion": zod.union([zod.object({
   "x": zod.number().min(createCharacterOutfitResponseProtectedRegionOneXMin).max(createCharacterOutfitResponseProtectedRegionOneXMax),
   "y": zod.number().min(createCharacterOutfitResponseProtectedRegionOneYMin).max(createCharacterOutfitResponseProtectedRegionOneYMax),

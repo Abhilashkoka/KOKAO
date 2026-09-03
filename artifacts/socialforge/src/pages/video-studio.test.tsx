@@ -77,6 +77,8 @@ const mockState: {
   guidedDialoguePreviewError: any;
   guidedDialogueConfirmError: any;
   createdOutfitCharacter: any;
+  reviewedReferenceSheets: any[];
+  regeneratedReferenceSheets: number[];
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -142,6 +144,8 @@ const mockState: {
   guidedDialoguePreviewError: null,
   guidedDialogueConfirmError: null,
   createdOutfitCharacter: null,
+  reviewedReferenceSheets: [],
+  regeneratedReferenceSheets: [],
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -581,6 +585,35 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useListCharacters: () => ({ data: mockState.characters }),
+    useReviewCharacterReferenceSheet: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.reviewedReferenceSheets.push(vars);
+        const character = mockState.characters.find(
+          (candidate) => candidate.id === vars.characterId,
+        );
+        if (character && vars.decision === "approve") {
+          character.referenceSheetStatus = "approved";
+        }
+        opts?.onSuccess?.(null);
+      },
+    }),
+    useGenerateCharacterReferenceSheet: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.regeneratedReferenceSheets.push(vars.characterId);
+        const character = mockState.characters.find(
+          (candidate) => candidate.id === vars.characterId,
+        );
+        if (character) {
+          // Mirrors the server's invalidation-before-provider-work response:
+          // an old approved sheet is no longer selectable during regeneration.
+          character.referenceSheetImagePath = null;
+          character.referenceSheetStatus = "pending";
+        }
+        opts?.onSuccess?.(null);
+      },
+    }),
     useCreateCharacterOutfit: () => ({
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
@@ -924,6 +957,8 @@ beforeEach(() => {
   mockState.guidedDialoguePreviewError = null;
   mockState.guidedDialogueConfirmError = null;
   mockState.createdOutfitCharacter = null;
+  mockState.reviewedReferenceSheets = [];
+  mockState.regeneratedReferenceSheets = [];
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   localStorage.clear();
@@ -5477,5 +5512,57 @@ describe("Video Studio voice notes", () => {
     await user.click(screen.getByTestId("select-video-model"));
     expect(screen.queryByText(/Text only/)).toBeNull();
     expect(screen.getByText(/Image model/)).toBeTruthy();
+  });
+
+  it("requires explicit reference-sheet review and shows regeneration revoking that review", async () => {
+    mockState.characters = [{
+      id: 71,
+      name: "Maya",
+      description: "A cheerful founder",
+      referenceImagePath: "/objects/1/uploads/maya.png",
+      referenceSheetImagePath: "/objects/1/uploads/maya-sheet.png",
+      referenceSheetStatus: "pending",
+      referenceSheetError: null,
+      outfits: [],
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    }];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("button-manage-characters"));
+
+    expect(screen.getByTestId("reference-sheet-status-71").textContent).toMatch(
+      /pending approval/i,
+    );
+    expect(screen.getByAltText("Maya primary portrait")).toBeTruthy();
+    expect(screen.getByAltText("Maya multi-view reference sheet")).toBeTruthy();
+    await user.click(screen.getByTestId("button-approve-reference-sheet-71"));
+    expect(mockState.reviewedReferenceSheets).toEqual([
+      { characterId: 71, decision: "approve" },
+    ]);
+
+    // The explicit review response returns an approved state.
+    cleanup();
+    renderPage();
+    await user.click(screen.getByTestId("button-manage-characters"));
+    expect(screen.getByTestId("reference-sheet-status-71").textContent).toMatch(
+      /approved/i,
+    );
+    await user.click(screen.getByTestId("button-regenerate-reference-sheet-71"));
+    expect(mockState.regeneratedReferenceSheets).toEqual([71]);
+
+    // Regeneration clears the old approved asset before work begins; the
+    // fresh query is pending review and cannot expose the approve action
+    // until a new sheet exists.
+    cleanup();
+    renderPage();
+    await user.click(screen.getByTestId("button-manage-characters"));
+    expect(screen.getByTestId("reference-sheet-status-71").textContent).toMatch(
+      /pending approval/i,
+    );
+    expect(screen.queryByTestId("button-approve-reference-sheet-71")).toBeNull();
+    expect(screen.getByTestId("button-regenerate-reference-sheet-71").textContent).toMatch(
+      /retry generation/i,
+    );
   });
 });

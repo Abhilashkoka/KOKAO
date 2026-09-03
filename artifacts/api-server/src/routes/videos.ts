@@ -165,6 +165,7 @@ import {
   generateOutfitVariant,
   getCharacterDetail,
   imageSizeForAspect,
+  isCharacterReferenceSheetApproved,
   isOutfitSelectable,
   loadReferenceImage,
   resolveOutfit,
@@ -3715,9 +3716,14 @@ router.put(
         const outfit = detail
           ? resolveOutfit(detail, assignment.outfitId)
           : null;
-        if (!detail || !outfit || assignment.consentGranted !== true) {
+        if (
+          !detail ||
+          !isCharacterReferenceSheetApproved(detail.character) ||
+          !outfit ||
+          assignment.consentGranted !== true
+        ) {
           res.status(404).json({
-            error: `Tenant-owned character and outfit for role ${role.name} were not found or consent is missing.`,
+            error: `Tenant-owned character and approved reference sheet/outfit for role ${role.name} were not found or consent is missing.`,
           });
           return;
         }
@@ -3856,6 +3862,12 @@ router.put(
             .json({
               error: `Tenant-owned character for role ${role.name} was not found.`,
             });
+          return;
+        }
+        if (!isCharacterReferenceSheetApproved(detail.character)) {
+          res.status(409).json({
+            error: `Approve the character reference sheet for role ${role.name} before casting.`,
+          });
           return;
         }
         const outfit = resolveOutfit(detail, assignment.outfitId);
@@ -4741,6 +4753,12 @@ router.put(
       });
       return;
     }
+    if (!isCharacterReferenceSheetApproved(detail.character)) {
+      res.status(409).json({
+        error: "Approve this character's reference sheet before finalizing the cast.",
+      });
+      return;
+    }
     if (!isOutfitSelectable(outfit)) {
       res.status(400).json({
         error: "Approve and identity-verify the outfit preview before finalizing it.",
@@ -5272,9 +5290,14 @@ router.post(
         ? null
         : await getCharacterDetail(req.tenantId, characterId);
       const outfit = detail ? resolveOutfit(detail, input.outfitId) : null;
-      if (!detail || !outfit || !isOutfitSelectable(outfit)) {
-        await persist({ status: "failed", error: "Tenant-owned character or approved outfit was not found." });
-        res.status(404).json({ error: "Tenant-owned character or approved outfit was not found." });
+      if (
+        !detail ||
+        !isCharacterReferenceSheetApproved(detail.character) ||
+        !outfit ||
+        !isOutfitSelectable(outfit)
+      ) {
+        await persist({ status: "failed", error: "Tenant-owned character, approved reference sheet, or approved outfit was not found." });
+        res.status(409).json({ error: "Approve the character reference sheet and outfit before replacing this cast member." });
         return;
       }
       candidate = input.kind === "character"
@@ -7266,6 +7289,13 @@ async function generateVideoHandler(
       const detail = await getCharacterDetail(req.tenantId, defaultCharacterId);
       if (!detail) {
         res.status(400).json({ error: "That character does not exist." });
+        return;
+      }
+      if (!isCharacterReferenceSheetApproved(detail.character)) {
+        res.status(409).json({
+          error:
+            "Approve this character's reference sheet in the character manager before generating a new video.",
+        });
         return;
       }
       const outfit = resolveOutfit(detail, body.outfitId ?? null);

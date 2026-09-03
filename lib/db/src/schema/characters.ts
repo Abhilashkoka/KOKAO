@@ -29,6 +29,15 @@ export const charactersTable = pgTable("characters", {
   description: text("description").notNull().default(""),
   /** Canonical full-body reference image (/objects/<tenantId>/uploads/...). */
   referenceImagePath: text("reference_image_path").notNull(),
+  /** Separate multi-view review asset. Never replaces the canonical portrait. */
+  referenceSheetImagePath: text("reference_sheet_image_path"),
+  /** A sheet is never usable until a person explicitly approves it. */
+  referenceSheetStatus: text("reference_sheet_status")
+    .$type<"pending" | "approved" | "rejected" | "failed">()
+    .notNull()
+    .default("pending"),
+  /** Actionable provider/persistence failure surfaced by the character manager. */
+  referenceSheetError: text("reference_sheet_error"),
   /** Normalized face-and-hair rectangle protected during outfit edits. */
   protectedRegion: jsonb("protected_region")
     .$type<{ x: number; y: number; width: number; height: number } | null>()

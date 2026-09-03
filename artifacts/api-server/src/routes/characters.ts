@@ -35,6 +35,7 @@ import {
   CharacterInputError,
   loadReferenceImage,
   generateCharacterReference,
+  generateCharacterReferenceSheet,
   generateOutfitVariant,
   createOutfitMaskedEdit,
 } from "../lib/characters";
@@ -112,6 +113,9 @@ function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
     name: character.name,
     description: character.description,
     referenceImagePath: character.referenceImagePath,
+    referenceSheetImagePath: character.referenceSheetImagePath,
+    referenceSheetStatus: character.referenceSheetStatus,
+    referenceSheetError: character.referenceSheetError,
     protectedRegion: character.protectedRegion,
     outfits: ordered.map(serializeOutfit),
     createdAt: character.createdAt.toISOString(),
@@ -197,6 +201,149 @@ function imageErrorStatus(err: unknown): { status: number; error: string } {
     };
   }
   return { status: 500, error: "Something went wrong. Please try again." };
+}
+
+const REFERENCE_SHEET_RETRY_MESSAGE =
+  "The character was saved, but its reference sheet could not be generated. Retry from the character manager.";
+
+/**
+ * Generate and persist a character's separate review sheet. Approval is
+ * revoked before provider work starts, so stale sheets can never remain castable.
+ */
+async function generateAndPersistReferenceSheet(
+  req: Request,
+  character: Character,
+): Promise<Character> {
+  await db
+    .update(charactersTable)
+    .set({
+      referenceSheetImagePath: null,
+      referenceSheetStatus: "pending",
+      referenceSheetError: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(charactersTable.id, character.id),
+        eq(charactersTable.tenantId, req.tenantId),
+      ),
+    );
+
+  let funding: Funding | null = null;
+  let successfulAiWork = false;
+  const startedAt = Date.now();
+  try {
+    funding = await reserveImageFunding(req);
+    if (!funding) {
+      throw new CharacterInputError(
+        "Image funding is unavailable. Add image credits or recharge, then retry.",
+      );
+    }
+    const primaryReference = await loadReferenceImage(
+      character.referenceImagePath,
+      req.tenantId,
+    );
+    const generated =
+      funding.source === "wallet" && funding.reservation
+        ? await executeWalletProviderOperation(
+            {
+              tenantId: req.tenantId,
+              reservation: funding.reservation,
+              operationKind: "character_reference",
+              operationKey: `character-reference-sheet:${character.id}:${funding.reservation.id}`,
+              settlement: {
+                kind: "image",
+                costPaise: null,
+                refKind: "character",
+                refId: String(character.id),
+              },
+            },
+            () => generateCharacterReferenceSheet(character, primaryReference),
+            (result) => ({ provider: result.provider, model: result.model }),
+            { isFailureConfirmed: isConfirmedImageFailure },
+          )
+        : null;
+    const result =
+      generated?.value ??
+      (await generateCharacterReferenceSheet(character, primaryReference));
+    successfulAiWork = true;
+    await settleImageFunding(
+      req,
+      funding,
+      {
+        durationMs: Date.now() - startedAt,
+        responseBytes: result.buffer.length,
+        model: result.model,
+        provider: result.provider,
+      },
+      generated?.operationId,
+    );
+    const referenceSheetImagePath = await uploadBufferToStorage(
+      req.tenantId,
+      result.buffer,
+      "image/png",
+    );
+    const [updated] = await db
+      .update(charactersTable)
+      .set({
+        referenceSheetImagePath,
+        referenceSheetStatus: "pending",
+        referenceSheetError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(charactersTable.id, character.id),
+          eq(charactersTable.tenantId, req.tenantId),
+        ),
+      )
+      .returning();
+    return updated!;
+  } catch (caught) {
+    let err = caught;
+    if (err instanceof WalletProviderSuccessPersistenceError) successfulAiWork = true;
+    if (err instanceof WalletProviderPostSuccessError) {
+      successfulAiWork = true;
+      const operationId = err.operationId;
+      await settleWalletProviderOperationDurably(operationId).catch(
+        (settlementError) =>
+          req.log.error(
+            { err: settlementError, operationId },
+            "Failed to settle character reference sheet wallet charge",
+          ),
+      );
+      err = err.originalError;
+    }
+    if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
+    const detail = imageErrorStatus(err);
+    req.log.warn(
+      { err, characterId: character.id },
+      "Character reference sheet generation failed",
+    );
+    const [failed] = await db
+      .update(charactersTable)
+      .set({
+        referenceSheetStatus: "failed",
+        referenceSheetError:
+          err instanceof CharacterInputError ? err.message : REFERENCE_SHEET_RETRY_MESSAGE,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(charactersTable.id, character.id),
+          eq(charactersTable.tenantId, req.tenantId),
+        ),
+      )
+      .returning();
+    if (!failed) throw err;
+    // Preserve the saved character and expose an actionable state. Retry routes
+    // use the same helper but translate this state back into an HTTP failure.
+    return {
+      ...failed,
+      referenceSheetError:
+        failed.referenceSheetError ?? detail.error ?? REFERENCE_SHEET_RETRY_MESSAGE,
+    };
+  }
 }
 
 router.get("/characters", async (req: Request, res: Response) => {
@@ -327,6 +474,9 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       name: resolved.preset.name,
       description: resolved.preset.description,
       referenceImagePath: resolved.preset.referenceImagePath,
+      referenceSheetImagePath: null,
+      referenceSheetStatus: "approved" as const,
+      referenceSheetError: null,
       protectedRegion,
       createdAt: resolved.preset.createdAt,
       updatedAt: resolved.preset.updatedAt,
@@ -802,7 +952,13 @@ router.post("/characters", async (req: Request, res: Response) => {
     });
     return;
   }
-  res.status(201).json(serializeCharacter(created.character, [created.defaultOutfit]));
+  const characterWithSheet = await generateAndPersistReferenceSheet(
+    req,
+    created.character,
+  );
+  res
+    .status(201)
+    .json(serializeCharacter(characterWithSheet, [created.defaultOutfit]));
 });
 
 router.param("characterId", (req, res, next, value) => {
@@ -828,6 +984,86 @@ async function loadCharacter(req: Request): Promise<Character | undefined> {
       .limit(1)
   )[0];
 }
+
+router.post(
+  "/characters/:characterId/reference-sheet/generate",
+  async (req: Request, res: Response) => {
+    const character = await loadCharacter(req);
+    if (!character) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const updated = await generateAndPersistReferenceSheet(req, character);
+    const outfits = await db
+      .select()
+      .from(characterOutfitsTable)
+      .where(
+        and(
+          eq(characterOutfitsTable.characterId, character.id),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        ),
+      );
+    if (updated.referenceSheetStatus === "failed") {
+      res.status(502).json({
+        error: updated.referenceSheetError ?? REFERENCE_SHEET_RETRY_MESSAGE,
+        character: serializeCharacter(updated, outfits),
+      });
+      return;
+    }
+    res.json(serializeCharacter(updated, outfits));
+  },
+);
+
+router.post(
+  "/characters/:characterId/reference-sheet/:decision",
+  async (req: Request, res: Response) => {
+    const character = await loadCharacter(req);
+    if (!character) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const decision = String(req.params.decision);
+    if (decision !== "approve" && decision !== "reject") {
+      res.status(400).json({ error: "Choose approve or reject." });
+      return;
+    }
+    if (!character.referenceSheetImagePath) {
+      res.status(409).json({ error: "Generate a reference sheet before reviewing it." });
+      return;
+    }
+    if (
+      decision === "approve" &&
+      character.referenceSheetStatus !== "pending"
+    ) {
+      res.status(409).json({ error: "Only a pending reference sheet can be approved." });
+      return;
+    }
+    const [updated] = await db
+      .update(charactersTable)
+      .set({
+        referenceSheetStatus: decision === "approve" ? "approved" : "rejected",
+        referenceSheetError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(charactersTable.id, character.id),
+          eq(charactersTable.tenantId, req.tenantId),
+        ),
+      )
+      .returning();
+    const outfits = await db
+      .select()
+      .from(characterOutfitsTable)
+      .where(
+        and(
+          eq(characterOutfitsTable.characterId, character.id),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        ),
+      );
+    res.json(serializeCharacter(updated!, outfits));
+  },
+);
 
 router.delete("/characters/:characterId", async (req: Request, res: Response) => {
   const character = await loadCharacter(req);

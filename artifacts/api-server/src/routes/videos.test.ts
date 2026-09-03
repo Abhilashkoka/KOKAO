@@ -680,6 +680,8 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
         name: "Maya",
         description: "cheerful founder",
         referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
+        referenceSheetImagePath: `/objects/${tenantId}/uploads/maya-sheet.png`,
+        referenceSheetStatus: "approved",
       })
       .returning()
   )[0]!;
@@ -2175,6 +2177,28 @@ describe("POST /api/ai/generate-video", () => {
         characterId: seeded.characterId,
       });
     expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("refuses a new video until the character reference sheet is approved", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedCharacter(tenant.tenantId);
+    await db
+      .update(charactersTable)
+      .set({ referenceSheetStatus: "pending" })
+      .where(eq(charactersTable.id, seeded.characterId));
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "a day in the life",
+        visualsSource: "character",
+        characterId: seeded.characterId,
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/approve.*reference sheet/i);
     expect(runnerState.calls).toHaveLength(0);
   });
 
@@ -5450,6 +5474,8 @@ describe("guided story route fail-closed regressions", () => {
       name: "Final Mina",
       description: "Canonical replacement",
       referenceImagePath: `/objects/${tenant.tenantId}/uploads/final-mina.png`,
+      referenceSheetImagePath: `/objects/${tenant.tenantId}/uploads/final-mina-sheet.png`,
+      referenceSheetStatus: "approved",
       protectedRegion: { x: 0.2, y: 0.05, width: 0.6, height: 0.35 },
     }).returning();
     const [outfit] = await db.insert(characterOutfitsTable).values({

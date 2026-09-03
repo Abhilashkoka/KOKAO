@@ -7897,6 +7897,16 @@ export interface AnalyzeVideoStyleRequest {
   sourceVideoPath: string;
 }
 
+export type CharacterReferenceSheetStatus = typeof CharacterReferenceSheetStatus[keyof typeof CharacterReferenceSheetStatus];
+
+
+export const CharacterReferenceSheetStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+  failed: 'failed',
+} as const;
+
 export interface ProtectedImageRegion {
   /**
      * @minimum 0
@@ -7950,6 +7960,14 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  /**
+     * Separate generated multi-view sheet; serve via /api/storage{path}.
+     * @nullable
+     */
+  referenceSheetImagePath: string | null;
+  referenceSheetStatus: CharacterReferenceSheetStatus;
+  /** @nullable */
+  referenceSheetError: string | null;
   protectedRegion?: ProtectedImageRegion | null;
   outfits: CharacterOutfit[];
   createdAt: string;
@@ -8109,7 +8127,7 @@ export interface CreateCharacterRequest {
      */
   description?: string | null;
   /**
-     * Optional uploaded reference photo (/objects/... path). Used as the character's canonical reference; no AI cost.
+     * Optional uploaded reference photo (/objects/... path). Used as the character's canonical reference. The separate multi-view sheet is still generated as a billed, reference-required image.
      * @nullable
      */
   sourceImagePath?: string | null;

@@ -218,6 +218,25 @@ describe("automatic image provider routing", () => {
       null,
     );
   });
+
+  it("can force a capable provider for an immediate identity review asset", async () => {
+    process.env.BFL_API_KEY = "test-bfl-key";
+    await setImageGenSelection({
+      provider: "bfl",
+      model: null,
+      customBaseUrl: null,
+      fallbackEnabled: false,
+    });
+    vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
+
+    const out = await generateImage("p", "1024x1024", REFERENCE, {
+      requireReferenceInput: true,
+      forceCapabilityFallback: true,
+    });
+
+    expect(out.provider).toBe("openai");
+    expect(generateWithBfl).not.toHaveBeenCalled();
+  });
 });
 
 describe("rankImageGenProviders", () => {

@@ -2475,11 +2475,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "402":
-          description: Image quota exceeded (AI-generated reference)
+          description: Image quota exceeded (primary portrait and/or reference sheet)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /characters/{characterId}/reference-sheet/generate:
+    parameters:
+      - { name: characterId, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: generateCharacterReferenceSheet
+      tags: [characters]
+      summary: Generate or regenerate the character's multi-view reference sheet
+      responses:
+        "200":
+          description: Generated pending sheet; any prior approval is revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Character" }
+        "402": { description: Image funding unavailable }
+        "404": { description: Character not found }
+        "502":
+          description: Generation failed and the character remains retryable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /characters/{characterId}/reference-sheet/{decision}:
+    parameters:
+      - { name: characterId, in: path, required: true, schema: { type: integer } }
+      - { name: decision, in: path, required: true, schema: { type: string, enum: [approve, reject] } }
+    post:
+      operationId: reviewCharacterReferenceSheet
+      tags: [characters]
+      summary: Explicitly approve or reject the current generated reference sheet
+      responses:
+        "200":
+          description: Reviewed character
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Character" }
+        "404": { description: Character not found }
+        "409": { description: There is no pending sheet to approve }
   /preset-characters/{presetId}/outfit-derivatives:
     parameters:
       - { name: presetId, in: path, required: true, schema: { type: string } }
@@ -20376,7 +20412,7 @@ components:
     Character:
       type: object
       required:
-        [id, name, description, referenceImagePath, outfits, createdAt, updatedAt]
+        [id, name, description, referenceImagePath, referenceSheetImagePath, referenceSheetStatus, referenceSheetError, outfits, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -20388,6 +20424,14 @@ components:
         referenceImagePath:
           type: string
           description: Canonical reference image; serve via /api/storage{path}.
+        referenceSheetImagePath:
+          type: ["string", "null"]
+          description: Separate generated multi-view sheet; serve via /api/storage{path}.
+        referenceSheetStatus:
+          type: string
+          enum: [pending, approved, rejected, failed]
+        referenceSheetError:
+          type: ["string", "null"]
         protectedRegion:
           anyOf:
             - $ref: "#/components/schemas/ProtectedImageRegion"
@@ -20556,7 +20600,8 @@ components:
           type: ["string", "null"]
           description: >-
             Optional uploaded reference photo (/objects/... path). Used as the
-            character's canonical reference; no AI cost.
+            character's canonical reference. The separate multi-view sheet is
+            still generated as a billed, reference-required image.
     VisualAsset:
       type: object
       description: A saved, reusable image for AI generation (reference or source photo).

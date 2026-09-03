@@ -16,6 +16,7 @@ const generateImage = vi.fn(
       transparent?: boolean;
       exactMaskedEdit?: unknown;
       requireReferenceInput?: boolean;
+      forceCapabilityFallback?: boolean;
       onProviderSuccess?: (meta: { provider: string; model: string }) => Promise<void>;
     },
   ) => ({
@@ -34,6 +35,9 @@ const {
   sceneKeyframePrompt,
   generateSceneKeyframe,
   generateOutfitVariant,
+  generateCharacterReferenceSheet,
+  characterReferenceSheetPrompt,
+  isCharacterReferenceSheetApproved,
 } = await import("./characters");
 
 const CHARACTER = { name: "Maya", description: "founder" } as Character;
@@ -98,6 +102,22 @@ describe("reference-required routing", () => {
     expect(opts?.requireReferenceInput).toBe(true);
   });
 
+  it("uses either uploaded or AI primary portraits as required sheet input", async () => {
+    await generateCharacterReferenceSheet(CHARACTER, REFERENCE);
+
+    const [prompt, size, reference, opts] = generateImage.mock.calls[0]!;
+    expect(size).toBe("1536x1024");
+    expect(reference).toBe(REFERENCE);
+    expect(opts?.requireReferenceInput).toBe(true);
+    expect(opts?.forceCapabilityFallback).toBe(true);
+    expect(prompt).toContain("full-body front view");
+    expect(prompt).toContain("side/profile view");
+    expect(prompt).toContain("full-body back view");
+    expect(prompt).toContain("front close-up");
+    expect(prompt).toContain("top-down view");
+    expect(prompt).toMatch(/same person/i);
+  });
+
   it("keeps masked-edit routing intact when it applies", async () => {
     const exactMaskedEdit = { protectedRectangle: { x: 0, y: 0, width: 1, height: 0.4 } };
     const onProviderSuccess = vi.fn(async () => {});
@@ -113,6 +133,44 @@ describe("reference-required routing", () => {
     expect(opts.requireReferenceInput).toBe(true);
     expect(opts.exactMaskedEdit).toBe(exactMaskedEdit);
     expect(opts.onProviderSuccess).toBe(onProviderSuccess);
+  });
+});
+
+describe("character reference sheet approval", () => {
+  it("fails closed unless both a generated path and explicit approval exist", () => {
+    expect(
+      isCharacterReferenceSheetApproved({
+        ...CHARACTER,
+        referenceSheetStatus: "pending",
+        referenceSheetImagePath: "/objects/1/sheet.png",
+      } as Character),
+    ).toBe(false);
+    expect(
+      isCharacterReferenceSheetApproved({
+        ...CHARACTER,
+        referenceSheetStatus: "approved",
+        referenceSheetImagePath: null,
+      } as Character),
+    ).toBe(false);
+    expect(
+      isCharacterReferenceSheetApproved({
+        ...CHARACTER,
+        referenceSheetStatus: "approved",
+        referenceSheetImagePath: "/objects/1/sheet.png",
+      } as Character),
+    ).toBe(true);
+  });
+
+  it("asks for one identity, exact clothing, a labeled grid, and natural studio treatment", () => {
+    const prompt = characterReferenceSheetPrompt(CHARACTER);
+    expect(prompt).toMatch(/exact same single person/i);
+    expect(prompt).toMatch(/exact identity/i);
+    expect(prompt).toMatch(/clothing/i);
+    expect(prompt).toMatch(/labeled grid/i);
+    expect(prompt).toMatch(/light gray/i);
+    expect(prompt).toMatch(/photorealistic cinematic/i);
+    expect(prompt).toMatch(/natural even lighting/i);
+    expect(prompt).toMatch(/do not invent multiple distinct people/i);
   });
 });
 

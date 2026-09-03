@@ -7232,6 +7232,148 @@ export const useCreateCharacter = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getCreateCharacterMutationOptions(options));
     }
 
+export const getGenerateCharacterReferenceSheetUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/reference-sheet/generate`
+}
+
+/**
+ * @summary Generate or regenerate the character's multi-view reference sheet
+ */
+export const generateCharacterReferenceSheet = async (characterId: number, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getGenerateCharacterReferenceSheetUrl(characterId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getGenerateCharacterReferenceSheetMutationOptions = <TError = ErrorType<void | ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCharacterReferenceSheet>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateCharacterReferenceSheet>>, TError,{characterId: number}, TContext> => {
+
+const mutationKey = ['generateCharacterReferenceSheet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateCharacterReferenceSheet>>, {characterId: number}> = (props) => {
+          const {characterId} = props ?? {};
+
+          return  generateCharacterReferenceSheet(characterId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateCharacterReferenceSheetMutationResult = NonNullable<Awaited<ReturnType<typeof generateCharacterReferenceSheet>>>
+
+    export type GenerateCharacterReferenceSheetMutationError = ErrorType<void | ErrorEnvelope>
+
+    /**
+ * @summary Generate or regenerate the character's multi-view reference sheet
+ */
+export const useGenerateCharacterReferenceSheet = <TError = ErrorType<void | ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCharacterReferenceSheet>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateCharacterReferenceSheet>>,
+        TError,
+        {characterId: number},
+        TContext
+      > => {
+      return useMutation(getGenerateCharacterReferenceSheetMutationOptions(options));
+    }
+
+export const getReviewCharacterReferenceSheetUrl = (characterId: number,
+    decision: 'approve' | 'reject',) => {
+
+
+
+
+  return `/api/characters/${characterId}/reference-sheet/${decision}`
+}
+
+/**
+ * @summary Explicitly approve or reject the current generated reference sheet
+ */
+export const reviewCharacterReferenceSheet = async (characterId: number,
+    decision: 'approve' | 'reject', options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getReviewCharacterReferenceSheetUrl(characterId,decision),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getReviewCharacterReferenceSheetMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewCharacterReferenceSheet>>, TError,{characterId: number;decision: 'approve' | 'reject'}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewCharacterReferenceSheet>>, TError,{characterId: number;decision: 'approve' | 'reject'}, TContext> => {
+
+const mutationKey = ['reviewCharacterReferenceSheet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewCharacterReferenceSheet>>, {characterId: number;decision: 'approve' | 'reject'}> = (props) => {
+          const {characterId,decision} = props ?? {};
+
+          return  reviewCharacterReferenceSheet(characterId,decision,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewCharacterReferenceSheetMutationResult = NonNullable<Awaited<ReturnType<typeof reviewCharacterReferenceSheet>>>
+
+    export type ReviewCharacterReferenceSheetMutationError = ErrorType<void>
+
+    /**
+ * @summary Explicitly approve or reject the current generated reference sheet
+ */
+export const useReviewCharacterReferenceSheet = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewCharacterReferenceSheet>>, TError,{characterId: number;decision: 'approve' | 'reject'}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewCharacterReferenceSheet>>,
+        TError,
+        {characterId: number;decision: 'approve' | 'reject'},
+        TContext
+      > => {
+      return useMutation(getReviewCharacterReferenceSheetMutationOptions(options));
+    }
+
 export const getGeneratePresetOutfitDerivativeUrl = (presetId: string,) => {
 
 

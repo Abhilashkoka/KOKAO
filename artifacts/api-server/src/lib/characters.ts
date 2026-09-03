@@ -56,6 +56,26 @@ export function characterReferencePrompt(description: string): string {
   );
 }
 
+/** Prompt for the separate, human-reviewed multi-view identity sheet. */
+export function characterReferenceSheetPrompt(character: Character): string {
+  const description = character.description
+    ? ` The character is described as: ${character.description}.`
+    : "";
+  return (
+    "Create a professional character reference sheet of the exact same single person " +
+    "shown in the reference image. Preserve their exact identity, face, hair, body, " +
+    "clothing, colors, accessories, and footwear." +
+    description +
+    " Arrange a clean, useful labeled grid containing: full-body front view, full-body " +
+    "side/profile view, full-body back view, front close-up of face and hair, and a " +
+    "top-down view. Include small useful detail and color swatches. Use a clean light " +
+    "gray studio background, photorealistic cinematic quality, natural even lighting, " +
+    "and consistent scale. Every panel depicts the same person in the same clothing; " +
+    "do not invent multiple distinct people, alternate identities, or alternate outfits. " +
+    "No watermark or branding."
+  );
+}
+
 /** Prompt for an identity-preserving costume variant of the reference. */
 export function outfitVariantPrompt(character: Character, outfitDescription: string): string {
   return (
@@ -122,6 +142,14 @@ export function sceneKeyframePrompt(
 export interface CharacterDetail {
   character: Character;
   outfits: CharacterOutfit[];
+}
+
+/** Current rows only: snapshots already attached to jobs bypass this gate. */
+export function isCharacterReferenceSheetApproved(character: Character): boolean {
+  return (
+    character.referenceSheetStatus === "approved" &&
+    Boolean(character.referenceSheetImagePath)
+  );
 }
 
 export type CharacterSnapshot = NonNullable<
@@ -247,6 +275,24 @@ export async function generateCharacterReference(
   selectionPolicy?: ImageGenSelectionPolicy,
 ): Promise<ImageGenResult> {
   return generateImage(characterReferencePrompt(description), "1024x1536", undefined, { selectionPolicy });
+}
+
+/** Generate a review sheet through the provider-independent reference-aware router. */
+export async function generateCharacterReferenceSheet(
+  character: Character,
+  primaryReference: ReferenceImage,
+  selectionPolicy?: ImageGenSelectionPolicy,
+): Promise<ImageGenResult> {
+  return generateImage(
+    characterReferenceSheetPrompt(character),
+    "1536x1024",
+    primaryReference,
+    {
+      requireReferenceInput: true,
+      forceCapabilityFallback: true,
+      selectionPolicy,
+    },
+  );
 }
 
 /** Build an explicit alpha mask: clothing may change; protected identity pixels may not. */

@@ -827,6 +827,12 @@ export async function generateImage(
     transparent?: boolean;
     exactMaskedEdit?: ExactMaskedEdit;
     requireReferenceInput?: boolean;
+    /**
+     * Immediate review assets may cross a pinned provider boundary when the
+     * selected provider cannot consume the required reference. This is not
+     * used by durable job snapshots, whose routing contract must stay frozen.
+     */
+    forceCapabilityFallback?: boolean;
     onProviderSuccess?: (meta: {
       provider: string;
       model: string;
@@ -855,7 +861,10 @@ export async function generateImage(
   const routedReference = prepared?.referenceImage ?? referenceImage;
   // Exact preservation has one canonical coordinate system and output size.
   const routedSize = exactMaskedEdit ? "1024x1536" : size;
-  const selection = opts?.selectionPolicy ?? (await getImageGenSelection());
+  const configuredSelection = opts?.selectionPolicy ?? (await getImageGenSelection());
+  const selection = opts?.forceCapabilityFallback
+    ? { ...configuredSelection, fallbackEnabled: true }
+    : configuredSelection;
   if (opts?.selectionPolicy?.provider === IMAGE_GEN_AUTO) {
     throw new ImageGenNotConfiguredError(
       "A locked image generation cannot use Auto. Ask an administrator to select an explicit image provider and model.",

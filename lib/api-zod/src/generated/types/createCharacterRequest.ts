@@ -19,7 +19,7 @@ export interface CreateCharacterRequest {
      */
   description?: string | null;
   /**
-     * Optional uploaded reference photo (/objects/... path). Used as the character's canonical reference; no AI cost.
+     * Optional uploaded reference photo (/objects/... path). Used as the character's canonical reference. The separate multi-view sheet is still generated as a billed, reference-required image.
      * @nullable
      */
   sourceImagePath?: string | null;

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CharacterOutfit } from './characterOutfit';
+import type { CharacterReferenceSheetStatus } from './characterReferenceSheetStatus';
 import type { ProtectedImageRegion } from './protectedImageRegion';
 
 export interface Character {
@@ -15,6 +16,14 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  /**
+     * Separate generated multi-view sheet; serve via /api/storage{path}.
+     * @nullable
+     */
+  referenceSheetImagePath: string | null;
+  referenceSheetStatus: CharacterReferenceSheetStatus;
+  /** @nullable */
+  referenceSheetError: string | null;
   protectedRegion?: ProtectedImageRegion | null;
   outfits: CharacterOutfit[];
   createdAt: Date;

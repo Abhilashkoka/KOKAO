@@ -34,6 +34,8 @@ import {
   useListContent,
   useListCharacters,
   useCreateCharacter,
+  useGenerateCharacterReferenceSheet,
+  useReviewCharacterReferenceSheet,
   useDeleteCharacter,
   useCreateCharacterOutfit,
   useDeleteCharacterOutfit,
@@ -10853,6 +10855,8 @@ function CharacterManagerDialog({
     query: { queryKey: getListCharactersQueryKey(), enabled: open },
   });
   const createCharacter = useCreateCharacter();
+  const generateReferenceSheet = useGenerateCharacterReferenceSheet();
+  const reviewReferenceSheet = useReviewCharacterReferenceSheet();
   const deleteCharacter = useDeleteCharacter();
   const createOutfit = useCreateCharacterOutfit();
   const deleteOutfit = useDeleteCharacterOutfit();
@@ -10979,7 +10983,7 @@ function CharacterManagerDialog({
           toast({
             title: "Character created",
             description:
-              "Pick them in Text to Video or Topic to Video to lock their identity.",
+              "Review and approve the new multi-view reference sheet before using this character in a video.",
           });
         },
         onError: (error: any) =>
@@ -11412,6 +11416,156 @@ function CharacterManagerDialog({
                           </button>
                         )}
                       </div>
+                      {!shared && (
+                        <div
+                          className="rounded-md border border-border p-2 space-y-2"
+                          data-testid={`reference-sheet-${c.id}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-medium">
+                              Professional reference sheet
+                            </p>
+                            <Badge
+                              variant={
+                                c.referenceSheetStatus === "approved"
+                                  ? "default"
+                                  : c.referenceSheetStatus === "rejected" ||
+                                      c.referenceSheetStatus === "failed"
+                                    ? "destructive"
+                                    : "secondary"
+                              }
+                              data-testid={`reference-sheet-status-${c.id}`}
+                            >
+                              {c.referenceSheetStatus === "approved"
+                                ? "Approved"
+                                : c.referenceSheetStatus === "rejected"
+                                  ? "Rejected"
+                                  : c.referenceSheetStatus === "failed"
+                                    ? "Generation failed"
+                                    : "Pending approval"}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <div>
+                              <p className="mb-1 text-[10px] text-muted-foreground">
+                                Primary portrait
+                              </p>
+                              <img
+                                src={servedCharacterImage(c.referenceImagePath)}
+                                alt={`${c.name} primary portrait`}
+                                className="h-24 w-16 rounded border border-border object-cover"
+                              />
+                            </div>
+                            {c.referenceSheetImagePath && (
+                              <div className="min-w-0 flex-1">
+                                <p className="mb-1 text-[10px] text-muted-foreground">
+                                  Multi-view sheet
+                                </p>
+                                <img
+                                  src={servedCharacterImage(c.referenceSheetImagePath)}
+                                  alt={`${c.name} multi-view reference sheet`}
+                                  className="h-24 w-full max-w-xs rounded border border-border object-contain bg-muted"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          {c.referenceSheetError && (
+                            <p className="text-xs text-destructive">
+                              {c.referenceSheetError}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            {c.referenceSheetImagePath &&
+                              c.referenceSheetStatus === "pending" && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    onClick={() =>
+                                      reviewReferenceSheet.mutate(
+                                        {
+                                          characterId: Number(c.id),
+                                          decision: "approve",
+                                        },
+                                        {
+                                          onSuccess: () => {
+                                            invalidate();
+                                            toast({
+                                              title: "Reference sheet approved",
+                                              description:
+                                                "This character can now be used for new videos.",
+                                            });
+                                          },
+                                          onError: (error: any) =>
+                                            onApiError(
+                                              error,
+                                              "Could not approve the reference sheet",
+                                            ),
+                                        },
+                                      )
+                                    }
+                                    disabled={reviewReferenceSheet.isPending}
+                                    data-testid={`button-approve-reference-sheet-${c.id}`}
+                                  >
+                                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      reviewReferenceSheet.mutate(
+                                        {
+                                          characterId: Number(c.id),
+                                          decision: "reject",
+                                        },
+                                        { onSuccess: invalidate },
+                                      )
+                                    }
+                                    disabled={reviewReferenceSheet.isPending}
+                                    data-testid={`button-reject-reference-sheet-${c.id}`}
+                                  >
+                                    <XCircle className="mr-1.5 h-4 w-4" />
+                                    Reject
+                                  </Button>
+                                </>
+                              )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                generateReferenceSheet.mutate(
+                                  { characterId: Number(c.id) },
+                                  {
+                                    onSuccess: () => {
+                                      invalidate();
+                                      toast({
+                                        title: "Reference sheet generated",
+                                        description:
+                                          "Review the new sheet before approving it.",
+                                      });
+                                    },
+                                    onError: (error: any) => {
+                                      invalidate();
+                                      onApiError(
+                                        error,
+                                        "Could not generate the reference sheet",
+                                      );
+                                    },
+                                  },
+                                )
+                              }
+                              disabled={
+                                generateReferenceSheet.isPending ||
+                                reviewReferenceSheet.isPending
+                              }
+                              data-testid={`button-regenerate-reference-sheet-${c.id}`}
+                            >
+                              <RotateCcw className="mr-1.5 h-4 w-4" />
+                              {c.referenceSheetImagePath ? "Regenerate" : "Retry generation"}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       {c.description && (
                         <p className="text-xs text-muted-foreground">
                           {c.description}
