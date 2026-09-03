@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { and } from "drizzle-orm";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   allowsGeneratedStoryboardPrivacyRecovery,
   hasDeferredTemplateFunding,
@@ -87,6 +91,8 @@ const state = vi.hoisted(() => ({
   unpricedVideoModels: new Set<string>(),
   guidedPreviewProviderCalls: 0,
   guidedPreviewGenerationEnabled: false,
+  renderedOutputBuffer: null as Buffer | null,
+  uploadedBodies: [] as Array<{ body: Buffer; contentType: string | null }>,
 }));
 
 function pcmWav(seconds = 2): Buffer {
@@ -170,7 +176,7 @@ vi.mock("./clipStoryboard", async (importOriginal) => {
         });
       }
       return {
-        buffer: Buffer.from("rendered-mp4"),
+        buffer: state.renderedOutputBuffer ?? Buffer.from("rendered-mp4"),
         provider: "replicate",
         model: "veo-test",
         totalSec: 4,
@@ -903,11 +909,23 @@ beforeEach(() => {
   state.unpricedVideoModels.clear();
   state.guidedPreviewProviderCalls = 0;
   state.guidedPreviewGenerationEnabled = false;
+  state.renderedOutputBuffer = null;
+  state.uploadedBodies.length = 0;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(null, { status: 200 })),
+    vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if (init?.body) {
+        state.uploadedBodies.push({
+          body: Buffer.isBuffer(init.body)
+            ? init.body
+            : Buffer.from(await new Response(init.body).arrayBuffer()),
+          contentType: new Headers(init.headers).get("content-type"),
+        });
+      }
+      return new Response(null, { status: 200 });
+    }),
   );
 });
 
@@ -944,6 +962,154 @@ describe("guided-story storyboard routing", () => {
         visualsSource: "ai_video",
       }),
     ).toBe(true);
+  });
+});
+
+describe("Guided Story native synchronized audio", () => {
+  const intrinsicOptions = (provider: string, model: string, generateAudio: boolean): VideoJobOptions => ({
+    aspectRatio: "9:16",
+    reviewStoryboard: false,
+    visualsSource: "character",
+    resolvedVideoModel: {
+      source: "explicit",
+      mode: "image",
+      provider,
+      model,
+      catalogModelId: "test-model",
+      durationSec: 5,
+      permittedDurationSec: [5],
+      durationPolicy: "exact",
+      resolution: "720p",
+      quality: null,
+      generateAudio,
+      supportsEndFrame: false,
+    },
+    guidedStoryIntrinsicLipSync: {
+      version: 1,
+      locale: "en",
+      provider: "replicate",
+      model: "sync/lipsync-2",
+      estimatedAdditionalPaise: 0,
+      scenes: [{
+        sceneId: "topic-s1",
+        roleId: "host",
+        characterName: "Host",
+        characterDescription: "Approved host",
+        outfitDescription: "Blue jacket",
+        text: "Native dialogue",
+        startMs: 0,
+        endMs: 4_000,
+        inputFingerprint: "fixture",
+        voiceProvider: "stock",
+        voiceId: "alloy",
+        providerVoiceId: null,
+        estimatedAnimationPaise: 0,
+        estimatedLipSyncPaise: 0,
+      }],
+    },
+  } as VideoJobOptions);
+
+  const intrinsicBoard = (tenantId: number) => ({
+    version: 1,
+    mode: "guided_story",
+    visualsSource: "character",
+    timelineLocked: true,
+    model: "test-model",
+    provider: "replicate",
+    regenerations: 0,
+    narration: null,
+    scenes: [{
+      id: "topic-s1",
+      text: "Native dialogue",
+      visual: "Approved host speaking",
+      durationSec: 4,
+      previewPath: `/objects/${tenantId}/uploads/approved.png`,
+      outfitId: null,
+      previewCheckpoint: {
+        status: "complete",
+        targetPath: `/objects/${tenantId}/uploads/approved.png`,
+      },
+      guidedStory: {
+        startMs: 0,
+        endMs: 4_000,
+        roleIds: ["host"],
+        inconsistencyFlags: [],
+        inputFingerprint: "fixture",
+      },
+    }],
+  } as unknown as VideoStoryboard);
+
+  it("preserves a Seedance 2.5 audio fixture without Replicate lip-sync", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kokao-seedance-audio-"));
+    try {
+      const fixturePath = join(dir, "seedance-native.mp4");
+      const encoded = spawnSync("ffmpeg", [
+        "-y",
+        "-f", "lavfi", "-i", "color=c=blue:size=320x240:rate=15:duration=4",
+        "-f", "lavfi", "-i", "sine=frequency=733:duration=4",
+        "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest",
+        fixturePath,
+      ], { timeout: 60_000 });
+      expect(encoded.status, encoded.stderr?.toString()).toBe(0);
+      state.renderedOutputBuffer = await readFile(fixturePath);
+      const tenant = await newTenant();
+      const job = await seedJob(tenant.tenantId, {
+        engine: "text_to_video",
+        options: intrinsicOptions("openrouter", "bytedance/seedance-2.5", true),
+        storyboard: intrinsicBoard(tenant.tenantId),
+      });
+
+      await runVideoGenerationJob(job.id, "credit");
+
+      const completed = await readJob(job.id);
+      expect(completed.status, completed.error ?? "no job error").toBe("succeeded");
+      expect(state.lipSyncCalls).toBe(0);
+      expect(state.dialogueStrictTrimDurations).toEqual([]);
+      expect(state.concatenatedClips).toEqual([]);
+      const preservedNativeVideo = state.uploadedBodies
+        .filter((upload) => upload.contentType === "video/mp4")
+        .sort((left, right) => right.body.length - left.body.length)[0]?.body;
+      expect(preservedNativeVideo).toBeDefined();
+
+      const finalPath = join(dir, "final.mp4");
+      await writeFile(finalPath, preservedNativeVideo!);
+      const probed = spawnSync("ffprobe", [
+        "-v", "error", "-select_streams", "a:0",
+        "-show_entries", "stream=codec_type", "-of", "csv=p=0", finalPath,
+      ], { timeout: 30_000 });
+      expect(probed.status, probed.stderr?.toString()).toBe(0);
+      expect(probed.stdout.toString().trim()).toBe("audio");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the existing Replicate path for models without native synchronized audio", async () => {
+    const tenant = await newTenant();
+    const options = intrinsicOptions("replicate", "wan-video/wan-2.5-i2v", false);
+    options.guidedStoryIntrinsicLipSync!.checkpoint = {
+      state: "prepared",
+      basePath: `/objects/${tenant.tenantId}/uploads/base.mp4`,
+      scenes: [{
+        sceneId: "topic-s1",
+        state: "prepared",
+        audioPath: `/objects/${tenant.tenantId}/uploads/dialogue.wav`,
+      }],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "text_to_video",
+      options,
+      storyboard: intrinsicBoard(tenant.tenantId),
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const completed = await readJob(job.id);
+    expect(
+      state.lipSyncCalls,
+      JSON.stringify(completed.options?.guidedStoryIntrinsicLipSync?.checkpoint),
+    ).toBe(1);
+    expect(state.lipSyncModels).toEqual(["sync/lipsync-2"]);
   });
 });
 
