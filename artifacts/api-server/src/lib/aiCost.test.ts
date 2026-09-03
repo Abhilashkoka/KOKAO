@@ -351,6 +351,33 @@ describe("variant-aware video pricing", () => {
       provider: "replicate", model: `${MODEL}-legacy`, variantCriteria: { quality: "high" },
     })).toBe(12900);
   });
+
+  it("lets a newly saved generic video price supersede stale conditional rows", async () => {
+    const model = `${MODEL}-generic-supersedes`;
+    const conditional = await upsertModelPrice({
+      kind: "video", provider: "openrouter", model,
+      variantCriteria: { quality: "low", resolution: "480p" },
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null,
+      usdPerSecond: 0.12, usdPerVideo: null,
+    });
+    const generic = await upsertModelPrice({
+      kind: "video", provider: "openrouter", model,
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null,
+      usdPerSecond: 0.23, usdPerVideo: null,
+    });
+    createdPriceIds.push(conditional.id, generic.id);
+
+    expect(await computeVideoCostPaise({
+      provider: "openrouter",
+      model,
+      durationSec: 5,
+      variantCriteria: {
+        inputMode: "non_video",
+        quality: "high",
+        resolution: "720p",
+      },
+    })).toBe(9890);
+  });
 });
 
 describe("buildTextCostMeta", () => {

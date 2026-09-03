@@ -239,6 +239,21 @@ export function canonicalVideoVariantKey(criteria?: VideoPriceCriteria): string 
   );
 }
 
+async function retireConditionalPricesSupersededByGeneric(
+  kind: string,
+  provider: string,
+  model: string,
+  variantKey: string,
+): Promise<void> {
+  if (kind !== "video" || variantKey !== "") return;
+  await pruneModelPriceVariants({
+    kind,
+    provider,
+    model,
+    keepVariantKeys: [""],
+  });
+}
+
 /** Remove conditional rows that an authoritative provider refresh no longer publishes. */
 export async function pruneModelPriceVariants(args: {
   kind: string;
@@ -309,6 +324,12 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
         ),
       );
     }
+    await retireConditionalPricesSupersededByGeneric(
+      input.kind,
+      target.provider,
+      target.model,
+      variantKey,
+    );
     return row;
   }
 
@@ -331,6 +352,12 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
       set: { ...prices, updatedAt: new Date() },
     })
     .returning();
+  await retireConditionalPricesSupersededByGeneric(
+    input.kind,
+    row.provider,
+    row.model,
+    variantKey,
+  );
   return row;
 }
 
