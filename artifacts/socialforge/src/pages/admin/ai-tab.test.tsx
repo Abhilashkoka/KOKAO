@@ -50,7 +50,7 @@ const fallbackMutate = vi.fn();
 const videoUpdateMutate = vi.fn();
 
 describe("AI fallback sequence", () => {
-  it("shows server pricing, customer estimate, and an unavailable fallback warning", () => {
+  it("shows a compact summary before expanding server pricing details", async () => {
     mockState.fallbacks = {
       generatedAt: "2026-01-01T00:00:00.000Z",
       families: [{
@@ -65,6 +65,10 @@ describe("AI fallback sequence", () => {
       }],
     };
     render(<QueryClientProvider client={new QueryClient()}><AiFallbacksCard /></QueryClientProvider>);
+    expect(screen.getByTestId("summary-ai-fallbacks").textContent).toContain("1 routing groups");
+    expect(screen.getByTestId("summary-ai-fallbacks").textContent).toContain("1 need attention");
+    expect(screen.queryByText("Missing price")).toBeNull();
+    await userEvent.click(screen.getByTestId("button-toggle-ai-fallbacks"));
     expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("Missing price");
     expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("Estimated charge for a representative 5-second clip: ₹1.25");
     expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("No usable fallback");
@@ -101,6 +105,7 @@ describe("AI fallback sequence", () => {
       }],
     };
     render(<QueryClientProvider client={new QueryClient()}><AiFallbacksCard /></QueryClientProvider>);
+    await userEvent.click(screen.getByTestId("button-toggle-ai-fallbacks"));
 
     await userEvent.click(screen.getByLabelText("Add image fallback"));
     await userEvent.click(await screen.findByRole("option", { name: "BFL" }));
@@ -137,6 +142,7 @@ describe("AI fallback sequence", () => {
       ],
     };
     render(<QueryClientProvider client={new QueryClient()}><AiFallbacksCard /></QueryClientProvider>);
+    await userEvent.click(screen.getByTestId("button-toggle-ai-fallbacks"));
 
     await userEvent.click(screen.getAllByRole("button", { name: "Restore automatic order" })[0]!);
     expect(fallbackMutate).toHaveBeenLastCalledWith({

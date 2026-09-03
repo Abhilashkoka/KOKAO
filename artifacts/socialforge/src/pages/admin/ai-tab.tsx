@@ -140,6 +140,7 @@ export function AiFallbacksCard() {
   const { data, isLoading, isError } = useAdminGetAiFallbacks({ query: { queryKey: getAdminGetAiFallbacksQueryKey(), refetchInterval: 30_000 } });
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
   const updateOrders = useAdminUpdateAiFallbackOrders({
     mutation: {
       onSuccess: (report) => {
@@ -182,18 +183,50 @@ export function AiFallbacksCard() {
           );
   return (
     <Card data-testid="card-ai-fallbacks">
-      <CardHeader>
-        <CardTitle>AI fallback sequence</CardTitle>
-        <CardDescription>
-          Server-derived routing order. Keys are never returned; candidates show only configuration,
-          circuit health, and whether a matching price is known.
-        </CardDescription>
+      <CardHeader className={expanded ? undefined : "pb-3"}>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>AI fallback sequence</CardTitle>
+          {!isLoading && data && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setExpanded((current) => !current)}
+              data-testid="button-toggle-ai-fallbacks"
+            >
+              {expanded ? "Collapse" : "Configure"}
+            </Button>
+          )}
+        </div>
+        {expanded && (
+          <CardDescription>
+            Server-derived routing order. Keys are never returned; candidates show only
+            configuration, circuit health, and whether a matching price is known.
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-9 w-full" />
         ) : isError ? (
           <p className="text-sm text-destructive">Could not load the fallback sequence.</p>
+        ) : !expanded ? (
+          <div
+            className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm"
+            data-testid="summary-ai-fallbacks"
+          >
+            <span className="font-medium">{data?.families.length ?? 0} routing groups</span>
+            <span className="text-muted-foreground">
+              {data?.families.filter((family) => family.manualOrderConfigured).length ?? 0} manual orders
+            </span>
+            {(data?.families.filter((family) => family.noUsableFallback).length ?? 0) > 0 ? (
+              <Badge variant="destructive">
+                {data?.families.filter((family) => family.noUsableFallback).length} need attention
+              </Badge>
+            ) : (
+              <Badge variant="secondary">All groups have a usable route</Badge>
+            )}
+          </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {data?.families.map((family) => (
@@ -390,7 +423,7 @@ export function AiFallbacksCard() {
             ))}
           </div>
         )}
-        {data?.generatedAt && <p className="mt-3 text-xs text-muted-foreground">Last updated {new Date(data.generatedAt).toLocaleTimeString()} · refreshes every 30 seconds.</p>}
+        {expanded && data?.generatedAt && <p className="mt-3 text-xs text-muted-foreground">Last updated {new Date(data.generatedAt).toLocaleTimeString()} · refreshes every 30 seconds.</p>}
       </CardContent>
     </Card>
   );
