@@ -13,6 +13,12 @@ Cast approval is a separate immutable boundary: bind approval to the current dra
 
 **How to apply:** Any Guided preview, approval, retry, or recovery path that validates a persisted board against its immutable snapshot must compare source fields structurally and leave the original fingerprint byte-for-byte unchanged. Preview, correction, retry, and final paths must fail closed unless the complete revision-bound cast approval manifest travels with the immutable job snapshot.
 
+Visual-only draft saves that do not alter cast references must carry a currently valid cast approval manifest forward to the new draft revision. Do this from the transaction's locked current state, not a stale pre-transaction read; never revive a manifest that was already stale.
+
+**Why:** Logo/location auto-saves can run immediately after role approval. Advancing the draft revision without advancing the unchanged exact-reference manifest makes confirmed characters appear unapproved and forces users to repeat approval.
+
+**How to apply:** On a visual-only revision bump, preserve approvals only when their revision equals the locked current draft revision, then stamp them with the next revision. Script, setup, character, or outfit changes still invalidate them.
+
 An approved default backdrop covers every scene unless that scene has its own independently approved override. Preview generation must load each scene's effective approved backdrop bytes into the same compact reference sheet as the approved character/outfit bytes, and must require a reference-capable provider; prompt-only fallback is forbidden.
 
 **Why:** Freezing paths in a job snapshot does not create visual consistency if the provider never receives those images, or if a provider pin silently strips image input.

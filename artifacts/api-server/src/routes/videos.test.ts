@@ -3734,6 +3734,7 @@ describe("guided story route fail-closed regressions", () => {
       .set({
         state: {
           ...draft.state,
+          castApprovals: castApprovals([], draft.revision),
           visualChoices: {
             ...draft.state.visualChoices!,
             backdropReference,
@@ -3759,6 +3760,7 @@ describe("guided story route fail-closed regressions", () => {
     expect(savedImage.status).toBe(200);
     expect(savedImage.body.visualChoices).toMatchObject(imageChoices);
     expect(savedImage.body.visualChoices.backdropReference).toEqual(backdropReference);
+    expect(savedImage.body.castApprovals.draftRevision).toBe(savedImage.body.revision);
 
     const savedText = await request(app)
       .patch(`/api/ai/guided-story/drafts/${draft.id}`)
@@ -3774,6 +3776,7 @@ describe("guided story route fail-closed regressions", () => {
       mode: "text", imagePath: null, description: "A rain-soaked community hall.",
     });
     expect(savedText.body.visualChoices.backdropReference).toEqual(backdropReference);
+    expect(savedText.body.castApprovals.draftRevision).toBe(savedText.body.revision);
 
     for (const visualChoices of [
       {

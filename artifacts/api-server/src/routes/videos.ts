@@ -1891,6 +1891,7 @@ async function saveGuidedState(
   row: GuidedStoryDraft,
   revision: number,
   state: GuidedStoryDraftState,
+  options?: { preserveCurrentCastApprovals?: boolean },
 ): Promise<GuidedStoryDraft | null> {
   if (revision !== row.revision) return null;
   return db.transaction(async (tx) => {
@@ -1908,10 +1909,22 @@ async function saveGuidedState(
           .for("update")
       )[0] ?? null;
     if (!current || current.revision !== revision) return null;
-    const nextState = preserveConcurrentGuidedLineTranslations(
+    let nextState = preserveConcurrentGuidedLineTranslations(
       current.state,
       state,
     );
+    if (
+      options?.preserveCurrentCastApprovals &&
+      current.state.castApprovals?.draftRevision === current.revision
+    ) {
+      nextState = {
+        ...nextState,
+        castApprovals: {
+          ...current.state.castApprovals,
+          draftRevision: current.revision + 1,
+        },
+      };
+    }
     return (
       (
         await tx
@@ -2830,7 +2843,9 @@ router.patch(
             script,
           )
         : { ...row.state, visualChoices };
-    const saved = await saveGuidedState(row, parsed.data.revision, nextState);
+    const saved = await saveGuidedState(row, parsed.data.revision, nextState, {
+      preserveCurrentCastApprovals: !parsed.data.setup && !parsed.data.script,
+    });
     if (!saved) {
       res
         .status(409)
