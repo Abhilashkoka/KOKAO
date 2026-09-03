@@ -1,6 +1,5 @@
 import {
   videoGenFetch,
-  errorDetail,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
@@ -22,6 +21,16 @@ export const OPENROUTER_T2V_MODEL = "kwaivgi/kling-v3.0-std";
 export const OPENROUTER_I2V_MODEL = "kwaivgi/kling-v3.0-std";
 
 const OPENROUTER_VIDEOS_URL = "https://openrouter.ai/api/v1/videos";
+const MAX_OPENROUTER_ERROR_BODY_BYTES = 64 * 1024;
+
+async function readOpenRouterError(res: Response): Promise<{
+  full: string;
+  detail: string;
+}> {
+  const body = await res.text().catch(() => "");
+  const full = body.slice(0, MAX_OPENROUTER_ERROR_BODY_BYTES);
+  return { full, detail: full.slice(0, 300) };
+}
 
 interface OpenRouterVideoJob {
   id?: string;
@@ -265,8 +274,8 @@ export async function generateWithOpenRouterVideo(
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const detail = await errorDetail(res);
-        const privacyError = parseOpenRouterInputImagePrivacyError(detail);
+        const { full, detail } = await readOpenRouterError(res);
+        const privacyError = parseOpenRouterInputImagePrivacyError(full);
         if (privacyError) throw privacyError;
         throw new VideoGenProviderError(
           `OpenRouter video request failed (${res.status}): ${detail}`,
@@ -293,8 +302,8 @@ export async function generateWithOpenRouterVideo(
     try {
       const poll = await videoGenFetch(pollUrl, { method: "GET", headers });
       if (!poll.ok) {
-        const detail = await errorDetail(poll);
-        const privacyError = parseOpenRouterInputImagePrivacyError(detail);
+        const { full, detail } = await readOpenRouterError(poll);
+        const privacyError = parseOpenRouterInputImagePrivacyError(full);
         if (privacyError) throw privacyError;
         throw new VideoGenProviderError(
           `OpenRouter video polling failed (${poll.status}): ${detail}`,

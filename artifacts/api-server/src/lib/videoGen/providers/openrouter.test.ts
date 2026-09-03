@@ -267,6 +267,30 @@ describe("generateWithOpenRouterVideo", () => {
     }
   });
 
+  it("classifies a nested submit privacy error even when its safe log detail is truncated", async () => {
+    const upstream = {
+      error: {
+        context: "x".repeat(400),
+        code: "InputImageSensitiveContentDetected.PrivacyInformation",
+        message: "The input image content[1] may contain a real person.",
+      },
+    };
+    const fetchSpy = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        error: {
+          message: `HTTP 400: ${JSON.stringify(upstream)}`,
+        },
+      }, 400),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const err = await generateWithOpenRouterVideo(baseInput, "sk-or-key").catch((error) => error);
+
+    expect(err).toBeInstanceOf(OpenRouterInputImagePrivacyError);
+    expect((err as OpenRouterInputImagePrivacyError).inputIndex).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("classifies the exact privacy code in OpenRouter's HTTP-status JSON wrapper", async () => {
     const wrapped = {
       error: {
