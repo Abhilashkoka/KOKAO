@@ -284,6 +284,21 @@ export async function syncActivatedModelPricing(args: {
           usdPerVideo: live.usdPerVideo ?? existing?.usdPerVideo ?? null,
         };
         await upsertModelPrice(merged);
+        if (
+          args.kind === "video" &&
+          source === args.provider.trim().toLowerCase()
+        ) {
+          // A provider-published model-level video rate supersedes stale
+          // manually entered conditional rows for the same provider/model.
+          // Leaving both shapes in place makes variant-aware lookup ignore the
+          // authoritative generic row and falsely reject activation.
+          await pruneModelPriceVariants({
+            kind: "video",
+            provider: merged.provider,
+            model: merged.model,
+            keepVariantKeys: [""],
+          });
+        }
         return null;
       }
       // No live price — a manually maintained row (any provider) still counts.
