@@ -5113,6 +5113,7 @@ export function NvidiaAdminCard() {
   const testHosted = useAdminTestNvidiaHosted();
   const [hostedKey, setHostedKeyInput] = useState("");
   const [editingHostedKey, setEditingHostedKey] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getAdminGetNvidiaSettingsQueryKey() });
   const saveHostedKey = () => {
@@ -5133,24 +5134,57 @@ export function NvidiaAdminCard() {
 
   return (
     <Card data-testid="card-nvidia-admin">
-      <CardHeader>
-        <CardTitle>NVIDIA AI</CardTitle>
-        <CardDescription>
-          NVIDIA API Catalog is hosted for supported capabilities and requires the shared
-          hosted key. Image generation is self-hosted NIM only because Catalog image has no
-          verified non-billable independent test. Self-hosted NIM endpoints are configured and
-          tested independently per capability. Discovery does not make a model
-          selectable until its protocol, output contract, health, and explicit price
-          pass activation checks. Video uses only the verified self-hosted Visual
-          GenAI 1.6 WAN 2.2 contract; hosted video is not assumed.
-        </CardDescription>
+      <CardHeader className={expanded ? undefined : "pb-3"}>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>NVIDIA AI</CardTitle>
+          {!isLoading && data && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setExpanded((current) => !current)}
+              data-testid="button-toggle-nvidia-admin"
+            >
+              {expanded ? "Collapse" : "Configure"}
+            </Button>
+          )}
+        </div>
+        {expanded && (
+          <CardDescription>
+            Configure the shared NVIDIA API Catalog key and independent self-hosted NIM
+            deployments. A deployment becomes selectable only after its protocol, output
+            contract, health, and price pass activation checks.
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading ? (
-          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-9 w-full" />
         ) : isError || !data ? (
           <div className="text-sm text-destructive" data-testid="status-nvidia-load-error">
             NVIDIA settings could not be loaded.
+          </div>
+        ) : !expanded ? (
+          <div
+            className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm"
+            data-testid="summary-nvidia-admin"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-medium">Hosted catalog</span>
+              <Badge variant={data.hosted.configured ? "secondary" : "destructive"}>
+                {data.hosted.configured ? "Key configured" : "Needs key"}
+              </Badge>
+              <Badge variant={data.hosted.lastTestStatus === "ok" ? "secondary" : "outline"}>
+                {data.hosted.lastTestStatus === "ok" ? "Healthy" : "Not verified"}
+              </Badge>
+            </div>
+            <span className="text-muted-foreground">
+              {data.deployments.filter((deployment) => deployment.enabled).length} active of{" "}
+              {data.deployments.length} capabilities
+            </span>
+            <span className="text-muted-foreground">
+              {data.deployments.filter((deployment) => deployment.activationBlockedReason === null).length} ready
+            </span>
           </div>
         ) : (
           <>

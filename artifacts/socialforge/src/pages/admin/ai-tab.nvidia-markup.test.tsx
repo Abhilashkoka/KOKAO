@@ -80,9 +80,10 @@ describe("NvidiaAdminCard markup", () => {
     vi.clearAllMocks();
   });
 
-  it("contains credential fields in forms and does not nest blocks in paragraphs", () => {
+  it("contains credential fields in forms and does not nest blocks in paragraphs", async () => {
     const { container } = renderCard();
 
+    await userEvent.click(screen.getByTestId("button-toggle-nvidia-admin"));
     const hostedKey = screen.getByTestId("input-nvidia-hosted-key");
     const deploymentKey = screen.getByTestId("input-nvidia-key-text");
     expect(hostedKey.closest("form")).not.toBeNull();
@@ -102,6 +103,9 @@ describe("NvidiaAdminCard markup", () => {
     };
     renderCard();
 
+    expect(screen.getByTestId("summary-nvidia-admin").textContent).toContain("Key configured");
+    expect(screen.queryByTestId("section-nvidia-hosted-key")).toBeNull();
+    await userEvent.click(screen.getByTestId("button-toggle-nvidia-admin"));
     expect(screen.queryByTestId("input-nvidia-hosted-key")).toBeNull();
     expect(screen.getByTestId("section-nvidia-hosted-key").textContent).toContain("Configured");
     await userEvent.click(screen.getByTestId("button-change-nvidia-hosted-key"));
