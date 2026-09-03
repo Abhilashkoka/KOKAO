@@ -117,7 +117,15 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
-import { ArrowDown, ArrowUp, ExternalLink, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ExternalLink,
+  Pencil,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import { WalletCard } from "./wallet-card";
 import { ModelPriceImportDialog } from "./model-price-import-dialog";
@@ -1684,6 +1692,11 @@ export function VideoGenProviderCard() {
   >(null);
   const [draftProvider, setDraftProvider] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [saveGuidance, setSaveGuidance] = useState<{
+    provider: string;
+    models: string[];
+    detail: string;
+  } | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getAdminGetVideoGenSettingsQueryKey() });
@@ -1722,6 +1735,7 @@ export function VideoGenProviderCard() {
     portraitLipSyncModel?: string,
     studioLipSyncDefault?: boolean,
   ) => {
+    setSaveGuidance(null);
     updateSettings.mutate(
       {
         data: {
@@ -1747,6 +1761,7 @@ export function VideoGenProviderCard() {
           setImageModelInput(null);
           setPortraitLipSyncModelInput(null);
           setStudioLipSyncDefaultInput(null);
+          setSaveGuidance(null);
           setExpanded(false);
           const chosen = result.providers.find((p) => p.id === result.provider);
           toast({
@@ -1761,6 +1776,19 @@ export function VideoGenProviderCard() {
         },
         onError: (err: unknown) => {
           const message = apiErrorMessage(err, "Could not change the video generation settings.");
+          if (/pric(?:e|ing)/i.test(message)) {
+            setSaveGuidance({
+              provider,
+              models: [...new Set([textModel, imageModel].map((model) => model.trim()).filter(Boolean))],
+              detail: message,
+            });
+            toast({
+              title: "Pricing setup needs attention",
+              description: "Your current video settings were kept. Follow the guidance shown in the card, then retry.",
+            });
+            return;
+          }
+          setSaveGuidance(null);
           toast({ title: "Update failed", description: message, variant: "destructive" });
         },
       },
@@ -2095,6 +2123,52 @@ export function VideoGenProviderCard() {
                     </p>
                   </div>
                 </div>
+                {saveGuidance && (
+                  <div
+                    className="space-y-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm"
+                    data-testid="video-pricing-action-guidance"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                      <div className="space-y-1">
+                        <p className="font-medium">Complete the pricing setup before saving</p>
+                        <p className="text-muted-foreground">
+                          KOKAO kept the current video settings unchanged.
+                        </p>
+                      </div>
+                    </div>
+                    <dl className="grid gap-1 text-xs">
+                      <div className="flex gap-2">
+                        <dt className="font-medium">Provider:</dt>
+                        <dd>{saveGuidance.provider}</dd>
+                      </div>
+                      <div className="flex gap-2">
+                        <dt className="font-medium">Model:</dt>
+                        <dd>{saveGuidance.models.join(", ") || "Provider default"}</dd>
+                      </div>
+                    </dl>
+                    <ol className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
+                      <li>Open Actual AI Cost Tracking and edit the exact provider/model row.</li>
+                      <li>
+                        Use exact runtime variant values, such as <span className="font-medium text-foreground">480p</span> rather than <span className="font-medium text-foreground">480</span>, and cover every supported variant; otherwise add one authoritative generic rate.
+                      </li>
+                      <li>Save the price, return here, and retry Save settings.</li>
+                    </ol>
+                    <p className="text-xs text-muted-foreground">{saveGuidance.detail}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        document
+                          .getElementById("ai-cost-settings")
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                      }
+                    >
+                      Review AI Cost
+                    </Button>
+                  </div>
+                )}
                 <Button
                   size="sm"
                   onClick={() =>
@@ -3376,7 +3450,7 @@ export function AiCostCard() {
   };
 
   return (
-    <Card data-testid="card-ai-cost">
+    <Card id="ai-cost-settings" data-testid="card-ai-cost">
       <CollapsibleCardHeader
         title="Actual AI Cost Tracking"
         description="Record the real provider cost of every caption, image and video in paise. Costs use

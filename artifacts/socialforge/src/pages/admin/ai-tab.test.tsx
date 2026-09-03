@@ -47,6 +47,7 @@ const updateMutate = vi.fn((vars: { data: Record<string, unknown> }) => {
   mockState.lastUpdateVars = vars;
 });
 const fallbackMutate = vi.fn();
+const videoUpdateMutate = vi.fn();
 
 describe("AI fallback sequence", () => {
   it("shows server pricing, customer estimate, and an unavailable fallback warning", () => {
@@ -169,7 +170,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useAdminGetNvidiaSettings: () => ({ data: { deployments: [] } }),
     useAdminUpdateVideoGenSettings: () => ({
-      mutate: vi.fn(),
+      mutate: videoUpdateMutate,
       isPending: false,
     }),
     useAdminSetVideoGenProviderKey: () => ({
@@ -251,6 +252,7 @@ beforeEach(() => {
   cleanup();
   updateMutate.mockClear();
   fallbackMutate.mockClear();
+  videoUpdateMutate.mockReset();
   mockState.lastUpdateVars = null;
   mockState.settings = baseSettings("openai", []);
   mockState.costReport = undefined;
@@ -260,6 +262,66 @@ beforeEach(() => {
 });
 
 describe("video provider validation guidance", () => {
+  it("turns a pricing rejection into actionable inline guidance", async () => {
+    mockState.videoSettings = {
+      provider: "openrouter",
+      textToVideoModel: "google/veo-3.1",
+      imageToVideoModel: "google/veo-3.1",
+      lipSyncPortraitModel: null,
+      providers: [
+        {
+          id: "openrouter",
+          label: "OpenRouter",
+          defaultTextToVideoModel: "google/veo-3.1",
+          defaultImageToVideoModel: "google/veo-3.1",
+          configured: true,
+          supportsModelOverride: true,
+          textModelOptions: [],
+          imageModelOptions: [],
+          envKey: "OPENROUTER_API_KEY",
+          keySource: "env",
+        },
+      ],
+      stockSources: [],
+      replicatePricingModels: [],
+      modelCatalog: [],
+    };
+    videoUpdateMutate.mockImplementation(
+      (
+        _variables: unknown,
+        options?: { onError?: (error: unknown) => void },
+      ) =>
+        options?.onError?.({
+          data: {
+            error:
+              "The selected provider needs its own authoritative video price configuration for: bytedance/seedance-2.5",
+          },
+        }),
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <VideoGenProviderCard />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByTestId("button-toggle-video-gen-settings"));
+    const textModel = screen.getByTestId("input-video-gen-text-model");
+    await userEvent.clear(textModel);
+    await userEvent.type(textModel, "bytedance/seedance-2.5");
+    const imageModel = screen.getByTestId("input-video-gen-image-model");
+    await userEvent.clear(imageModel);
+    await userEvent.type(imageModel, "bytedance/seedance-2.5");
+    await userEvent.click(screen.getByTestId("button-save-video-gen-settings"));
+
+    const guidance = await screen.findByTestId("video-pricing-action-guidance");
+    expect(guidance.textContent).toContain("Complete the pricing setup before saving");
+    expect(guidance.textContent).toContain("openrouter");
+    expect(guidance.textContent).toContain("bytedance/seedance-2.5");
+    expect(guidance.textContent).toContain("480p");
+    expect(screen.getByRole("button", { name: "Review AI Cost" })).toBeTruthy();
+  });
+
   it("makes exact provider pricing mandatory instead of implying prices transfer", async () => {
     mockState.videoSettings = {
       provider: "replicate",
