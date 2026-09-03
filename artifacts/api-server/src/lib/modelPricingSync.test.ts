@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   pruneModelPriceVariants: vi.fn(),
   upsertModelPrice: vi.fn(),
   lookupOpenRouterVideoPricing: vi.fn(),
+  lookupReplicateUnitPricing: vi.fn(),
 }));
 
 vi.mock("./aiCost", () => ({
@@ -21,7 +22,7 @@ vi.mock("./openaiCatalog", () => ({ lookupOpenAiPricing: vi.fn() }));
 vi.mock("./geminiCatalog", () => ({ lookupGeminiPricing: vi.fn() }));
 vi.mock("./replicateCatalog", () => ({
   lookupReplicateTokenPricing: vi.fn(),
-  lookupReplicateUnitPricing: vi.fn(),
+  lookupReplicateUnitPricing: mocks.lookupReplicateUnitPricing,
 }));
 
 import { syncActivatedModelPricing } from "./modelPricingSync";
@@ -36,6 +37,7 @@ describe("syncActivatedModelPricing", () => {
         usdPerSecond: 0.9676,
       },
     ]);
+    mocks.lookupReplicateUnitPricing.mockResolvedValue([]);
   });
 
   it("retires stale video variants after syncing the provider's generic rate", async () => {
@@ -60,5 +62,34 @@ describe("syncActivatedModelPricing", () => {
       model: "bytedance/seedance-2.5",
       keepVariantKeys: [""],
     });
+  });
+
+  it("keeps an exact saved provider price instead of importing and warning about another catalog", async () => {
+    mocks.lookupOpenRouterVideoPricing.mockResolvedValue([]);
+    mocks.lookupReplicateUnitPricing.mockResolvedValue([
+      {
+        model: "bytedance/seedance-2.5",
+        usdPerSecond: 0.9676,
+      },
+    ]);
+    mocks.findModelPrice.mockResolvedValue({
+      provider: "openrouter",
+      model: "bytedance/seedance-2.5",
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.23,
+      usdPerVideo: null,
+    });
+
+    const result = await syncActivatedModelPricing({
+      kind: "video",
+      provider: "openrouter",
+      models: ["bytedance/seedance-2.5"],
+    });
+
+    expect(result).toEqual({ missing: [], crossSourced: [] });
+    expect(mocks.upsertModelPrice).not.toHaveBeenCalled();
+    expect(mocks.pruneModelPriceVariants).not.toHaveBeenCalled();
   });
 });

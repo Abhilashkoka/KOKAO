@@ -54,6 +54,26 @@ function hasAnyPrice(p: LookedUpPrices): boolean {
   );
 }
 
+function hasSavedPrice(
+  kind: PricedKind,
+  price: Pick<
+    UpsertModelPriceInput,
+    "inputUsdPerMtok" | "outputUsdPerMtok" | "usdPerImage" | "usdPerSecond" | "usdPerVideo"
+  >,
+): boolean {
+  if (kind === "text") {
+    return price.inputUsdPerMtok !== null || price.outputUsdPerMtok !== null;
+  }
+  if (kind === "image") {
+    return (
+      price.usdPerImage !== null ||
+      price.inputUsdPerMtok !== null ||
+      price.outputUsdPerMtok !== null
+    );
+  }
+  return price.usdPerSecond !== null || price.usdPerVideo !== null;
+}
+
 function replicateVideoUnits(entry: {
   price: string;
   title: string;
@@ -264,12 +284,19 @@ export async function syncActivatedModelPricing(args: {
       }
       const { prices: live, source } = await lookupLive(args.kind, args.provider, model);
       if (hasAnyPrice(live)) {
-        if (source && source !== args.provider.trim().toLowerCase()) {
-          crossSourced.push({ model, source });
-        }
+        const ownProvider = args.provider.trim().toLowerCase();
         const existing = await findModelPrice(args.kind, args.provider, model, {
           exactProviderOnly: true,
         });
+        if (source && source !== ownProvider && existing && hasSavedPrice(args.kind, existing)) {
+          // The admin's exact provider/model price is more relevant than a
+          // same-named model sold by another marketplace. Keep it untouched
+          // and do not show a cross-catalog verification warning.
+          return null;
+        }
+        if (source && source !== ownProvider) {
+          crossSourced.push({ model, source });
+        }
         const merged: UpsertModelPriceInput = {
           kind: args.kind,
           // Update the existing row in place (its stored casing/spelling)
@@ -341,11 +368,13 @@ export function crossSourcePricingWarning(
 ): string | null {
   if (crossSourced.length === 0) return null;
   const list = crossSourced.map((c) => `"${c.model}" (from the ${c.source} catalog)`).join(", ");
-  return `${provider} did not publish a price, so pricing was taken from another catalog: ${list}. Verify the rate${
-    crossSourced.length === 1 ? "" : "s"
-  } in the Actual AI cost tracking card and correct ${
-    crossSourced.length === 1 ? "it" : "them"
-  } if needed.`;
+  return `Settings were saved with provisional pricing because ${provider} does not publish a public rate for ${list}. Compare ${
+    crossSourced.length === 1 ? "this rate" : "these rates"
+  } with your ${provider} bill or documentation. If ${
+    crossSourced.length === 1 ? "it matches" : "they match"
+  }, no action is needed; otherwise edit the exact ${provider} model ${
+    crossSourced.length === 1 ? "price" : "prices"
+  } in Actual AI Cost Tracking.`;
 }
 
 /** One unpriceable model, described precisely enough to fix. */
