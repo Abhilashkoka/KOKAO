@@ -1,6 +1,7 @@
 import {
   db,
   aiModelPricesTable,
+  aiModelPriceImportSuppressionsTable,
   aiCostSettingsTable,
   type AiModelPrice,
   type VideoPriceCriteria,
@@ -517,6 +518,66 @@ export async function sweepDuplicateModelPrices(): Promise<void> {
 export async function deleteModelPrice(id: number): Promise<boolean> {
   const rows = await db.delete(aiModelPricesTable).where(eq(aiModelPricesTable.id, id)).returning();
   return rows.length > 0;
+}
+
+/** Whether automatic catalog sync has been disabled for this exact model. */
+export async function isModelPriceAutoImportSuppressed(args: {
+  kind: string;
+  provider: string;
+  model: string;
+}): Promise<boolean> {
+  const [row] = await db
+    .select({ id: aiModelPriceImportSuppressionsTable.id })
+    .from(aiModelPriceImportSuppressionsTable)
+    .where(
+      and(
+        eq(aiModelPriceImportSuppressionsTable.kind, args.kind.trim().toLowerCase()),
+        eq(aiModelPriceImportSuppressionsTable.provider, args.provider.trim().toLowerCase()),
+        eq(aiModelPriceImportSuppressionsTable.model, args.model.trim().toLowerCase()),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/** Explicit admin saves/imports re-enable pricing for the selected model. */
+export async function clearModelPriceAutoImportSuppression(args: {
+  kind: string;
+  provider: string;
+  model: string;
+}): Promise<void> {
+  await db.delete(aiModelPriceImportSuppressionsTable).where(
+    and(
+      eq(aiModelPriceImportSuppressionsTable.kind, args.kind.trim().toLowerCase()),
+      eq(aiModelPriceImportSuppressionsTable.provider, args.provider.trim().toLowerCase()),
+      eq(aiModelPriceImportSuppressionsTable.model, args.model.trim().toLowerCase()),
+    ),
+  );
+}
+
+/**
+ * Admin removal is durable: record the normalized model key before deleting
+ * the selected row in the same transaction.
+ */
+export async function deleteModelPriceAndSuppressAutoImport(id: number): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [price] = await tx
+      .select()
+      .from(aiModelPricesTable)
+      .where(eq(aiModelPricesTable.id, id))
+      .for("update");
+    if (!price) return false;
+    await tx
+      .insert(aiModelPriceImportSuppressionsTable)
+      .values({
+        kind: price.kind.trim().toLowerCase(),
+        provider: price.provider.trim().toLowerCase(),
+        model: price.model.trim().toLowerCase(),
+      })
+      .onConflictDoNothing();
+    await tx.delete(aiModelPricesTable).where(eq(aiModelPricesTable.id, id));
+    return true;
+  });
 }
 
 /**

@@ -1,6 +1,7 @@
 import {
   canonicalVideoVariantKey,
   findModelPrice,
+  isModelPriceAutoImportSuppressed,
   pruneModelPriceVariants,
   upsertModelPrice,
   type UpsertModelPriceInput,
@@ -234,6 +235,18 @@ export async function syncActivatedModelPricing(args: {
   const crossSourced: Array<{ model: string; source: string }> = [];
   const results = await Promise.all(
     models.map(async (model) => {
+      if (
+        await isModelPriceAutoImportSuppressed({
+          kind: args.kind,
+          provider: args.provider,
+          model,
+        })
+      ) {
+        const manual = await findModelPrice(args.kind, args.provider, model, {
+          exactProviderOnly: true,
+        });
+        return manual && hasSavedPrice(args.kind, manual) ? null : model;
+      }
       // Replicate video pages can publish conditional tariffs (for example,
       // Veo with/without generated audio). The aggregate lookup below keeps
       // only the conservative maximum and would create a visible generic row

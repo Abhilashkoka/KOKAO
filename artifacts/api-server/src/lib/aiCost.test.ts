@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { pool, db, aiModelPricesTable, aiCostSettingsTable } from "@workspace/db";
+import {
+  pool,
+  db,
+  aiModelPricesTable,
+  aiModelPriceImportSuppressionsTable,
+  aiCostSettingsTable,
+} from "@workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   getAiCostConfig,
@@ -7,6 +13,9 @@ import {
   setElevenLabsCreditRate,
   upsertModelPrice,
   deleteModelPrice,
+  deleteModelPriceAndSuppressAutoImport,
+  isModelPriceAutoImportSuppressed,
+  clearModelPriceAutoImportSuppression,
   usdToPaise,
   computeTextCostPaise,
   computeImageCostPaise,
@@ -835,5 +844,45 @@ describe("deleteModelPrice", () => {
     });
     expect(await deleteModelPrice(price.id)).toBe(true);
     expect(await deleteModelPrice(price.id)).toBe(false);
+  });
+
+  it("durably disables auto-import after an admin removal until an explicit save", async () => {
+    const model = `${RUN}-suppress-auto-import`;
+    const price = await upsertModelPrice({
+      kind: "video",
+      provider: "OpenRouter",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.2,
+      usdPerVideo: null,
+    });
+
+    expect(await deleteModelPriceAndSuppressAutoImport(price.id)).toBe(true);
+    expect(
+      await isModelPriceAutoImportSuppressed({
+        kind: "video",
+        provider: " openrouter ",
+        model: model.toUpperCase(),
+      }),
+    ).toBe(true);
+
+    await clearModelPriceAutoImportSuppression({
+      kind: "video",
+      provider: "openrouter",
+      model,
+    });
+    expect(
+      await isModelPriceAutoImportSuppressed({
+        kind: "video",
+        provider: "openrouter",
+        model,
+      }),
+    ).toBe(false);
+
+    await db
+      .delete(aiModelPriceImportSuppressionsTable)
+      .where(eq(aiModelPriceImportSuppressionsTable.model, model.toLowerCase()));
   });
 });

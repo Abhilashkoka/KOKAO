@@ -281,7 +281,8 @@ import {
   refreshUsdInrRate,
   listModelPrices,
   upsertModelPrice,
-  deleteModelPrice,
+  deleteModelPriceAndSuppressAutoImport,
+  clearModelPriceAutoImportSuppression,
   dedupeModelPrices,
   countDuplicateModelPriceGroups,
   duplicateModelPriceKeys,
@@ -2138,6 +2139,7 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
     res.status(400).json({ error: normalized.error });
     return;
   }
+  await clearModelPriceAutoImportSuppression(normalized.value);
   const row = await upsertModelPrice(normalized.value);
   await auditAiCostChange(
     req,
@@ -2218,6 +2220,7 @@ router.post("/admin/ai-cost/prices/import/confirm", async (req: Request, res: Re
     return;
   }
   const rows = [];
+  await clearModelPriceAutoImportSuppression(parsed.data);
   for (const normalized of normalizedRows) {
     if ("error" in normalized) continue;
     rows.push(await upsertModelPrice(normalized.value));
@@ -2266,7 +2269,7 @@ router.delete("/admin/ai-cost/prices/:priceId", async (req: Request, res: Respon
     res.status(400).json({ error: "Invalid id" });
     return;
   }
-  const removed = await deleteModelPrice(priceId);
+  const removed = await deleteModelPriceAndSuppressAutoImport(priceId);
   if (!removed) {
     res.status(404).json({ error: "Unknown price row" });
     return;

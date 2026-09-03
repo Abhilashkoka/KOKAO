@@ -69,6 +69,29 @@ export const aiModelPricesTable = pgTable(
 );
 
 /**
+ * Durable admin opt-outs for catalog price discovery. Removing a price from
+ * AI Costing means automatic provider/cross-catalog sync must not recreate it.
+ * An explicit manual save/import clears the matching opt-out.
+ */
+export const aiModelPriceImportSuppressionsTable = pgTable(
+  "ai_model_price_import_suppressions",
+  {
+    id: serial("id").primaryKey(),
+    kind: text("kind").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("ai_model_price_import_suppressions_kind_provider_model").on(
+      t.kind,
+      t.provider,
+      t.model,
+    ),
+  ],
+);
+
+/**
  * Singleton settings row for actual-cost computation. The USD→INR conversion
  * rate is admin-set (paise per 1 USD, e.g. 8800 = ₹88.00). A rate of 0 means
  * "not configured" and every computed cost stays NULL/unknown.
@@ -101,4 +124,6 @@ export const aiCostSettingsTable = pgTable("ai_cost_settings", {
 });
 
 export type AiModelPrice = typeof aiModelPricesTable.$inferSelect;
+export type AiModelPriceImportSuppression =
+  typeof aiModelPriceImportSuppressionsTable.$inferSelect;
 export type AiCostSettings = typeof aiCostSettingsTable.$inferSelect;

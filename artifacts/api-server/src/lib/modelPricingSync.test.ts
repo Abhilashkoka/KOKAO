@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   upsertModelPrice: vi.fn(),
   lookupOpenRouterVideoPricing: vi.fn(),
   lookupReplicateUnitPricing: vi.fn(),
+  isModelPriceAutoImportSuppressed: vi.fn(),
 }));
 
 vi.mock("./aiCost", () => ({
@@ -13,6 +14,7 @@ vi.mock("./aiCost", () => ({
   findModelPrice: mocks.findModelPrice,
   pruneModelPriceVariants: mocks.pruneModelPriceVariants,
   upsertModelPrice: mocks.upsertModelPrice,
+  isModelPriceAutoImportSuppressed: mocks.isModelPriceAutoImportSuppressed,
 }));
 vi.mock("./openrouterCatalog", () => ({
   lookupOpenRouterPricing: vi.fn(),
@@ -31,6 +33,7 @@ describe("syncActivatedModelPricing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findModelPrice.mockResolvedValue(null);
+    mocks.isModelPriceAutoImportSuppressed.mockResolvedValue(false);
     mocks.lookupOpenRouterVideoPricing.mockResolvedValue([
       {
         model: "bytedance/seedance-2.5",
@@ -91,5 +94,23 @@ describe("syncActivatedModelPricing", () => {
     expect(result).toEqual({ missing: [], crossSourced: [] });
     expect(mocks.upsertModelPrice).not.toHaveBeenCalled();
     expect(mocks.pruneModelPriceVariants).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate a model price after an admin removed it", async () => {
+    mocks.isModelPriceAutoImportSuppressed.mockResolvedValue(true);
+
+    const result = await syncActivatedModelPricing({
+      kind: "video",
+      provider: "openrouter",
+      models: ["bytedance/seedance-2.5"],
+    });
+
+    expect(result).toEqual({
+      missing: ["bytedance/seedance-2.5"],
+      crossSourced: [],
+    });
+    expect(mocks.lookupOpenRouterVideoPricing).not.toHaveBeenCalled();
+    expect(mocks.lookupReplicateUnitPricing).not.toHaveBeenCalled();
+    expect(mocks.upsertModelPrice).not.toHaveBeenCalled();
   });
 });
