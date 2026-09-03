@@ -231,11 +231,24 @@ export interface UpsertModelPriceInput {
  * Stable key for a set of flat video criteria. Sorting makes equivalent input
  * objects share one database row regardless of property insertion order.
  */
+function normalizeVideoPriceCriteria(
+  criteria?: VideoPriceCriteria | null,
+): VideoPriceCriteria | undefined {
+  if (!criteria) return undefined;
+  const normalized = { ...criteria };
+  if (typeof normalized.inputMode === "string") {
+    const compact = normalized.inputMode.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    normalized.inputMode = compact === "nonvideo" ? "non_video" : compact;
+  }
+  return normalized;
+}
+
 export function canonicalVideoVariantKey(criteria?: VideoPriceCriteria): string {
-  if (!criteria || Object.keys(criteria).length === 0) return "";
+  const normalized = normalizeVideoPriceCriteria(criteria);
+  if (!normalized || Object.keys(normalized).length === 0) return "";
   return JSON.stringify(
     Object.fromEntries(
-      Object.entries(criteria).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
+      Object.entries(normalized).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
     ),
   );
 }
@@ -277,7 +290,9 @@ export async function pruneModelPriceVariants(args: {
 export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
   const provider = input.provider.trim();
   const model = input.model.trim();
-  const requestedCriteria = input.variantCriteria ?? input.criteria ?? input.variant ?? undefined;
+  const requestedCriteria = normalizeVideoPriceCriteria(
+    input.variantCriteria ?? input.criteria ?? input.variant ?? undefined,
+  );
   const variantKey = canonicalVideoVariantKey(requestedCriteria);
   const variantCriteria = variantKey === "" ? null : requestedCriteria!;
   // Match existing rows the same way findPrice() does — trimmed and
@@ -643,8 +658,10 @@ function criteriaMatch(
   priceCriteria: VideoPriceCriteria | null,
   runtimeCriteria: VideoPriceCriteria,
 ): boolean {
-  return Object.entries(priceCriteria ?? {}).every(
-    ([key, value]) => runtimeCriteria[key] === value,
+  const normalizedPrice = normalizeVideoPriceCriteria(priceCriteria) ?? {};
+  const normalizedRuntime = normalizeVideoPriceCriteria(runtimeCriteria) ?? {};
+  return Object.entries(normalizedPrice).every(
+    ([key, value]) => normalizedRuntime[key] === value,
   );
 }
 

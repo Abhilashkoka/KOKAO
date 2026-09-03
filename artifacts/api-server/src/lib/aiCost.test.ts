@@ -305,9 +305,33 @@ describe("variant-aware video pricing", () => {
     expect(canonicalVideoVariantKey({ quality: "high", duration: 10 })).toBe(
       canonicalVideoVariantKey({ duration: 10, quality: "high" }),
     );
+    expect(canonicalVideoVariantKey({ inputMode: "non video" })).toBe(
+      canonicalVideoVariantKey({ inputMode: "non_video" }),
+    );
+    expect(canonicalVideoVariantKey({ inputMode: "nonvideo" })).toBe(
+      canonicalVideoVariantKey({ inputMode: "non_video" }),
+    );
     expect(canonicalVideoVariantKey({ quality: "high" })).not.toBe(
       canonicalVideoVariantKey({ quality: "standard" }),
     );
+  });
+
+  it("matches legacy input-mode spellings against canonical runtime criteria", async () => {
+    await setAiCostConfig({ usdToInrPaise: 8600 });
+    const price = await upsertModelPrice({
+      kind: "video", provider: "openrouter", model: `${MODEL}-input-mode`,
+      variantCriteria: { inputMode: "non video", generateAudio: false },
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null,
+      usdPerSecond: 0.12, usdPerVideo: null,
+    });
+    createdPriceIds.push(price.id);
+
+    expect(await computeVideoCostPaise({
+      provider: "openrouter",
+      model: `${MODEL}-input-mode`,
+      durationSec: 5,
+      variantCriteria: { inputMode: "non_video", generateAudio: false },
+    })).toBe(5160);
   });
 
   it("matches exact variants, rejects unmatched conditional variants, and chooses the most specific match", async () => {
