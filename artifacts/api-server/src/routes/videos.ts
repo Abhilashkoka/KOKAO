@@ -1007,6 +1007,10 @@ function serializeVideoJob(
     // Public, narrow link for Guided Story review controls. Do not expose the
     // internal options object or its immutable cast/provider details.
     guidedStoryDraftId: job.options?.guidedStory?.draftId ?? null,
+    guidedStoryRecoveryUnavailable:
+      job.guidedStoryRecoveryUnavailableAt != null,
+    guidedStoryRecoveryDismissed:
+      job.guidedStoryRecoveryDismissedAt != null,
     currentVideoPath: lineage?.currentVideoPath ?? job.videoPath ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
     // The rule for generated covers lives here rather than in the client, so
@@ -12078,7 +12082,16 @@ router.post(
     if (failedGuidedDraftId) {
       const draft = await loadGuidedDraft(req.tenantId, failedGuidedDraftId);
       if (!draft) {
-        res.status(404).json({ error: "Guided Story draft not found." });
+        await db
+          .update(videoGenerationsTable)
+          .set({
+            guidedStoryRecoveryUnavailableAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(videoGenerationsTable.id, existing.id));
+        res.status(404).json({
+          error: "The editable Guided Story draft is no longer available.",
+        });
         return;
       }
       const snapshot = existing.options?.guidedStory;
@@ -12130,6 +12143,13 @@ router.post(
         return;
       }
       if (draft.state.storyboardJobId !== existing.id) {
+        await db
+          .update(videoGenerationsTable)
+          .set({
+            guidedStoryRecoveryUnavailableAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(videoGenerationsTable.id, existing.id));
         res.status(400).json({
           error: "This failed storyboard is no longer linked to its Guided Story draft.",
         });
@@ -12225,6 +12245,37 @@ router.post(
       }
     }
     res.json(serializeVideoJob(discarded));
+  },
+);
+
+router.post(
+  "/ai/video-jobs/:jobId/storyboard/dismiss-unrecoverable",
+  async (req: Request, res: Response) => {
+    const existing = await loadJob(req);
+    if (!existing) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (
+      existing.status !== "failed" ||
+      !existing.options?.guidedStory?.draftId ||
+      !existing.guidedStoryRecoveryUnavailableAt
+    ) {
+      res.status(400).json({
+        error: "This job does not have an unavailable Guided Story recovery to dismiss.",
+      });
+      return;
+    }
+    const [dismissed] = await db
+      .update(videoGenerationsTable)
+      .set({
+        guidedStoryRecoveryDismissedAt:
+          existing.guidedStoryRecoveryDismissedAt ?? new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(videoGenerationsTable.id, existing.id))
+      .returning();
+    res.json(serializeVideoJob(dismissed!));
   },
 );
 

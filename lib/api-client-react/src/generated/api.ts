@@ -18922,6 +18922,76 @@ export const useDiscardVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getDiscardVideoStoryboardMutationOptions(options));
     }
 
+export const getDismissUnrecoverableVideoStoryboardUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/dismiss-unrecoverable`
+}
+
+/**
+ * @summary Dismiss a failed Guided Story whose editable recovery is unavailable
+ */
+export const dismissUnrecoverableVideoStoryboard = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getDismissUnrecoverableVideoStoryboardUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDismissUnrecoverableVideoStoryboardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissUnrecoverableVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof dismissUnrecoverableVideoStoryboard>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['dismissUnrecoverableVideoStoryboard'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dismissUnrecoverableVideoStoryboard>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  dismissUnrecoverableVideoStoryboard(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DismissUnrecoverableVideoStoryboardMutationResult = NonNullable<Awaited<ReturnType<typeof dismissUnrecoverableVideoStoryboard>>>
+
+    export type DismissUnrecoverableVideoStoryboardMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Dismiss a failed Guided Story whose editable recovery is unavailable
+ */
+export const useDismissUnrecoverableVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissUnrecoverableVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof dismissUnrecoverableVideoStoryboard>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getDismissUnrecoverableVideoStoryboardMutationOptions(options));
+    }
+
 export const getSaveVideoToLibraryUrl = (jobId: number,) => {
 
 

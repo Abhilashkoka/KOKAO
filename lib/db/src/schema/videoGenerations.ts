@@ -1434,6 +1434,18 @@ export const videoGenerationsTable = pgTable("video_generations", {
   storyboardExpiresAt: timestamp("storyboard_expires_at", {
     withTimezone: true,
   }),
+  /** Set after a failed Guided Story reopen proves its editable draft or
+   * storyboard is no longer available. The job remains immutable history. */
+  guidedStoryRecoveryUnavailableAt: timestamp(
+    "guided_story_recovery_unavailable_at",
+    { withTimezone: true },
+  ),
+  /** User acknowledgement of an unavailable Guided Story recovery. This keeps
+   * the stale failed job dismissed across browsers without deleting history. */
+  guidedStoryRecoveryDismissedAt: timestamp(
+    "guided_story_recovery_dismissed_at",
+    { withTimezone: true },
+  ),
   /**
    * Snapshot of the localized_dub result (locale, voiceMode, provider/model,
    * final cues, repaired cue indices, source video path). Written atomically in

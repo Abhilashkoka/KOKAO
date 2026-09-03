@@ -7328,6 +7328,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/dismiss-unrecoverable:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: dismissUnrecoverableVideoStoryboard
+      tags: [ai]
+      summary: Dismiss a failed Guided Story whose editable recovery is unavailable
+      responses:
+        "200":
+          description: Historical job with its durable dismissal recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: The job is not a failed Guided Story with unavailable recovery
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/save-to-library:
     parameters:
       - name: jobId
@@ -19079,7 +19109,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedStoryDialogueReplay, dialogueReplayOperation, guidedReferenceContext, guidedStoryDraftId, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedStoryDialogueReplay, dialogueReplayOperation, guidedReferenceContext, guidedStoryDraftId, guidedStoryRecoveryUnavailable, guidedStoryRecoveryDismissed, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -19205,6 +19235,12 @@ components:
         guidedStoryDraftId:
           type: ["integer", "null"]
           description: Tenant-scoped Guided Story draft backing this job, when applicable.
+        guidedStoryRecoveryUnavailable:
+          type: boolean
+          description: True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.
+        guidedStoryRecoveryDismissed:
+          type: boolean
+          description: True after the user dismisses an unavailable recovery; history remains visible for audit.
         savedContentItemId:
           type: ["integer", "null"]
           description: >-

@@ -24,6 +24,7 @@ import {
   useApproveGuidedStoryCastRole,
   useApproveVideoStoryboard,
   useDiscardVideoStoryboard,
+  useDismissUnrecoverableVideoStoryboard,
   usePreviewGuidedStoryDialogueReplay,
   useGetGoogleDriveStatus,
   useDisconnectGoogleDrive,
@@ -939,9 +940,6 @@ export function VideoStudioPage() {
   const studioLipSyncDefaultApplied = useRef(false);
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
-  const [unrecreatableJobIds, setUnrecreatableJobIds] = useState<Set<number>>(
-    () => new Set(),
-  );
   const [boardOpen, setBoardOpen] = useState(false);
   const [guidedStoryEditRequest, setGuidedStoryEditRequest] = useState<{
     key: number;
@@ -963,9 +961,27 @@ export function VideoStudioPage() {
   const activeVideoJobKey = me?.tenant?.id
     ? `kokao-active-video-job-v1:${me.tenant.id}`
     : null;
+  const dismissUnrecoverableStoryboard = useDismissUnrecoverableVideoStoryboard();
   const dismissActiveJob = () => {
-    if (activeVideoJobKey) localStorage.removeItem(activeVideoJobKey);
-    setActiveJobId(null);
+    if (!activeJob?.guidedStoryRecoveryUnavailable) return;
+    dismissUnrecoverableStoryboard.mutate(
+      { jobId: activeJob.id },
+      {
+        onSuccess: () => {
+          if (activeVideoJobKey) localStorage.removeItem(activeVideoJobKey);
+          setActiveJobId(null);
+          void queryClient.invalidateQueries({
+            queryKey: getListVideoJobsQueryKey(),
+          });
+        },
+        onError: (error) =>
+          toast({
+            title: "Could not dismiss failed job",
+            description: apiErrorMessage(error, "Refresh and try again."),
+            variant: "destructive",
+          }),
+      },
+    );
   };
 
   const [saveOpen, setSaveOpen] = useState(false);
@@ -1645,18 +1661,24 @@ export function VideoStudioPage() {
   useEffect(() => {
     if (
       !activeVideoJobKey ||
+      !jobs ||
       restoredActiveJobKeyRef.current === activeVideoJobKey
     )
       return;
     restoredActiveJobKeyRef.current = activeVideoJobKey;
     const saved = Number(localStorage.getItem(activeVideoJobKey));
-    if (Number.isSafeInteger(saved) && saved > 0) setActiveJobId(saved);
-  }, [activeVideoJobKey]);
+    if (!Number.isSafeInteger(saved) || saved <= 0) return;
+    const savedJob = jobs.find((job) => job.id === saved);
+    if (savedJob?.guidedStoryRecoveryDismissed) {
+      localStorage.removeItem(activeVideoJobKey);
+      return;
+    }
+    setActiveJobId(saved);
+  }, [activeVideoJobKey, jobs]);
   useEffect(() => {
     if (!activeVideoJobKey || activeJobId === null) return;
     localStorage.setItem(activeVideoJobKey, String(activeJobId));
   }, [activeJobId, activeVideoJobKey]);
-
   // A storyboard waiting on the user — or a job still generating — survives a
   // reload, but activeJobId does not. Adopt the newest such job on first load,
   // preferring one paused for review. Without this a plan or render the user
@@ -1671,7 +1693,10 @@ export function VideoStudioPage() {
         (job) => job.status === "queued" || job.status === "processing",
       ) ??
       jobs.find(
-        (job) => job.recovery != null && job.recovery.sourceJobId !== job.id,
+        (job) =>
+          !job.guidedStoryRecoveryDismissed &&
+          job.recovery != null &&
+          job.recovery.sourceJobId !== job.id,
       );
     if (!adoptable) return;
     adoptedRef.current = true;
@@ -7063,7 +7088,7 @@ export function VideoStudioPage() {
                       storyboard={activeJob.storyboard}
                     />
                   )}
-                {unrecreatableJobIds.has(activeJob.id) ? (
+                {activeJob.guidedStoryRecoveryUnavailable ? (
                   <div
                     className="rounded-lg border-2 border-destructive/50 bg-destructive/5 p-3"
                     data-testid="guided-story-unrecreatable"
@@ -7075,15 +7100,24 @@ export function VideoStudioPage() {
                       The editable story draft or storyboard is no longer available, so this
                       failed job cannot be reopened or resumed. No new generation is running.
                     </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="mt-3"
-                      onClick={dismissActiveJob}
-                      data-testid="button-dismiss-unrecreatable-job"
-                    >
-                      Dismiss failed job
-                    </Button>
+                    {activeJob.guidedStoryRecoveryDismissed ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This recovery was dismissed. The failed job remains in history for audit.
+                      </p>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-3"
+                        disabled={dismissUnrecoverableStoryboard.isPending}
+                        onClick={dismissActiveJob}
+                        data-testid="button-dismiss-unrecreatable-job"
+                      >
+                        {dismissUnrecoverableStoryboard.isPending
+                          ? "Dismissing…"
+                          : "Dismiss failed job"}
+                      </Button>
+                    )}
                   </div>
                 ) : activeJob.guidedStoryDraftId ? (
                   <div className="rounded-lg border-2 border-amber-500/70 bg-amber-50/70 p-3 dark:bg-amber-950/20">
@@ -7134,10 +7168,11 @@ export function VideoStudioPage() {
                           {
                             onSuccess: reopenDraft,
                             onError: (error) => {
-                              setUnrecreatableJobIds((current) => {
-                                const next = new Set(current);
-                                next.add(activeJob.id);
-                                return next;
+                              void queryClient.invalidateQueries({
+                                queryKey: getGetVideoJobQueryKey(activeJob.id),
+                              });
+                              void queryClient.invalidateQueries({
+                                queryKey: getListVideoJobsQueryKey(),
                               });
                               toast({
                                 title: "Unable to recreate this story",
@@ -7159,7 +7194,8 @@ export function VideoStudioPage() {
                     </Button>
                   </div>
                 ) : null}
-                {activeJob.retryable && !unrecreatableJobIds.has(activeJob.id) && (
+                {activeJob.retryable &&
+                  !activeJob.guidedStoryRecoveryUnavailable && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">
                       {activeJob.privacyRecoveryCapability?.eligible

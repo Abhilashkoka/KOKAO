@@ -6389,6 +6389,10 @@ export interface VideoJob {
      * @nullable
      */
   guidedStoryDraftId: number | null;
+  /** True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard. */
+  guidedStoryRecoveryUnavailable: boolean;
+  /** True after the user dismisses an unavailable recovery; history remains visible for audit. */
+  guidedStoryRecoveryDismissed: boolean;
   /**
      * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
      * @nullable

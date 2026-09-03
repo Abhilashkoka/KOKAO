@@ -9567,6 +9567,46 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/approve", () => {
 });
 
 describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
+  it("persists unavailable recovery and durable dismissal without deleting history", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const [job] = await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId: tenant.tenantId,
+        engine: "guided_story",
+        status: "failed",
+        error: "Storyboard provider failed.",
+        options: {
+          guidedStory: { draftId: 2_000_000_000, draftRevision: 1 },
+        } as any,
+      })
+      .returning();
+
+    const reopen = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/discard`);
+    expect(reopen.status).toBe(404);
+
+    const reported = await request(app)
+      .get(`/api/ai/video-jobs/${job!.id}`);
+    expect(reported.body.guidedStoryRecoveryUnavailable).toBe(true);
+    expect(reported.body.guidedStoryRecoveryDismissed).toBe(false);
+
+    const dismissed = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/dismiss-unrecoverable`);
+    expect(dismissed.status).toBe(200);
+    expect(dismissed.body.guidedStoryRecoveryUnavailable).toBe(true);
+    expect(dismissed.body.guidedStoryRecoveryDismissed).toBe(true);
+
+    const history = await request(app).get("/api/ai/video-jobs");
+    expect(history.body.find((candidate: { id: number }) => candidate.id === job!.id))
+      .toMatchObject({
+        status: "failed",
+        error: "Storyboard provider failed.",
+        guidedStoryRecoveryDismissed: true,
+      });
+  });
+
   it.each([
     ["with saved visual choices", true],
     ["without legacy visual choices", false],
