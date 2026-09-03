@@ -34,6 +34,11 @@ import {
   isNvidiaCoreDeploymentActivatable,
   resolveNvidiaCoreDeployment,
 } from "../nvidiaCore";
+import {
+  generateWithHiggsfield,
+  HIGGSFIELD_T2V_MODEL,
+  HIGGSFIELD_I2V_MODEL,
+} from "./providers/higgsfield";
 import { isTransientStatus } from "./retry";
 import {
   parseCustomProviderId,
@@ -146,6 +151,19 @@ export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
     textModelOptions: catalogModelOptions("replicate", "text"),
     imageModelOptions: catalogModelOptions("replicate", "image"),
     generate: generateWithReplicate,
+  },
+  {
+    id: "higgsfield",
+    label: "Higgsfield",
+    defaultTextToVideoModel: HIGGSFIELD_T2V_MODEL,
+    defaultImageToVideoModel: HIGGSFIELD_I2V_MODEL,
+    // One secret holding the documented "<key id>:<key secret>" pair. Two
+    // settings would only give an admin two ways to get it half right.
+    envKey: "HIGGSFIELD_API_KEY",
+    supportsModelOverride: true,
+    textModelOptions: catalogModelOptions("higgsfield", "text"),
+    imageModelOptions: catalogModelOptions("higgsfield", "image"),
+    generate: generateWithHiggsfield,
   },
   {
     id: "openrouter",

@@ -1,0 +1,634 @@
+From db9682dc6b7dd0cd14694725d01532f07477a87a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 3 Sep 2026 11:04:59 +0000
+Subject: [PATCH] Add Higgsfield as a video provider
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+One key across Veo 3.1, Kling and Seedance, which is the whole reason to
+route through an aggregator rather than three vendor accounts.
+
+The model string here IS the endpoint path ("veo3.1/image-to-video").
+That reads oddly beside Replicate's "owner/name", but it is what the API
+is: there is no model parameter, the path selects the model.
+
+Async in the usual shape — POST returns a request id, poll until it
+settles, download. Output files expire in about a week, so the bytes go
+straight into tenant storage the way every other provider's already do; a
+stored URL would rot inside a fortnight.
+
+Three things the endpoint contract forces, all of which would otherwise be
+a 400 after the user had already waited:
+
+  - duration is the enum "4" | "6" | "8", as STRINGS, so a 5-second scene
+    snaps to the nearest. The scene keeps its real length: the compositor
+    already trims or holds a provider clip to fit.
+  - aspect_ratio is only 16:9 or 9:16, so a 4:5 or 1:1 job takes the
+    nearest orientation and is cover-cropped, as with other partial
+    providers.
+  - Kling and Seedance routes take prompt plus image and reject unknown
+    parameters, so the Veo enums must not leak onto them.
+
+generate_audio is explicitly false unless asked for. The model can produce
+dialogue and the flag is passed, but nothing downstream consumes clip
+audio — the compositor mixes its own narration, music and ducking — so
+audio is opt-in and never inherited from a default.
+
+Higgsfield's published OpenAPI truncates the RequestStatus schema, so the
+nesting of the finished URL is undocumented. Rather than guess one path
+and report "no video URL" on a job that succeeded and was billed, the
+output is searched for the first URL that is actually a video file, with
+the status and cancel URLs the payload also carries deliberately excluded.
+Status vocabulary is matched permissively, and an unrecognised status keeps
+polling rather than abandoning a running, billable job.
+
+The catalog test that checked providers against a hardcoded
+["replicate","openrouter","nvidia"] now checks the real provider list,
+which is what its name always claimed. The copy would pass while a model
+pointed at a provider that could not serve it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../api-server/src/lib/videoGen/index.ts      |  18 ++
+ .../src/lib/videoGen/modelCatalog.test.ts     |   8 +-
+ .../src/lib/videoGen/modelCatalog.ts          |  53 ++++
+ .../lib/videoGen/providers/higgsfield.test.ts | 143 +++++++++
+ .../src/lib/videoGen/providers/higgsfield.ts  | 287 ++++++++++++++++++
+ 5 files changed, 508 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/providers/higgsfield.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/providers/higgsfield.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index 82591210..bc182192 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -34,6 +34,11 @@ import {
+   isNvidiaCoreDeploymentActivatable,
+   resolveNvidiaCoreDeployment,
+ } from "../nvidiaCore";
++import {
++  generateWithHiggsfield,
++  HIGGSFIELD_T2V_MODEL,
++  HIGGSFIELD_I2V_MODEL,
++} from "./providers/higgsfield";
+ import { isTransientStatus } from "./retry";
+ import {
+   parseCustomProviderId,
+@@ -132,6 +137,19 @@ export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
+     imageModelOptions: catalogModelOptions("replicate", "image"),
+     generate: generateWithReplicate,
+   },
++  {
++    id: "higgsfield",
++    label: "Higgsfield",
++    defaultTextToVideoModel: HIGGSFIELD_T2V_MODEL,
++    defaultImageToVideoModel: HIGGSFIELD_I2V_MODEL,
++    // One secret holding the documented "<key id>:<key secret>" pair. Two
++    // settings would only give an admin two ways to get it half right.
++    envKey: "HIGGSFIELD_API_KEY",
++    supportsModelOverride: true,
++    textModelOptions: catalogModelOptions("higgsfield", "text"),
++    imageModelOptions: catalogModelOptions("higgsfield", "image"),
++    generate: generateWithHiggsfield,
++  },
+   {
+     id: "openrouter",
+     label: "OpenRouter",
+diff --git a/artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts b/artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts
+index eed95491..adda3c0a 100644
+--- a/artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts
+@@ -10,6 +10,7 @@ import {
+   supportsMode,
+   videoModelMultiplier,
+ } from "./modelCatalog";
++import { VIDEO_GEN_PROVIDERS } from "./index";
+ import { VIDEO_ASPECTS } from "./types";
+ import { videoJobUnits } from "./units";
+ 
+@@ -21,8 +22,13 @@ describe("video model catalog", () => {
+   });
+ 
+   it("names a provider the video provider catalog actually has", () => {
++    // Checked against the real provider list rather than a hardcoded copy of
++    // it, which is what this test's name always claimed. A duplicated list
++    // still passes when a model points at a provider that cannot serve it,
++    // and has to be hand-edited every time a provider is added.
++    const providers = new Set(VIDEO_GEN_PROVIDERS.map((provider) => provider.id));
+     for (const model of VIDEO_MODEL_CATALOG) {
+-      expect(["replicate", "openrouter", "nvidia"]).toContain(model.provider);
++      expect(providers, model.id).toContain(model.provider);
+     }
+   });
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/modelCatalog.ts b/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
+index 20bada18..57cbb30e 100644
+--- a/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
++++ b/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
+@@ -253,6 +253,59 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
+     hasQuality: false,
+     canGenerateAudio: true,
+   },
++  {
++    id: "hf-veo-3.1-fast",
++    label: "Veo 3.1 Fast (Higgsfield)",
++    blurb: "Google's Veo through Higgsfield. Strong people and motion; 8 seconds a shot.",
++    provider: "higgsfield",
++    models: {
++      text: "veo3.1/fast",
++      image: "veo3.1/fast/image-to-video",
++    },
++    tier: "standard",
++    // The endpoint documents only these two orientations; anything else is
++    // rendered to the nearest and cover-cropped by the compositor.
++    aspects: ["16:9", "9:16"],
++    durations: [4, 6, 8],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    // The model can, and the provider passes the flag. Nothing downstream
++    // consumes clip audio yet, so leaving this true is what makes the option
++    // visible rather than what makes it safe to use.
++    canGenerateAudio: true,
++  },
++  {
++    id: "hf-veo-3.1",
++    label: "Veo 3.1 (Higgsfield)",
++    blurb: "The full Veo 3.1: better detail and camera work, slower and dearer.",
++    provider: "higgsfield",
++    models: {
++      text: "veo3.1",
++      image: "veo3.1/image-to-video",
++    },
++    tier: "premium",
++    aspects: ["16:9", "9:16"],
++    durations: [4, 6, 8],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: true,
++  },
++  {
++    id: "hf-kling-2.5-turbo-pro",
++    label: "Kling 2.5 Turbo Pro (Higgsfield)",
++    blurb: "Kling's fast flagship. Fluid motion; no generated audio.",
++    provider: "higgsfield",
++    models: {
++      text: "kling-video/v2.5-turbo/pro/text-to-video",
++      image: "kling-video/v2.5-turbo/pro/image-to-video",
++    },
++    tier: "standard",
++    aspects: ["16:9", "9:16", "1:1"],
++    durations: [5, 10],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
+   {
+     id: "seedance-2.0-fast",
+     label: "Seedance 2.0 Fast",
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/higgsfield.test.ts b/artifacts/api-server/src/lib/videoGen/providers/higgsfield.test.ts
+new file mode 100644
+index 00000000..103abd9b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/providers/higgsfield.test.ts
+@@ -0,0 +1,143 @@
++import { describe, it, expect } from "vitest";
++import {
++  higgsfieldRequestBody,
++  higgsfieldOutputUrl,
++  higgsfieldTerminalState,
++} from "./higgsfield";
++import type { VideoGenInput } from "../types";
++
++const base: VideoGenInput = {
++  prompt: "a doctor speaking to camera",
++  aspectRatio: "9:16",
++  durationSec: 5,
++  model: "veo3.1/fast/image-to-video",
++};
++const image = { buffer: Buffer.from("png-bytes"), mimeType: "image/png" as const };
++
++describe("higgsfieldRequestBody", () => {
++  it("snaps duration to a value Veo actually accepts", () => {
++    // The API documents duration as the enum "4" | "6" | "8", as STRINGS.
++    // A 5-second scene sent verbatim is a 400 after the user has waited, so
++    // it snaps to the nearest and the compositor trims the clip to the scene
++    // exactly as it already does for every other provider.
++    expect(higgsfieldRequestBody({ ...base, durationSec: 5 }).duration).toBe("4");
++    expect(higgsfieldRequestBody({ ...base, durationSec: 7 }).duration).toBe("6");
++    expect(higgsfieldRequestBody({ ...base, durationSec: 30 }).duration).toBe("8");
++    expect(higgsfieldRequestBody({ ...base, durationSec: 0.5 }).duration).toBe("4");
++  });
++
++  it("maps every aspect onto the two orientations Veo offers", () => {
++    // Only 16:9 and 9:16 are documented. A 4:5 or 1:1 job must still run, so
++    // it takes the nearest orientation and the compositor crops to the real
++    // shape — the same accommodation other partial providers get.
++    expect(higgsfieldRequestBody({ ...base, aspectRatio: "9:16" }).aspect_ratio).toBe("9:16");
++    expect(higgsfieldRequestBody({ ...base, aspectRatio: "4:5" }).aspect_ratio).toBe("9:16");
++    expect(higgsfieldRequestBody({ ...base, aspectRatio: "1:1" }).aspect_ratio).toBe("9:16");
++    expect(higgsfieldRequestBody({ ...base, aspectRatio: "16:9" }).aspect_ratio).toBe("16:9");
++    expect(higgsfieldRequestBody({ ...base, aspectRatio: "21:9" }).aspect_ratio).toBe("16:9");
++  });
++
++  it("keeps audio off unless it was asked for", () => {
++    // The compositor mixes its own narration, music and ducking. A clip that
++    // arrives carrying dialogue collides with all of it, so audio is opt-in
++    // and never inherited from a default.
++    expect(higgsfieldRequestBody(base).generate_audio).toBe(false);
++    expect(higgsfieldRequestBody({ ...base, generateAudio: null }).generate_audio).toBe(false);
++    expect(higgsfieldRequestBody({ ...base, generateAudio: true }).generate_audio).toBe(true);
++  });
++
++  it("passes the still as a data URI, like the other providers", () => {
++    const body = higgsfieldRequestBody({ ...base, image });
++    expect(body.image_url).toBe(`data:image/png;base64,${image.buffer.toString("base64")}`);
++  });
++
++  it("sends only prompt and image to Kling and Seedance routes", () => {
++    // Those paths document prompt plus image and reject unknown parameters,
++    // so the Veo enums must not leak onto them.
++    const body = higgsfieldRequestBody({
++      ...base,
++      model: "kling-video/v2.5-turbo/pro/image-to-video",
++      image,
++    });
++    expect(Object.keys(body).sort()).toEqual(["image_url", "prompt"]);
++  });
++
++  it("uses first/last frame fields only on the interpolating route", () => {
++    const body = higgsfieldRequestBody({
++      ...base,
++      model: "veo3.1/first-last-frame-to-video",
++      image,
++      endImage: { buffer: Buffer.from("end"), mimeType: "image/png" },
++    });
++    expect(body.first_frame_url).toBeTruthy();
++    expect(body.last_frame_url).toBeTruthy();
++    expect(body.image_url).toBeUndefined();
++  });
++
++  it("carries the prompt through", () => {
++    expect(String(higgsfieldRequestBody(base).prompt)).toContain("a doctor speaking to camera");
++  });
++});
++
++describe("higgsfieldTerminalState", () => {
++  it("recognises success and failure across the vocabularies these APIs use", () => {
++    for (const done of ["completed", "succeeded", "SUCCESS", "finished", "ready"]) {
++      expect(higgsfieldTerminalState(done)).toBe("done");
++    }
++    for (const bad of ["failed", "error", "cancelled", "canceled", "expired"]) {
++      expect(higgsfieldTerminalState(bad)).toBe("failed");
++    }
++  });
++
++  it("keeps polling on anything it does not recognise", () => {
++    // Treating an unknown status as terminal would abandon a job that is
++    // still running and still being billed. Unknown means keep waiting; the
++    // overall deadline is what stops the loop.
++    for (const pending of ["queued", "in_progress", "starting", "", undefined, "weird"]) {
++      expect(higgsfieldTerminalState(pending)).toBeNull();
++    }
++  });
++});
++
++describe("higgsfieldOutputUrl", () => {
++  // Higgsfield's published OpenAPI truncates the RequestStatus schema, so the
++  // nesting of the output URL is not documented. Guessing one path and being
++  // slightly wrong would report "no video URL" on a job that succeeded and was
++  // billed — so this searches instead of assuming.
++  it("finds the URL wherever the response nests it", () => {
++    const shapes: unknown[] = [
++      { url: "https://cdn.hf.ai/a.mp4" },
++      { output: { url: "https://cdn.hf.ai/a.mp4" } },
++      { result: { video_url: "https://cdn.hf.ai/a.mp4" } },
++      { results: [{ raw_url: "https://cdn.hf.ai/a.mp4" }] },
++      { output: [{ files: [{ file_url: "https://cdn.hf.ai/a.mp4" }] }] },
++    ];
++    for (const shape of shapes) {
++      expect(higgsfieldOutputUrl(shape)).toBe("https://cdn.hf.ai/a.mp4");
++    }
++  });
++
++  it("ignores URLs that are not video files", () => {
++    // A status payload carries its own status and cancel URLs. Downloading one
++    // of those would hand the pipeline a JSON body named like a video.
++    const status = {
++      status_url: "https://api.higgsfield.ai/requests/abc/status",
++      cancel_url: "https://api.higgsfield.ai/requests/abc/cancel",
++      preview: "https://cdn.hf.ai/thumb.jpg",
++      output: { url: "https://cdn.hf.ai/final.mp4" },
++    };
++    expect(higgsfieldOutputUrl(status)).toBe("https://cdn.hf.ai/final.mp4");
++  });
++
++  it("returns null rather than something unusable", () => {
++    expect(higgsfieldOutputUrl({ status: "completed" })).toBeNull();
++    expect(higgsfieldOutputUrl(null)).toBeNull();
++    expect(higgsfieldOutputUrl({ url: "not-a-url" })).toBeNull();
++  });
++
++  it("cannot be sent into a loop by a self-referencing payload", () => {
++    const cyclic: Record<string, unknown> = { status: "completed" };
++    cyclic.self = cyclic;
++    expect(() => higgsfieldOutputUrl(cyclic)).not.toThrow();
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/higgsfield.ts b/artifacts/api-server/src/lib/videoGen/providers/higgsfield.ts
+new file mode 100644
+index 00000000..6a221bf3
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/providers/higgsfield.ts
+@@ -0,0 +1,287 @@
++import {
++  videoGenFetch,
++  errorDetail,
++  VideoGenNotConfiguredError,
++  VideoGenProviderError,
++  VIDEO_GEN_TOTAL_DEADLINE_MS,
++  compiledClipPrompt,
++  type VideoGenInput,
++  type VideoGenResult,
++} from "../types";
++import { withRetries, isTransientStatus } from "../retry";
++
++/**
++ * Higgsfield: one key across Veo 3.1, Kling and Seedance.
++ *
++ * The appeal is aggregation — a single billing relationship and one auth
++ * header for models that otherwise mean three vendor accounts. The cost is
++ * that every model keeps its own request shape, so the MODEL STRING HERE IS
++ * THE ENDPOINT PATH ("veo3.1/image-to-video"). That reads oddly next to
++ * Replicate's "owner/name", but it is what the API is: there is no model
++ * parameter, the path selects the model.
++ *
++ * Async, like every serious video API: POST returns a request id, you poll
++ * until it settles, then download. Output files expire after about a week,
++ * which is why the caller uploads the bytes to tenant storage immediately —
++ * a URL kept instead of the file would rot inside a fortnight.
++ */
++
++const HIGGSFIELD_BASE_URL = "https://api.higgsfield.ai";
++
++export const HIGGSFIELD_T2V_MODEL = "veo3.1/fast";
++export const HIGGSFIELD_I2V_MODEL = "veo3.1/fast/image-to-video";
++
++/** Poll spacing. Video takes minutes; a tighter loop only wastes calls. */
++const POLL_INTERVAL_MS = 5000;
++
++/**
++ * Veo accepts only these, as strings, and rejects anything else outright —
++ * so the requested length is snapped to the nearest allowed value rather than
++ * sent through and refused. The scene keeps its real duration regardless: the
++ * compositor already trims or holds a provider clip to fit its scene.
++ */
++const VEO_DURATIONS = [4, 6, 8] as const;
++
++/**
++ * Veo's image-to-video endpoint documents only these two. A 1:1 or 4:5 job
++ * would be refused, so it is mapped to the nearest orientation and the
++ * compositor crops to the real aspect, exactly as it does for other providers
++ * that do not offer every shape.
++ */
++function veoAspect(aspect: string): "16:9" | "9:16" {
++  const [w, h] = aspect.split(":").map(Number);
++  return w && h && w > h ? "16:9" : "9:16";
++}
++
++function veoDuration(durationSec: number): string {
++  const nearest = VEO_DURATIONS.reduce((best, value) =>
++    Math.abs(value - durationSec) < Math.abs(best - durationSec) ? value : best,
++  );
++  return String(nearest);
++}
++
++function veoResolution(resolution?: string | null): "720" | "1080" {
++  return resolution === "1080p" || resolution === "1080" ? "1080" : "720";
++}
++
++/**
++ * Whether this path is one of the Veo routes, which are the only ones
++ * documented to take duration/resolution/aspect enums and generate_audio.
++ * Kling and Seedance routes take prompt plus image and reject the rest.
++ */
++function isVeoPath(model: string): boolean {
++  return model.startsWith("veo");
++}
++
++/**
++ * The request body for a path.
++ *
++ * Exported for tests: the enums are the whole risk surface here. Sending a
++ * duration Veo does not accept is a 400 after the user has waited, and every
++ * one of these values is a documented enum rather than a free number.
++ */
++export function higgsfieldRequestBody(input: VideoGenInput): Record<string, unknown> {
++  const prompt = compiledClipPrompt(input.prompt, input.durationSec);
++  // Both existing providers hand images over as data URIs, so this follows
++  // them. Higgsfield documents image_url only as "format: uri", which a data
++  // URI satisfies by the letter; if it turns out to want a fetchable http(s)
++  // URL, the fix is a signed storage URL rather than a different shape.
++  const imageUrl = input.image
++    ? `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`
++    : null;
++
++  if (!isVeoPath(input.model)) {
++    // Kling and Seedance: prompt, plus the still when there is one.
++    return { prompt, ...(imageUrl ? { image_url: imageUrl } : {}) };
++  }
++  const body: Record<string, unknown> = {
++    prompt,
++    duration: veoDuration(input.durationSec),
++    resolution: veoResolution(input.resolution),
++    aspect_ratio: veoAspect(input.aspectRatio),
++    // Explicitly false unless asked. The compositor mixes its own narration
++    // and music, and a clip that arrives carrying dialogue would collide with
++    // that whole path — so audio is opt-in, never inherited.
++    generate_audio: input.generateAudio === true,
++  };
++  if (imageUrl) body.image_url = imageUrl;
++  if (input.endImage && input.model.includes("first-last-frame")) {
++    body.first_frame_url = imageUrl;
++    body.last_frame_url = `data:${input.endImage.mimeType};base64,${input.endImage.buffer.toString("base64")}`;
++    delete body.image_url;
++  }
++  return body;
++}
++
++/** What a submit or poll response can carry, across the shapes seen in the wild. */
++interface HiggsfieldRequestStatus {
++  id?: string;
++  request_id?: string;
++  status?: string;
++  state?: string;
++  status_url?: string;
++  error?: unknown;
++  detail?: unknown;
++  output?: unknown;
++  result?: unknown;
++  results?: unknown;
++}
++
++/**
++ * The finished file's URL.
++ *
++ * Higgsfield's published OpenAPI truncates the RequestStatus schema, so the
++ * exact nesting is not documented. Rather than guess one path and fail
++ * mysteriously on a near miss, this walks the response for the first URL that
++ * looks like a media file. A wrong guess here would surface as "returned no
++ * video URL" on a job that actually succeeded and was billed.
++ */
++export function higgsfieldOutputUrl(payload: unknown, depth = 0): string | null {
++  if (depth > 6 || payload == null) return null;
++  if (typeof payload === "string") {
++    return /^https?:\/\//.test(payload) && /\.(mp4|mov|webm|m4v)(\?|$)/i.test(payload)
++      ? payload
++      : null;
++  }
++  if (Array.isArray(payload)) {
++    for (const item of payload) {
++      const found = higgsfieldOutputUrl(item, depth + 1);
++      if (found) return found;
++    }
++    return null;
++  }
++  if (typeof payload === "object") {
++    // Prefer the conventional carriers before walking everything else.
++    const record = payload as Record<string, unknown>;
++    for (const key of ["url", "video_url", "output_url", "file_url", "raw_url"]) {
++      const found = higgsfieldOutputUrl(record[key], depth + 1);
++      if (found) return found;
++    }
++    for (const value of Object.values(record)) {
++      const found = higgsfieldOutputUrl(value, depth + 1);
++      if (found) return found;
++    }
++  }
++  return null;
++}
++
++/** Terminal states, tolerant of the vocabulary these APIs vary on. */
++export function higgsfieldTerminalState(status: string | undefined): "done" | "failed" | null {
++  const value = (status ?? "").toLowerCase();
++  if (["completed", "complete", "succeeded", "success", "finished", "ready"].includes(value)) {
++    return "done";
++  }
++  if (["failed", "error", "errored", "cancelled", "canceled", "expired"].includes(value)) {
++    return "failed";
++  }
++  return null;
++}
++
++export async function generateWithHiggsfield(
++  input: VideoGenInput,
++  apiKey: string | null,
++): Promise<VideoGenResult> {
++  if (!apiKey) {
++    throw new VideoGenNotConfiguredError(
++      "Higgsfield needs its API key before it can generate video.",
++    );
++  }
++  // The key is the documented "<key id>:<key secret>" pair, stored as one
++  // secret and passed through verbatim. Splitting it into two settings would
++  // buy nothing and give the admin two ways to get it half right.
++  const headers = {
++    Authorization: `Key ${apiKey}`,
++    "Content-Type": "application/json",
++  };
++  const path = input.model.startsWith("/") ? input.model : `/${input.model}`;
++
++  let status = await withRetries(
++    async () => {
++      const res = await videoGenFetch(`${HIGGSFIELD_BASE_URL}${path}`, {
++        method: "POST",
++        headers,
++        body: JSON.stringify(higgsfieldRequestBody(input)),
++      });
++      if (!res.ok) {
++        throw new VideoGenProviderError(
++          `Higgsfield request failed (${res.status}): ${await errorDetail(res)}`,
++          res.status,
++        );
++      }
++      return (await res.json()) as HiggsfieldRequestStatus;
++    },
++    { attempts: 3 },
++  );
++
++  const requestId = status.id ?? status.request_id;
++  const statusUrl =
++    status.status_url ??
++    (requestId ? `${HIGGSFIELD_BASE_URL}/requests/${requestId}/status` : null);
++  if (!statusUrl) {
++    throw new VideoGenProviderError("Higgsfield returned no request id to poll.");
++  }
++
++  const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
++  let consecutivePollFailures = 0;
++  while (
++    higgsfieldTerminalState(status.status ?? status.state) === null &&
++    Date.now() < deadline
++  ) {
++    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
++    try {
++      const poll = await videoGenFetch(statusUrl, { method: "GET", headers });
++      if (!poll.ok) {
++        throw new VideoGenProviderError(
++          `Higgsfield polling failed (${poll.status}): ${await errorDetail(poll)}`,
++          poll.status,
++        );
++      }
++      status = (await poll.json()) as HiggsfieldRequestStatus;
++      consecutivePollFailures = 0;
++    } catch (error) {
++      // A couple of dropped polls mid-generation are not a failed generation;
++      // a definitive non-transient response is.
++      const transient =
++        !(error instanceof VideoGenProviderError) || isTransientStatus(error.status);
++      consecutivePollFailures += 1;
++      if (!transient || consecutivePollFailures >= 3) throw error;
++    }
++  }
++
++  if (higgsfieldTerminalState(status.status ?? status.state) !== "done") {
++    const detail =
++      typeof status.error === "string"
++        ? status.error.slice(0, 300)
++        : typeof status.detail === "string"
++          ? status.detail.slice(0, 300)
++          : (status.status ?? status.state ?? "no terminal status before the deadline");
++    throw new VideoGenProviderError(`Higgsfield generation did not succeed: ${detail}`);
++  }
++
++  const url = higgsfieldOutputUrl(status);
++  if (!url) {
++    throw new VideoGenProviderError("Higgsfield returned no video URL.");
++  }
++  const buffer = await withRetries(
++    async () => {
++      const res = await videoGenFetch(url, { method: "GET" });
++      if (!res.ok) {
++        throw new VideoGenProviderError(
++          `Higgsfield video download failed (${res.status}).`,
++          res.status,
++        );
++      }
++      return Buffer.from(await res.arrayBuffer());
++    },
++    { attempts: 3 },
++  );
++
++  return {
++    buffer,
++    provider: "higgsfield",
++    model: input.model,
++    ...(isVeoPath(input.model)
++      ? { effectiveDurationSec: Number(veoDuration(input.durationSec)) }
++      : {}),
++  };
++}
+-- 
+2.43.0
+

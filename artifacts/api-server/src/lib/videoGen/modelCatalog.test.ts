@@ -10,6 +10,7 @@ import {
   supportsMode,
   videoModelMultiplier,
 } from "./modelCatalog";
+import { VIDEO_GEN_PROVIDERS } from "./index";
 import { VIDEO_ASPECTS } from "./types";
 import { videoJobUnits } from "./units";
 
@@ -21,8 +22,13 @@ describe("video model catalog", () => {
   });
 
   it("names a provider the video provider catalog actually has", () => {
+    // Checked against the real provider list rather than a hardcoded copy of
+    // it, which is what this test's name always claimed. A duplicated list
+    // still passes when a model points at a provider that cannot serve it,
+    // and has to be hand-edited every time a provider is added.
+    const providers = new Set(VIDEO_GEN_PROVIDERS.map((provider) => provider.id));
     for (const model of VIDEO_MODEL_CATALOG) {
-      expect(["replicate", "openrouter", "nvidia"]).toContain(model.provider);
+      expect(providers, model.id).toContain(model.provider);
     }
   });
 

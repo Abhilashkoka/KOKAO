@@ -254,6 +254,59 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     canGenerateAudio: true,
   },
   {
+    id: "hf-veo-3.1-fast",
+    label: "Veo 3.1 Fast (Higgsfield)",
+    blurb: "Google's Veo through Higgsfield. Strong people and motion; 8 seconds a shot.",
+    provider: "higgsfield",
+    models: {
+      text: "veo3.1/fast",
+      image: "veo3.1/fast/image-to-video",
+    },
+    tier: "standard",
+    // The endpoint documents only these two orientations; anything else is
+    // rendered to the nearest and cover-cropped by the compositor.
+    aspects: ["16:9", "9:16"],
+    durations: [4, 6, 8],
+    resolutions: ["720p", "1080p"],
+    hasQuality: false,
+    // The model can, and the provider passes the flag. Nothing downstream
+    // consumes clip audio yet, so leaving this true is what makes the option
+    // visible rather than what makes it safe to use.
+    canGenerateAudio: true,
+  },
+  {
+    id: "hf-veo-3.1",
+    label: "Veo 3.1 (Higgsfield)",
+    blurb: "The full Veo 3.1: better detail and camera work, slower and dearer.",
+    provider: "higgsfield",
+    models: {
+      text: "veo3.1",
+      image: "veo3.1/image-to-video",
+    },
+    tier: "premium",
+    aspects: ["16:9", "9:16"],
+    durations: [4, 6, 8],
+    resolutions: ["720p", "1080p"],
+    hasQuality: false,
+    canGenerateAudio: true,
+  },
+  {
+    id: "hf-kling-2.5-turbo-pro",
+    label: "Kling 2.5 Turbo Pro (Higgsfield)",
+    blurb: "Kling's fast flagship. Fluid motion; no generated audio.",
+    provider: "higgsfield",
+    models: {
+      text: "kling-video/v2.5-turbo/pro/text-to-video",
+      image: "kling-video/v2.5-turbo/pro/image-to-video",
+    },
+    tier: "standard",
+    aspects: ["16:9", "9:16", "1:1"],
+    durations: [5, 10],
+    resolutions: ["720p", "1080p"],
+    hasQuality: false,
+    canGenerateAudio: false,
+  },
+  {
     id: "seedance-2.0-fast",
     label: "Seedance 2.0 Fast",
     blurb: "Cheap and quick with a cinematic look. Good for iterating on a shot.",
