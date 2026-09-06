@@ -1146,8 +1146,11 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("status-guided-reference-sheet-approved").textContent).toContain(
       "Reference sheet approved",
     );
+    expect(state.castApprovalRoles.r1?.roleId).toBe("r1");
     expect(screen.queryByTestId("button-guided-manage-sheet-r1")).toBeNull();
-    expect(screen.getByTestId("button-guided-approve-cast-r1")).toBeTruthy();
+    expect(screen.getByTestId("button-guided-approve-cast-r1").textContent).toContain(
+      "Reapprove",
+    );
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
   });
 

@@ -1331,6 +1331,9 @@ function CastApprovalStep(props: any) {
               next.add(selectedLibraryCharacter.id);
               return next;
             });
+            if (reviewRoleId) {
+              props.onApproveCastRole(reviewRoleId);
+            }
           }
           void queryClient.invalidateQueries({
             queryKey: getListCharactersQueryKey(),
@@ -1497,7 +1500,7 @@ function CastApprovalStep(props: any) {
                 role="status"
                 data-testid="status-guided-reference-sheet-approved"
               >
-                Reference sheet approved. You can now approve this cast role.
+                Reference sheet approved. This cast role is being approved too.
               </p>
             ) : null}
           </div>
