@@ -5550,6 +5550,16 @@ describe("Video Studio voice notes", () => {
     );
     expect(screen.getByAltText("Maya primary portrait")).toBeTruthy();
     expect(screen.getByAltText("Maya multi-view reference sheet")).toBeTruthy();
+    await user.click(screen.getByTestId("button-enlarge-primary-portrait-71"));
+    expect(screen.getByTestId("image-enlarged-character").getAttribute("alt")).toBe(
+      "Maya primary portrait",
+    );
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByTestId("button-enlarge-reference-sheet-71"));
+    expect(screen.getByTestId("image-enlarged-character").getAttribute("alt")).toBe(
+      "Maya multi-view reference sheet",
+    );
+    await user.keyboard("{Escape}");
     await user.click(screen.getByTestId("button-approve-reference-sheet-71"));
     expect(mockState.reviewedReferenceSheets).toEqual([
       { characterId: 71, decision: "approve" },

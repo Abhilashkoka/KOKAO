@@ -10904,7 +10904,7 @@ function CharacterManagerDialog({
       })
     | null
   >(null);
-  const [enlargedOutfitImage, setEnlargedOutfitImage] = useState<{
+  const [enlargedCharacterImage, setEnlargedCharacterImage] = useState<{
     src: string;
     alt: string;
   } | null>(null);
@@ -11468,22 +11468,58 @@ function CharacterManagerDialog({
                               <p className="mb-1 text-[10px] text-muted-foreground">
                                 Primary portrait
                               </p>
-                              <img
-                                src={servedCharacterImage(c.referenceImagePath)}
-                                alt={`${c.name} primary portrait`}
-                                className="h-24 w-16 rounded border border-border object-cover"
-                              />
+                              <button
+                                type="button"
+                                className="rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                aria-label={`Enlarge ${c.name} primary portrait`}
+                                data-testid={`button-enlarge-primary-portrait-${c.id}`}
+                                onClick={() => {
+                                  const src = servedCharacterImage(
+                                    c.referenceImagePath,
+                                  );
+                                  if (src) {
+                                    setEnlargedCharacterImage({
+                                      src,
+                                      alt: `${c.name} primary portrait`,
+                                    });
+                                  }
+                                }}
+                              >
+                                <img
+                                  src={servedCharacterImage(c.referenceImagePath)}
+                                  alt={`${c.name} primary portrait`}
+                                  className="h-24 w-16 rounded border border-border object-cover transition-opacity hover:opacity-85"
+                                />
+                              </button>
                             </div>
                             {c.referenceSheetImagePath && (
                               <div className="min-w-0 flex-1">
                                 <p className="mb-1 text-[10px] text-muted-foreground">
                                   Multi-view sheet
                                 </p>
-                                <img
-                                  src={servedCharacterImage(c.referenceSheetImagePath)}
-                                  alt={`${c.name} multi-view reference sheet`}
-                                  className="h-24 w-full max-w-xs rounded border border-border object-contain bg-muted"
-                                />
+                                <button
+                                  type="button"
+                                  className="block w-full max-w-xs rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                  aria-label={`Enlarge ${c.name} multi-view reference sheet`}
+                                  data-testid={`button-enlarge-reference-sheet-${c.id}`}
+                                  onClick={() => {
+                                    const src = servedCharacterImage(
+                                      c.referenceSheetImagePath,
+                                    );
+                                    if (src) {
+                                      setEnlargedCharacterImage({
+                                        src,
+                                        alt: `${c.name} multi-view reference sheet`,
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <img
+                                    src={servedCharacterImage(c.referenceSheetImagePath)}
+                                    alt={`${c.name} multi-view reference sheet`}
+                                    className="h-24 w-full rounded border border-border object-contain bg-muted transition-opacity hover:opacity-85"
+                                  />
+                                </button>
                               </div>
                             )}
                           </div>
@@ -11675,7 +11711,7 @@ function CharacterManagerDialog({
                                   outfitPreview.referenceImagePath,
                                 );
                                 if (src) {
-                                  setEnlargedOutfitImage({
+                                  setEnlargedCharacterImage({
                                     src,
                                     alt: `${c.name} wearing ${outfitPreview.name}`,
                                   });
@@ -11944,9 +11980,9 @@ function CharacterManagerDialog({
         </DialogContent>
       </Dialog>
       <Dialog
-        open={enlargedOutfitImage !== null}
+        open={enlargedCharacterImage !== null}
         onOpenChange={(open) => {
-          if (!open) setEnlargedOutfitImage(null);
+          if (!open) setEnlargedCharacterImage(null);
         }}
       >
         <DialogContent
@@ -11954,16 +11990,17 @@ function CharacterManagerDialog({
           data-testid="dialog-enlarged-outfit-preview"
         >
           <DialogHeader className="sr-only">
-            <DialogTitle>Enlarged outfit preview</DialogTitle>
+            <DialogTitle>Enlarged character image</DialogTitle>
             <DialogDescription>
-              Review the generated character outfit at full size.
+              Review the character image at full size.
             </DialogDescription>
           </DialogHeader>
-          {enlargedOutfitImage && (
+          {enlargedCharacterImage && (
             <img
-              src={enlargedOutfitImage.src}
-              alt={enlargedOutfitImage.alt}
+              src={enlargedCharacterImage.src}
+              alt={enlargedCharacterImage.alt}
               className="max-h-[78vh] w-full rounded-md object-contain"
+              data-testid="image-enlarged-character"
             />
           )}
         </DialogContent>
