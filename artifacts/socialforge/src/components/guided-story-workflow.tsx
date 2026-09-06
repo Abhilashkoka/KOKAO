@@ -1440,9 +1440,12 @@ function CastApprovalStep(props: any) {
       })}
     </div>
     <Dialog open={reviewRoleId !== null} onOpenChange={(open) => !open && setReviewRoleId(null)}>
-      <DialogContent className="max-w-2xl" data-testid="dialog-guided-cast-review">
+      <DialogContent
+        className="max-h-[90vh] max-w-2xl overflow-x-hidden overflow-y-auto"
+        data-testid="dialog-guided-cast-review"
+      >
         <DialogHeader><DialogTitle>Review {roles.find((role: any) => role.id === reviewRoleId)?.name} references</DialogTitle><DialogDescription>Confirm the exact character and outfit images before approving this role.</DialogDescription></DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
           <ReferenceThumbnail label="Character" asset={selected?.character} enlarged />
           <ReferenceThumbnail label="Outfit" asset={selected?.outfit} enlarged />
         </div>

@@ -1132,7 +1132,9 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(
       screen.getAllByTestId("button-enlarge-guided-character-reference")[0],
     );
-    expect(screen.getByTestId("dialog-guided-cast-review")).toBeTruthy();
+    expect(screen.getByTestId("dialog-guided-cast-review").className).toContain(
+      "overflow-y-auto",
+    );
     expect(screen.getByTestId("img-guided-reference-sheet").getAttribute("src")).toContain(
       "/objects/99/sheet-r1.png",
     );
