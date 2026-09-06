@@ -1273,6 +1273,7 @@ function CastApprovalStep(props: any) {
     () => new Set(),
   );
   const [sheetReviewError, setSheetReviewError] = useState<string | null>(null);
+  const automaticApprovalAttempts = useRef<Set<string>>(new Set());
   const [outfitRoleId, setOutfitRoleId] = useState<string | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const [selectedOutfitId, setSelectedOutfitId] = useState<number | null>(null);
@@ -1331,9 +1332,6 @@ function CastApprovalStep(props: any) {
               next.add(selectedLibraryCharacter.id);
               return next;
             });
-            if (reviewRoleId) {
-              props.onApproveCastRole(reviewRoleId);
-            }
           }
           void queryClient.invalidateQueries({
             queryKey: getListCharactersQueryKey(),
@@ -1366,6 +1364,59 @@ function CastApprovalStep(props: any) {
       setCustomizationError(apiErrorMessage(cause, "Could not start character regeneration."));
     }
   };
+  useEffect(() => {
+    if (props.pending) return;
+    const roleToApprove = roles.find((role: any) => {
+      const alreadyApproved =
+        manifestIsCurrent && Boolean(manifest?.roles[role.id]);
+      if (alreadyApproved) return false;
+      const member = props.draft.cast.find(
+        (item: any) => item.roleId === role.id,
+      );
+      const libraryCharacter = props.characters.find(
+        (item: Character) => item.id === member?.characterId,
+      );
+      const sheetApproved =
+        libraryCharacter?.referenceSheetStatus === "approved" ||
+        (libraryCharacter
+          ? approvedSheetCharacterIds.has(libraryCharacter.id)
+          : false);
+      if (!member?.character?.referenceImagePath || !member.outfit?.referenceImagePath) {
+        return false;
+      }
+      const attemptKey = [
+        props.draft.id,
+        props.draft.revision,
+        role.id,
+        member.character.referenceImagePath,
+        member.outfit.referenceImagePath,
+      ].join(":");
+      return sheetApproved && !automaticApprovalAttempts.current.has(attemptKey);
+    });
+    if (!roleToApprove) return;
+    const member = props.draft.cast.find(
+      (item: any) => item.roleId === roleToApprove.id,
+    );
+    const attemptKey = [
+      props.draft.id,
+      props.draft.revision,
+      roleToApprove.id,
+      member.character.referenceImagePath,
+      member.outfit.referenceImagePath,
+    ].join(":");
+    automaticApprovalAttempts.current.add(attemptKey);
+    props.onApproveCastRole(roleToApprove.id);
+  }, [
+    approvedSheetCharacterIds,
+    manifest,
+    manifestIsCurrent,
+    props.characters,
+    props.draft.cast,
+    props.draft.id,
+    props.draft.revision,
+    props.pending,
+    roles,
+  ]);
   const prepareOutfitCandidate = async () => {
     if (!outfitRoleId || !selectedCharacterId || !selectedOutfitId) return;
     setOutfitError(null);

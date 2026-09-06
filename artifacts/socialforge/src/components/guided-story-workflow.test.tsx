@@ -1162,6 +1162,27 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("automatically approves cast roles whose reference sheets were already approved", async () => {
+    const cast = generatedCast();
+    state.draft = draft({ castStrategy: "generated", cast });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow({
+      characters: cast.map((member) => ({
+        ...character,
+        id: member.characterId,
+        referenceSheetStatus: "approved",
+        referenceSheetImagePath: `/objects/99/sheet-${member.roleId}.png`,
+      })),
+    });
+
+    await waitFor(() => {
+      expect(state.castApprovalRoles.r1?.roleId).toBe("r1");
+      expect(state.castApprovalRoles.r2?.roleId).toBe("r2");
+    });
+    expect(screen.queryByText("Approve Ari")).toBeNull();
+    expect(screen.queryByText("Approve Bo")).toBeNull();
+  });
+
   it("offers stock, ElevenLabs premade, and cloned voices independently of the Brand Kit", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
