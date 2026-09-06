@@ -4385,6 +4385,8 @@ export async function runVideoGenerationJob(
  * The operation has its own persisted lifecycle and intentionally never moves
  * the parent job out of awaiting_review.
  */
+class GuidedPreviewRenderCancelled extends Error {}
+
 export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
   const claimed = await db.transaction(async (tx) => {
     const [fresh] = await tx.select().from(videoGenerationsTable)
@@ -4430,7 +4432,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         current.status !== "awaiting_review" ||
         !operation ||
         operation.operationId !== operationId ||
-        operation.state !== "running"
+        !["running", "cancel_requested"].includes(operation.state)
       ) {
         throw new VideoJobInputError(
           "The Guided Story preview operation changed while it was running.",
@@ -4442,11 +4444,26 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         options: { ...current.options, guidedPreviewRender: nextOperation },
         stage: nextOperation.state === "running"
           ? `Rendering missing previews (${nextOperation.completed} of ${nextOperation.total})`
-          : null,
+          : nextOperation.state === "cancel_requested"
+            ? "Stopping preview render safely"
+            : null,
         error: nextOperation.error,
         updatedAt: new Date(),
       }).where(eq(videoGenerationsTable.id, jobId));
     });
+  };
+  const stopIfRequested = async (): Promise<void> => {
+    const [current] = await db.select({ options: videoGenerationsTable.options })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId))
+      .limit(1);
+    const operation = current?.options?.guidedPreviewRender;
+    if (
+      operation?.operationId === operationId &&
+      (operation.state === "cancel_requested" || operation.state === "cancelled")
+    ) {
+      throw new GuidedPreviewRenderCancelled("Preview rendering was stopped.");
+    }
   };
 
   try {
@@ -4504,6 +4521,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
     ).length;
     const latestByRole = new Map<string, Buffer>();
     for (const sceneSnapshot of board.scenes) {
+      await stopIfRequested();
       let scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
       if (scene.previewPath && !scene.previewCheckpoint) {
         scene.previewCheckpoint = {
@@ -4554,6 +4572,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
       scene.previewPath = null;
       scene.previewCheckpoint = { targetPath, status: "prepared" };
       await persist(board, { completed });
+      await stopIfRequested();
 
       const previewPath = await regenerateStoryboardPreview({
         tenantId: claimed.tenantId,
@@ -4638,6 +4657,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
       });
       scene.previewPath = previewPath;
     }
+    await stopIfRequested();
     await persist(board, {
       state: "succeeded",
       completed: board.scenes.length,
@@ -4645,6 +4665,16 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
       finishedAt: new Date().toISOString(),
     });
   } catch (error) {
+    if (error instanceof GuidedPreviewRenderCancelled) {
+      await persist(board, {
+        state: "cancelled",
+        error: null,
+        finishedAt: new Date().toISOString(),
+      }).catch((persistError) => {
+        logger.error({ err: persistError, jobId }, "Failed to persist Guided Story preview cancellation");
+      });
+      return;
+    }
     const cause = error instanceof PartialVideoProviderWorkError ? error.cause : error;
     const message = cause instanceof Error
       ? cause.message

@@ -1077,7 +1077,9 @@ function serializeVideoJob(
     guidedPreviewRender: job.options?.guidedPreviewRender
       ? {
           ...job.options.guidedPreviewRender,
-          retryable: job.options.guidedPreviewRender.state === "failed",
+          retryable:
+            job.options.guidedPreviewRender.state === "failed" ||
+            job.options.guidedPreviewRender.state === "cancelled",
         }
       : null,
     guidedStoryDialogueReplay: job.options?.guidedStoryDialogueReplay
@@ -12650,6 +12652,66 @@ router.post(
       return;
     }
     res.status(202).json(serializeVideoJob(result.job));
+  },
+);
+
+router.post(
+  "/ai/video-jobs/:jobId/storyboard/render-missing-previews/cancel",
+  async (req: Request, res: Response) => {
+    const jobId = Number(req.params.jobId);
+    if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "Invalid video job id." });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [job] = await tx.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, jobId),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!job) return { kind: "missing" as const };
+      const operation = job.options?.guidedPreviewRender;
+      if (
+        job.status !== "awaiting_review" ||
+        job.storyboard?.mode !== "guided_story" ||
+        !job.options ||
+        !operation
+      ) return { kind: "invalid" as const };
+      if (operation.state === "cancelled" || operation.state === "succeeded" ||
+          operation.state === "failed") {
+        return { kind: "settled" as const, job };
+      }
+      const now = new Date();
+      const state = operation.state === "queued"
+        ? "cancelled" as const
+        : "cancel_requested" as const;
+      const [updated] = await tx.update(videoGenerationsTable).set({
+        options: {
+          ...job.options,
+          guidedPreviewRender: {
+            ...operation,
+            state,
+            error: null,
+            finishedAt: state === "cancelled" ? now.toISOString() : null,
+          },
+        },
+        stage: state === "cancelled" ? null : "Stopping preview render safely",
+        error: null,
+        updatedAt: now,
+      }).where(and(
+        eq(videoGenerationsTable.id, job.id),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).returning();
+      return { kind: "cancelled" as const, job: updated! };
+    });
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (result.kind === "invalid") {
+      res.status(409).json({ error: "No active Guided Story preview render can be stopped." });
+      return;
+    }
+    res.status(200).json(serializeVideoJob(result.job));
   },
 );
 

@@ -37,6 +37,7 @@ const mockState: {
   resolveStoryboardEdit: (() => void) | null;
   approvals: number[];
   guidedPreviewRenders: number[];
+  guidedPreviewCancellations: number[];
   guidedCorrections: any[];
   guidedDraft: any;
   referenceCreates: any[];
@@ -94,6 +95,7 @@ const mockState: {
   resolveStoryboardEdit: null,
   approvals: [],
   guidedPreviewRenders: [],
+  guidedPreviewCancellations: [],
   guidedCorrections: [],
   guidedDraft: undefined,
   referenceCreates: [],
@@ -439,6 +441,22 @@ vi.mock("@workspace/api-client-react", async () => {
             requestedAt: new Date().toISOString(),
             startedAt: null,
             finishedAt: null,
+          },
+        });
+      },
+    }),
+    useCancelGuidedStoryPreviewRender: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.guidedPreviewCancellations.push(vars.jobId);
+        opts?.onSuccess?.({
+          ...mockState.activeJob,
+          guidedPreviewRender: {
+            ...mockState.activeJob?.guidedPreviewRender,
+            state: "cancelled",
+            retryable: true,
+            error: null,
+            finishedAt: new Date().toISOString(),
           },
         });
       },
@@ -909,6 +927,7 @@ beforeEach(() => {
   mockState.resolveStoryboardEdit = null;
   mockState.approvals = [];
   mockState.guidedPreviewRenders = [];
+  mockState.guidedPreviewCancellations = [];
   mockState.guidedCorrections = [];
   mockState.guidedDraft = undefined;
   mockState.referenceCreates = [];
@@ -4388,6 +4407,10 @@ describe("Video Studio", () => {
     ).toContain("Sam · Single-speaker shot · Chest-up · Looking screen-right");
     expect(screen.getByText("Generating scene image…")).toBeTruthy();
     expect(screen.getByText("1 of 2 scenes ready")).toBeTruthy();
+    const stop = screen.getByTestId("button-cancel-guided-preview-render");
+    expect(stop.textContent).toContain("Stop preview render");
+    fireEvent.click(stop);
+    expect(mockState.guidedPreviewCancellations).toEqual([11]);
     expect(screen.getByTestId("text-guided-shot-s1").textContent).toContain(
       "Frame only Sam",
     );

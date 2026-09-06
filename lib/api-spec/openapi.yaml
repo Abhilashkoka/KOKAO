@@ -7392,6 +7392,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/render-missing-previews/cancel:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: cancelGuidedStoryPreviewRender
+      tags: [ai]
+      summary: Stop an active Guided Story preview render
+      description: >-
+        Cancels queued preview work immediately. Running work records any
+        already-dispatched provider result safely, then stops before dispatching
+        another scene. Completed previews remain available for a later resume.
+      responses:
+        "200":
+          description: Cancellation was requested or the operation was already settled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Invalid job id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: No preview render is active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/storyboard/approve:
     parameters:
       - name: jobId
@@ -19566,7 +19606,7 @@ components:
                   type: string
                 state:
                   type: string
-                  enum: [queued, running, succeeded, failed]
+                  enum: [queued, running, cancel_requested, cancelled, succeeded, failed]
                 total:
                   type: integer
                   minimum: 0

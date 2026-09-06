@@ -5765,7 +5765,7 @@ describe("guided story route fail-closed regressions", () => {
     expect(unknownBlocked.body.error).toMatch(/outcome unknown/i);
   });
 
-  it("atomically queues one tenant-scoped missing-preview operation and keeps review paused", async () => {
+  it("atomically queues and cancels one tenant-scoped missing-preview operation while keeping review paused", async () => {
     const tenant = await newTenant("pro");
     const script = routeScript();
     const cast = script.roles.map((role, index) => ({
@@ -5858,6 +5858,42 @@ describe("guided story route fail-closed regressions", () => {
       state: "queued",
       total: storyboard.scenes.length,
       completed: 0,
+    });
+    const cancelled = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews/cancel`)
+      .send({});
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.guidedPreviewRender).toMatchObject({
+      state: "cancelled",
+      completed: 0,
+      retryable: true,
+    });
+    const [stopped] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, job!.id));
+    expect(stopped!.status).toBe("awaiting_review");
+    expect(stopped!.options!.guidedPreviewRender).toMatchObject({
+      state: "cancelled",
+      error: null,
+    });
+    await db.update(videoGenerationsTable).set({
+      options: {
+        ...stopped!.options!,
+        guidedPreviewRender: {
+          ...stopped!.options!.guidedPreviewRender!,
+          state: "running",
+          startedAt: new Date().toISOString(),
+          finishedAt: null,
+        },
+      },
+    }).where(eq(videoGenerationsTable.id, job!.id));
+    const stopping = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews/cancel`)
+      .send({});
+    expect(stopping.status).toBe(200);
+    expect(stopping.body.guidedPreviewRender).toMatchObject({
+      state: "cancel_requested",
+      completed: 0,
+      retryable: false,
     });
     const prematureApproval = await request(app)
       .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`)

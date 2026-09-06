@@ -19073,6 +19073,77 @@ export const useRenderMissingGuidedStoryPreviews = <TError = ErrorType<ErrorEnve
       return useMutation(getRenderMissingGuidedStoryPreviewsMutationOptions(options));
     }
 
+export const getCancelGuidedStoryPreviewRenderUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/render-missing-previews/cancel`
+}
+
+/**
+ * Cancels queued preview work immediately. Running work records any already-dispatched provider result safely, then stops before dispatching another scene. Completed previews remain available for a later resume.
+ * @summary Stop an active Guided Story preview render
+ */
+export const cancelGuidedStoryPreviewRender = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getCancelGuidedStoryPreviewRenderUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getCancelGuidedStoryPreviewRenderMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelGuidedStoryPreviewRender>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelGuidedStoryPreviewRender>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['cancelGuidedStoryPreviewRender'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelGuidedStoryPreviewRender>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  cancelGuidedStoryPreviewRender(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelGuidedStoryPreviewRenderMutationResult = NonNullable<Awaited<ReturnType<typeof cancelGuidedStoryPreviewRender>>>
+
+    export type CancelGuidedStoryPreviewRenderMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Stop an active Guided Story preview render
+ */
+export const useCancelGuidedStoryPreviewRender = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelGuidedStoryPreviewRender>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelGuidedStoryPreviewRender>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getCancelGuidedStoryPreviewRenderMutationOptions(options));
+    }
+
 export const getApproveVideoStoryboardUrl = (jobId: number,) => {
 
 

@@ -5436,6 +5436,8 @@ export type VideoJobGuidedPreviewRenderState = typeof VideoJobGuidedPreviewRende
 export const VideoJobGuidedPreviewRenderState = {
   queued: 'queued',
   running: 'running',
+  cancel_requested: 'cancel_requested',
+  cancelled: 'cancelled',
   succeeded: 'succeeded',
   failed: 'failed',
 } as const;

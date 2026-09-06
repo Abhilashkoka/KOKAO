@@ -14,10 +14,11 @@ description: Design invariants for the video storyboard review flow (awaiting_re
 - **Caps stored inside a jsonb blob must be spent with an atomic conditional UPDATE** (jsonb_set increment + `< cap` predicate in the WHERE), never read-then-write in app code — concurrent requests race past the pre-check. Release the claim (best-effort decrement) on provider failure, and persist post-generation results with jsonb_set on the sub-key only so a slow request can't overwrite the counter.
 - Approve/discard both use status-guarded atomic claims (`awaiting_review` → next status in one conditional UPDATE); concurrent approve+discard tested with Promise.all.
 - Missing preview at approve time fails + refunds rather than silently regenerating ("what you approved is what you get").
+- Preview-render cancellation is cooperative: queued work cancels immediately; running work safely checkpoints the already-dispatched provider result, then stops before the next scene. Completed previews remain resumable.
 - Scene lengths are read-only while `timelineLocked` (narration-driven timeline); the PATCH route rejects, not ignores, length edits.
 - The video job sweep also settles jobs orphaned in queued/processing after a restart (in-process background jobs lose their runner).
 
-**Why:** review flow rests on "you see and approve exactly what you pay for"; the two bolded rules were review-caught defects (lost refunds, cap bypass by race).
+**Why:** review flow rests on "you see and approve exactly what you pay for"; the two bolded rules were review-caught defects (lost refunds, cap bypass by race). Hard-aborting an in-flight preview can lose a paid provider receipt and make its outcome uncertain.
 **How to apply:** any new pausable/reviewable pipeline, any jsonb-stored counter, and any reserve-then-refund funding path.
 
 ## Raw AI plan on the storyboard (aiPlan)

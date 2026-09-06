@@ -362,7 +362,13 @@ export interface VideoJobOptions {
   guidedPreviewRender?: {
     version: 1;
     operationId: string;
-    state: "queued" | "running" | "succeeded" | "failed";
+    state:
+      | "queued"
+      | "running"
+      | "cancel_requested"
+      | "cancelled"
+      | "succeeded"
+      | "failed";
     total: number;
     completed: number;
     error: string | null;

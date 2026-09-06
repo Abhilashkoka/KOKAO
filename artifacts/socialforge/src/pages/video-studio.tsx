@@ -16,6 +16,7 @@ import {
   useInsertVideoStoryboardScene,
   useRegenerateStoryboardScenePreview,
   useRenderMissingGuidedStoryPreviews,
+  useCancelGuidedStoryPreviewRender,
   useCorrectGuidedStoryScene,
   useGetGuidedStoryDraft,
   useCreateGuidedStoryReference,
@@ -8559,6 +8560,7 @@ function StoryboardReview({
   const insertScene = useInsertVideoStoryboardScene();
   const regenerate = useRegenerateStoryboardScenePreview();
   const renderMissingGuidedPreviews = useRenderMissingGuidedStoryPreviews();
+  const cancelGuidedPreviewRender = useCancelGuidedStoryPreviewRender();
   const correctGuidedScene = useCorrectGuidedStoryScene();
   const approve = useApproveVideoStoryboard();
   const discard = useDiscardVideoStoryboard();
@@ -8637,6 +8639,7 @@ function StoryboardReview({
   const workingOn =
     update.isPending ||
     renderMissingGuidedPreviews.isPending ||
+    cancelGuidedPreviewRender.isPending ||
     correctGuidedScene.isPending ||
     approve.isPending ||
     discard.isPending ||
@@ -8655,7 +8658,8 @@ function StoryboardReview({
   const guidedPreviewRender = job.guidedPreviewRender;
   const guidedPreviewRendering =
     guidedPreviewRender?.state === "queued" ||
-    guidedPreviewRender?.state === "running";
+    guidedPreviewRender?.state === "running" ||
+    guidedPreviewRender?.state === "cancel_requested";
   const guidedPreviewOutcomeUncertain =
     guidedPreviewRender?.state === "failed" &&
     /uncertain provider outcome/i.test(guidedPreviewRender.error ?? "");
@@ -9898,6 +9902,37 @@ function StoryboardReview({
             )}
           </Button>
         )}
+        {guidedStoryboard && guidedPreviewRendering && (
+          <Button
+            variant="outline"
+            disabled={
+              cancelGuidedPreviewRender.isPending ||
+              guidedPreviewRender?.state === "cancel_requested"
+            }
+            onClick={() =>
+              cancelGuidedPreviewRender.mutate(
+                { jobId: job.id },
+                {
+                  onSuccess: (updated) => {
+                    settle(updated);
+                    toast({
+                      title: "Preview render stopping",
+                      description:
+                        "Any image already sent to the provider will finish safely; no new scene will start.",
+                    });
+                  },
+                  onError: fail("Could not stop preview rendering"),
+                },
+              )
+            }
+            data-testid="button-cancel-guided-preview-render"
+          >
+            {cancelGuidedPreviewRender.isPending ||
+            guidedPreviewRender?.state === "cancel_requested"
+              ? "Stopping…"
+              : "Stop preview render"}
+          </Button>
+        )}
         <Button
           disabled={
             workingOn ||
@@ -9956,6 +9991,10 @@ function StoryboardReview({
               ? `Waiting to render previews · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
               : guidedPreviewRender.state === "running"
                 ? `Rendering missing previews · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
+                : guidedPreviewRender.state === "cancel_requested"
+                  ? `Stopping preview render safely · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
+                  : guidedPreviewRender.state === "cancelled"
+                    ? `Preview rendering stopped · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
                 : guidedPreviewRender.state === "failed"
                   ? `Preview rendering was interrupted · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
                   : `All ${guidedPreviewRender.total} guided previews are ready to review`}
