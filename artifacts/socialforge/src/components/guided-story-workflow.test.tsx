@@ -1138,6 +1138,9 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("img-guided-reference-sheet").getAttribute("src")).toContain(
       "/objects/99/sheet-r1.png",
     );
+    expect(
+      screen.getByTestId("button-guided-customize-character-from-review").textContent,
+    ).toContain("Customize Character");
     await userEvent.click(screen.getByTestId("button-guided-approve-reference-sheet"));
     expect(state.referenceSheetReview).toEqual({
       characterId: 101,
@@ -1151,6 +1154,11 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("button-guided-approve-cast-r1").textContent).toContain(
       "Reapprove",
     );
+    await userEvent.click(
+      screen.getByTestId("button-guided-customize-character-from-review"),
+    );
+    expect(screen.queryByTestId("dialog-guided-cast-review")).toBeNull();
+    expect(screen.getByTestId("dialog-guided-customize-character")).toBeTruthy();
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
   });
 

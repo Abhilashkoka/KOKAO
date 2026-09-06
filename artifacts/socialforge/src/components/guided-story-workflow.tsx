@@ -1505,6 +1505,20 @@ function CastApprovalStep(props: any) {
             ) : null}
           </div>
         )}
+        {selected?.source === "generated" && reviewRoleId && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const roleId = reviewRoleId;
+              setReviewRoleId(null);
+              openCustomization(roleId, selected);
+            }}
+            data-testid="button-guided-customize-character-from-review"
+          >
+            Customize Character
+          </Button>
+        )}
       </DialogContent>
     </Dialog>
     <Dialog open={outfitRoleId !== null} onOpenChange={(open) => !open && closeOutfitDialog()}>
