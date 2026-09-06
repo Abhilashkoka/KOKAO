@@ -72,6 +72,7 @@ const NATIVE_SYNCHRONIZED_AUDIO_MODELS = new Set([
   "higgsfield/veo3.1/fast/image-to-video",
   "higgsfield/veo3.1",
   "higgsfield/veo3.1/image-to-video",
+  "higgsfield/bytedance/seedance-2.5",
 ]);
 
 /**

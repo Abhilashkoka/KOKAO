@@ -143,6 +143,7 @@ describe("generateVideo frozen model contract", () => {
   it("recognizes Seedance 2.5 as providing synchronized native audio", () => {
     expect(hasNativeSynchronizedAudio("openrouter", "bytedance/seedance-2.5")).toBe(true);
     expect(hasNativeSynchronizedAudio("OPENROUTER", " ByteDance/Seedance-2.5 ")).toBe(true);
+    expect(hasNativeSynchronizedAudio("higgsfield", "bytedance/seedance-2.5")).toBe(true);
     expect(hasNativeSynchronizedAudio("openrouter", "bytedance/seedance-2.0")).toBe(false);
   });
 

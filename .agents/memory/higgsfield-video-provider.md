@@ -21,8 +21,8 @@ Higgsfield is also an image provider. Its default image route is the documented 
 
 **How to apply:** Reuse the saved video credential when no image-specific key exists. Soul v2 Standard is text-to-image only in the current adapter; do not claim reference-image, transparency, or masked-edit support.
 
-Higgsfield Veo 3.1 text and image routes provide native synchronized audio for Guided Story; do not add a Replicate lip-sync pass unless the user explicitly requests separate finishing. Kling 2.5 remains non-audio.
+Higgsfield Veo 3.1 routes and Higgsfield's `bytedance/seedance-2.5` endpoint provide native synchronized audio for Guided Story; do not add a Replicate lip-sync pass unless the user explicitly requests separate finishing. Kling 2.5 remains non-audio.
 
 **Why:** Treating all Higgsfield models as silent incorrectly blocks native-audio Guided Stories on a Replicate credential and would replace provider-owned dialogue.
 
-**How to apply:** Keep native-audio capability model-specific. Opt Higgsfield Veo into generated audio and skip intrinsic Replicate lip-sync; retain Replicate requirements for non-audio models or explicit finishing.
+**How to apply:** Keep native-audio capability model-specific. Opt Higgsfield Veo and Seedance 2.5 into generated audio and skip intrinsic Replicate lip-sync; retain Replicate requirements for non-audio models or explicit finishing. Seedance audio is intrinsic and does not use Veo's `generate_audio` request field.
