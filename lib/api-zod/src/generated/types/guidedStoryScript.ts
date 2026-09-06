@@ -14,8 +14,9 @@ export interface GuidedStoryScript {
   logline: string;
   runtimeSeconds: number;
   /**
-     * @minItems 2
-     * @maxItems 4
+     * Story-decided cast. The upper bound is only a malformed-output sanity guard.
+     * @minItems 1
+     * @maxItems 20
      */
   roles: GuidedStoryRole[];
   /**

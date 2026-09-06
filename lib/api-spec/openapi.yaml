@@ -17527,19 +17527,9 @@ components:
           type: string
           minLength: 1
           description: Stable id from GET /ai/guided-story/voices.
-    GuidedStoryRolePlan:
-      type: object
-      required: [allowed, recommended]
-      properties:
-        allowed:
-          type: array
-          minItems: 1
-          maxItems: 3
-          items: { type: integer, minimum: 2, maximum: 4 }
-        recommended: { type: integer, minimum: 2, maximum: 4 }
     GuidedStoryPlatformContract:
       type: object
-      required: [id, aspectRatio, width, height, safeArea, durations, rolePlans]
+      required: [id, aspectRatio, width, height, safeArea, durations]
       properties:
         id:
           type: string
@@ -17555,11 +17545,12 @@ components:
           items: { type: integer }
         rolePlans:
           type: object
-          additionalProperties:
-            $ref: "#/components/schemas/GuidedStoryRolePlan"
+          deprecated: true
+          description: Retired compatibility field. Always empty; Guided Story casts are story-decided.
+          additionalProperties: false
     GuidedStorySetupInput:
       type: object
-      required: [genre, platform, durationSeconds, locale, topic, roleCount]
+      required: [genre, platform, durationSeconds, locale, topic]
       properties:
         genre:
           type: string
@@ -17574,7 +17565,10 @@ components:
           maxLength: 35
           description: A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.
         topic: { type: string, minLength: 3, maxLength: 2000 }
-        roleCount: { type: integer, minimum: 2, maximum: 4 }
+        roleCount:
+          type: integer
+          deprecated: true
+          description: Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.
         brandKitId: { type: ["integer", "null"] }
     GuidedStoryRevisionInput:
       type: object
@@ -17814,8 +17808,9 @@ components:
         runtimeSeconds: { type: number }
         roles:
           type: array
-          minItems: 2
-          maxItems: 4
+          minItems: 1
+          maxItems: 20
+          description: Story-decided cast. The upper bound is only a malformed-output sanity guard.
           items:
             $ref: "#/components/schemas/GuidedStoryRole"
         scenes:

@@ -277,7 +277,6 @@ import {
   translateGuidedStoryLine,
   generateGuidedStorySceneInsertion,
   guidedStoryPlatform,
-  guidedStoryRolePlan,
   guidedCastHasDuplicates,
   guidedCastApprovalsMatch,
   GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
@@ -1808,26 +1807,15 @@ function guidedSetup(
     durationSeconds: number;
     locale: string;
     topic: string;
-    roleCount: number;
+    roleCount?: number;
     brandKitId?: number | null;
   },
-  allowManualRoleCount = false,
 ): NonNullable<GuidedStoryDraftState["setup"]> | null {
   const platform = guidedStoryPlatform(input.platform);
   const locale = normalizeGuidedStoryLocale(input.locale);
   if (!platform || !locale || !GUIDED_STORY_GENRES.includes(input.genre as never))
     return null;
-  let plan;
-  try {
-    plan = guidedStoryRolePlan(input.platform, input.durationSeconds);
-  } catch {
-    return null;
-  }
-  if (
-    !plan.allowed.includes(input.roleCount) &&
-    !(allowManualRoleCount && input.roleCount >= 2 && input.roleCount <= 4)
-  )
-    return null;
+  if (!platform.durations.includes(input.durationSeconds)) return null;
   return {
     genre: input.genre as NonNullable<GuidedStoryDraftState["setup"]>["genre"],
     platform: input.platform as NonNullable<
@@ -1840,7 +1828,9 @@ function guidedSetup(
     durationSeconds: input.durationSeconds,
     locale,
     topic: input.topic.trim(),
-    roleCount: input.roleCount,
+    ...(Number.isSafeInteger(input.roleCount)
+      ? { roleCount: input.roleCount }
+      : {}),
     brandKitId: input.brandKitId ?? null,
   };
 }
@@ -2752,12 +2742,9 @@ router.get("/ai/guided-story/platforms", (_req: Request, res: Response) => {
   res.json(
     GUIDED_STORY_PLATFORMS.map((platform) => ({
       ...platform,
-      rolePlans: Object.fromEntries(
-        platform.durations.map((duration) => [
-          String(duration),
-          guidedStoryRolePlan(platform.id, duration),
-        ]),
-      ),
+      // Retained as an empty deprecated field for older consumers. Cast size is
+      // story-decided and no platform role recommendation is authoritative.
+      rolePlans: {},
     })),
   );
 });
@@ -2942,13 +2929,13 @@ router.patch(
     }
     let setup = row.state.setup;
     if (parsed.data.setup) {
-      setup = guidedSetup(parsed.data.setup, Boolean(parsed.data.script));
+      setup = guidedSetup(parsed.data.setup);
       if (!setup) {
         res
           .status(400)
           .json({
             error:
-              "The platform, duration, role count, or locale is not supported. Use English, Hindi, Telugu, or Tamil.",
+              "The platform, duration, or locale is not supported. Use English, Hindi, Telugu, or Tamil.",
           });
         return;
       }
@@ -2969,21 +2956,13 @@ router.patch(
         return;
       }
       try {
-        const manualRoleCount = parsed.data.script.roles.length;
-        if (manualRoleCount < 2 || manualRoleCount > 4) {
-          throw new VideoGenProviderError("A saved script must contain 2-4 roles.");
-        }
         script = validateAndRepairGuidedScript(parsed.data.script, {
-          roleCount: manualRoleCount,
           durationSeconds: setup.durationSeconds,
         }, setup.locale);
         const nativeScriptWarning = guidedStoryNativeScriptWarning(script, setup.locale);
         if (nativeScriptWarning && !script.warnings.includes(nativeScriptWarning)) {
           script = { ...script, warnings: [...script.warnings, nativeScriptWarning] };
         }
-        // Initial generation keeps the platform recommendation, while a
-        // deliberate manual revision may grow the cast up to the API hard cap.
-        setup = { ...setup, roleCount: manualRoleCount };
       } catch (error) {
         res
           .status(400)
@@ -3246,14 +3225,9 @@ router.post(
       });
       return;
     }
-    const roleCount = parsed.data.script.roles.length;
     let currentScript;
     try {
-      if (roleCount < 2 || roleCount > 4) {
-        throw new VideoGenProviderError("The current script must contain 2-4 roles.");
-      }
       currentScript = validateAndRepairGuidedScript(parsed.data.script, {
-        roleCount,
         durationSeconds: row.state.setup.durationSeconds,
       }, row.state.setup.locale);
       if (
@@ -3554,7 +3528,6 @@ router.post(
             durationSeconds: setup.durationSeconds,
             locale: setup.locale,
             topic: setup.topic,
-            roleCount: setup.roleCount,
             brandConstraints: activeBrand
               ? [
                   ...activeBrand.payload.brand_controls.restricted_terms,

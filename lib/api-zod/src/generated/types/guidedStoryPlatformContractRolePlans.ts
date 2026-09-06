@@ -5,6 +5,9 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { GuidedStoryRolePlan } from './guidedStoryRolePlan';
 
-export type GuidedStoryPlatformContractRolePlans = {[key: string]: GuidedStoryRolePlan};
+/**
+ * Retired compatibility field. Always empty; Guided Story casts are story-decided.
+ * @deprecated
+ */
+export type GuidedStoryPlatformContractRolePlans = { [key: string]: unknown };

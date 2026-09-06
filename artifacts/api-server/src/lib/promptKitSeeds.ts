@@ -405,9 +405,9 @@ export const SEEDS: Array<{
         title: "Structured screenplay",
         content: [
           "Make the selected genre unmistakable through conflict, pacing, and payoff rather than merely naming it.",
-          "Use exactly the requested 2-4 roles and stable role ids. Every dialogue line belongs to one declared role.",
+          "Use the smallest complete cast justified by the story, with stable role ids. Include every genuinely necessary role and no filler roles. Every dialogue line belongs to one declared role.",
           "Use contiguous, non-overlapping millisecond timing. Keep every line inside its scene and the complete story inside the platform runtime.",
-          "Treat platform framing, safe areas, locale, Brand Kit restrictions, and requested role count as hard constraints.",
+          "Treat platform framing, safe areas, locale, and Brand Kit restrictions as hard constraints.",
           "Never introduce a real person's identity or imitate a real person unless that identity was supplied as an authorized tenant asset.",
         ].join("\n"),
         mandatory: true,

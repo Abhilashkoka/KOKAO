@@ -4426,21 +4426,6 @@ export interface CharacterDialogueInput {
   voiceId: string;
 }
 
-export interface GuidedStoryRolePlan {
-  /**
-     * @minItems 1
-     * @maxItems 3
-     * @items.minimum 2
-     * @items.maximum 4
-     */
-  allowed: number[];
-  /**
-     * @minimum 2
-     * @maximum 4
-     */
-  recommended: number;
-}
-
 export type GuidedStoryPlatformContractId = typeof GuidedStoryPlatformContractId[keyof typeof GuidedStoryPlatformContractId];
 
 
@@ -4461,7 +4446,11 @@ export const GuidedStoryPlatformContractAspectRatio = {
   '4:5': '4:5',
 } as const;
 
-export type GuidedStoryPlatformContractRolePlans = {[key: string]: GuidedStoryRolePlan};
+/**
+ * Retired compatibility field. Always empty; Guided Story casts are story-decided.
+ * @deprecated
+ */
+export type GuidedStoryPlatformContractRolePlans = { [key: string]: unknown };
 
 export interface GuidedStoryPlatformContract {
   id: GuidedStoryPlatformContractId;
@@ -4470,7 +4459,11 @@ export interface GuidedStoryPlatformContract {
   height: number;
   safeArea: string;
   durations: number[];
-  rolePlans: GuidedStoryPlatformContractRolePlans;
+  /**
+     * Retired compatibility field. Always empty; Guided Story casts are story-decided.
+     * @deprecated
+     */
+  rolePlans?: GuidedStoryPlatformContractRolePlans;
 }
 
 export type GuidedStorySetupInputGenre = typeof GuidedStorySetupInputGenre[keyof typeof GuidedStorySetupInputGenre];
@@ -4517,10 +4510,10 @@ export interface GuidedStorySetupInput {
      */
   topic: string;
   /**
-     * @minimum 2
-     * @maximum 4
+     * Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.
+     * @deprecated
      */
-  roleCount: number;
+  roleCount?: number;
   /** @nullable */
   brandKitId?: number | null;
 }
@@ -4615,8 +4608,9 @@ export interface GuidedStoryScript {
   logline: string;
   runtimeSeconds: number;
   /**
-     * @minItems 2
-     * @maxItems 4
+     * Story-decided cast. The upper bound is only a malformed-output sanity guard.
+     * @minItems 1
+     * @maxItems 20
      */
   roles: GuidedStoryRole[];
   /**

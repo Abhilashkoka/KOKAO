@@ -13482,16 +13482,6 @@ export const GenerateVideoResponse = zod.object({
 /**
  * @summary List deterministic guided-story output contracts
  */
-export const listGuidedStoryPlatformsResponseRolePlansAllowedItemMin = 2;
-export const listGuidedStoryPlatformsResponseRolePlansAllowedItemMax = 4;
-
-export const listGuidedStoryPlatformsResponseRolePlansAllowedMax = 3;
-
-export const listGuidedStoryPlatformsResponseRolePlansRecommendedMin = 2;
-export const listGuidedStoryPlatformsResponseRolePlansRecommendedMax = 4;
-
-
-
 export const ListGuidedStoryPlatformsResponseItem = zod.object({
   "id": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -13499,10 +13489,9 @@ export const ListGuidedStoryPlatformsResponseItem = zod.object({
   "height": zod.number(),
   "safeArea": zod.string(),
   "durations": zod.array(zod.number()),
-  "rolePlans": zod.record(zod.string(), zod.object({
-  "allowed": zod.array(zod.number().min(listGuidedStoryPlatformsResponseRolePlansAllowedItemMin).max(listGuidedStoryPlatformsResponseRolePlansAllowedItemMax)).min(1).max(listGuidedStoryPlatformsResponseRolePlansAllowedMax),
-  "recommended": zod.number().min(listGuidedStoryPlatformsResponseRolePlansRecommendedMin).max(listGuidedStoryPlatformsResponseRolePlansRecommendedMax)
-}))
+  "rolePlans": zod.object({
+
+}).optional().describe('Retired compatibility field. Always empty; Guided Story casts are story-decided.')
 })
 export const ListGuidedStoryPlatformsResponse = zod.array(ListGuidedStoryPlatformsResponseItem)
 
@@ -13534,9 +13523,6 @@ export const createGuidedStoryDraftBodyLocaleMax = 35;
 export const createGuidedStoryDraftBodyTopicMin = 3;
 export const createGuidedStoryDraftBodyTopicMax = 2000;
 
-export const createGuidedStoryDraftBodyRoleCountMin = 2;
-export const createGuidedStoryDraftBodyRoleCountMax = 4;
-
 
 
 export const CreateGuidedStoryDraftBody = zod.object({
@@ -13545,7 +13531,7 @@ export const CreateGuidedStoryDraftBody = zod.object({
   "durationSeconds": zod.number().min(createGuidedStoryDraftBodyDurationSecondsMin).max(createGuidedStoryDraftBodyDurationSecondsMax),
   "locale": zod.string().min(createGuidedStoryDraftBodyLocaleMin).max(createGuidedStoryDraftBodyLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(createGuidedStoryDraftBodyTopicMin).max(createGuidedStoryDraftBodyTopicMax),
-  "roleCount": zod.number().min(createGuidedStoryDraftBodyRoleCountMin).max(createGuidedStoryDraftBodyRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 })
 
@@ -13558,11 +13544,7 @@ export const createGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const createGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const createGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
 
-export const createGuidedStoryDraftResponseSetupOneOneRoleCountMin = 2;
-export const createGuidedStoryDraftResponseSetupOneOneRoleCountMax = 4;
-
-export const createGuidedStoryDraftResponseScriptOneRolesMin = 2;
-export const createGuidedStoryDraftResponseScriptOneRolesMax = 4;
+export const createGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const createGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -13617,7 +13599,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "durationSeconds": zod.number().min(createGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(createGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(createGuidedStoryDraftResponseSetupOneOneLocaleMin).max(createGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(createGuidedStoryDraftResponseSetupOneOneTopicMin).max(createGuidedStoryDraftResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(createGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(createGuidedStoryDraftResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -13641,7 +13623,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(createGuidedStoryDraftResponseScriptOneRolesMin).max(createGuidedStoryDraftResponseScriptOneRolesMax),
+})).min(1).max(createGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(createGuidedStoryDraftResponseScriptOneScenesItemStartMsMin),
@@ -13851,11 +13833,7 @@ export const getGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const getGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const getGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
 
-export const getGuidedStoryDraftResponseSetupOneOneRoleCountMin = 2;
-export const getGuidedStoryDraftResponseSetupOneOneRoleCountMax = 4;
-
-export const getGuidedStoryDraftResponseScriptOneRolesMin = 2;
-export const getGuidedStoryDraftResponseScriptOneRolesMax = 4;
+export const getGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const getGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -13910,7 +13888,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "durationSeconds": zod.number().min(getGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(getGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(getGuidedStoryDraftResponseSetupOneOneLocaleMin).max(getGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(getGuidedStoryDraftResponseSetupOneOneTopicMin).max(getGuidedStoryDraftResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(getGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(getGuidedStoryDraftResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -13934,7 +13912,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(getGuidedStoryDraftResponseScriptOneRolesMin).max(getGuidedStoryDraftResponseScriptOneRolesMax),
+})).min(1).max(getGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(getGuidedStoryDraftResponseScriptOneScenesItemStartMsMin),
@@ -14145,11 +14123,7 @@ export const updateGuidedStoryDraftBodySetupLocaleMax = 35;
 export const updateGuidedStoryDraftBodySetupTopicMin = 3;
 export const updateGuidedStoryDraftBodySetupTopicMax = 2000;
 
-export const updateGuidedStoryDraftBodySetupRoleCountMin = 2;
-export const updateGuidedStoryDraftBodySetupRoleCountMax = 4;
-
-export const updateGuidedStoryDraftBodyScriptRolesMin = 2;
-export const updateGuidedStoryDraftBodyScriptRolesMax = 4;
+export const updateGuidedStoryDraftBodyScriptRolesMax = 20;
 
 export const updateGuidedStoryDraftBodyScriptScenesItemStartMsMin = 0;
 
@@ -14185,7 +14159,7 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "durationSeconds": zod.number().min(updateGuidedStoryDraftBodySetupDurationSecondsMin).max(updateGuidedStoryDraftBodySetupDurationSecondsMax),
   "locale": zod.string().min(updateGuidedStoryDraftBodySetupLocaleMin).max(updateGuidedStoryDraftBodySetupLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(updateGuidedStoryDraftBodySetupTopicMin).max(updateGuidedStoryDraftBodySetupTopicMax),
-  "roleCount": zod.number().min(updateGuidedStoryDraftBodySetupRoleCountMin).max(updateGuidedStoryDraftBodySetupRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).optional(),
   "script": zod.object({
@@ -14197,7 +14171,7 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(updateGuidedStoryDraftBodyScriptRolesMin).max(updateGuidedStoryDraftBodyScriptRolesMax),
+})).min(1).max(updateGuidedStoryDraftBodyScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(updateGuidedStoryDraftBodyScriptScenesItemStartMsMin),
@@ -14276,11 +14250,7 @@ export const updateGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const updateGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const updateGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
 
-export const updateGuidedStoryDraftResponseSetupOneOneRoleCountMin = 2;
-export const updateGuidedStoryDraftResponseSetupOneOneRoleCountMax = 4;
-
-export const updateGuidedStoryDraftResponseScriptOneRolesMin = 2;
-export const updateGuidedStoryDraftResponseScriptOneRolesMax = 4;
+export const updateGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -14335,7 +14305,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "durationSeconds": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneLocaleMin).max(updateGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneTopicMin).max(updateGuidedStoryDraftResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(updateGuidedStoryDraftResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -14359,7 +14329,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(updateGuidedStoryDraftResponseScriptOneRolesMin).max(updateGuidedStoryDraftResponseScriptOneRolesMax),
+})).min(1).max(updateGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(updateGuidedStoryDraftResponseScriptOneScenesItemStartMsMin),
@@ -14576,11 +14546,7 @@ export const generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax = 35;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMin = 3;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 2000;
 
-export const generateGuidedStoryDraftScriptResponseSetupOneOneRoleCountMin = 2;
-export const generateGuidedStoryDraftScriptResponseSetupOneOneRoleCountMax = 4;
-
-export const generateGuidedStoryDraftScriptResponseScriptOneRolesMin = 2;
-export const generateGuidedStoryDraftScriptResponseScriptOneRolesMax = 4;
+export const generateGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -14635,7 +14601,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "durationSeconds": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneTopicMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneRoleCountMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -14659,7 +14625,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(generateGuidedStoryDraftScriptResponseScriptOneRolesMin).max(generateGuidedStoryDraftScriptResponseScriptOneRolesMax),
+})).min(1).max(generateGuidedStoryDraftScriptResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(generateGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin),
@@ -14886,11 +14852,7 @@ export const refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMax = 35;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMin = 3;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax = 2000;
 
-export const refreshGuidedStoryLineTranslationResponseSetupOneOneRoleCountMin = 2;
-export const refreshGuidedStoryLineTranslationResponseSetupOneOneRoleCountMax = 4;
-
-export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMin = 2;
-export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMax = 4;
+export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMax = 20;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -14945,7 +14907,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "durationSeconds": zod.number().min(refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(refreshGuidedStoryLineTranslationResponseSetupOneOneRoleCountMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -14969,7 +14931,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(refreshGuidedStoryLineTranslationResponseScriptOneRolesMin).max(refreshGuidedStoryLineTranslationResponseScriptOneRolesMax),
+})).min(1).max(refreshGuidedStoryLineTranslationResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemStartMsMin),
@@ -15178,8 +15140,7 @@ export const generateGuidedStoryDraftSceneBodyInsertionIndexMax = 40;
 export const generateGuidedStoryDraftSceneBodyDescriptionMin = 3;
 export const generateGuidedStoryDraftSceneBodyDescriptionMax = 1000;
 
-export const generateGuidedStoryDraftSceneBodyScriptRolesMin = 2;
-export const generateGuidedStoryDraftSceneBodyScriptRolesMax = 4;
+export const generateGuidedStoryDraftSceneBodyScriptRolesMax = 20;
 
 export const generateGuidedStoryDraftSceneBodyScriptScenesItemStartMsMin = 0;
 
@@ -15204,7 +15165,7 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(generateGuidedStoryDraftSceneBodyScriptRolesMin).max(generateGuidedStoryDraftSceneBodyScriptRolesMax),
+})).min(1).max(generateGuidedStoryDraftSceneBodyScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(generateGuidedStoryDraftSceneBodyScriptScenesItemStartMsMin),
@@ -15226,8 +15187,7 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
 })
 })
 
-export const generateGuidedStoryDraftSceneResponseScriptRolesMin = 2;
-export const generateGuidedStoryDraftSceneResponseScriptRolesMax = 4;
+export const generateGuidedStoryDraftSceneResponseScriptRolesMax = 20;
 
 export const generateGuidedStoryDraftSceneResponseScriptScenesItemStartMsMin = 0;
 
@@ -15251,7 +15211,7 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(generateGuidedStoryDraftSceneResponseScriptRolesMin).max(generateGuidedStoryDraftSceneResponseScriptRolesMax),
+})).min(1).max(generateGuidedStoryDraftSceneResponseScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(generateGuidedStoryDraftSceneResponseScriptScenesItemStartMsMin),
@@ -15297,11 +15257,7 @@ export const approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax = 35;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMin = 3;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 2000;
 
-export const approveGuidedStoryDraftScriptResponseSetupOneOneRoleCountMin = 2;
-export const approveGuidedStoryDraftScriptResponseSetupOneOneRoleCountMax = 4;
-
-export const approveGuidedStoryDraftScriptResponseScriptOneRolesMin = 2;
-export const approveGuidedStoryDraftScriptResponseScriptOneRolesMax = 4;
+export const approveGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -15356,7 +15312,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "durationSeconds": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneTopicMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneRoleCountMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -15380,7 +15336,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(approveGuidedStoryDraftScriptResponseScriptOneRolesMin).max(approveGuidedStoryDraftScriptResponseScriptOneRolesMax),
+})).min(1).max(approveGuidedStoryDraftScriptResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(approveGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin),
@@ -15613,11 +15569,7 @@ export const castGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const castGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const castGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
 
-export const castGuidedStoryDraftResponseSetupOneOneRoleCountMin = 2;
-export const castGuidedStoryDraftResponseSetupOneOneRoleCountMax = 4;
-
-export const castGuidedStoryDraftResponseScriptOneRolesMin = 2;
-export const castGuidedStoryDraftResponseScriptOneRolesMax = 4;
+export const castGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const castGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -15672,7 +15624,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "durationSeconds": zod.number().min(castGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(castGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(castGuidedStoryDraftResponseSetupOneOneLocaleMin).max(castGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(castGuidedStoryDraftResponseSetupOneOneTopicMin).max(castGuidedStoryDraftResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(castGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(castGuidedStoryDraftResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -15696,7 +15648,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(castGuidedStoryDraftResponseScriptOneRolesMin).max(castGuidedStoryDraftResponseScriptOneRolesMax),
+})).min(1).max(castGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(castGuidedStoryDraftResponseScriptOneScenesItemStartMsMin),
@@ -15915,11 +15867,7 @@ export const approveGuidedStoryCastRoleResponseSetupOneOneLocaleMax = 35;
 export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMin = 3;
 export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMax = 2000;
 
-export const approveGuidedStoryCastRoleResponseSetupOneOneRoleCountMin = 2;
-export const approveGuidedStoryCastRoleResponseSetupOneOneRoleCountMax = 4;
-
-export const approveGuidedStoryCastRoleResponseScriptOneRolesMin = 2;
-export const approveGuidedStoryCastRoleResponseScriptOneRolesMax = 4;
+export const approveGuidedStoryCastRoleResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -15974,7 +15922,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "durationSeconds": zod.number().min(approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(approveGuidedStoryCastRoleResponseSetupOneOneLocaleMin).max(approveGuidedStoryCastRoleResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(approveGuidedStoryCastRoleResponseSetupOneOneTopicMin).max(approveGuidedStoryCastRoleResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(approveGuidedStoryCastRoleResponseSetupOneOneRoleCountMin).max(approveGuidedStoryCastRoleResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -15998,7 +15946,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(approveGuidedStoryCastRoleResponseScriptOneRolesMin).max(approveGuidedStoryCastRoleResponseScriptOneRolesMax),
+})).min(1).max(approveGuidedStoryCastRoleResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(approveGuidedStoryCastRoleResponseScriptOneScenesItemStartMsMin),
@@ -16228,11 +16176,7 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMax =
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMin = 3;
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax = 2000;
 
-export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRoleCountMin = 2;
-export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRoleCountMax = 4;
-
-export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMin = 2;
-export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax = 4;
+export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax = 20;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -16287,7 +16231,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "durationSeconds": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRoleCountMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -16311,7 +16255,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMin).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax),
+})).min(1).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemStartMsMin),
@@ -16530,11 +16474,7 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocal
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMin = 3;
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMax = 2000;
 
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRoleCountMin = 2;
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRoleCountMax = 4;
-
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMin = 2;
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax = 4;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax = 20;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -16589,7 +16529,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "durationSeconds": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocaleMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRoleCountMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -16613,7 +16553,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax),
+})).min(1).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemStartMsMin),
@@ -16923,11 +16863,7 @@ export const prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
 export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
 export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMax = 2000;
 
-export const prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMin = 2;
-export const prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMax = 4;
-
-export const prepareGuidedStoryBackdropResponseScriptOneRolesMin = 2;
-export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 4;
+export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -16982,7 +16918,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "durationSeconds": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin).max(prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneTopicMin).max(prepareGuidedStoryBackdropResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMin).max(prepareGuidedStoryBackdropResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -17006,7 +16942,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(prepareGuidedStoryBackdropResponseScriptOneRolesMin).max(prepareGuidedStoryBackdropResponseScriptOneRolesMax),
+})).min(1).max(prepareGuidedStoryBackdropResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin),
@@ -17231,11 +17167,7 @@ export const approveGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
 export const approveGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
 export const approveGuidedStoryBackdropResponseSetupOneOneTopicMax = 2000;
 
-export const approveGuidedStoryBackdropResponseSetupOneOneRoleCountMin = 2;
-export const approveGuidedStoryBackdropResponseSetupOneOneRoleCountMax = 4;
-
-export const approveGuidedStoryBackdropResponseScriptOneRolesMin = 2;
-export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 4;
+export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -17290,7 +17222,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "durationSeconds": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(approveGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneTopicMin).max(approveGuidedStoryBackdropResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneRoleCountMin).max(approveGuidedStoryBackdropResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -17314,7 +17246,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(approveGuidedStoryBackdropResponseScriptOneRolesMin).max(approveGuidedStoryBackdropResponseScriptOneRolesMax),
+})).min(1).max(approveGuidedStoryBackdropResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin),
@@ -17532,11 +17464,7 @@ export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax = 35;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMin = 3;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax = 2000;
 
-export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMin = 2;
-export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMax = 4;
-
-export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMin = 2;
-export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 4;
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 20;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -17591,7 +17519,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "durationSeconds": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -17615,7 +17543,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMin).max(inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax),
+})).min(1).max(inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMsMin),
@@ -17833,11 +17761,7 @@ export const finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax = 2000;
 
-export const finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMin = 2;
-export const finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMax = 4;
-
-export const finalizeGuidedStoryReferenceResponseScriptOneRolesMin = 2;
-export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 4;
+export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -17892,7 +17816,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "durationSeconds": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -17916,7 +17840,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(finalizeGuidedStoryReferenceResponseScriptOneRolesMin).max(finalizeGuidedStoryReferenceResponseScriptOneRolesMax),
+})).min(1).max(finalizeGuidedStoryReferenceResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin),
@@ -18134,11 +18058,7 @@ export const rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
 export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
 export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMax = 2000;
 
-export const rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMin = 2;
-export const rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMax = 4;
-
-export const rejectGuidedStoryReferenceResponseScriptOneRolesMin = 2;
-export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 4;
+export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
 
@@ -18193,7 +18113,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "durationSeconds": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneTopicMin).max(rejectGuidedStoryReferenceResponseSetupOneOneTopicMax),
-  "roleCount": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMin).max(rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMax),
+  "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish()
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -18217,7 +18137,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "description": zod.string()
-})).min(rejectGuidedStoryReferenceResponseScriptOneRolesMin).max(rejectGuidedStoryReferenceResponseScriptOneRolesMax),
+})).min(1).max(rejectGuidedStoryReferenceResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "startMs": zod.number().min(rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin),

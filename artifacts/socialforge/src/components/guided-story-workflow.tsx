@@ -252,7 +252,6 @@ export function GuidedStoryWorkflow({
   const [genre, setGenre] = useState<(typeof GENRES)[number][0]>("action_adventure");
   const [platformId, setPlatformId] = useState<string>("");
   const [duration, setDuration] = useState<number | null>(null);
-  const [roleCount, setRoleCount] = useState<number | null>(null);
   const [locale, setLocale] = useState("en");
   const [topic, setTopic] = useState("");
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
@@ -366,7 +365,6 @@ export function GuidedStoryWorkflow({
   // treated as an existing storyboard they can open.
   const existingJobId = failedBeforeStoryboard ? null : linkedStoryboardJobId;
   const contract = (platforms.data ?? []).find((item) => item.id === platformId) as GuidedStoryPlatformContract | undefined;
-  const rolePlan = duration != null ? contract?.rolePlans[String(duration)] : undefined;
   const storyLocales = GUIDED_STORY_LOCALES;
   const selectedStoryLocale = guidedStoryLocaleOption(locale);
   const voices = voiceCatalog.data?.voices.length
@@ -468,13 +466,9 @@ export function GuidedStoryWorkflow({
     if (!contract.durations.includes(duration ?? -1)) setDuration(contract.durations[0] ?? null);
   }, [contract, duration]);
   useEffect(() => {
-    if (!rolePlan) return;
-    if (!rolePlan.allowed.includes(roleCount ?? -1)) setRoleCount(rolePlan.recommended);
-  }, [roleCount, rolePlan]);
-  useEffect(() => {
     if (!draft?.setup) return;
     setGenre(draft.setup.genre); setPlatformId(draft.setup.platform); setDuration(draft.setup.durationSeconds);
-    setRoleCount(draft.setup.roleCount); setLocale(draft.setup.locale); setTopic(draft.setup.topic);
+    setLocale(draft.setup.locale); setTopic(draft.setup.topic);
     setBrandKitId(draft.setup.brandKitId ?? null);
   }, [draft?.id, draft?.revision]);
   useEffect(() => {
@@ -505,7 +499,6 @@ export function GuidedStoryWorkflow({
     setGenre("action_adventure");
     setPlatformId("");
     setDuration(null);
-    setRoleCount(null);
     setLocale("en");
     setTopic("");
     setBrandKitId(null);
@@ -569,7 +562,7 @@ export function GuidedStoryWorkflow({
       },
     );
   };
-  const setupComplete = !!contract && duration !== null && roleCount !== null && !!selectedStoryLocale && topic.trim().length >= 3;
+  const setupComplete = !!contract && duration !== null && !!selectedStoryLocale && topic.trim().length >= 3;
   const setupDraftChanged = /draft changed/i.test(setupSaveError ?? "");
   const reloadSetupDraft = async () => {
     setSetupSaveError(null);
@@ -583,9 +576,9 @@ export function GuidedStoryWorkflow({
     setEditing(true);
   };
   const begin = () => {
-    if (!setupComplete || duration === null || roleCount === null || !acquireMutation()) return;
+    if (!setupComplete || duration === null || !acquireMutation()) return;
     setSetupSaveError(null);
-    const setup = { genre, platform: platformId as never, durationSeconds: duration, locale, topic: topic.trim(), roleCount, brandKitId };
+    const setup = { genre, platform: platformId as never, durationSeconds: duration, locale, topic: topic.trim(), brandKitId };
     if (draft) {
       updateDraft.mutate(
         { draftId: draft.id, data: { revision: draft.revision, setup } },
@@ -637,7 +630,6 @@ export function GuidedStoryWorkflow({
             durationSeconds,
             locale: setupLocale,
             topic: setupTopic,
-            roleCount: script.roles.length,
             brandKitId: setupBrandKitId,
           },
           script,
@@ -856,7 +848,10 @@ export function GuidedStoryWorkflow({
           </div>
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
           {contract && <div ref={durationRef} className={runtimeGuidance ? "rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : undefined} data-testid="section-guided-duration"><Label>Duration</Label>{runtimeGuidance && <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-runtime">{runtimeGuidance}</p>}<div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => { setDuration(value); setRuntimeGuidance(null); }} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
-          {rolePlan && <div data-testid="text-guided-role-plan">Recommended: {rolePlan.recommended} roles. Allowed: {rolePlan.allowed.join(", ")}.<div className="flex gap-2 mt-2">{rolePlan.allowed.map((value) => <Button type="button" size="sm" key={value} variant={roleCount === value ? "default" : "outline"} onClick={() => setRoleCount(value)} data-testid={`button-guided-role-count-${value}`}>{value} roles</Button>)}</div></div>}
+          <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-story-decides-cast">
+            <span className="font-medium">Story decides the cast.</span>{" "}
+            The screenplay planner will use the smallest complete cast the story genuinely needs, with no filler roles.
+          </div>
           <div className="space-y-1.5">
             <Label>Story language</Label>
             <Select value={locale} onValueChange={setLocale}>
@@ -902,7 +897,7 @@ export function GuidedStoryWorkflow({
             </div>
           )}
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending || generateScript.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save & regenerate script" : "Generate script"}</Button>
-        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} /></>}
+        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before building the storyboard."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before building the storyboard."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start the storyboard. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} /></>}
       </CardContent>
     </Card>
   </div>;
@@ -1836,9 +1831,7 @@ function ScriptReview(props: any) {
 
     updateScript({ ...editedScript, scenes });
   };
-  const canAddCharacter = editedScript.roles.length < 4;
   const addCharacter = () => {
-    if (!canAddCharacter) return;
     let roleNumber = editedScript.roles.length + 1;
     while (editedScript.roles.some((role) => role.id === `role-${roleNumber}`)) roleNumber += 1;
     updateScript({
@@ -1952,7 +1945,6 @@ function ScriptReview(props: any) {
               size="sm"
               variant="outline"
               onClick={addCharacter}
-              disabled={!canAddCharacter}
               data-testid="button-guided-add-character"
             >
               Add character

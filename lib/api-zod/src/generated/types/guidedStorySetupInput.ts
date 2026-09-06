@@ -28,10 +28,10 @@ export interface GuidedStorySetupInput {
      */
   topic: string;
   /**
-     * @minimum 2
-     * @maximum 4
+     * Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.
+     * @deprecated
      */
-  roleCount: number;
+  roleCount?: number;
   /** @nullable */
   brandKitId?: number | null;
 }

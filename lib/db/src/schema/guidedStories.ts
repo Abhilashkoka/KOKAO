@@ -185,7 +185,11 @@ export interface GuidedStoryDraftState {
     durationSeconds: number;
     locale: GuidedStoryLocale;
     topic: string;
-    roleCount: number;
+    /**
+     * @deprecated Historical setup preference. New generation ignores this and
+     * derives cast size from script.roles.
+     */
+    roleCount?: number;
     brandKitId: number | null;
 
   } | null;

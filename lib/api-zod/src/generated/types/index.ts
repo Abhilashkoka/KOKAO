@@ -433,7 +433,6 @@ export * from './guidedStoryReferenceOperationStartInputKind';
 export * from './guidedStoryReferenceOperationStatus';
 export * from './guidedStoryRevisionInput';
 export * from './guidedStoryRole';
-export * from './guidedStoryRolePlan';
 export * from './guidedStoryScene';
 export * from './guidedStorySceneBackdropReference';
 export * from './guidedStorySceneInsertionInput';

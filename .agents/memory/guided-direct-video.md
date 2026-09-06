@@ -7,6 +7,8 @@ New Guided Story jobs go directly from completed script, cast, character/outfit/
 
 Preserve authored multi-character dialogue scenes: one line has one designated owner, but every intended visible character remains in the scene with blocking, reactions, and eyelines. Do not post-process scripts into isolated single-speaker shots.
 
+Cast size is story-decided, not selected or capped by the product UI. Historical setup role counts are compatibility data only and never constrain generation; estimates and casting use the actual canonical script roles. A generous validator bound may reject runaway malformed model output, but must not be presented as a creative limit.
+
 Legacy marker-absent jobs retain their storyboard preview, approval, and recovery path. Never infer direct mode from missing preview data; use an immutable versioned execution marker.
 
 **Why:** Reinterpreting historical rows would break paid preview recovery, while sending only the backdrop or an unused narration track would defeat character approval and create unnecessary provider work.

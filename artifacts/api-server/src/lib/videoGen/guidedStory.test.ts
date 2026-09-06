@@ -18,7 +18,6 @@ import {
   guidedCastOperationCanResume,
   guidedStoryApprovalSnapshotMatches,
   guidedStoryEstimates,
-  guidedStoryRolePlan,
   guidedStorySnapshotFingerprint,
   guidedStoryStoryboard,
   guidedStoryNativeScriptWarning,
@@ -345,25 +344,11 @@ describe("guided story platform contracts", () => {
     );
   });
 
-  it("only recommends and allows 2-4 roles deterministically", () => {
+  it("publishes only genuine platform duration constraints", () => {
     for (const platform of GUIDED_STORY_PLATFORMS) {
-      for (const duration of platform.durations) {
-        const first = guidedStoryRolePlan(platform.id, duration);
-        const second = guidedStoryRolePlan(platform.id, duration);
-        expect(first).toEqual(second);
-        expect(first.allowed.every((count) => count >= 2 && count <= 4)).toBe(true);
-        expect(first.allowed).toContain(first.recommended);
-      }
+      expect(platform.durations.length).toBeGreaterThan(0);
+      expect("rolePlans" in platform).toBe(false);
     }
-    expect(guidedStoryRolePlan("instagram_reels", 15).allowed).toEqual([2]);
-    expect(guidedStoryRolePlan("instagram_reels", 30).allowed).toEqual([2]);
-    expect(guidedStoryRolePlan("instagram_reels", 60).allowed).toEqual([2, 3]);
-    expect(guidedStoryRolePlan("instagram_reels", 90).allowed).toEqual([2, 3]);
-    expect(guidedStoryRolePlan("youtube", 180).allowed).toEqual([2, 3, 4]);
-  });
-
-  it("rejects illegal platform durations", () => {
-    expect(() => guidedStoryRolePlan("tiktok", 300)).toThrow();
   });
 });
 
@@ -902,7 +887,7 @@ describe("guided approval fail-closed snapshot guard", () => {
     const fixture = approvalFixture();
     expect(guidedStoryEstimates(fixture.state)).toMatchObject({
       castAssetUnits: 0,
-      generatedStrategyCastUnits: 1,
+      generatedStrategyCastUnits: 0,
       savedStrategyCastUnits: 0,
     });
     expect(
@@ -1053,7 +1038,7 @@ describe("guided story estimates", () => {
     const fixture = approvalFixture();
     expect(guidedStoryEstimates(fixture.state)).toMatchObject({
       castAssetUnits: 0,
-      generatedStrategyCastUnits: 1,
+      generatedStrategyCastUnits: 0,
       savedStrategyCastUnits: 0,
     });
     expect(
@@ -1065,6 +1050,56 @@ describe("guided story estimates", () => {
     ).toMatchObject({
       castAssetUnits: 1,
       generatedStrategyCastUnits: 1,
+    });
+  });
+
+  it("quotes every actual generated role, including one-role and larger casts", () => {
+    const fixture = approvalFixture();
+    const generated = {
+      ...fixture.state,
+      castStrategy: "generated" as const,
+      userRoleId: null,
+      cast: [],
+    };
+    const oneRoleRaw = validRaw();
+    oneRoleRaw.roles = oneRoleRaw.roles.slice(0, 1);
+    oneRoleRaw.scenes[0]!.roleIds = [oneRoleRaw.roles[0]!.id];
+    const oneRoleLine = oneRoleRaw.scenes[0]!.lines[0]!;
+    oneRoleRaw.scenes[0]!.lines = [
+      { ...oneRoleLine, startMs: 0, endMs: 15_000 },
+      {
+        ...oneRoleLine,
+        startMs: 15_000,
+        endMs: 30_000,
+      },
+    ];
+    const oneRole = {
+      ...generated,
+      script: validateAndRepairGuidedScript(oneRoleRaw, { durationSeconds: 30 }),
+    };
+    expect(guidedStoryEstimates(oneRole)).toMatchObject({
+      generatedStrategyCastUnits: 1,
+      castAssetUnits: 1,
+    });
+
+    const fiveRoles = {
+      ...generated,
+      script: validateAndRepairGuidedScript(validRaw(5), { durationSeconds: 30 }),
+    };
+    expect(guidedStoryEstimates(fiveRoles)).toMatchObject({
+      generatedStrategyCastUnits: 5,
+      castAssetUnits: 5,
+    });
+    expect(guidedStoryEstimates({
+      ...fiveRoles,
+      cast: [{
+        ...fixture.cast[0]!,
+        roleId: fiveRoles.script.roles[0]!.id,
+        source: "generated" as const,
+      }],
+    })).toMatchObject({
+      generatedStrategyCastUnits: 5,
+      castAssetUnits: 4,
     });
   });
 
@@ -1173,7 +1208,7 @@ describe("guided story script validation", () => {
     ]);
   });
 
-  it("rejects unknown dialogue owners, overlaps, role-count drift, and runtime overflow", () => {
+  it("rejects unknown owners, overlaps, malformed cast sizes, and runtime overflow", () => {
     const unknown = validRaw();
     unknown.scenes[0]!.lines[0]!.ownerRoleId = "foreign-role";
     expect(() =>
@@ -1186,9 +1221,20 @@ describe("guided story script validation", () => {
       validateAndRepairGuidedScript(overlap, { roleCount: 2, durationSeconds: 30 }),
     ).toThrow(/invalid timing/);
 
+    const storyDecidedCast = validateAndRepairGuidedScript(
+      validRaw(5),
+      { roleCount: 2, durationSeconds: 30 },
+    );
+    expect(storyDecidedCast.roles).toHaveLength(5);
     expect(() =>
-      validateAndRepairGuidedScript(validRaw(3), { roleCount: 2, durationSeconds: 30 }),
-    ).toThrow(/exactly 2 roles/);
+      validateAndRepairGuidedScript(
+        { ...validRaw(), roles: [] },
+        { durationSeconds: 30 },
+      ),
+    ).toThrow(/1-20 valid roles/);
+    expect(() =>
+      validateAndRepairGuidedScript(validRaw(21), { durationSeconds: 30 }),
+    ).toThrow(/1-20 valid roles/);
     expect(() =>
       validateAndRepairGuidedScript(validRaw(), { roleCount: 2, durationSeconds: 20 }),
     ).toThrow(/runtime/);

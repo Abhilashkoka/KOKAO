@@ -186,25 +186,6 @@ export function guidedStoryPlatform(id: string): PlatformContract | null {
   return GUIDED_STORY_PLATFORMS.find((entry) => entry.id === id) ?? null;
 }
 
-export function guidedStoryRolePlan(platformId: string, durationSeconds: number): {
-  allowed: number[];
-  recommended: number;
-} {
-  const platform = guidedStoryPlatform(platformId);
-  if (!platform || !platform.durations.includes(durationSeconds)) {
-    throw new Error("Unsupported platform or duration.");
-  }
-  const maximum = durationSeconds <= 30
-    ? 2
-    : durationSeconds <= 120
-      ? 3
-      : 4;
-  return {
-    allowed: Array.from({ length: maximum - 1 }, (_, index) => index + 2),
-    recommended: maximum,
-  };
-}
-
 export function invalidateGuidedStoryDownstream(
   state: GuidedStoryDraftState,
   script: GuidedStoryDraftState["script"],
@@ -570,13 +551,30 @@ export function guidedStoryEstimates(
   context?: { tenantId: number; draftId: number; revision: number },
 ) {
   const sceneCount = state.script?.scenes.length ?? 0;
+  // Generated work belongs only to roles the active strategy will actually
+  // materialize. A saved user selection is already supplied and must not be
+  // quoted as generated work.
+  const generatedRoleIds = new Set(
+    state.castStrategy === "generated"
+      ? (state.script?.roles ?? [])
+        .filter((role) => {
+          const castMember = state.cast.find((member) => member.roleId === role.id);
+          return castMember?.source !== "saved" && state.userRoleId !== role.id;
+        })
+        .map((role) => role.id)
+      : [],
+  );
   const completedGeneratedRoles = new Set([
     ...state.cast.flatMap((member) =>
-      member.source === "generated" && member.character.referenceImagePath ? [member.roleId] : [],
+      generatedRoleIds.has(member.roleId) &&
+      member.source === "generated" &&
+      member.character.referenceImagePath
+        ? [member.roleId]
+        : [],
     ),
     ...Object.entries(state.castOperations ?? {}).flatMap(([roleId, operation]) => {
       const role = state.script?.roles.find((candidate) => candidate.id === roleId);
-      if (!context || !role) return [];
+      if (!context || !role || !generatedRoleIds.has(roleId)) return [];
       return validateGuidedResumableCastOperation({
         operation,
         ...context,
@@ -587,11 +585,9 @@ export function guidedStoryEstimates(
         : [];
     }),
   ]).size;
-  const generatedQuote = Math.max(0, (state.script?.roles.length ?? 0) - 1);
+  const generatedQuote = generatedRoleIds.size;
   const castAssetUnits =
-    state.castStrategy === "generated"
-      ? Math.max(0, generatedQuote - completedGeneratedRoles)
-      : 0;
+    Math.max(0, generatedQuote - completedGeneratedRoles);
   return {
     scriptUnits: state.script ? 0 : 1,
     castAssetUnits,
@@ -1273,14 +1269,17 @@ function integer(value: unknown): number | null {
 export function validateAndRepairGuidedScript(
   raw: Record<string, unknown>,
   constraints: {
-    roleCount: number;
+    /** @deprecated Historical callers may supply this; cast size is story-decided. */
+    roleCount?: number;
     durationSeconds: number;
     requireOpeningBuildup?: boolean;
   },
   locale?: string,
 ): GuidedStoryScript {
-  if (!Array.isArray(raw.roles) || raw.roles.length !== constraints.roleCount) {
-    throw new VideoGenProviderError(`The script must contain exactly ${constraints.roleCount} roles.`);
+  // This is deliberately only a malformed-output guard, not a creative cast
+  // limit. The screenplay planner owns the smallest complete cast for a story.
+  if (!Array.isArray(raw.roles) || raw.roles.length === 0 || raw.roles.length > 20) {
+    throw new VideoGenProviderError("The script must contain 1-20 valid roles.");
   }
   const roleIds = new Set<string>();
   const roles = raw.roles.map((entry, index) => {
@@ -1433,7 +1432,8 @@ export async function generateGuidedStoryScript(params: {
   durationSeconds: number;
   locale: string;
   topic: string;
-  roleCount: number;
+  /** @deprecated Ignored. Cast size is chosen by the screenplay planner. */
+  roleCount?: number;
   brandConstraints: string | null;
 }) {
   const textGen = await getTextGenClient(params.tenantAiModel);
@@ -1442,7 +1442,9 @@ export async function generateGuidedStoryScript(params: {
   const runtimeContext = [
     `Genre: ${params.genre}. Topic: ${params.topic}`,
     `Locale: ${params.locale}. Platform: ${params.platform.id}, ${params.platform.aspectRatio}, ${params.platform.safeArea}`,
-    `Hard duration: ${params.durationSeconds}s. Exact role count: ${params.roleCount}.`,
+    `Hard duration: ${params.durationSeconds}s.`,
+    "Use the smallest complete cast justified by the story. Include every role the story genuinely needs, but never add filler roles.",
+    "This story-decided cast policy supersedes any historical fixed-size cast instruction in a governed template.",
     `Hard spoken-word maximum: ${maxSpokenWords} total words across every dialogue and narration line. Aim for 70-90% of this budget; never exceed it.`,
     [
       "Mandatory opening plan: scene 1 starts at 0ms and lasts 3-5 seconds.",
@@ -1514,7 +1516,7 @@ export async function generateGuidedStoryScript(params: {
           role: "user",
           content: [
             `Rewrite the supplied screenplay JSON so its final timeline is no longer than ${params.durationSeconds} seconds and all spoken text totals at most ${maxSpokenWords} words.`,
-            `Keep exactly ${params.roleCount} roles, preserve the story's meaning and locale ${params.locale}, and keep valid contiguous millisecond timings.`,
+            `Preserve the supplied cast membership, the story's meaning, and locale ${params.locale}; keep valid contiguous millisecond timings. Do not add or remove roles during this timing repair.`,
             "Scene 1 must start at 0ms, last 3-5 seconds, use narration only, and show every opening-hook character together performing concrete hook-relevant actions or expressions that visibly settle, pause, or complete before scene 2. Include every visible opening character in roleIds.",
             "Shorten dialogue and narration naturally; do not truncate words or sentences. Return only the complete replacement JSON in the original schema.",
             outputFormat,
@@ -1537,6 +1539,11 @@ export async function generateGuidedStoryScript(params: {
       { ...params, requireOpeningBuildup: true },
       params.locale,
     );
+    if (script.roles.length !== (parsed.roles as unknown[]).length) {
+      throw new VideoGenProviderError(
+        "The timing repair changed the returned cast instead of preserving it.",
+      );
+    }
   }
   assertGeneratedDisplayMetadata(script, params.locale);
   const inputTokens =
@@ -1550,7 +1557,11 @@ export async function generateGuidedStoryScript(params: {
       tenantId: params.tenantId,
       flowKey: "guided_story_script",
       governed,
-      generationContext: { genre: params.genre, platform: params.platform.id, roleCount: params.roleCount },
+      generationContext: {
+        genre: params.genre,
+        platform: params.platform.id,
+        roleCount: script.roles.length,
+      },
       success: true,
       latencyMs: Date.now() - startedAt,
       tokenUsage: completion.usage || repairCompletion?.usage
@@ -1818,7 +1829,6 @@ function retimeGuidedSceneInsertion(params: {
       scenes,
     },
     {
-      roleCount: params.script.roles.length,
       durationSeconds: params.durationSeconds,
     },
     params.locale,

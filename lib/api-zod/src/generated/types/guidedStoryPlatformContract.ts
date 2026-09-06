@@ -16,5 +16,9 @@ export interface GuidedStoryPlatformContract {
   height: number;
   safeArea: string;
   durations: number[];
-  rolePlans: GuidedStoryPlatformContractRolePlans;
+  /**
+     * Retired compatibility field. Always empty; Guided Story casts are story-decided.
+     * @deprecated
+     */
+  rolePlans?: GuidedStoryPlatformContractRolePlans;
 }

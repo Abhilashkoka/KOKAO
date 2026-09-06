@@ -46,7 +46,6 @@ const contract = {
   height: 1920,
   safeArea: "Keep captions clear of top and bottom UI.",
   durations: [15, 30],
-  rolePlans: { "15": { allowed: [2], recommended: 2 }, "30": { allowed: [2, 3], recommended: 2 } },
 };
 const script = {
   version: 1 as const, title: "The plan", logline: "A small choice changes the day.", runtimeSeconds: 15,
@@ -457,7 +456,6 @@ describe("GuidedStoryWorkflow", () => {
       durationSeconds: 15,
       locale: "te",
       topic: "A tidy desk",
-      roleCount: 2,
       brandKitId: 3,
     });
     await user.click(screen.getByTestId("button-guided-refresh-english-l1"));
@@ -510,22 +508,51 @@ describe("GuidedStoryWorkflow", () => {
       .toContain("This is our updated plan.");
   });
 
-  it("uses the server platform duration role contract and blocks incomplete setup", async () => {
+  it("lets the story decide its cast without a setup count or max-role control", async () => {
     renderWorkflow();
     expect((screen.getByTestId("button-guided-create-draft") as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByTestId("select-guided-platform"));
     await userEvent.click(screen.getByText("instagram reels"));
     expect(screen.getByTestId("text-guided-format").textContent).toContain("1080×1920");
-    expect(screen.queryByTestId("button-guided-role-count-3")).toBeNull();
+    expect(screen.getByTestId("text-guided-story-decides-cast").textContent)
+      .toContain("Story decides the cast");
+    expect(screen.queryByTestId("text-guided-role-plan")).toBeNull();
+    expect(screen.queryByTestId("button-guided-role-count-2")).toBeNull();
     await userEvent.click(screen.getByTestId("button-guided-duration-30"));
-    expect((screen.getByTestId("button-guided-role-count-3") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId("button-guided-role-count-3")).toBeNull();
     await userEvent.click(screen.getByTestId("select-guided-brand-kit"));
     await userEvent.click(screen.getByText("Studio"));
     await userEvent.type(screen.getByTestId("input-guided-topic"), "A story about sorting a desk");
     await userEvent.click(screen.getByTestId("button-guided-create-draft"));
-    expect(state.created).toMatchObject({ platform: "instagram_reels", durationSeconds: 30, roleCount: 2 });
+    expect(state.created).toMatchObject({ platform: "instagram_reels", durationSeconds: 30 });
+    expect(state.created).not.toHaveProperty("roleCount");
     expect(state.generatedScripts).toBe(1);
     expect(await screen.findByTestId("guided-script-summary")).toBeTruthy();
+  });
+
+  it("shows the script's actual cast even when a legacy setup count is smaller", async () => {
+    const fiveRoleScript = {
+      ...script,
+      roles: [
+        ...script.roles,
+        { id: "r3", name: "Cy", description: "Medic" },
+        { id: "r4", name: "Dee", description: "Pilot" },
+        { id: "r5", name: "Em", description: "Ranger" },
+      ],
+    };
+    state.draft = draft({
+      script: fiveRoleScript,
+      scriptApprovedAt: null,
+      setup: { ...draft().setup, roleCount: 2 },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+
+    renderWorkflow();
+
+    expect((await screen.findByTestId("guided-script-summary")).textContent)
+      .toContain("5 roles");
+    expect(screen.queryByTestId("text-guided-role-plan")).toBeNull();
+    expect(screen.queryByTestId("button-guided-role-count-4")).toBeNull();
   });
 
   it("creates a story without a Brand Kit", async () => {
@@ -1261,7 +1288,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
   });
 
-  it("allows cast growth to four roles and synchronizes generated scene insertion", async () => {
+  it("allows cast growth beyond four roles and synchronizes generated scene insertion", async () => {
     state.draft = draft({ scriptApprovedAt: null });
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
     renderWorkflow();
@@ -1271,7 +1298,9 @@ describe("GuidedStoryWorkflow", () => {
     await user.click(screen.getByTestId("button-guided-add-character"));
     await user.click(screen.getByTestId("button-guided-add-character"));
     expect(screen.getByTestId("input-guided-role-name-role-4")).toBeTruthy();
-    expect((screen.getByTestId("button-guided-add-character") as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByTestId("button-guided-add-character"));
+    expect(screen.getByTestId("input-guided-role-name-role-5")).toBeTruthy();
+    expect((screen.getByTestId("button-guided-add-character") as HTMLButtonElement).disabled).toBe(false);
 
     await user.click(screen.getByTestId("button-guided-insert-scene-0"));
     await user.type(screen.getByTestId("input-guided-insert-scene-0"), "A paper plane interrupts the plan");
@@ -1282,21 +1311,21 @@ describe("GuidedStoryWorkflow", () => {
       insertionIndex: 0,
       description: "A paper plane interrupts the plan",
     });
-    expect(state.sceneRequest.script.roles).toHaveLength(4);
+    expect(state.sceneRequest.script.roles).toHaveLength(5);
     expect(screen.getByTestId("card-guided-script-scene-ai-scene")).toBeTruthy();
     expect(screen.getByTestId("card-guided-script-scene-s1")).toBeTruthy();
     await user.click(screen.getByTestId("button-guided-toggle-json"));
     const json = (screen.getByTestId("input-guided-script") as HTMLTextAreaElement).value;
     expect(json.indexOf('"id": "ai-scene"')).toBeLessThan(json.indexOf('"id": "s1"'));
-    expect(json).toContain('"id": "role-4"');
+    expect(json).toContain('"id": "role-5"');
     expect(trackMock).toHaveBeenCalledWith("guided_scene_prompt_opened", {
       insertion_position: 1,
-      role_count: 4,
+      role_count: 5,
       scene_count: 1,
     });
     expect(trackMock).toHaveBeenCalledWith("guided_scene_generation_succeeded", {
       insertion_position: 1,
-      role_count: 4,
+      role_count: 5,
       scene_count: 2,
     });
   });

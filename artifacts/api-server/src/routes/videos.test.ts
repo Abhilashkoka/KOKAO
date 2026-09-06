@@ -2484,6 +2484,21 @@ describe("POST /api/ai/generate-video", () => {
 });
 
 describe("guided story route fail-closed regressions", () => {
+  it("returns no fixed cast recommendations from platform contracts", async () => {
+    await newTenant("pro");
+
+    const response = await request(app).get("/api/ai/guided-story/platforms");
+
+    expect(response.status).toBe(200);
+    expect(response.body).not.toEqual([]);
+    expect(response.body.every((platform: { rolePlans?: unknown }) =>
+      platform.rolePlans &&
+      typeof platform.rolePlans === "object" &&
+      !Array.isArray(platform.rolePlans) &&
+      Object.keys(platform.rolePlans).length === 0,
+    )).toBe(true);
+  });
+
   function castApprovals(cast: GuidedStoryCastSnapshot[], revision: number) {
     return {
       version: 1 as const,
@@ -4603,21 +4618,22 @@ describe("guided story route fail-closed regressions", () => {
     invalidateFeatureFlagCache();
   });
 
-  it("allows a manually saved script to grow to four roles and updates setup", async () => {
+  it("preserves a returned cast larger than the historical setup role count", async () => {
     const tenant = await newTenant("pro");
     const draft = await insertEditableGuidedDraft(tenant.tenantId);
     const script = structuredClone(draft.state.script!);
     script.roles.push(
       { id: "medic", name: "Medic", description: "A calm emergency medic" },
       { id: "pilot", name: "Pilot", description: "A careful rescue pilot" },
+      { id: "ranger", name: "Ranger", description: "A focused mountain ranger" },
     );
     const response = await request(app)
       .patch(`/api/ai/guided-story/drafts/${draft.id}`)
       .send({ revision: draft.revision, script });
 
     expect(response.status, JSON.stringify(response.body)).toBe(200);
-    expect(response.body.setup.roleCount).toBe(4);
-    expect(response.body.script.roles).toHaveLength(4);
+    expect(response.body.setup.roleCount).toBe(2);
+    expect(response.body.script.roles).toHaveLength(5);
     expect(response.body.scriptApprovedAt).toBeNull();
     expect(response.body.cast).toEqual([]);
   });
