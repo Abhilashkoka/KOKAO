@@ -18,7 +18,6 @@ import { isDeepStrictEqual } from "node:util";
 import { usageAccountingParams } from "../aiCost";
 import { parseModelJsonObject } from "../modelJson";
 import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
-import { expandScriptCoverage } from "./guidedCoverage";
 import { guidedSceneVisualPrompt, type GuidedBackdropLabel } from "./guidedScenePrompt";
 import { getTextGenClient } from "../textGen";
 import { VideoGenProviderError } from "./types";
@@ -1453,6 +1452,12 @@ export async function generateGuidedStoryScript(params: {
       "Use narration only in this opening scene (ownerRoleId null), so it remains a group shot rather than being split into dialogue coverage.",
       "Describe the composition, character blocking, action, expressions, camera framing or movement, and the final settled beat in visualDirection.",
     ].join(" "),
+    [
+      "Multi-character dialogue staging: preserve every character intended to be visible in a scene in that scene's roleIds, even when only one character owns the dialogue.",
+      "Do not split a scene into isolated single-character shots merely to separate speakers.",
+      "The camera may favor the active speaker while the other characters remain visibly present with explicit blocking, reactions, eyelines, and continuity.",
+      "Assign each dialogue line to exactly one ownerRoleId; Higgsfield handles the designated speaker in the shared multi-character frame.",
+    ].join(" "),
     params.brandConstraints ? `Brand constraints: ${params.brandConstraints}` : null,
     guidedStoryNativeScriptInstruction(params.locale),
   ].filter(Boolean).join("\n");
@@ -1534,7 +1539,6 @@ export async function generateGuidedStoryScript(params: {
     );
   }
   assertGeneratedDisplayMetadata(script, params.locale);
-  script = expandScriptCoverage(script);
   const inputTokens =
     (completion.usage?.prompt_tokens ?? 0) +
     (repairCompletion?.usage?.prompt_tokens ?? 0);

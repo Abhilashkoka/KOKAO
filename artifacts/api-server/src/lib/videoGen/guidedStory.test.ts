@@ -1098,7 +1098,7 @@ describe("guided story estimates", () => {
 });
 
 describe("guided story script validation", () => {
-  it("requires a 3-5 second narrated ensemble buildup for newly generated scripts", () => {
+  it("requires the narrated ensemble opening and preserves multi-character dialogue staging", () => {
     const raw: Record<string, any> = validRaw();
     raw.scenes = [
       {
@@ -1140,6 +1140,16 @@ describe("guided story script validation", () => {
       roleIds: ["role-1", "role-2"],
     });
     expect(script.scenes[0]!.lines.every((entry) => entry.kind === "narration")).toBe(true);
+    expect(script.scenes).toHaveLength(2);
+    expect(script.scenes[1]).toMatchObject({
+      startMs: 4_000,
+      endMs: 30_000,
+      roleIds: ["role-1", "role-2"],
+    });
+    expect(script.scenes[1]!.lines.map((entry) => entry.ownerRoleId)).toEqual([
+      "role-1",
+      "role-2",
+    ]);
 
     const dialogueOpening = validRaw();
     expect(() =>
