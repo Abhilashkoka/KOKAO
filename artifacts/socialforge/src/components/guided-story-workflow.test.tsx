@@ -913,7 +913,8 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("status-guided-automatic-cast").textContent).toContain(
       "server is creating",
     );
-    expect(screen.getByTestId("select-guided-generated-voice-r2")).toBeTruthy();
+    expect(screen.queryByTestId("select-guided-generated-voice-r2")).toBeNull();
+    expect(screen.getAllByText(/Dialogue voices are generated automatically/)).toHaveLength(2);
     expect(state.cast).toBeNull();
   });
 
@@ -1130,10 +1131,11 @@ describe("GuidedStoryWorkflow", () => {
     renderWorkflow();
     const user = userEvent.setup();
 
+    await user.click(screen.getByTestId("button-guided-cast-saved"));
     expect(screen.getByTestId("status-guided-elevenlabs-voices").textContent).toContain(
       "1 ElevenLabs premade voices loaded",
     );
-    await user.click(screen.getByTestId("select-guided-generated-voice-r1"));
+    await user.click(screen.getByTestId("select-guided-voice-r1"));
     expect(screen.getByText("Built-in voices")).toBeTruthy();
     expect(screen.getByText("ElevenLabs premade voices")).toBeTruthy();
     expect(screen.getByText("Your cloned voices")).toBeTruthy();
