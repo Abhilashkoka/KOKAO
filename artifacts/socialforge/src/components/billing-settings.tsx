@@ -46,6 +46,7 @@ import {
   openCashfreeSubscriptionCheckout,
 } from "@/lib/cashfree-checkout";
 import { WalletCard } from "@/components/wallet-balance";
+import { trackProjectEvent } from "@/lib/analytics";
 
 /**
  * Build toast props for a verify-payment failure.
@@ -167,6 +168,9 @@ export function BillingSettings() {
           },
           {
             onSuccess: () => {
+              trackProjectEvent("subscription_activated", {
+                billing_cycle: cycle,
+              });
               toast({ title: "Subscription active", description: "Your plan has been upgraded." });
               refresh();
             },
@@ -209,6 +213,9 @@ export function BillingSettings() {
             },
             {
               onSuccess: () => {
+                trackProjectEvent("subscription_activated", {
+                  billing_cycle: cycle,
+                });
                 toast({ title: "Subscription active", description: "Your plan has been upgraded." });
                 refresh();
               },
@@ -242,6 +249,11 @@ export function BillingSettings() {
   };
 
   const handleBuyPack = async (packId: number, packName: string) => {
+    const packSlug = packName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
     setBusyId(`pack-${packId}`);
     try {
       const order = await purchaseCredits.mutateAsync({ data: { creditPackId: packId } });
@@ -256,6 +268,7 @@ export function BillingSettings() {
           { data: { cashfreeOrderId: order.cashfreeOrderId ?? "" } },
           {
             onSuccess: () => {
+              trackProjectEvent("credits_purchased", { pack: packSlug });
               toast({ title: "Credits added", description: `${packName} has been applied.` });
               refresh();
             },
@@ -300,6 +313,7 @@ export function BillingSettings() {
             },
             {
               onSuccess: () => {
+                trackProjectEvent("credits_purchased", { pack: packSlug });
                 toast({ title: "Credits added", description: `${packName} has been applied.` });
                 refresh();
               },

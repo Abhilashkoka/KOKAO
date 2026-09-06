@@ -513,6 +513,10 @@ export async function animateSceneKeyframes(params: {
   savedClips?: Array<Buffer | null>;
   onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
   lipSync?: SceneLipSync | null;
+  /** Optional provider-specific prompt, resolved from the frozen job model. */
+  scenePrompts?: readonly string[];
+  /** Seedance generates the dialogue audio in the same provider call. */
+  nativeAudio?: boolean;
 }): Promise<CharacterSceneClips> {
   let provider = "";
   let model = "";
@@ -542,15 +546,18 @@ export async function animateSceneKeyframes(params: {
     const attempt = async (): Promise<Buffer> => {
       const clip = await generateVideo({
         mode: "image",
-        prompt: characterScenePrompt({
-          visual: entry.visual,
-          motion,
-          lipSynced: lipSync !== null,
-        }),
+        prompt:
+          params.scenePrompts?.[i] ??
+          characterScenePrompt({
+            visual: entry.visual,
+            motion,
+            lipSynced: lipSync !== null,
+          }),
         aspectRatio: params.aspectRatio,
         seed: params.seed ?? null,
         image: { buffer: keyframe, mimeType: "image/png" },
         ...(params.modelOptions ?? {}),
+        ...(params.nativeAudio ? { generateAudio: true } : {}),
         // Scene lengths come from the narration timing; the audio is already
         // recorded, so the model's own duration snap must not override it.
         durationSec,
@@ -629,6 +636,8 @@ export async function generateCharacterSceneClips(params: {
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
   lipSync?: SceneLipSync | null;
+  scenePrompts?: readonly string[];
+  nativeAudio?: boolean;
 }): Promise<CharacterSceneClips> {
   const keyframes = (await generateSceneKeyframes(params)).map((keyframe) => keyframe.buffer);
   return animateSceneKeyframes({
@@ -641,5 +650,7 @@ export async function generateCharacterSceneClips(params: {
     seed: params.seed ?? null,
     modelOptions: params.modelOptions,
     lipSync: params.lipSync ?? null,
+    scenePrompts: params.scenePrompts,
+    nativeAudio: params.nativeAudio,
   });
 }

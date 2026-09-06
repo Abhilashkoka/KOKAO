@@ -19,6 +19,7 @@ import { usageAccountingParams } from "../aiCost";
 import { parseModelJsonObject } from "../modelJson";
 import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
 import { expandScriptCoverage } from "./guidedCoverage";
+import { guidedSceneVisualPrompt, type GuidedBackdropLabel } from "./guidedScenePrompt";
 import { getTextGenClient } from "../textGen";
 import { VideoGenProviderError } from "./types";
 
@@ -1140,28 +1141,32 @@ export function guidedStoryStoryboard(
       cast,
       platform: snapshot.platform,
       visuals: sceneVisuals,
+      promptFormat: snapshot.promptFormat ?? "guided-v1",
+      videoModel: snapshot.videoModel ?? null,
       ...(snapshot.locale ? { locale: snapshot.locale } : {}),
     });
     const prior = oldByScriptScene.get(scriptScene.id);
     const reusable = prior?.guidedStory?.inputFingerprint === inputFingerprint;
-    const roleDirection = sceneCast.map((member) =>
-      `${member.character.name} (${member.roleId}) wears ${member.outfit?.description ?? "the approved wardrobe"}; identity reference ${member.character.referenceImagePath ?? "MISSING"}; outfit reference ${member.outfit?.referenceImagePath ?? "MISSING"}.`,
-    ).join(" ");
-    const locationDirection = sceneBackdrop
-      ? `Use the frozen approved ${effectiveBackdrop?.source === "override" ? "scene override" : snapshot.backdrops && !migratedLegacyDefault ? "default" : "shared"} backdrop ${sceneBackdrop.imagePath}. ` +
-        `Backdrop direction: ${sceneBackdrop.prompt}. Preserve this location unless an explicitly scene-only background correction is requested.`
-      : visuals.location.mode === "image"
-        ? `Use the shared location image ${visuals.location.imagePath} as environmental guidance.`
-        : visuals.location.mode === "text"
-          ? `Shared location direction: ${visuals.location.description}.`
-          : "";
-    const logoDirection = showLogo
-      ? `Place the approved logo ${visuals.logo.path} subtly in this scene.`
-      : "";
+    const backdropLabel: GuidedBackdropLabel =
+      effectiveBackdrop?.source === "override"
+        ? "scene override"
+        : snapshot.backdrops && !migratedLegacyDefault
+          ? "default"
+          : "shared";
     return {
       id: scriptScene.id,
       text: scriptScene.lines.map((line) => line.text).join(" "),
-      visual: `${scriptScene.visualDirection}\n${roleDirection}\n${locationDirection}\n${logoDirection}\nCompose for ${snapshot.platform.aspectRatio}. ${snapshot.platform.safeArea}`,
+      visual: guidedSceneVisualPrompt({
+        scriptScene,
+        sceneCast,
+        backdrop: sceneBackdrop
+          ? { imagePath: sceneBackdrop.imagePath, prompt: sceneBackdrop.prompt }
+          : null,
+        backdropLabel,
+        location: visuals.location,
+        logoPath: showLogo ? visuals.logo.path : null,
+        platform: snapshot.platform,
+      }),
       durationSec: (scriptScene.endMs - scriptScene.startMs) / 1000,
       previewPath: reusable ? prior!.previewPath : null,
       previewCheckpoint: reusable ? prior!.previewCheckpoint : null,

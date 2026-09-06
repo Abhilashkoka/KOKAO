@@ -9,6 +9,7 @@ import {
   initAnalytics,
   setConsentState,
   trackPageView,
+  trackProjectSignUpOnce,
   trackSignUpOnce,
 } from "@/lib/analytics";
 
@@ -56,6 +57,7 @@ export function AnalyticsTracker() {
   useEffect(() => {
     if (isSignedIn && user) {
       trackSignUpOnce(user.id, user.createdAt);
+      trackProjectSignUpOnce(user.id, user.createdAt);
     }
   }, [isSignedIn, user, consent]);
 

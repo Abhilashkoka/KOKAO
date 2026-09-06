@@ -2936,6 +2936,9 @@ export function VideoStudioPage() {
       },
       {
         onSuccess: (job) => {
+          trackProjectEvent("video_generation_started", {
+            engine: payloadEngine,
+          });
           if (submittedPresetCharacterId) {
             trackPresetCastEvent(
               "preset_video_enqueued",

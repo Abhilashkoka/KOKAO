@@ -1,0 +1,1051 @@
+From b1d8a3b8d0b44e53e9cfd2352420ac76de1e992e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 6 Sep 2026 07:56:28 +0000
+Subject: [PATCH] Name the guided scene prompt so a second format can exist
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The guided-story visual prompt was an unnamed template literal inside
+guidedStoryStoryboard's scene map. Every guided video ever rendered went
+through it, and nothing could call it or test it.
+
+Seedance 2.5 needs a different prompt shape — a documented bracket
+notation where the bracket is the meaning, and spoken lines carried in
+the prompt because it generates audio with the picture. A format branch
+cannot be added safely to an expression with no name and no coverage, so
+this extracts first and branches later.
+
+- guidedScenePrompt.ts: guidedSceneVisualPrompt(), the existing format
+  moved out unchanged. Its test reproduces the pre-extraction literal
+  character for character and asserts equality across the matrix that
+  actually varies — backdrop label, location mode, logo, cast size,
+  missing references — including the trailing blank lines a scene with no
+  logo has always emitted. Those stay: tidying them would change the
+  bytes of a prompt already known to work.
+
+- seedancePrompt.ts: the Seedance assembly, landed but NOT wired. It is
+  reviewable against the documented syntax before anything renders with
+  it. Two slots per role, because a KOKAO character is two images — the
+  reference whose face-and-hair rect is protected, and the outfit image
+  where everything below is repainted. Story time is rebased onto clip
+  time. Dialogue is numbered once across the whole script, keyed by line
+  id so the numbering survives the coverage split. Only the five
+  permitted negatives are emitted.
+
+Rules that shape what the script WRITER invents are deliberately absent:
+those belong in the governed guided_story_script prompt, because they
+have to reach the model that writes the script. Only assembly is here.
+
+Recorded in seedancePrompt.ts and not yet solved: scene.visual is baked
+at storyboard time, before the video model is resolved, and
+scene.inputFingerprint does not cover it. Two scenes built in different
+formats hash identically, so the format has to enter that fingerprint
+before any switch — otherwise a format change silently reuses previews
+rendered under the old one.
+
+Tests: 63 new, all passing. api-server videoGen suite unchanged at the
+same two known failures (wallet shortfall, real-ffmpeg narration/music),
+verified by running them against a stashed tree.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Fm1CGTe9kKKt48ZPVyQMh1
+---
+ .../lib/videoGen/guidedScenePrompt.test.ts    | 171 +++++++++
+ .../src/lib/videoGen/guidedScenePrompt.ts     | 107 ++++++
+ .../src/lib/videoGen/guidedStory.ts           |  33 +-
+ .../src/lib/videoGen/seedancePrompt.test.ts   | 330 ++++++++++++++++++
+ .../src/lib/videoGen/seedancePrompt.ts        | 298 ++++++++++++++++
+ 5 files changed, 924 insertions(+), 15 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/seedancePrompt.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/seedancePrompt.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts
+new file mode 100644
+index 00000000..0d041f34
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts
+@@ -0,0 +1,171 @@
++import { describe, expect, it } from "vitest";
++import type { GuidedStoryCastSnapshot } from "@workspace/db";
++import {
++  guidedSceneVisualPrompt,
++  type GuidedBackdropLabel,
++  type GuidedSceneVisualInput,
++} from "./guidedScenePrompt";
++
++function member(
++  roleId: string,
++  name: string,
++  overrides: Partial<GuidedStoryCastSnapshot> = {},
++): GuidedStoryCastSnapshot {
++  return {
++    roleId,
++    source: "saved",
++    characterId: 1,
++    outfitId: 2,
++    brandKitId: null,
++    voiceId: "elevenlabs:premade:abc",
++    character: {
++      name,
++      description: `${name} the character`,
++      referenceImagePath: `/objects/1/uploads/${roleId}-ref.png`,
++    },
++    outfit: {
++      name: "Default",
++      description: "a grey sweatshirt",
++      referenceImagePath: `/objects/1/uploads/${roleId}-outfit.png`,
++    },
++    voice: { id: "v1", label: "Voice", provider: "elevenlabs", providerVoiceId: "abc" },
++    isUserRole: false,
++    consentGranted: true,
++    ...overrides,
++  };
++}
++
++/**
++ * The prompt exactly as guidedStoryStoryboard built it inline before the
++ * extraction, reproduced here character for character from the pre-extraction
++ * source. Nothing imports it — that is the point. If the extracted function
++ * ever drifts from this, every guided video changes, and this test is the only
++ * thing standing between that and a silent regression across the whole flow.
++ */
++function inlinePromptAsItWas(input: GuidedSceneVisualInput): string {
++  const sceneCast = input.sceneCast;
++  const sceneBackdrop = input.backdrop;
++  const visuals = { location: input.location, logo: { path: input.logoPath } };
++  const showLogo = input.logoPath !== null;
++  const snapshot = { platform: input.platform };
++  const label = input.backdropLabel;
++  const roleDirection = sceneCast.map((m) =>
++    `${m.character.name} (${m.roleId}) wears ${m.outfit?.description ?? "the approved wardrobe"}; identity reference ${m.character.referenceImagePath ?? "MISSING"}; outfit reference ${m.outfit?.referenceImagePath ?? "MISSING"}.`,
++  ).join(" ");
++  const locationDirection = sceneBackdrop
++    ? `Use the frozen approved ${label} backdrop ${sceneBackdrop.imagePath}. ` +
++      `Backdrop direction: ${sceneBackdrop.prompt}. Preserve this location unless an explicitly scene-only background correction is requested.`
++    : visuals.location.mode === "image"
++      ? `Use the shared location image ${visuals.location.imagePath} as environmental guidance.`
++      : visuals.location.mode === "text"
++        ? `Shared location direction: ${visuals.location.description}.`
++        : "";
++  const logoDirection = showLogo
++    ? `Place the approved logo ${visuals.logo.path} subtly in this scene.`
++    : "";
++  return `${input.scriptScene.visualDirection}\n${roleDirection}\n${locationDirection}\n${logoDirection}\nCompose for ${snapshot.platform.aspectRatio}. ${snapshot.platform.safeArea}`;
++}
++
++const platform = { aspectRatio: "9:16", safeArea: "Keep faces inside the middle 80%." };
++
++function cases(): Array<[string, GuidedSceneVisualInput]> {
++  const base = {
++    scriptScene: { visualDirection: "Two people talk across a kitchen counter." },
++    platform,
++  };
++  const none = { mode: "none" } as GuidedSceneVisualInput["location"];
++  const image = {
++    mode: "image",
++    imagePath: "/objects/1/uploads/loc.png",
++  } as GuidedSceneVisualInput["location"];
++  const text = {
++    mode: "text",
++    description: "a small tiled bathroom",
++  } as GuidedSceneVisualInput["location"];
++  const backdrop = { imagePath: "/objects/1/uploads/plate.png", prompt: "pale green tiles" };
++  const labels: GuidedBackdropLabel[] = ["scene override", "default", "shared"];
++
++  const out: Array<[string, GuidedSceneVisualInput]> = [];
++  for (const label of labels) {
++    out.push([`backdrop, label ${label}`, {
++      ...base, sceneCast: [member("role-1", "Ava")], backdrop, backdropLabel: label,
++      location: none, logoPath: null,
++    }]);
++  }
++  out.push(["no backdrop, location image", {
++    ...base, sceneCast: [member("role-1", "Ava")], backdrop: null, backdropLabel: "shared",
++    location: image, logoPath: null,
++  }]);
++  out.push(["no backdrop, location text", {
++    ...base, sceneCast: [member("role-1", "Ava")], backdrop: null, backdropLabel: "shared",
++    location: text, logoPath: null,
++  }]);
++  out.push(["no backdrop, no location — the empty clause", {
++    ...base, sceneCast: [member("role-1", "Ava")], backdrop: null, backdropLabel: "shared",
++    location: none, logoPath: null,
++  }]);
++  out.push(["logo shown", {
++    ...base, sceneCast: [member("role-1", "Ava")], backdrop, backdropLabel: "default",
++    location: none, logoPath: "/objects/1/uploads/logo.png",
++  }]);
++  out.push(["two-hander", {
++    ...base, sceneCast: [member("role-1", "Ava"), member("role-2", "Ben")],
++    backdrop, backdropLabel: "default", location: none, logoPath: null,
++  }]);
++  out.push(["empty cast", {
++    ...base, sceneCast: [], backdrop, backdropLabel: "default", location: none, logoPath: null,
++  }]);
++  out.push(["missing outfit", {
++    ...base, sceneCast: [member("role-1", "Ava", { outfit: null })],
++    backdrop, backdropLabel: "default", location: none, logoPath: null,
++  }]);
++  out.push(["missing references", {
++    ...base,
++    sceneCast: [member("role-1", "Ava", {
++      character: { name: "Ava", description: "d", referenceImagePath: null },
++      outfit: { name: "Default", description: "a coat", referenceImagePath: null },
++    })],
++    backdrop, backdropLabel: "default", location: none, logoPath: null,
++  }]);
++  return out;
++}
++
++describe("guidedSceneVisualPrompt", () => {
++  it.each(cases())("emits the pre-extraction string byte for byte: %s", (_name, input) => {
++    expect(guidedSceneVisualPrompt(input)).toBe(inlinePromptAsItWas(input));
++  });
++
++  it("keeps the empty clause as an empty line rather than tidying it away", () => {
++    // A scene with no logo and no location has always emitted two blank lines
++    // before "Compose for". It looks like a bug and is not one to fix here:
++    // every guided prompt ever sent had them, and removing them would change
++    // the bytes of a prompt that is already known to work.
++    const prompt = guidedSceneVisualPrompt({
++      scriptScene: { visualDirection: "A wide shot." },
++      sceneCast: [],
++      backdrop: null,
++      backdropLabel: "shared",
++      location: { mode: "none" } as GuidedSceneVisualInput["location"],
++      logoPath: null,
++      platform,
++    });
++    expect(prompt).toBe("A wide shot.\n\n\n\nCompose for 9:16. Keep faces inside the middle 80%.");
++  });
++
++  it("names a missing reference in the prompt instead of dropping the clause", () => {
++    // The execution gates refuse this job before any provider call. The word
++    // MISSING is for whoever reads the logged prompt afterwards.
++    const prompt = guidedSceneVisualPrompt({
++      scriptScene: { visualDirection: "A close shot." },
++      sceneCast: [member("role-1", "Ava", {
++        character: { name: "Ava", description: "d", referenceImagePath: null },
++      })],
++      backdrop: null,
++      backdropLabel: "shared",
++      location: { mode: "none" } as GuidedSceneVisualInput["location"],
++      logoPath: null,
++      platform,
++    });
++    expect(prompt).toContain("identity reference MISSING");
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts
+new file mode 100644
+index 00000000..396f91c5
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts
+@@ -0,0 +1,107 @@
++import type {
++  GuidedStoryCastSnapshot,
++  GuidedStoryScript,
++  GuidedStoryVisualChoices,
++} from "@workspace/db";
++
++/**
++ * Only the two fields this prompt reads. GuidedStoryPlatform is the platform
++ * ID string, not the resolved contract, and the snapshot carries the contract
++ * inline — so this is stated structurally rather than borrowing a named type
++ * that means something else.
++ */
++type PlatformFraming = { aspectRatio: string; safeArea: string };
++
++/**
++ * The guided-story scene visual prompt.
++ *
++ * This string used to be built inline inside guidedStoryStoryboard's scene
++ * map, which meant nothing could call it and nothing could test it. Every
++ * guided video that has ever rendered went through that template literal
++ * unexamined. It is extracted here UNCHANGED — same clauses, same order, same
++ * separators, same spacing — so the extraction itself can be proven by test
++ * rather than by reading.
++ *
++ * It is extracted now because a second prompt format is coming (Seedance 2.5
++ * has its own bracket syntax and takes dialogue in the prompt), and a format
++ * branch cannot be added safely to an expression that has no name and no
++ * coverage. Extract first, prove identical, then branch.
++ */
++
++type ScriptScene = GuidedStoryScript["scenes"][number];
++
++/**
++ * Which backdrop wording the scene gets. The choice is snapshot-level state —
++ * whether an override applies, whether the draft has the newer backdrops
++ * structure, whether this is a migrated legacy default — so the caller decides
++ * it and passes the answer in. Recomputing it here would mean handing this
++ * function the whole snapshot, which is what makes a function untestable.
++ */
++export type GuidedBackdropLabel = "scene override" | "default" | "shared";
++
++export interface GuidedSceneVisualInput {
++  scriptScene: Pick<ScriptScene, "visualDirection">;
++  /** Cast present in this scene, already resolved and ordered by roleIds. */
++  sceneCast: GuidedStoryCastSnapshot[];
++  /** The frozen approved backdrop, when the scene has one. */
++  backdrop: { imagePath: string; prompt: string } | null;
++  backdropLabel: GuidedBackdropLabel;
++  location: GuidedStoryVisualChoices["location"];
++  /** Non-null only when the logo is approved AND shown in this scene. */
++  logoPath: string | null;
++  platform: PlatformFraming;
++}
++
++/**
++ * One cast member's wardrobe and reference clause.
++ *
++ * "MISSING" is deliberate rather than an omission: a scene whose reference did
++ * not resolve still has to produce a string, and a visible MISSING in the
++ * prompt is what makes the failure legible in a logged prompt. The execution
++ * gates refuse the job before it reaches a provider anyway — this is for the
++ * human reading the log afterwards.
++ */
++function roleClause(member: GuidedStoryCastSnapshot): string {
++  return (
++    `${member.character.name} (${member.roleId}) wears ` +
++    `${member.outfit?.description ?? "the approved wardrobe"}; ` +
++    `identity reference ${member.character.referenceImagePath ?? "MISSING"}; ` +
++    `outfit reference ${member.outfit?.referenceImagePath ?? "MISSING"}.`
++  );
++}
++
++function locationClause(input: GuidedSceneVisualInput): string {
++  if (input.backdrop) {
++    return (
++      `Use the frozen approved ${input.backdropLabel} backdrop ${input.backdrop.imagePath}. ` +
++      `Backdrop direction: ${input.backdrop.prompt}. ` +
++      "Preserve this location unless an explicitly scene-only background correction is requested."
++    );
++  }
++  if (input.location.mode === "image") {
++    return `Use the shared location image ${input.location.imagePath} as environmental guidance.`;
++  }
++  if (input.location.mode === "text") {
++    return `Shared location direction: ${input.location.description}.`;
++  }
++  return "";
++}
++
++export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
++  const roleDirection = input.sceneCast.map(roleClause).join(" ");
++  const locationDirection = locationClause(input);
++  const logoDirection = input.logoPath
++    ? `Place the approved logo ${input.logoPath} subtly in this scene.`
++    : "";
++  // The blank clauses stay as empty lines rather than being filtered out. That
++  // is what the inline version did, and a scene with no logo has always
++  // produced a trailing blank line before "Compose for". Tidying it here would
++  // change the bytes of every prompt this repo has ever sent.
++  return (
++    `${input.scriptScene.visualDirection}\n` +
++    `${roleDirection}\n` +
++    `${locationDirection}\n` +
++    `${logoDirection}\n` +
++    `Compose for ${input.platform.aspectRatio}. ${input.platform.safeArea}`
++  );
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedStory.ts b/artifacts/api-server/src/lib/videoGen/guidedStory.ts
+index b1f332bb..da373de2 100644
+--- a/artifacts/api-server/src/lib/videoGen/guidedStory.ts
++++ b/artifacts/api-server/src/lib/videoGen/guidedStory.ts
+@@ -19,6 +19,7 @@ import { usageAccountingParams } from "../aiCost";
+ import { parseModelJsonObject } from "../modelJson";
+ import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
+ import { expandScriptCoverage } from "./guidedCoverage";
++import { guidedSceneVisualPrompt, type GuidedBackdropLabel } from "./guidedScenePrompt";
+ import { getTextGenClient } from "../textGen";
+ import { VideoGenProviderError } from "./types";
+ 
+@@ -1083,24 +1084,26 @@ export function guidedStoryStoryboard(
+     });
+     const prior = oldByScriptScene.get(scriptScene.id);
+     const reusable = prior?.guidedStory?.inputFingerprint === inputFingerprint;
+-    const roleDirection = sceneCast.map((member) =>
+-      `${member.character.name} (${member.roleId}) wears ${member.outfit?.description ?? "the approved wardrobe"}; identity reference ${member.character.referenceImagePath ?? "MISSING"}; outfit reference ${member.outfit?.referenceImagePath ?? "MISSING"}.`,
+-    ).join(" ");
+-    const locationDirection = sceneBackdrop
+-      ? `Use the frozen approved ${effectiveBackdrop?.source === "override" ? "scene override" : snapshot.backdrops && !migratedLegacyDefault ? "default" : "shared"} backdrop ${sceneBackdrop.imagePath}. ` +
+-        `Backdrop direction: ${sceneBackdrop.prompt}. Preserve this location unless an explicitly scene-only background correction is requested.`
+-      : visuals.location.mode === "image"
+-        ? `Use the shared location image ${visuals.location.imagePath} as environmental guidance.`
+-        : visuals.location.mode === "text"
+-          ? `Shared location direction: ${visuals.location.description}.`
+-          : "";
+-    const logoDirection = showLogo
+-      ? `Place the approved logo ${visuals.logo.path} subtly in this scene.`
+-      : "";
++    const backdropLabel: GuidedBackdropLabel =
++      effectiveBackdrop?.source === "override"
++        ? "scene override"
++        : snapshot.backdrops && !migratedLegacyDefault
++          ? "default"
++          : "shared";
+     return {
+       id: scriptScene.id,
+       text: scriptScene.lines.map((line) => line.text).join(" "),
+-      visual: `${scriptScene.visualDirection}\n${roleDirection}\n${locationDirection}\n${logoDirection}\nCompose for ${snapshot.platform.aspectRatio}. ${snapshot.platform.safeArea}`,
++      visual: guidedSceneVisualPrompt({
++        scriptScene,
++        sceneCast,
++        backdrop: sceneBackdrop
++          ? { imagePath: sceneBackdrop.imagePath, prompt: sceneBackdrop.prompt }
++          : null,
++        backdropLabel,
++        location: visuals.location,
++        logoPath: showLogo ? visuals.logo.path : null,
++        platform: snapshot.platform,
++      }),
+       durationSec: (scriptScene.endMs - scriptScene.startMs) / 1000,
+       previewPath: reusable ? prior!.previewPath : null,
+       previewCheckpoint: reusable ? prior!.previewCheckpoint : null,
+diff --git a/artifacts/api-server/src/lib/videoGen/seedancePrompt.test.ts b/artifacts/api-server/src/lib/videoGen/seedancePrompt.test.ts
+new file mode 100644
+index 00000000..145c66dc
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/seedancePrompt.test.ts
+@@ -0,0 +1,330 @@
++import { describe, expect, it } from "vitest";
++import type { GuidedStoryCastSnapshot, GuidedStoryScript } from "@workspace/db";
++import {
++  clipSeconds,
++  dialogueNumbering,
++  referenceSlots,
++  seedanceScenePrompt,
++  SEEDANCE_MAX_SEGMENT_SEC,
++  type SeedanceSceneInput,
++} from "./seedancePrompt";
++
++function member(
++  roleId: string,
++  name: string,
++  outfitDescription: string | null = "a grey sweatshirt",
++): GuidedStoryCastSnapshot {
++  return {
++    roleId,
++    source: "saved",
++    characterId: 1,
++    outfitId: 2,
++    brandKitId: null,
++    voiceId: "elevenlabs:premade:abc",
++    character: {
++      name,
++      description: `${name} the character`,
++      referenceImagePath: `/objects/1/uploads/${roleId}-ref.png`,
++    },
++    outfit: outfitDescription
++      ? {
++          name: "Default",
++          description: outfitDescription,
++          referenceImagePath: `/objects/1/uploads/${roleId}-outfit.png`,
++        }
++      : null,
++    voice: { id: "v1", label: "Voice", provider: "elevenlabs", providerVoiceId: "abc" },
++    isUserRole: false,
++    consentGranted: true,
++  };
++}
++
++function scene(
++  id: string,
++  startMs: number,
++  endMs: number,
++  lines: GuidedStoryScript["scenes"][number]["lines"],
++): GuidedStoryScript["scenes"][number] {
++  return {
++    id,
++    startMs,
++    endMs,
++    visualDirection: "Ava lifts the box and presents it to camera as she speaks.",
++    roleIds: ["role-1", "role-2"],
++    lines,
++  };
++}
++
++function line(
++  id: string,
++  ownerRoleId: string | null,
++  text: string,
++  startMs: number,
++  endMs: number,
++): GuidedStoryScript["scenes"][number]["lines"][number] {
++  return { id, ownerRoleId, kind: ownerRoleId ? "dialogue" : "narration", text, startMs, endMs };
++}
++
++const platform = { aspectRatio: "9:16", safeArea: "Keep faces inside the middle 80%." };
++
++function input(overrides: Partial<SeedanceSceneInput> = {}): SeedanceSceneInput {
++  const s = scene("s1", 0, 13000, [
++    line("l1", "role-1", "Welcome to IVF: romance, but with spreadsheets.", 1200, 4000),
++    line("l2", "role-2", "And a calendar that judges me.", 7500, 10000),
++  ]);
++  return {
++    scriptScene: s,
++    sceneCast: [member("role-1", "Ava"), member("role-2", "Ben")],
++    backdrop: { imagePath: "/objects/1/uploads/plate.png", prompt: "pale green bathroom tiles" },
++    location: { mode: "none" } as SeedanceSceneInput["location"],
++    platform,
++    locale: "en",
++    dialogueNumbers: new Map([["l1", 1], ["l2", 2]]),
++    segmentIndex: 0,
++    segmentCount: 2,
++    ...overrides,
++  };
++}
++
++describe("clipSeconds", () => {
++  it("rebases story time onto the clip", () => {
++    // A scene at 13-30s in the story is 0-17s to the model. Sending 13 would
++    // put the first line most of the way through a 17-second clip.
++    expect(clipSeconds(13000, 13000)).toBe(0);
++    expect(clipSeconds(19500, 13000)).toBe(7);
++    expect(clipSeconds(30000, 13000)).toBe(17);
++  });
++
++  it("rounds to whole seconds, which is all the timestamp format takes", () => {
++    expect(clipSeconds(1200, 0)).toBe(1);
++    expect(clipSeconds(1600, 0)).toBe(2);
++  });
++
++  it("never goes negative", () => {
++    // A line that starts fractionally before its scene (rounding at a coverage
++    // split boundary) must clamp, not emit "-1s".
++    expect(clipSeconds(900, 1000)).toBe(0);
++  });
++});
++
++describe("dialogueNumbering", () => {
++  const script = {
++    version: 1,
++    title: "t",
++    logline: "l",
++    runtimeSeconds: 30,
++    roles: [],
++    warnings: [],
++    scenes: [
++      scene("s1", 0, 13000, [
++        line("l1", "role-1", "one", 1200, 3000),
++        line("l2", "role-2", "two", 7500, 9000),
++      ]),
++      scene("s2", 13000, 30000, [
++        line("l3", "role-2", "three", 14000, 16000),
++        line("l4", "role-1", "four", 19500, 21000),
++      ]),
++    ],
++  } as GuidedStoryScript;
++
++  it("numbers continuously across segments, not per scene", () => {
++    // The number is a sequence reference. Restarting it in each scene would
++    // give two different lines the name "Dialogue 1".
++    expect([...dialogueNumbering(script).entries()]).toEqual([
++      ["l1", 1], ["l2", 2], ["l3", 3], ["l4", 4],
++    ]);
++  });
++
++  it("orders by time inside a scene, not by array position", () => {
++    const outOfOrder = {
++      ...script,
++      scenes: [scene("s1", 0, 13000, [
++        line("late", "role-1", "b", 9000, 10000),
++        line("early", "role-2", "a", 1000, 2000),
++      ])],
++    } as GuidedStoryScript;
++    expect(dialogueNumbering(outOfOrder).get("early")).toBe(1);
++    expect(dialogueNumbering(outOfOrder).get("late")).toBe(2);
++  });
++
++  it("numbers narration alongside dialogue", () => {
++    // Narration is spoken too. Skipping it would leave gaps in the sequence
++    // that read as lost lines.
++    const withNarration = {
++      ...script,
++      scenes: [scene("s1", 0, 8000, [
++        line("n1", null, "Somewhere in a city.", 0, 2000),
++        line("d1", "role-1", "Hello.", 3000, 4000),
++      ])],
++    } as GuidedStoryScript;
++    expect(dialogueNumbering(withNarration).get("n1")).toBe(1);
++    expect(dialogueNumbering(withNarration).get("d1")).toBe(2);
++  });
++});
++
++describe("referenceSlots", () => {
++  it("gives every role two slots — identity and wardrobe", () => {
++    // KOKAO protects the face-and-hair rectangle on the character reference and
++    // repaints everything below it on the outfit image. One slot for both would
++    // throw away the distinction the whole outfit pipeline exists to keep.
++    const slots = referenceSlots([member("role-1", "Ava")], null);
++    expect(slots).toEqual([
++      { slot: 1, kind: "identity", path: "/objects/1/uploads/role-1-ref.png",
++        defines: "Ava's face and hair" },
++      { slot: 2, kind: "wardrobe", path: "/objects/1/uploads/role-1-outfit.png",
++        defines: "Ava's clothing — a grey sweatshirt" },
++    ]);
++  });
++
++  it("numbers slots positionally across cast then backdrop", () => {
++    const slots = referenceSlots(
++      [member("role-1", "Ava"), member("role-2", "Ben")],
++      { imagePath: "/plate.png", prompt: "a tiled bathroom" },
++    );
++    expect(slots.map((s) => `${s.slot}:${s.kind}`)).toEqual([
++      "1:identity", "2:wardrobe", "3:identity", "4:wardrobe", "5:backdrop",
++    ]);
++  });
++
++  it("still emits the wardrobe slot when the outfit is missing", () => {
++    // Dropping it would renumber every slot after it, so the prompt would say
++    // @Image 3 while the third upload is something else entirely.
++    const slots = referenceSlots([member("role-1", "Ava", null)], null);
++    expect(slots).toHaveLength(2);
++    expect(slots[1]).toMatchObject({ slot: 2, path: null });
++    expect(slots[1]!.defines).toContain("the approved wardrobe");
++  });
++});
++
++describe("seedanceScenePrompt", () => {
++  it("puts each element in the bracket that element means", () => {
++    const prompt = seedanceScenePrompt(input({
++      sfx: "bathroom room tone",
++      music: "soft piano under the scene",
++      caption: "Chapter One",
++    }));
++    expect(prompt).toContain("<bathroom room tone>");
++    expect(prompt).toContain("(soft piano under the scene)");
++    expect(prompt).toContain("【Chapter One】");
++    expect(prompt).toContain("{Welcome to IVF: romance, but with spreadsheets.}");
++  });
++
++  it("never uses the caption bracket for a block header", () => {
++    // 【 】 renders text into the picture. A header in it becomes words burned
++    // across the top of the video.
++    const prompt = seedanceScenePrompt(input());
++    for (const header of ["GOAL", "REFERENCES", "ACTION", "DIALOGUE", "EXCLUSIONS", "HOLD"]) {
++      expect(prompt).toContain(`[${header}]`);
++      expect(prompt).not.toContain(`【${header}】`);
++    }
++  });
++
++  it("carries the numbered dialogue and clip-local timing", () => {
++    const prompt = seedanceScenePrompt(input({
++      scriptScene: scene("s2", 13000, 30000, [
++        line("l3", "role-2", "Need water, snacks, socks?", 14000, 17000),
++      ]),
++      dialogueNumbers: new Map([["l3", 3]]),
++      segmentIndex: 1,
++    }));
++    expect(prompt).toContain("Dialogue 3 — 1s — Ben says in English: {Need water, snacks, socks?}");
++    expect(prompt).not.toContain("14s");
++  });
++
++  it("sends native script, never a romanisation", () => {
++    // The romanisation is display-only, and it is exactly what an English-
++    // reading model would try to pronounce.
++    const prompt = seedanceScenePrompt(input({
++      locale: "te",
++      scriptScene: scene("s1", 0, 8000, [
++        {
++          id: "l1", ownerRoleId: "role-1", kind: "dialogue",
++          text: "ఇది మన మొదటి అడుగు.",
++          romanizedPronunciation: "idi mana modati adugu",
++          englishTranslation: "This is our first step.",
++          startMs: 1000, endMs: 3000,
++        },
++      ]),
++      dialogueNumbers: new Map([["l1", 1]]),
++    }));
++    expect(prompt).toContain("says in Telugu: {ఇది మన మొదటి అడుగు.}");
++    expect(prompt).not.toContain("idi mana modati adugu");
++    expect(prompt).not.toContain("This is our first step.");
++  });
++
++  it("omits the dialogue block entirely when ElevenLabs keeps the voice", () => {
++    // Both cannot own the performance. With native audio off the clip must come
++    // back silent, or the generated voice collides with the dubbed one.
++    const prompt = seedanceScenePrompt(input({ nativeAudio: false }));
++    expect(prompt).not.toContain("[DIALOGUE]");
++    expect(prompt).not.toContain("{Welcome to IVF");
++  });
++
++  it("emits only the five permitted negatives", () => {
++    const prompt = seedanceScenePrompt(input());
++    const exclusions = prompt.split("[EXCLUSIONS]")[1]!.split("\n\n")[0]!;
++    expect(exclusions).toContain("No captions");
++    expect(exclusions).toContain("No logos. No watermarks.");
++    expect(exclusions).toContain("No background music.");
++    expect(exclusions).toContain("No cartoon, illustration or 3D-render look.");
++    // The negative that names a subject is the one that summons it.
++    expect(prompt).not.toMatch(/no (other|another) (person|people|character)/i);
++  });
++
++  it("drops the caption exclusion when the scene actually wants a caption", () => {
++    const prompt = seedanceScenePrompt(input({ caption: "Chapter One" }));
++    expect(prompt).not.toContain("No captions");
++    expect(prompt).toContain("【Chapter One】");
++  });
++
++  it("drops the music exclusion when a bed was asked for", () => {
++    const prompt = seedanceScenePrompt(input({ music: "low strings" }));
++    expect(prompt).not.toContain("No background music.");
++  });
++
++  it("states the cast as a count rather than forbidding extras", () => {
++    const prompt = seedanceScenePrompt(input());
++    expect(prompt).toContain("2 people are in this shot: Ava, Ben.");
++    expect(prompt).toContain("The video contains exactly one Ava.");
++  });
++
++  it("has no cap on cast size", () => {
++    // The scene sets the cast. Eight is where identity gets less reliable, not
++    // a limit this code may impose.
++    const cast = Array.from({ length: 12 }, (_, i) => member(`role-${i}`, `Person${i}`));
++    const prompt = seedanceScenePrompt(input({ sceneCast: cast }));
++    expect(prompt).toContain("12 people are in this shot");
++    expect(referenceSlots(cast, null)).toHaveLength(24);
++  });
++
++  it("opens on the carried state only when there is a previous clip", () => {
++    expect(seedanceScenePrompt(input())).not.toContain("[CONTINUITY]");
++    const second = seedanceScenePrompt(input({
++      segmentIndex: 1,
++      carriedState: "The calendar is up between them, both looking at it.",
++    }));
++    expect(second).toContain("[CONTINUITY]");
++    expect(second).toContain("The calendar is up between them, both looking at it.");
++  });
++
++  it("keeps the action timestamp inside the clip's own length", () => {
++    const prompt = seedanceScenePrompt(input({
++      scriptScene: scene("s2", 13000, 30000, []),
++      segmentIndex: 1,
++    }));
++    expect(prompt).toContain("0-17s:");
++    expect(prompt).toContain("One continuous 17-second shot.");
++  });
++
++  it("skips blank lines rather than emitting an empty voice bracket", () => {
++    const prompt = seedanceScenePrompt(input({
++      scriptScene: scene("s1", 0, 8000, [line("l1", "role-1", "   ", 1000, 2000)]),
++    }));
++    expect(prompt).not.toContain("{   }");
++    expect(prompt).not.toContain("[DIALOGUE]");
++  });
++
++  it("names the ceiling the splitter has to respect", () => {
++    expect(SEEDANCE_MAX_SEGMENT_SEC).toBe(30);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/seedancePrompt.ts b/artifacts/api-server/src/lib/videoGen/seedancePrompt.ts
+new file mode 100644
+index 00000000..7810c421
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/seedancePrompt.ts
+@@ -0,0 +1,298 @@
++import type {
++  GuidedStoryCastSnapshot,
++  GuidedStoryLocale,
++  GuidedStoryScript,
++  GuidedStoryVisualChoices,
++} from "@workspace/db";
++import { GUIDED_STORY_LANGUAGES } from "./guidedStory";
++
++/**
++ * Seedance 2.5 scene prompts.
++ *
++ * Seedance 2.5 does not take the same prompt shape as every other video model
++ * this repo talks to. It has a documented bracket notation where the bracket
++ * IS the meaning — a dialogue line written in the caption bracket is rendered
++ * as burned-in text across the picture rather than spoken — and it generates
++ * the audio with the video, so the spoken lines belong in the prompt. Every
++ * other provider gets a picture-only prompt and its audio dubbed on afterwards.
++ *
++ * Nothing here reaches a provider yet. This module is the assembly half of the
++ * KOKAO Seedance rulebook, landed and tested on its own so it can be reviewed
++ * against the documented syntax before anything is switched over to it. The
++ * wiring — deciding per job which format a scene is built in — is deliberately
++ * a separate change, because of the ordering problem noted at the bottom.
++ *
++ * The rules that shape what the SCRIPT WRITER invents (30-second ceiling, one
++ * action per beat, whole-second timing) are not here. Those belong in the
++ * governed prompt for the guided_story_script flow, because they have to reach
++ * the model that writes the script. Only assembly lives here, where it is
++ * deterministic.
++ */
++
++type ScriptScene = GuidedStoryScript["scenes"][number];
++type ScriptLine = ScriptScene["lines"][number];
++
++/**
++ * Seedance's own ceiling. A generation longer than this is refused outright,
++ * so a scene past it has to become several prompts before it is ever sent.
++ */
++export const SEEDANCE_MAX_SEGMENT_SEC = 30;
++
++/** The four brackets, and what each one means to the model. */
++export const SEEDANCE_BRACKETS = {
++  music: ["(", ")"],
++  sfx: ["<", ">"],
++  voice: ["{", "}"],
++  caption: ["【", "】"],
++} as const;
++
++/**
++ * The only negatives Seedance's guidance permits: captions, logos, watermarks,
++ * background music, overall look. Each names a rendering behaviour rather than
++ * a subject. A negative that names a subject — "no other people in frame" —
++ * describes someone and puts them just off screen, and the model obliges by
++ * putting them in it.
++ */
++export const SEEDANCE_DEFAULT_LOOK_EXCLUSION =
++  "No cartoon, illustration or 3D-render look.";
++
++function languageName(locale: GuidedStoryLocale): string {
++  return (
++    GUIDED_STORY_LANGUAGES.find((language) => language.locale === locale)?.languageName ??
++    "English"
++  );
++}
++
++/**
++ * Story milliseconds to clip seconds.
++ *
++ * A generation is its own clip and starts at zero. A scene sitting at
++ * 13000-30000ms in the story is 0-17s to Seedance, and sending the story
++ * offset instead is the single most likely way a split script returns with its
++ * dialogue landing in the wrong place. Whole seconds, because the documented
++ * timestamp format takes whole seconds and nothing finer.
++ */
++export function clipSeconds(ms: number, sceneStartMs: number): number {
++  return Math.max(0, Math.round((ms - sceneStartMs) / 1000));
++}
++
++/**
++ * Continuous dialogue numbering across the whole approved script.
++ *
++ * The number is a sequence reference, not a per-scene index: Dialogue 7 is
++ * Dialogue 7 in the prompt, in the dialogue list handed to the user, and in a
++ * review note, so a comment can name a line with no other coordinates. Keyed
++ * by line id because line ids are stable across the coverage split — a scene
++ * that becomes three shots keeps its line ids, so the numbering survives it.
++ *
++ * Narration is numbered alongside dialogue. It is spoken too, and a numbering
++ * that skipped it would leave gaps that look like lost lines.
++ */
++export function dialogueNumbering(script: GuidedStoryScript): Map<string, number> {
++  const numbers = new Map<string, number>();
++  for (const scene of script.scenes) {
++    for (const line of [...scene.lines].sort((a, b) => a.startMs - b.startMs)) {
++      numbers.set(line.id, numbers.size + 1);
++    }
++  }
++  return numbers;
++}
++
++export interface SeedanceReferenceSlot {
++  /** 1-based, and positional — slot 1 is whatever is uploaded first. */
++  slot: number;
++  kind: "identity" | "wardrobe" | "backdrop";
++  /** Storage path of the image that fills this slot. */
++  path: string | null;
++  /** The clause after "@Image n defines". */
++  defines: string;
++}
++
++/**
++ * The reference slots for a scene, in upload order.
++ *
++ * A KOKAO role is TWO images, not one: the canonical character reference, whose
++ * face-and-hair rectangle is protected, and the approved outfit image, where
++ * everything below that rectangle is repainted. Collapsing them into one slot
++ * loses exactly the distinction the outfit pipeline exists to maintain, so each
++ * gets its own slot and its own defines clause.
++ *
++ * Slots are positional, so this function is the only place that decides the
++ * order. The prompt and the upload manifest both come from here; if they came
++ * from two places they would eventually disagree, and a disagreement is a video
++ * where one character is wearing another's clothes.
++ */
++export function referenceSlots(
++  sceneCast: GuidedStoryCastSnapshot[],
++  backdrop: { imagePath: string; prompt: string } | null,
++): SeedanceReferenceSlot[] {
++  const slots: Omit<SeedanceReferenceSlot, "slot">[] = [];
++  for (const member of sceneCast) {
++    slots.push({
++      kind: "identity",
++      path: member.character.referenceImagePath,
++      defines: `${member.character.name}'s face and hair`,
++    });
++    slots.push({
++      kind: "wardrobe",
++      path: member.outfit?.referenceImagePath ?? null,
++      defines: `${member.character.name}'s clothing — ${
++        member.outfit?.description ?? "the approved wardrobe"
++      }`,
++    });
++  }
++  if (backdrop) {
++    slots.push({ kind: "backdrop", path: backdrop.imagePath, defines: backdrop.prompt });
++  }
++  return slots.map((slot, index) => ({ slot: index + 1, ...slot }));
++}
++
++export interface SeedanceSceneInput {
++  scriptScene: ScriptScene;
++  /** Cast present in this scene, resolved and ordered by the scene's roleIds. */
++  sceneCast: GuidedStoryCastSnapshot[];
++  backdrop: { imagePath: string; prompt: string } | null;
++  location: GuidedStoryVisualChoices["location"];
++  /** Only the framing this prompt reads; the snapshot carries it inline. */
++  platform: { aspectRatio: string; safeArea: string };
++  locale: GuidedStoryLocale;
++  /** From dialogueNumbering() over the whole script, not this scene alone. */
++  dialogueNumbers: Map<string, number>;
++  segmentIndex: number;
++  segmentCount: number;
++  /**
++   * The previous segment's closing image, verbatim. Every generation is a
++   * blank slate, so this sentence is the only continuity that crosses one.
++   */
++  carriedState?: string | null;
++  /** Emitted in 【 】. Empty means the exclusions ask for no captions. */
++  caption?: string | null;
++  /** Emitted in ( ). Empty means the exclusions ask for no background music. */
++  music?: string | null;
++  /** Emitted in < >. Room tone plus whatever the action makes. */
++  sfx?: string | null;
++  lookExclusion?: string;
++  /**
++   * Whether Seedance speaks the lines. False keeps the existing ElevenLabs
++   * narration and lip-sync path, and the prompt then carries no { } block at
++   * all — the two cannot both own the performance.
++   */
++  nativeAudio?: boolean;
++}
++
++function speaks(line: ScriptLine): boolean {
++  return line.text.trim().length > 0;
++}
++
++function speakerName(line: ScriptLine, sceneCast: GuidedStoryCastSnapshot[]): string {
++  if (!line.ownerRoleId) return "Narrator";
++  return (
++    sceneCast.find((member) => member.roleId === line.ownerRoleId)?.character.name ??
++    line.ownerRoleId
++  );
++}
++
++export function seedanceScenePrompt(input: SeedanceSceneInput): string {
++  const scene = input.scriptScene;
++  const durationSec = Math.round((scene.endMs - scene.startMs) / 1000);
++  const language = languageName(input.locale);
++  const slots = referenceSlots(input.sceneCast, input.backdrop);
++  const lines = [...scene.lines].sort((a, b) => a.startMs - b.startMs).filter(speaks);
++  const blocks: string[] = [];
++
++  blocks.push(
++    ["[GOAL]",
++     `One continuous ${durationSec}-second shot.`,
++     `Segment ${input.segmentIndex + 1} of ${input.segmentCount}. All times below are local to this ${durationSec}-second clip.`,
++    ].join("\n"),
++  );
++
++  if (input.carriedState) {
++    blocks.push(
++      ["[CONTINUITY]",
++       `This clip opens on exactly the image the previous clip ended on: ${input.carriedState}`,
++       "Same people, same wardrobe, same hair, same place, same time of day, same lighting direction, same spatial axis, same grade.",
++      ].join("\n"),
++    );
++  }
++
++  const references = slots.map((slot) => `@Image ${slot.slot} defines ${slot.defines}.`);
++  // Named positively. "Exactly one Ava" is a count; "no duplicate Avas" would
++  // be a negative naming a subject, which is the failure mode this avoids.
++  for (const member of input.sceneCast) {
++    references.push(
++      `The references show one ${member.character.name}. The video contains exactly one ${member.character.name}.`,
++    );
++  }
++  if (input.sceneCast.length) {
++    const names = input.sceneCast.map((member) => member.character.name);
++    references.push(
++      `${names.length === 1 ? "One person is" : `${names.length} people are`} in this shot: ` +
++        `${names.join(", ")}. The frame holds that cast from the first frame to the last.`,
++    );
++  }
++  if (!input.backdrop && input.location.mode === "text") {
++    references.push(`Location: ${input.location.description}.`);
++  }
++  blocks.push(["[REFERENCES]", ...references].join("\n"));
++
++  blocks.push(
++    ["[ACTION]", `0-${durationSec}s: ${scene.visualDirection}`].join("\n"),
++  );
++
++  if (input.nativeAudio !== false && lines.length) {
++    const spoken = lines.map((line) => {
++      const number = input.dialogueNumbers.get(line.id);
++      const at = clipSeconds(line.startMs, scene.startMs);
++      const who = speakerName(line, input.sceneCast);
++      // The spoken text, never the romanisation. A Latin transliteration is
++      // what an English-reading model will try to pronounce, which is how a
++      // Telugu line comes back sounding like English nonsense.
++      return `Dialogue ${number ?? "?"} — ${at}s — ${who} says in ${language}: {${line.text}}`;
++    });
++    blocks.push(
++      ["[DIALOGUE]",
++       `Spoken language: ${language}. Every line is spoken in ${language}, exactly as written, and nothing else is spoken.`,
++       ...spoken,
++      ].join("\n"),
++    );
++  }
++
++  const sound: string[] = [];
++  if (input.sfx) sound.push(`<${input.sfx}>`);
++  if (input.music) sound.push(`(${input.music})`);
++  if (input.caption) sound.push(`【${input.caption}】`);
++  if (sound.length) blocks.push(["[AUDIO AND ON-SCREEN]", ...sound].join("\n"));
++
++  const exclusions = ["No logos. No watermarks."];
++  if (!input.caption) exclusions.unshift("No captions, subtitles or on-screen text.");
++  if (!input.music) exclusions.push("No background music.");
++  exclusions.push(input.lookExclusion ?? SEEDANCE_DEFAULT_LOOK_EXCLUSION);
++  blocks.push(["[EXCLUSIONS]", ...exclusions].join("\n"));
++
++  blocks.push(
++    ["[HOLD]",
++     "One continuous take. No cut, no scene change, no new location inside this clip.",
++     "Identity, wardrobe, location, props, lighting direction and grade stay as described above for the whole clip.",
++     `Compose for ${input.platform.aspectRatio}. ${input.platform.safeArea}`,
++    ].join("\n"),
++  );
++
++  return blocks.join("\n\n");
++}
++
++/**
++ * ORDERING PROBLEM, recorded here so the next change does not trip over it.
++ *
++ * guidedStoryStoryboard bakes scene.visual into the storyboard, and the video
++ * model is not resolved until the job runs. So the format cannot simply be
++ * branched inside the storyboard builder — at that point nothing knows whether
++ * Seedance will render it.
++ *
++ * Worse, scene.inputFingerprint covers the script, cast, platform, visuals and
++ * locale, but NOT scene.visual. Two scenes built in different prompt formats
++ * therefore hash identically, and a preview rendered under one format would be
++ * silently reused for the other. Whichever way the wiring goes, the format has
++ * to enter that fingerprint, or a format switch will hand users stale frames
++ * with no indication anything changed.
++ */
+-- 
+2.43.0
+

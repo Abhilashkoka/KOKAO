@@ -18,3 +18,9 @@ Receipt-free failures are fail-soft and retain the corresponding completed base 
 **Why:** The base video protects delivery, while receipt-aware checkpoints protect users from losing paid work or duplicating provider charges after crashes.
 
 **How to apply:** Never infer intrinsic finishing for old rows. Preserve the completed base before dispatch, update checkpoints around every paid boundary, concatenate successful intrinsic scenes with untouched base intervals, and settle only durable unaccounted provider events.
+
+When model resolution forces synchronized native audio, persist that decision in both the immutable resolved-model contract and the job-level audio option consumed by workers. Clear every external lip-sync snapshot at the same boundary.
+
+**Why:** The enqueue route may resolve a native-audio model after request options are built, while normal and repair workers reconstruct render options from the job-level field. Updating only the nested model snapshot makes the saved job look correct but silently sends the worker down the external-narration path.
+
+**How to apply:** Treat native-audio activation as one atomic persisted contract: prompt format, provider/model identity, resolved audio capability, worker-visible audio flag, and external-finishing disablement must change together. Regression tests must cover enqueue through worker reconstruction, not only renderer calls with hand-built options.

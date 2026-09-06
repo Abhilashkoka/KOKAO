@@ -13,6 +13,7 @@ vi.mock("@/lib/analytics", () => ({
   initAnalytics: vi.fn(),
   setConsentState: vi.fn(),
   trackPageView: vi.fn(),
+  trackProjectSignUpOnce: vi.fn(),
   trackSignUpOnce: vi.fn(),
 }));
 vi.mock("@clerk/react", () => ({

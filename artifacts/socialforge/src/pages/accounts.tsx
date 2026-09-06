@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { track } from "@/lib/analytics";
+import { track, trackProjectEvent } from "@/lib/analytics";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { 
   useListAccounts,
@@ -59,6 +59,22 @@ function adPlatformLabel(platform: string) {
   if (platform === "linkedin") return "LinkedIn Ads";
   if (platform === "tiktok") return "TikTok Ads";
   return `${platform} Ads`;
+}
+
+const CONNECTABLE_SOCIAL_PLATFORMS = new Set([
+  "facebook",
+  "instagram",
+  "linkedin",
+  "twitter",
+  "youtube",
+  "threads",
+]);
+
+function trackAccountConnected(platform: string) {
+  const normalizedPlatform = platform.trim().toLowerCase();
+  if (!CONNECTABLE_SOCIAL_PLATFORMS.has(normalizedPlatform)) return;
+  track("account_connected", { platform: normalizedPlatform });
+  trackProjectEvent("account_connected", { platform: normalizedPlatform });
 }
 
 function StatusPill({ status }: { status?: string | null }) {
@@ -153,7 +169,7 @@ function FacebookCredentialsCard() {
           setDirty(false);
           if (res.verifyStatus === "verified") {
             toast({ title: "Facebook Page verified", description: "You can now publish to this Page from the Content Library." });
-            track("account_connected", { platform: "facebook" });
+            trackAccountConnected("facebook");
           } else {
             toast({
               variant: "destructive",
@@ -354,7 +370,7 @@ function InstagramCredentialsCard() {
           setDirty(false);
           if (res.verifyStatus === "verified") {
             toast({ title: "Instagram account verified", description: "You can now publish to Instagram from the Content Library." });
-            track("account_connected", { platform: "instagram" });
+            trackAccountConnected("instagram");
           } else {
             toast({
               variant: "destructive",
@@ -518,7 +534,7 @@ function TwitterCredentialsCard() {
     if (!status) return;
     if (status === "connected") {
       toast({ title: "X connected", description: "You can now publish posts to X." });
-      track("account_connected", { platform: "twitter" });
+      trackAccountConnected("twitter");
       refreshTwitter();
     } else if (status === "error") {
       toast({
@@ -540,7 +556,7 @@ function TwitterCredentialsCard() {
     if (connecting && data?.connected) {
       setConnecting(false);
       toast({ title: "X connected", description: "You can now publish posts to X." });
-      if (!wasConnectedRef.current) track("account_connected", { platform: "twitter" });
+      if (!wasConnectedRef.current) trackAccountConnected("twitter");
       refreshTwitter();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -917,7 +933,7 @@ export function AccountsPage() {
     if (!status && !ytStatusParam && !threadsStatusParam) return;
     if (status === "connected") {
       toast({ title: "LinkedIn connected", description: "You can now publish posts to LinkedIn." });
-      track("account_connected", { platform: "linkedin" });
+      trackAccountConnected("linkedin");
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
     } else if (status === "error") {
       toast({
@@ -932,7 +948,7 @@ export function AccountsPage() {
     const ytStatus = params.get("youtube");
     if (ytStatus === "connected") {
       toast({ title: "YouTube connected", description: "Your channel is now linked." });
-      track("account_connected", { platform: "youtube" });
+      trackAccountConnected("youtube");
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
     } else if (ytStatus === "error") {
       toast({
@@ -945,7 +961,7 @@ export function AccountsPage() {
     params.delete("youtube");
     if (threadsStatusParam === "connected") {
       toast({ title: "Threads connected", description: "You can now publish posts to Threads." });
-      track("account_connected", { platform: "threads" });
+      trackAccountConnected("threads");
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetThreadsStatusQueryKey() });
     } else if (threadsStatusParam === "error") {
@@ -971,7 +987,7 @@ export function AccountsPage() {
         title: "LinkedIn connected",
         description: "You can now publish posts to LinkedIn.",
       });
-      if (!linkedinWasConnectedRef.current) track("account_connected", { platform: "linkedin" });
+      if (!linkedinWasConnectedRef.current) trackAccountConnected("linkedin");
       refreshLinkedin();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1001,7 +1017,7 @@ export function AccountsPage() {
         title: "YouTube connected",
         description: "Your channel is now linked.",
       });
-      if (!youtubeWasConnectedRef.current) track("account_connected", { platform: "youtube" });
+      if (!youtubeWasConnectedRef.current) trackAccountConnected("youtube");
       refreshYoutube();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1099,7 +1115,7 @@ export function AccountsPage() {
         title: "Threads connected",
         description: "You can now publish posts to Threads.",
       });
-      if (!threadsWasConnectedRef.current) track("account_connected", { platform: "threads" });
+      if (!threadsWasConnectedRef.current) trackAccountConnected("threads");
       refreshThreads();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1149,6 +1165,8 @@ export function AccountsPage() {
     }, {
       onSuccess: () => {
         toast({ title: "Account connected!" });
+        // Legacy account records are not credential-verified social
+        // connections, so keep the existing internal event only.
         track("account_connected", { platform });
         queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
         setOpen(false);

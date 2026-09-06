@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const SIGN_UP_KEY = "kokao_sign_up_tracked";
+const PROJECT_SIGN_UP_KEY = "kokao_project_sign_up_tracked";
 const FRESH_WINDOW_MS = 60 * 60_000;
 const MAX_QUEUE = 40;
 
@@ -32,6 +33,7 @@ beforeEach(async () => {
   vi.resetModules();
   window.localStorage.clear();
   window.sessionStorage.clear();
+  delete window.umami;
   fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 202 }));
   vi.stubGlobal("fetch", fetchMock);
   analytics = await import("./analytics");
@@ -40,6 +42,67 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+
+describe("trackProjectSignUpOnce", () => {
+  it("tracks a fresh user without sending the Clerk user id and stores the marker", () => {
+    const projectTrack = vi.fn();
+    window.umami = { track: projectTrack };
+
+    analytics.trackProjectSignUpOnce("user_project_fresh", new Date());
+
+    expect(projectTrack).toHaveBeenCalledOnce();
+    expect(projectTrack).toHaveBeenCalledWith("sign_up_completed", {
+      method: "clerk",
+    });
+    expect(window.localStorage.getItem(PROJECT_SIGN_UP_KEY)).toBe(
+      "user_project_fresh",
+    );
+  });
+
+  it("dedupes the same user across module reloads", async () => {
+    const projectTrack = vi.fn();
+    window.umami = { track: projectTrack };
+    analytics.trackProjectSignUpOnce("user_project_reload", new Date());
+
+    vi.resetModules();
+    analytics = await import("./analytics");
+    analytics.trackProjectSignUpOnce("user_project_reload", new Date());
+
+    expect(projectTrack).toHaveBeenCalledOnce();
+  });
+
+  it("does not track a stale user", () => {
+    const projectTrack = vi.fn();
+    window.umami = { track: projectTrack };
+
+    analytics.trackProjectSignUpOnce(
+      "user_project_stale",
+      new Date(Date.now() - FRESH_WINDOW_MS - 1),
+    );
+
+    expect(projectTrack).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(PROJECT_SIGN_UP_KEY)).toBeNull();
+  });
+
+  it("does not commit the marker when Umami is unavailable", () => {
+    analytics.trackProjectSignUpOnce("user_project_missing", new Date());
+
+    expect(window.localStorage.getItem(PROJECT_SIGN_UP_KEY)).toBeNull();
+  });
+
+  it("does not throw or commit the marker when Umami throws", () => {
+    window.umami = {
+      track: vi.fn(() => {
+        throw new Error("tracker unavailable");
+      }),
+    };
+
+    expect(() =>
+      analytics.trackProjectSignUpOnce("user_project_throw", new Date()),
+    ).not.toThrow();
+    expect(window.localStorage.getItem(PROJECT_SIGN_UP_KEY)).toBeNull();
+  });
 });
 
 describe("pre-consent event retention", () => {

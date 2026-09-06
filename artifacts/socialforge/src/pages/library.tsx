@@ -45,7 +45,7 @@ import { ComposerSheet, type ComposerItem } from "@/components/composer";
 import { ImageEditorDialog } from "@/components/image-editor";
 import { ZoomableImage } from "@/components/zoomable-image";
 import { Send } from "lucide-react";
-import { track } from "@/lib/analytics";
+import { track, trackProjectEvent } from "@/lib/analytics";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useWalletBilling, quotaLimitDescription } from "@/lib/quotaCopy";
 import { isInteractiveTarget } from "@/lib/utils";
@@ -216,6 +216,7 @@ export function LibraryPage() {
       onSuccess: (res) => {
         publishInFlightRef.current.delete(guardKey);
         track("post_published", { platform: "facebook" });
+        trackProjectEvent("post_published", { platform: "facebook" });
         toast({
           title: "Published to Facebook",
           description: res?.permalink ? "Your post is live on Facebook." : undefined,
@@ -250,6 +251,7 @@ export function LibraryPage() {
       onSuccess: () => {
         publishInFlightRef.current.delete(guardKey);
         track("post_published", { platform: "instagram" });
+        trackProjectEvent("post_published", { platform: "instagram" });
         toast({
           title: "Publishing to Instagram",
           description:
@@ -392,6 +394,7 @@ export function LibraryPage() {
         onSuccess: (res) => {
           publishInFlightRef.current.delete(guardKey);
           track("post_published", { platform: "linkedin" });
+          trackProjectEvent("post_published", { platform: "linkedin" });
           if (res?.commentWarning) {
             const itemId = linkedinItem.id;
             toast({
@@ -449,6 +452,7 @@ export function LibraryPage() {
       onSuccess: (res) => {
         publishInFlightRef.current.delete(guardKey);
         track("post_published", { platform: "twitter" });
+        trackProjectEvent("post_published", { platform: "twitter" });
         if (res?.publishWarning) {
           const itemId = twitterItem.id;
           toast({
@@ -499,6 +503,7 @@ export function LibraryPage() {
         onSuccess: (res) => {
           publishInFlightRef.current.delete(guardKey);
           track("post_published", { platform: "threads" });
+          trackProjectEvent("post_published", { platform: "threads" });
           if (res?.publishWarning) {
             const itemId = threadsItem.id;
             toast({

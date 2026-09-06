@@ -416,6 +416,11 @@ export async function animateBrollStills(params: {
   savedClips?: Array<Buffer | null>;
   /** Per scene: whether a downstream finishing pass will replace the mouth. */
   lipSynced?: boolean[];
+  /**
+   * true keeps provider-generated dialogue/SFX, false explicitly requests a
+   * silent clip, and undefined preserves the caller's existing model setting.
+   */
+  nativeAudio?: boolean;
   onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
   /**
    * Generated-storyboard-only hook. Identity-backed callers omit it and fail
@@ -446,13 +451,19 @@ export async function animateBrollStills(params: {
       const clip = await generateVideo({
         mode: "image",
         prompt:
-          params.lipSynced?.[i] === true
+          params.nativeAudio
+            ? visual
+            : params.lipSynced?.[i] === true
             ? characterScenePrompt({ visual, motion, lipSynced: true })
             : `${visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
         seed: params.seed ?? null,
         image: { buffer: image, mimeType: "image/png" },
         ...(params.modelOptions ?? {}),
+        generateAudio:
+          params.nativeAudio === undefined
+            ? params.modelOptions?.generateAudio
+            : params.nativeAudio,
         // Scene lengths come from the narration timing, which the model does
         // not get a vote on — the audio is already recorded.
         durationSec,
@@ -485,6 +496,7 @@ export async function animateBrollStills(params: {
     sceneMap: params.scenes.map((scene, i) => ({
       clipIndex: i,
       durationSec: scene.durationSec,
+      ...(params.nativeAudio ? { lipSynced: true } : {}),
     })),
     provider: provider || "replicate",
     model: model || "image-to-video",

@@ -17,6 +17,7 @@ const ANON_KEY = "kokao_anon_id";
 const SESSION_KEY = "kokao_session";
 const FIRST_OPEN_KEY = "kokao_first_open";
 const SIGN_UP_KEY = "kokao_sign_up_tracked";
+const PROJECT_SIGN_UP_KEY = "kokao_project_sign_up_tracked";
 /** How recently a Clerk user must have been created to count as a fresh sign-up. */
 const SIGN_UP_FRESH_WINDOW_MS = 60 * 60_000;
 const UTM_KEY = "kokao_utm";
@@ -54,6 +55,31 @@ export function trackProjectEvent(
     window.umami?.track(name, data);
   } catch {
     // Analytics must never break the app.
+  }
+}
+
+/**
+ * Record the Replit-hosted sign-up conversion once per Clerk user on this
+ * browser. Unlike the consent-gated product event, this marker is committed
+ * only after the injected Umami tracker is present and returns successfully,
+ * so a development/unpublished visit cannot suppress the later real event.
+ * The Clerk user id is used only as the local dedupe marker and is never sent.
+ */
+export function trackProjectSignUpOnce(
+  userId: string,
+  createdAt: Date | null | undefined,
+): void {
+  if (typeof window === "undefined" || !userId || !createdAt) return;
+  if (Date.now() - createdAt.getTime() > SIGN_UP_FRESH_WINDOW_MS) return;
+  const store = safeStorage("local");
+  if (store?.getItem(PROJECT_SIGN_UP_KEY) === userId) return;
+  const tracker = window.umami;
+  if (!tracker) return;
+  try {
+    tracker.track("sign_up_completed", { method: "clerk" });
+    store?.setItem(PROJECT_SIGN_UP_KEY, userId);
+  } catch {
+    // A missing/broken project tracker must never affect sign-up.
   }
 }
 

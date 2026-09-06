@@ -8164,6 +8164,17 @@ async function generateVideoHandler(
         )
           ? { ...resolvedVideoModel, generateAudio: true }
           : resolvedVideoModel;
+      if (options.guidedStory) {
+        const seedance25 = resolvedVideoModel.model.toLowerCase().includes("seedance-2.5");
+        options.guidedStory = {
+          ...options.guidedStory,
+          promptFormat: seedance25 ? "seedance-2.5" : "guided-v1",
+          videoModel: {
+            provider: resolvedVideoModel.provider,
+            model: resolvedVideoModel.model,
+          },
+        };
+      }
     } catch (error) {
       if (error instanceof VideoModelResolutionError) {
         res.status(400).json({
@@ -8178,6 +8189,22 @@ async function generateVideoHandler(
     }
   } else {
     options.resolvedVideoModel = null;
+  }
+
+  if (
+    options.guidedStory &&
+    options.resolvedVideoModel?.generateAudio === true &&
+    hasNativeSynchronizedAudio(
+      options.resolvedVideoModel.provider,
+      options.resolvedVideoModel.model,
+    )
+  ) {
+    // The provider already owns the synchronized performance. A second
+    // character or whole-video lip-sync pass would replace that approved audio
+    // and can no longer be meaningfully priced or replayed.
+    options.generateAudio = true;
+    options.characterLipSync = false;
+    options.studioLipSync = null;
   }
 
   // New Guided Story jobs automatically freeze the safe single-speaker shots.

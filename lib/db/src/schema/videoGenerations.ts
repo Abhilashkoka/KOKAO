@@ -941,6 +941,10 @@ export interface VideoJobOptions {
     draftId: number;
     draftRevision: number;
     scriptApprovedAt: string;
+    /** Frozen prompt contract used by storyboard previews and final renders. */
+    promptFormat?: "guided-v1" | "seedance-2.5";
+    /** Frozen provider/model identity used in the scene input fingerprint. */
+    videoModel?: { provider: string; model: string };
     /**
      * Canonical language frozen with new attempts. Optional only so jobs
      * created before locale snapshots were introduced remain retryable.

@@ -67,6 +67,8 @@ export interface ComposeInput {
   watermark?: Buffer | null;
   /** Optional background music bytes. */
   music?: Buffer | null;
+  /** Keep synchronized audio generated inside each Seedance clip. */
+  nativeAudio?: boolean;
   /**
    * Optional explicit scene layout (character videos: one AI clip per scene,
    * spanning several sentences). When omitted, one scene per cue cycling
@@ -214,12 +216,14 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       const scene = scenes[i]!;
       const clipDur = clipDurations.get(scene.clipIndex) ?? null;
       const spare = clipDur !== null ? clipDur - scene.durationSec : 0;
-      // A lip-synced shot starts where its audio slice starts, full stop.
+      // A lip-synced or provider-native-audio shot starts where its audio
+      // starts, full stop.
       // Seeking would be silently fatal here: providers return discrete
       // lengths, so a 3s scene almost always has spare time, and the
       // golden-ratio offset below would land mid-word on every such shot with
       // nothing raising an error.
-      const canSeek = !scene.lipSynced && clipDur !== null && spare > 0.5;
+      const timelineLocked = scene.lipSynced || input.nativeAudio;
+      const canSeek = !timelineLocked && clipDur !== null && spare > 0.5;
       const seekSec = canSeek ? ((i * 0.618034) % 1) * (spare - 0.25) : 0;
 
       const fades: string[] = [];
@@ -236,14 +240,14 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       // replaying it would replay the mouth mid-sentence. Everything else
       // loops as before.
       const holdSec =
-        scene.lipSynced && clipDur !== null && clipDur < scene.durationSec
+        timelineLocked && clipDur !== null && clipDur < scene.durationSec
           ? scene.durationSec - clipDur
           : 0;
       const hold = holdSec > 0 ? [`tpad=stop_mode=clone:stop_duration=${holdSec.toFixed(3)}`] : [];
 
       const args = ["-y"];
       if (canSeek) args.push("-ss", seekSec.toFixed(3));
-      else if (!scene.lipSynced) args.push("-stream_loop", "-1");
+      else if (!timelineLocked) args.push("-stream_loop", "-1");
       args.push(
         "-i",
         `clip_${scene.clipIndex}.mp4`,
@@ -251,7 +255,17 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         scene.durationSec.toFixed(3),
         "-vf",
         [...hold, frame, ...fades].join(","),
-        "-an",
+        ...(input.nativeAudio
+          ? [
+              "-map",
+              "0:v:0",
+              "-map",
+              "0:a?",
+              ...(holdSec > 0 ? ["-af", `apad=pad_dur=${holdSec.toFixed(3)}`] : []),
+              "-c:a",
+              "aac",
+            ]
+          : ["-an"]),
         "-c:v",
         "libx264",
         "-preset",
@@ -323,7 +337,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     if (hasWatermark) {
       await writeFile(join(dir, "logo.png"), input.watermark!);
     }
-    const watermarkIndex = 2 + (hasMusic ? 1 : 0);
+    const watermarkIndex = (input.nativeAudio ? 1 : 2) + (hasMusic ? 1 : 0);
     const watermarkPad = Math.round(height / 45);
     const baseChain =
       videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}` : `[0:v]null`;
@@ -349,17 +363,24 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     const musicLoop =
       `aloop=loop=-1:size=2147483647,` +
       `atrim=duration=${input.totalDurationSec.toFixed(3)}`;
-    const audioChain = hasMusic
-      ? `[1:a]asetpts=PTS-STARTPTS,${narrationNorm}[nar];` +
-        `[2:a]asetpts=PTS-STARTPTS,${musicLoop},volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
-        `[nar][bgm]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
-      : `[1:a]asetpts=PTS-STARTPTS,${mixNorm}[aout]`;
+    const audioChain = input.nativeAudio
+      ? hasMusic
+        ? `[0:a]asetpts=PTS-STARTPTS,${narrationNorm}[nar];` +
+          `[1:a]asetpts=PTS-STARTPTS,${musicLoop},volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
+          `[nar][bgm]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
+        : `[0:a]asetpts=PTS-STARTPTS,${mixNorm}[aout]`
+      : hasMusic
+        ? `[1:a]asetpts=PTS-STARTPTS,${narrationNorm}[nar];` +
+          `[2:a]asetpts=PTS-STARTPTS,${musicLoop},volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
+          `[nar][bgm]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
+        : `[1:a]asetpts=PTS-STARTPTS,${mixNorm}[aout]`;
 
     // The filtergraph can exceed argv comfort with many cues; feed it from a
     // script file instead.
     await writeFile(join(dir, "filters.txt"), `${videoChain};${audioChain}`);
 
-    const args = ["-y", "-f", "concat", "-safe", "0", "-i", "list.txt", "-i", "narration.wav"];
+    const args = ["-y", "-f", "concat", "-safe", "0", "-i", "list.txt"];
+    if (!input.nativeAudio) args.push("-i", "narration.wav");
     if (hasMusic) {
       if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
       args.push("-i", "music");
@@ -398,7 +419,8 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     // standalone mix is complete. Keeping this boundary explicit guarantees
     // the persisted narration timeline controls the delivered audio duration.
     await writeFile(join(dir, "audio-filters.txt"), audioChain);
-    const remuxArgs = ["-y", "-i", "out.mp4", "-i", "narration.wav"];
+    const remuxArgs = ["-y", "-i", "out.mp4"];
+    if (!input.nativeAudio) remuxArgs.push("-i", "narration.wav");
     if (hasMusic) {
       if (musicSeekSec > 0) remuxArgs.push("-ss", musicSeekSec.toFixed(3));
       remuxArgs.push("-i", "music");

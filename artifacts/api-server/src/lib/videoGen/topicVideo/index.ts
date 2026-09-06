@@ -71,8 +71,14 @@ import {
   GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
   guidedCastApprovalsMatch,
   guidedStoryStoryboard,
+  effectiveGuidedBackdrop,
 } from "../guidedStory";
 import type { GuidedStoryCastSnapshot, VideoJobOptions } from "@workspace/db";
+import {
+  dialogueNumbering,
+  isSeedance25Model,
+  seedanceScenePrompt,
+} from "../seedancePrompt";
 
 export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
 export {
@@ -1593,6 +1599,8 @@ export async function renderTopicStoryboard(params: {
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
+  /** Frozen Guided Story snapshot used to assemble model-specific prompts. */
+  guidedStory?: VideoJobOptions["guidedStory"] | null;
   /** Reads narration audio and preview stills back from tenant storage. */
   load: (objectPath: string) => Promise<Buffer>;
   onStage?: (stage: string) => void;
@@ -1657,6 +1665,52 @@ export async function renderTopicStoryboard(params: {
     durationSec: scene.durationSec,
     text: scene.text,
   }));
+  const frozenSeedancePrompt =
+    params.guidedStory?.promptFormat === "seedance-2.5" &&
+    isSeedance25Model({
+      resolvedVideoModel: params.guidedStory.videoModel ?? null,
+    });
+  const seedanceNativeAudio =
+    frozenSeedancePrompt &&
+    params.modelOptions?.generateAudio === true;
+  const seedancePrompts =
+    frozenSeedancePrompt && params.guidedStory
+      ? (() => {
+          const guided = params.guidedStory!;
+          const location = guided.visuals?.location ?? {
+            mode: "none" as const,
+            imagePath: null,
+            description: null,
+          };
+          const numbers = dialogueNumbering(guided.script);
+          return board.scenes.map((boardScene, sceneIndex) => {
+            const scriptScene =
+              guided.script.scenes.find(
+                (candidate) => candidate.id === boardScene.guidedStory?.scriptSceneId,
+              ) ?? null;
+            if (!scriptScene || !boardScene.guidedStory) return null;
+            const sceneCast = guided.cast.filter((member) =>
+              scriptScene.roleIds.includes(member.roleId),
+            );
+            const backdrop = effectiveGuidedBackdrop(guided, scriptScene.id)?.reference ?? null;
+            return seedanceScenePrompt({
+              scriptScene,
+              sceneCast,
+              backdrop: backdrop
+                ? { imagePath: backdrop.imagePath, prompt: backdrop.prompt }
+                : null,
+              location,
+              platform: guided.platform,
+              locale: guided.locale ?? "en",
+              dialogueNumbers: numbers,
+              segmentIndex: sceneIndex,
+              segmentCount: board.scenes.length,
+              nativeAudio: seedanceNativeAudio,
+              referenceMode: "opening-frame",
+            });
+          });
+        })()
+      : undefined;
 
   let clips: Buffer[];
   let sceneMap;
@@ -1676,9 +1730,11 @@ export async function renderTopicStoryboard(params: {
       cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
+      scenePrompts: seedancePrompts?.map((prompt, index) => prompt ?? board.scenes[index]!.visual),
+      nativeAudio: params.guidedStory ? seedanceNativeAudio : undefined,
       savedClips,
       onCheckpoint: params.onCheckpoint,
-      lipSync: params.characterLipSync ? { wav: narrationWav } : null,
+      lipSync: seedanceNativeAudio || !params.characterLipSync ? null : { wav: narrationWav },
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;
@@ -1689,13 +1745,15 @@ export async function renderTopicStoryboard(params: {
     params.onStage?.("Animating your storyboard");
     const animated = await animateBrollStills({
       images: stills as Buffer[],
-      visuals: board.scenes.map((scene) => scene.visual),
+      visuals: seedancePrompts?.map((prompt, index) => prompt ?? board.scenes[index]!.visual) ??
+        board.scenes.map((scene) => scene.visual),
       scenes,
       aspectRatio: params.aspectRatio,
       motionPreset: params.motionPreset ?? null,
       cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
+      nativeAudio: seedanceNativeAudio,
       savedClips,
       lipSynced: board.scenes.map(
         (scene) => params.lipSyncedSceneIds?.has(scene.id) ?? false,
@@ -1747,11 +1805,12 @@ export async function renderTopicStoryboard(params: {
     cues,
     totalDurationSec: narration.totalDurationSec,
     aspectRatio: params.aspectRatio,
-    subtitles: params.subtitles,
+    subtitles: seedanceNativeAudio ? false : params.subtitles,
     captionStyle: params.captionStyle ?? "classic",
     accentColor: params.accentColor ?? null,
     watermark: params.watermark ?? null,
-    music: params.music ?? null,
+    music: seedanceNativeAudio ? null : (params.music ?? null),
+    nativeAudio: seedanceNativeAudio,
     sceneMap: gate ? gate.scenes : sceneMap,
   });
   return { buffer, provider, model: board.model ?? "", durationSec: narration.totalDurationSec };

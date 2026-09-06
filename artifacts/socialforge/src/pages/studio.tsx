@@ -130,7 +130,7 @@ import {
 import { GamificationCard } from "@/components/gamification-card";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { LogoLoader } from "@/components/logo-loader";
-import { track, trackFeatureUse } from "@/lib/analytics";
+import { track, trackFeatureUse, trackProjectEvent } from "@/lib/analytics";
 import { useFeatureFlags } from "@/lib/features";
 import {
   useWalletBilling,
@@ -1591,6 +1591,10 @@ function ImageStudio() {
       refreshQuota();
       upsertDraft(res, imageResult);
       track("caption_generated", { category: "content", outcome: "success" });
+      trackProjectEvent("caption_generated", {
+        content_type: "caption",
+        platform: activePlatform,
+      });
       trackFeatureUse("studio_caption");
       toast({
         title: "Caption generated!",
@@ -1701,6 +1705,10 @@ function ImageStudio() {
       refreshQuota();
       upsertDraft(captionResult, res, nextLayers);
       track("image_generated", { category: "content", outcome: "success" });
+      trackProjectEvent("image_generated", {
+        content_type: "image",
+        platform: activePlatform,
+      });
       trackFeatureUse("studio_image");
       toast({
         title: nextLayers ? "Layered image generated!" : "Image generated!",
@@ -1873,6 +1881,10 @@ function ImageStudio() {
           refreshQuota();
           upsertDraft(captionResult, res, nextLayers);
           track("image_generated", { category: "content", outcome: "success" });
+          trackProjectEvent("image_generated", {
+            content_type: "image",
+            platform: activePlatform,
+          });
           trackFeatureUse("studio_image");
           toast({
             title: nextLayers ? "Layered image ready!" : "Image ready!",
@@ -2235,6 +2247,10 @@ function ImageStudio() {
           }
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           track("content_saved", { category: "content", outcome: "success" });
+          trackProjectEvent("content_saved", {
+            content_type: "social_content",
+            save_location: "library",
+          });
           toast({ title: "Carousel saved to library!" });
           // Saved to the library: reset the whole Studio to a fresh page.
           resetStudio();
@@ -2524,6 +2540,10 @@ function ImageStudio() {
       }
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       track("content_saved", { category: "content", outcome: "success" });
+      trackProjectEvent("content_saved", {
+        content_type: "social_content",
+        save_location: "library",
+      });
       // Hide this job from the recent-generation strip only after a successful
       // save; a failed save must not suppress the thumbnail.
       if (savedImagePath) addDismissedPath(savedImagePath);

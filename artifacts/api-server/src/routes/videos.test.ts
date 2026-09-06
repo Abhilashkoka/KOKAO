@@ -2942,6 +2942,16 @@ describe("guided story route fail-closed regressions", () => {
         model: "bytedance/seedance-2.5",
         generateAudio: true,
       });
+      expect(nativeJob.options!.generateAudio).toBe(true);
+      expect(nativeJob.options!.guidedStory).toMatchObject({
+        promptFormat: "seedance-2.5",
+        videoModel: {
+          provider: "openrouter",
+          model: "bytedance/seedance-2.5",
+        },
+      });
+      expect(nativeJob.options!.characterLipSync).toBe(false);
+      expect(nativeJob.options!.studioLipSync).toBeFalsy();
       expect(nativeJob.options!.guidedStoryIntrinsicLipSync).toBeFalsy();
 
       await setVideoGenSelection({

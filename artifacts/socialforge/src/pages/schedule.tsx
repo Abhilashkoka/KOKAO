@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { PendingPostsWarnings } from "@/components/pending-posts-warning";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { track, trackFeatureUse } from "@/lib/analytics";
+import { track, trackFeatureUse, trackProjectEvent } from "@/lib/analytics";
 import { isInteractiveTarget } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
@@ -194,6 +194,7 @@ export function SchedulePage() {
     }, {
       onSuccess: () => {
         track("post_scheduled", { platform });
+        trackProjectEvent("post_scheduled", { platform });
         trackFeatureUse("scheduler");
         toast({ title: "Post scheduled!" });
         queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });

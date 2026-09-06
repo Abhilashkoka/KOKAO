@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { GuidedStoryCastSnapshot, GuidedStoryDraftState } from "@workspace/db";
+import type {
+  GuidedStoryCastSnapshot,
+  GuidedStoryDraftState,
+} from "@workspace/db";
 import {
   GUIDED_STORY_PLATFORMS,
   GUIDED_SCENE_INSERTION_CLAIM_TTL_MS,
@@ -923,6 +926,32 @@ describe("guided approval fail-closed snapshot guard", () => {
     );
     expect(guidedStoryStoryboard(changed).scenes[0]!.guidedStory!.inputFingerprint).not.toBe(
       fixture.storyboard.scenes[0]!.guidedStory!.inputFingerprint,
+    );
+  });
+
+  it("does not reuse storyboard previews across prompt formats or frozen models", () => {
+    const fixture = approvalFixture();
+    const seedance = structuredClone(fixture.snapshot) as Parameters<
+      typeof guidedStoryStoryboard
+    >[0];
+    seedance.promptFormat = "seedance-2.5";
+    seedance.videoModel = {
+      provider: "openrouter",
+      model: "bytedance/seedance-2.5",
+    };
+    expect(guidedStoryStoryboard(seedance).scenes[0]!.guidedStory!.inputFingerprint).not.toBe(
+      guidedStoryStoryboard(fixture.snapshot).scenes[0]!.guidedStory!.inputFingerprint,
+    );
+
+    const differentModel = structuredClone(seedance);
+    differentModel.videoModel = {
+      provider: "openrouter",
+      model: "bytedance/seedance-2.0",
+    };
+    expect(
+      guidedStoryStoryboard(differentModel).scenes[0]!.guidedStory!.inputFingerprint,
+    ).not.toBe(
+      guidedStoryStoryboard(seedance).scenes[0]!.guidedStory!.inputFingerprint,
     );
   });
 

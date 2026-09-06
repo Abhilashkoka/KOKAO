@@ -13,7 +13,13 @@ import { videoJobUnits } from "../units";
 import { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 
 const animateState = vi.hoisted(() => ({
-  calls: [] as { prompt: string; mode: string; durationSec: number; image: Buffer }[],
+  calls: [] as {
+    prompt: string;
+    mode: string;
+    durationSec: number;
+    generateAudio?: boolean;
+    image: Buffer;
+  }[],
   failFirst: false,
   alwaysFail: false,
   queuedErrors: [] as Error[],
@@ -33,7 +39,13 @@ vi.mock("../../imageGen", () => ({
 }));
 vi.mock("../index", () => ({
   generateVideo: vi.fn(
-    async (input: { prompt: string; mode: string; durationSec: number; image: { buffer: Buffer } }) => {
+    async (input: {
+      prompt: string;
+      mode: string;
+      durationSec: number;
+      generateAudio?: boolean;
+      image: { buffer: Buffer };
+    }) => {
       const queued = animateState.queuedErrors.shift();
       if (queued) {
         animateState.calls.push({ ...input, image: input.image.buffer });
@@ -533,6 +545,52 @@ describe("animateBrollStills", () => {
     expect(animateState.calls.map((c) => c.durationSec).sort((a, b) => a - b)).toEqual([5, 10]);
     // The animated frame is exactly the approved still, byte for byte.
     expect(byPrompt.map((c) => c.image.toString())).toEqual(["still-a", "still-b"]);
+  });
+
+  it("sends frozen Seedance prompts unchanged with native audio enabled", async () => {
+    const prompt = "[GOAL]\nOne continuous shot.\n\n[DIALOGUE]\nDialogue 1 — 0s — Ava says: {Hello.}";
+    const result = await animateBrollStills({
+      images: [Buffer.from("approved-opening-frame")],
+      visuals: [prompt],
+      scenes: [scenes[0]!],
+      aspectRatio: "9:16",
+      nativeAudio: true,
+      modelOptions: {
+        modelId: "openrouter:bytedance/seedance-2.5",
+        durationSec: 4,
+        resolution: null,
+        quality: null,
+        generateAudio: false,
+      },
+    });
+
+    expect(animateState.calls[0]).toMatchObject({
+      prompt,
+      generateAudio: true,
+    });
+    expect(result.sceneMap).toEqual([
+      { clipIndex: 0, durationSec: 4, lipSynced: true },
+    ]);
+  });
+
+  it("forces legacy Guided Story clips silent when native audio is disabled", async () => {
+    await animateBrollStills({
+      images: [Buffer.from("approved-opening-frame")],
+      visuals: ["existing guided visual prompt"],
+      scenes: [scenes[0]!],
+      aspectRatio: "9:16",
+      nativeAudio: false,
+      modelOptions: {
+        modelId: "openrouter:bytedance/seedance-2.5",
+        durationSec: 4,
+        resolution: null,
+        quality: null,
+        generateAudio: true,
+      },
+    });
+
+    expect(animateState.calls[0]?.generateAudio).toBe(false);
+    expect(animateState.calls[0]?.prompt).toContain("Subtle natural motion");
   });
 
   it("retries a scene once, then fails the job (refund path)", async () => {

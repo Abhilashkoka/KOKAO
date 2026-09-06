@@ -3675,6 +3675,7 @@ async function produceVideo(
         cinematography: options.cinematography ?? null,
         seed: options.seed ?? null,
         modelOptions: model,
+        guidedStory: options.guidedStory ?? null,
         load: async (objectPath) =>
           (
             await loadTenantObject(
@@ -5411,6 +5412,7 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       cinematography: options.cinematography ?? null,
       seed: options.seed ?? null,
       modelOptions: resolveModelOptions(options, 5),
+      guidedStory: options.guidedStory ?? null,
       load: async (objectPath) =>
         (
           await loadTenantObject(

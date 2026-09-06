@@ -611,6 +611,40 @@ async function makeTestClip(seconds: number): Promise<Buffer> {
   }
 }
 
+async function makeTestClipWithAudio(seconds: number, frequencyHz = 440): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "topic-test-native-audio-"));
+  try {
+    await runFfmpeg(
+      [
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        `color=c=teal:s=320x568:d=${seconds}:r=30`,
+        "-f",
+        "lavfi",
+        "-i",
+        `sine=frequency=${frequencyHz}:duration=${seconds}:sample_rate=24000`,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-shortest",
+        "clip.mp4",
+      ],
+      dir,
+    );
+    const { readFile } = await import("fs/promises");
+    return await readFile(join(dir, "clip.mp4"));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 /** A tiny transparent-ish PNG to stand in for a brand logo. */
 async function makeTestLogo(): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "topic-test-logo-"));
@@ -627,6 +661,36 @@ async function makeTestLogo(): Promise<Buffer> {
 }
 
 describe("composeTopicVideo (real ffmpeg)", () => {
+  it(
+    "keeps provider-native clip audio instead of dubbing external narration",
+    async () => {
+      const out = await composeTopicVideo({
+        clips: [
+          await makeTestClipWithAudio(1, 440),
+          await makeTestClipWithAudio(1, 440),
+        ],
+        narrationWav: makeSignalWav(2, 3_000, [[0, 2]]),
+        cues: [
+          { text: "First line.", startSec: 0, endSec: 1 },
+          { text: "Second line.", startSec: 1, endSec: 2 },
+        ],
+        totalDurationSec: 2,
+        aspectRatio: "9:16",
+        subtitles: false,
+        music: null,
+        nativeAudio: true,
+      });
+
+      const nativeBand = await extractFilteredAudio(out, "lowpass=f=1000");
+      const narrationBand = await extractFilteredAudio(out, "highpass=f=2000");
+      const nativeRms = intervalRms(nativeBand, 0.2, 1.8);
+      const narrationRms = intervalRms(narrationBand, 0.2, 1.8);
+      expect(nativeRms).toBeGreaterThan(500);
+      expect(narrationRms).toBeLessThan(nativeRms * 0.25);
+    },
+    120_000,
+  );
+
   it(
     "preserves every narration interval at its original time when music is present",
     async () => {
