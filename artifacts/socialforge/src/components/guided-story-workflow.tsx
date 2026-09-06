@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   getGetGuidedStoryDraftQueryKey,
   getGetVideoJobQueryKey,
+  getListCharactersQueryKey,
   getListGuidedStoryVoicesQueryKey,
   useApproveGuidedStoryDraftScript,
   useApproveGuidedStoryCastRole,
@@ -25,6 +26,7 @@ import {
   usePrepareGuidedStoryBackdrop,
   useRefreshGuidedStoryLineTranslation,
   useRetryGuidedStoryGeneratedCastReferenceSheet,
+  useReviewCharacterReferenceSheet,
   useUpdateGuidedStoryDraft,
   type BrandKit,
   type Character,
@@ -1265,7 +1267,12 @@ function LegacyBackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
 }
 
 function CastApprovalStep(props: any) {
+  const queryClient = useQueryClient();
   const [reviewRoleId, setReviewRoleId] = useState<string | null>(null);
+  const [approvedSheetCharacterIds, setApprovedSheetCharacterIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [sheetReviewError, setSheetReviewError] = useState<string | null>(null);
   const [outfitRoleId, setOutfitRoleId] = useState<string | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const [selectedOutfitId, setSelectedOutfitId] = useState<number | null>(null);
@@ -1279,11 +1286,15 @@ function CastApprovalStep(props: any) {
   const createReference = useCreateGuidedStoryReference();
   const finalizeReference = useFinalizeGuidedStoryReference();
   const customizeGenerated = useCustomizeGuidedStoryGeneratedCastRole();
+  const reviewReferenceSheet = useReviewCharacterReferenceSheet();
   const roles = props.draft.script?.roles ?? [];
   const manifest = props.draft.castApprovals;
   const manifestIsCurrent = manifest?.draftRevision === props.draft.revision;
   const pendingNames = props.pendingCastApprovalRoles.map((role: any) => role.name);
   const selected = props.draft.cast.find((item: any) => item.roleId === reviewRoleId);
+  const selectedLibraryCharacter = props.characters.find(
+    (item: Character) => item.id === selected?.characterId,
+  );
   const outfitMember = props.draft.cast.find((item: any) => item.roleId === outfitRoleId);
   const customizationMember = props.draft.cast.find((item: any) => item.roleId === customizeRoleId);
   const outfitCharacter = props.characters.find((item: Character) => item.id === selectedCharacterId);
@@ -1303,6 +1314,34 @@ function CastApprovalStep(props: any) {
     setCustomDescription(member.character.description);
     setCustomWardrobe(member.outfit?.description ?? "");
     setCustomizationError(null);
+  };
+  const reviewSheet = (decision: "approve" | "reject") => {
+    if (!selectedLibraryCharacter) return;
+    setSheetReviewError(null);
+    reviewReferenceSheet.mutate(
+      {
+        characterId: selectedLibraryCharacter.id,
+        decision,
+      },
+      {
+        onSuccess: () => {
+          if (decision === "approve") {
+            setApprovedSheetCharacterIds((current) => {
+              const next = new Set(current);
+              next.add(selectedLibraryCharacter.id);
+              return next;
+            });
+          }
+          void queryClient.invalidateQueries({
+            queryKey: getListCharactersQueryKey(),
+          });
+        },
+        onError: (cause) =>
+          setSheetReviewError(
+            apiErrorMessage(cause, `Could not ${decision} this reference sheet.`),
+          ),
+      },
+    );
   };
   const saveCustomization = async () => {
     if (!customizeRoleId) return;
@@ -1374,13 +1413,17 @@ function CastApprovalStep(props: any) {
         const libraryCharacter = props.characters.find(
           (item: Character) => item.id === cast?.characterId,
         );
-        const sheetApproved = libraryCharacter?.referenceSheetStatus === "approved";
+        const sheetApproved =
+          libraryCharacter?.referenceSheetStatus === "approved" ||
+          (libraryCharacter
+            ? approvedSheetCharacterIds.has(libraryCharacter.id)
+            : false);
         return <Card key={role.id} className={approvalNeeded ? "border-amber-500 ring-2 ring-amber-300/60 dark:ring-amber-700/60" : "border-primary/20"} data-testid={`card-guided-cast-approval-${role.id}`}>
           <CardHeader className="pb-2"><CardTitle className="text-base">{role.name}</CardTitle><CardDescription data-testid={`status-guided-cast-approval-${role.id}`}>{approved ? "Approved for this draft revision" : manifest && !manifestIsCurrent ? "Approval is stale — review and reapprove" : "Approval needed"}</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <ReferenceThumbnail label="Character" asset={cast?.character} />
-              <ReferenceThumbnail label="Outfit" asset={cast?.outfit} />
+              <ReferenceThumbnail label="Character" asset={cast?.character} onClick={() => setReviewRoleId(role.id)} />
+              <ReferenceThumbnail label="Outfit" asset={cast?.outfit} onClick={() => setReviewRoleId(role.id)} />
             </div>
             {props.castApprovalError?.roleId === role.id && <p className="text-sm text-destructive" role="alert" data-testid={`error-guided-cast-approval-${role.id}`}>{props.castApprovalError.message}</p>}
             <div className="flex flex-wrap gap-2">
@@ -1388,10 +1431,10 @@ function CastApprovalStep(props: any) {
               {cast?.source === "generated" && <Button type="button" variant="outline" onClick={() => openCustomization(role.id, cast)} data-testid={`button-guided-customize-character-${role.id}`}>Customize Character</Button>}
               <Button type="button" variant="outline" onClick={() => { setOutfitRoleId(role.id); setSelectedCharacterId(cast?.characterId ?? null); setSelectedOutfitId(cast?.outfitId ?? null); setOutfitCandidate(null); setOutfitError(null); }} data-testid={`button-guided-change-outfit-${role.id}`}>Replace character or outfit</Button>
               {cast && approvalNeeded && !sheetApproved
-                ? <Button type="button" onClick={props.onManageCharacters} data-testid={`button-guided-manage-sheet-${role.id}`}>Review &amp; approve reference sheet</Button>
+                ? <Button type="button" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-manage-sheet-${role.id}`}>Review &amp; approve reference sheet</Button>
                 : <Button type="button" className={approvalNeeded && sheetApproved ? "ring-4 ring-amber-300/70 dark:ring-amber-700/70" : undefined} onClick={() => props.onApproveCastRole(role.id)} disabled={props.pending || !cast} aria-label={approvalNeeded ? `Approve ${role.name}` : `Reapprove ${role.name}`} data-testid={`button-guided-approve-cast-${role.id}`}>{props.approvingCastRoleId === role.id ? "Approving…" : approved ? "Reapprove" : `Approve ${role.name}`}</Button>}
             </div>
-            {approvalNeeded && !sheetApproved && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid={`status-guided-sheet-pending-${role.id}`}>Approve this character’s reference sheet first. Click <b>Review &amp; approve reference sheet</b>, approve it in the character manager, then return here to approve the role.</p>}
+            {approvalNeeded && !sheetApproved && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid={`status-guided-sheet-pending-${role.id}`}>Approve this character’s reference sheet first. Click either image or <b>Review &amp; approve reference sheet</b> to inspect and approve it here.</p>}
           </CardContent>
         </Card>;
       })}
@@ -1403,6 +1446,59 @@ function CastApprovalStep(props: any) {
           <ReferenceThumbnail label="Character" asset={selected?.character} enlarged />
           <ReferenceThumbnail label="Outfit" asset={selected?.outfit} enlarged />
         </div>
+        {selectedLibraryCharacter?.referenceSheetImagePath && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="font-medium">Multi-view reference sheet</p>
+              <img
+                src={`/api/storage${selectedLibraryCharacter.referenceSheetImagePath}`}
+                alt={`${selectedLibraryCharacter.name} multi-view reference sheet`}
+                className="max-h-[55vh] w-full rounded-md border bg-muted object-contain"
+                data-testid="img-guided-reference-sheet"
+              />
+            </div>
+            {sheetReviewError && (
+              <p
+                className="text-sm text-destructive"
+                role="alert"
+                data-testid="error-guided-reference-sheet-review"
+              >
+                {sheetReviewError}
+              </p>
+            )}
+            {selectedLibraryCharacter.referenceSheetStatus === "pending" &&
+            !approvedSheetCharacterIds.has(selectedLibraryCharacter.id) ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  disabled={reviewReferenceSheet.isPending}
+                  onClick={() => reviewSheet("approve")}
+                  data-testid="button-guided-approve-reference-sheet"
+                >
+                  {reviewReferenceSheet.isPending ? "Approving…" : "Approve reference sheet"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={reviewReferenceSheet.isPending}
+                  onClick={() => reviewSheet("reject")}
+                  data-testid="button-guided-reject-reference-sheet"
+                >
+                  Reject
+                </Button>
+              </div>
+            ) : selectedLibraryCharacter.referenceSheetStatus === "approved" ||
+              approvedSheetCharacterIds.has(selectedLibraryCharacter.id) ? (
+              <p
+                className="text-sm font-medium text-primary"
+                role="status"
+                data-testid="status-guided-reference-sheet-approved"
+              >
+                Reference sheet approved. You can now approve this cast role.
+              </p>
+            ) : null}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
     <Dialog open={outfitRoleId !== null} onOpenChange={(open) => !open && closeOutfitDialog()}>
@@ -2275,11 +2371,13 @@ function GeneratedCastRole({ role }: { role: { id: string; name: string } }) {
   return <div className="rounded border border-dashed p-3" data-testid={`card-guided-generated-cast-${role.id}`}><b>{role.name}</b><p className="text-sm text-muted-foreground">The server will create a wholly fictional appearance and genre-appropriate wardrobe. Dialogue voices are generated automatically from the approved script.</p></div>;
 }
 
-function ReferenceThumbnail({ label, asset, enlarged = false }: { label: string; asset?: { name?: string; referenceImagePath?: string | null } | null; enlarged?: boolean }) {
+function ReferenceThumbnail({ label, asset, enlarged = false, onClick }: { label: string; asset?: { name?: string; referenceImagePath?: string | null } | null; enlarged?: boolean; onClick?: () => void }) {
   return <div className="space-y-1" data-testid={`reference-guided-${label.toLowerCase()}`}>
     <p className="font-medium">{label}</p>
     {asset?.referenceImagePath
-      ? <img className={enlarged ? "h-64 w-full rounded-md border object-contain bg-muted" : "h-24 w-full rounded border object-cover"} src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${label.toLowerCase()}-reference`} />
+      ? onClick
+        ? <button type="button" className="block w-full rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" onClick={onClick} aria-label={`Enlarge ${label.toLowerCase()} reference`} data-testid={`button-enlarge-guided-${label.toLowerCase()}-reference`}><img className="h-24 w-full rounded border object-cover transition-opacity hover:opacity-85" src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${label.toLowerCase()}-reference`} /></button>
+        : <img className={enlarged ? "h-64 w-full rounded-md border object-contain bg-muted" : "h-24 w-full rounded border object-cover"} src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${label.toLowerCase()}-reference`} />
       : <p className="rounded border border-dashed p-2 text-xs text-muted-foreground">No {label.toLowerCase()} reference image is available.</p>}
     {asset?.name && <p className="text-xs text-muted-foreground">{asset.name}</p>}
   </div>;
