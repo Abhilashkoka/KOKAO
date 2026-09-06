@@ -269,9 +269,8 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     durations: [4, 6, 8],
     resolutions: ["720p", "1080p"],
     hasQuality: false,
-    // The model can, and the provider passes the flag. Nothing downstream
-    // consumes clip audio yet, so leaving this true is what makes the option
-    // visible rather than what makes it safe to use.
+    // Guided Story opts into this native synchronized audio so it does not
+    // need a separate Replicate lip-sync pass.
     canGenerateAudio: true,
   },
   {
@@ -288,6 +287,8 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     durations: [4, 6, 8],
     resolutions: ["720p", "1080p"],
     hasQuality: false,
+    // Guided Story opts into this native synchronized audio so it does not
+    // need a separate Replicate lip-sync pass.
     canGenerateAudio: true,
   },
   {

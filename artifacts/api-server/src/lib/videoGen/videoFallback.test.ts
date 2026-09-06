@@ -145,4 +145,21 @@ describe("generateVideo frozen model contract", () => {
     expect(hasNativeSynchronizedAudio("OPENROUTER", " ByteDance/Seedance-2.5 ")).toBe(true);
     expect(hasNativeSynchronizedAudio("openrouter", "bytedance/seedance-2.0")).toBe(false);
   });
+
+  it("recognizes Higgsfield Veo routes as providing synchronized native audio", () => {
+    expect(hasNativeSynchronizedAudio("higgsfield", "veo3.1/fast")).toBe(true);
+    expect(
+      hasNativeSynchronizedAudio("higgsfield", "veo3.1/fast/image-to-video"),
+    ).toBe(true);
+    expect(hasNativeSynchronizedAudio("higgsfield", "veo3.1")).toBe(true);
+    expect(
+      hasNativeSynchronizedAudio("HIGGSFIELD", " VEO3.1/IMAGE-TO-VIDEO "),
+    ).toBe(true);
+    expect(
+      hasNativeSynchronizedAudio(
+        "higgsfield",
+        "kling-video/v2.5-turbo/pro/image-to-video",
+      ),
+    ).toBe(false);
+  });
 });

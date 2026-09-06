@@ -68,6 +68,10 @@ export type VideoGenMode = "text" | "image";
 
 const NATIVE_SYNCHRONIZED_AUDIO_MODELS = new Set([
   "openrouter/bytedance/seedance-2.5",
+  "higgsfield/veo3.1/fast",
+  "higgsfield/veo3.1/fast/image-to-video",
+  "higgsfield/veo3.1",
+  "higgsfield/veo3.1/image-to-video",
 ]);
 
 /**
