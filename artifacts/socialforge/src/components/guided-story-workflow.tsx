@@ -1385,12 +1385,13 @@ function CastApprovalStep(props: any) {
             {props.castApprovalError?.roleId === role.id && <p className="text-sm text-destructive" role="alert" data-testid={`error-guided-cast-approval-${role.id}`}>{props.castApprovalError.message}</p>}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-review-cast-${role.id}`}>Review references</Button>
-              {cast?.source === "generated" && <Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid={`button-guided-manage-sheet-${role.id}`}>Review reference sheet</Button>}
-               {cast?.source === "generated" && <Button type="button" variant="outline" onClick={() => openCustomization(role.id, cast)} data-testid={`button-guided-customize-character-${role.id}`}>Customize Character</Button>}
+              {cast?.source === "generated" && <Button type="button" variant="outline" onClick={() => openCustomization(role.id, cast)} data-testid={`button-guided-customize-character-${role.id}`}>Customize Character</Button>}
               <Button type="button" variant="outline" onClick={() => { setOutfitRoleId(role.id); setSelectedCharacterId(cast?.characterId ?? null); setSelectedOutfitId(cast?.outfitId ?? null); setOutfitCandidate(null); setOutfitError(null); }} data-testid={`button-guided-change-outfit-${role.id}`}>Replace character or outfit</Button>
-              <Button type="button" className={approvalNeeded && sheetApproved ? "ring-4 ring-amber-300/70 dark:ring-amber-700/70" : undefined} onClick={() => props.onApproveCastRole(role.id)} disabled={props.pending || !cast || !sheetApproved} aria-label={approvalNeeded ? `Approve ${role.name}` : `Reapprove ${role.name}`} data-testid={`button-guided-approve-cast-${role.id}`}>{props.approvingCastRoleId === role.id ? "Approving…" : approved ? "Reapprove" : `Approve ${role.name}`}</Button>
+              {cast && approvalNeeded && !sheetApproved
+                ? <Button type="button" onClick={props.onManageCharacters} data-testid={`button-guided-manage-sheet-${role.id}`}>Review &amp; approve reference sheet</Button>
+                : <Button type="button" className={approvalNeeded && sheetApproved ? "ring-4 ring-amber-300/70 dark:ring-amber-700/70" : undefined} onClick={() => props.onApproveCastRole(role.id)} disabled={props.pending || !cast} aria-label={approvalNeeded ? `Approve ${role.name}` : `Reapprove ${role.name}`} data-testid={`button-guided-approve-cast-${role.id}`}>{props.approvingCastRoleId === role.id ? "Approving…" : approved ? "Reapprove" : `Approve ${role.name}`}</Button>}
             </div>
-            {!sheetApproved && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid={`status-guided-sheet-pending-${role.id}`}>Reference sheet generation or human approval is still pending. Review it in the character manager before approving this role.</p>}
+            {approvalNeeded && !sheetApproved && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid={`status-guided-sheet-pending-${role.id}`}>Approve this character’s reference sheet first. Click <b>Review &amp; approve reference sheet</b>, approve it in the character manager, then return here to approve the role.</p>}
           </CardContent>
         </Card>;
       })}

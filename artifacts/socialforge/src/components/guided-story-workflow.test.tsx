@@ -1120,8 +1120,9 @@ describe("GuidedStoryWorkflow", () => {
         referenceSheetStatus: "pending",
       })),
     });
-    expect((screen.getByTestId("button-guided-approve-cast-r1") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("status-guided-sheet-pending-r1")).toBeTruthy();
+    expect(screen.queryByTestId("button-guided-approve-cast-r1")).toBeNull();
+    expect(screen.getByTestId("button-guided-manage-sheet-r1").textContent).toContain("Review & approve reference sheet");
+    expect(screen.getByTestId("status-guided-sheet-pending-r1").textContent).toContain("Click Review & approve reference sheet");
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -1380,8 +1381,8 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("status-guided-enqueue-blocked").textContent).toBe(
       "Approve Ari and Bo before building the storyboard.",
     );
-    expect(screen.getByTestId("button-guided-approve-cast-r1").textContent).toBe("Approve Ari");
-    expect((screen.getByTestId("button-guided-approve-cast-r1") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("button-guided-approve-cast-r1")).toBeNull();
+    expect(screen.getByTestId("button-guided-manage-sheet-r1").textContent).toContain("Review & approve reference sheet");
     expect(screen.getByTestId("card-guided-cast-approval-r2").className).toContain("border-amber");
     await userEvent.click(screen.getByTestId("button-enlarge-guided-backdrop"));
     expect(screen.getByTestId("image-enlarged-guided-backdrop")).toBeTruthy();
