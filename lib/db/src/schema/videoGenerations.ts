@@ -191,6 +191,15 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /**
+   * Immutable Guided Story execution contract. Only the exact versioned value
+   * below enables direct video rendering; marker-absent rows are legacy
+   * storyboard-review jobs and must never be reinterpreted.
+   */
+  guidedStoryRenderFlow?: {
+    version: 1;
+    mode: "direct_video";
+  } | null;
+  /**
    * Automatic Guided Story single-speaker finishing. This is frozen when the
    * initial job is funded; it is never inferred for historical rows.
    */

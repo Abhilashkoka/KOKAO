@@ -3960,6 +3960,52 @@ describe("Guided Story preview-only runner", () => {
     expect(saved.storyboard!.scenes).toHaveLength(snapshot.script.scenes.length);
   });
 
+  it("direct-render marker skips the legacy storyboard review pause", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    state.guidedInitialBoard = guidedStoryStoryboard(snapshot);
+    state.topicPlanMode = "ai";
+    state.guidedPreviewGenerationEnabled = true;
+    const previewCallsBefore = state.guidedPreviewProviderCalls;
+    const speechCallsBefore = state.dialogueSpeech.length;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        guidedStory: snapshot,
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        generateAudio: true,
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status, saved.error ?? undefined).toBe("succeeded");
+    expect(saved.videoPath).toBeTruthy();
+    expect(saved.storyboard?.scenes[0]?.previewPath).toBe(
+      snapshot.cast[0]!.outfit!.referenceImagePath,
+    );
+    expect(saved.storyboard?.scenes[0]?.previewCheckpoint).toBeFalsy();
+    expect(state.guidedPreviewProviderCalls).toBe(previewCallsBefore);
+    expect(state.dialogueSpeech).toHaveLength(speechCallsBefore);
+
+    const providerCallsAfterFirstRender = state.topicCheckpointed.length;
+    const resumed = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: saved.storyboard,
+      options: saved.options!,
+    });
+    await runVideoGenerationJob(resumed.id, "quota");
+
+    const resumedSaved = await readJob(resumed.id);
+    expect(resumedSaved.status, resumedSaved.error ?? undefined).toBe("succeeded");
+    expect(resumedSaved.videoPath).toBeTruthy();
+    expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
+  });
+
   it("fails an invalid Guided backdrop fingerprint before initial planning", async () => {
     const tenant = await newTenant();
     const snapshot = guidedSnapshot(tenant.tenantId, 1);

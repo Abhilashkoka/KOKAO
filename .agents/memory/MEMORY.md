@@ -148,3 +148,4 @@
 - [Guided intrinsic lip sync](guided-intrinsic-lipsync.md) — new Guided jobs auto-sync only unambiguous solo dialogue; exact synced audio, frozen funding, and receipt-safe base fallback.
 - [Higgsfield media provider](higgsfield-video-provider.md) — shared image/video credential; endpoint-path models have route-specific request contracts.
 - [Character reference sheets](character-reference-sheets.md) — every tenant character keeps a canonical portrait plus a separately generated, explicitly approved multi-view sheet.
+- [Guided direct video](guided-direct-video.md) — new Guided jobs skip storyboard images/review and render approved characters directly through native-audio Higgsfield; legacy jobs stay legacy.

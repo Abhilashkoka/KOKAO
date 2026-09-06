@@ -159,7 +159,14 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
   if (input.clips.length === 0) {
     throw new VideoGenProviderError("No stock footage available to compose the video.");
   }
-  if (input.cues.length === 0) {
+  // Provider-native-audio Guided scenes own their complete A/V timeline. They
+  // deliberately have no narration cues; their persisted scene map is the
+  // authoritative cut plan. Keep the historical narration requirement for
+  // every non-native composition.
+  if (
+    input.cues.length === 0 &&
+    (!input.nativeAudio || !input.sceneMap || input.sceneMap.length === 0)
+  ) {
     throw new VideoGenProviderError("No narration to compose the video around.");
   }
   const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
@@ -182,7 +189,9 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     for (let i = 0; i < input.clips.length; i++) {
       await writeFile(join(dir, `clip_${i}.mp4`), input.clips[i]!);
     }
-    await writeFile(join(dir, "narration.wav"), input.narrationWav);
+    if (!input.nativeAudio) {
+      await writeFile(join(dir, "narration.wav"), input.narrationWav);
+    }
     const hasMusic = !!input.music && input.music.length > 0;
     let musicSeekSec = 0;
     if (hasMusic) {

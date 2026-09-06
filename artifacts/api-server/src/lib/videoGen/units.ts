@@ -111,6 +111,18 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     );
   }
   if (engine === "topic_to_video" && options?.guidedStory) {
+    if (
+      options.guidedStoryRenderFlow?.version === 1 &&
+      options.guidedStoryRenderFlow.mode === "direct_video"
+    ) {
+      // Direct Guided Story sends each immutable scene straight to the video
+      // provider. Approved cast/backdrop assets are inputs, not separately
+      // generated storyboard previews.
+      return studioLipSyncUnits + guidedIntrinsicUnits + (
+        options.guidedStory.script.scenes.length *
+        videoModelMultiplier(options.modelId)
+      );
+    }
     // One cast-aware approved keyframe plus one image-to-video operation for
     // every immutable script scene. Generated cast references are funded
     // separately during casting and are not hidden in this number.

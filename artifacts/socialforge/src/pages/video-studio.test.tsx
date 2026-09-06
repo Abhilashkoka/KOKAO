@@ -4082,6 +4082,25 @@ describe("Video Studio", () => {
     await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
   });
 
+  it("never exposes storyboard review controls for direct Guided Story jobs", async () => {
+    mockState.activeJob = {
+      ...pausedJob(clipBoard("prompt")),
+      status: "processing",
+      stage: "Generating the video",
+      guidedStoryDirectRender: true,
+      guidedStoryDraftId: 81,
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("text-job-stage")).toBeTruthy());
+    expect(screen.getByTestId("text-job-stage").textContent).toContain(
+      "Generating the video",
+    );
+    expect(screen.queryByTestId("button-open-storyboard")).toBeNull();
+    expect(screen.queryByTestId("storyboard-review")).toBeNull();
+  });
+
   it("lets a shot's length be edited, and hides redraw on the user's own photos", async () => {
     // A clip plan voices nothing, which is what frees the timeline.
     mockState.activeJob = pausedJob(clipBoard("slide"));

@@ -1696,7 +1696,7 @@ function PhaseEstimates({ draft }: { draft: GuidedStoryDraft }) {
     ["script", "Script", draft.estimates.scriptUnits],
     ["cast", "Cast assets", draft.estimates.castAssetUnits],
     ["storyboard", "Storyboard previews", draft.estimates.previewUnits],
-    ["final", "Final approval", draft.estimates.finalAdditionalUnits],
+    ["final", "Direct video generation", draft.estimates.finalAdditionalUnits],
   ] as const;
   return <div className="rounded-md border bg-muted/30 p-3" data-testid="guided-estimates"><p className="text-sm font-medium">Server estimate · product units</p><div className="mt-2 grid grid-cols-2 gap-2">{phases.map(([id, label, units]) => <p className="text-xs" key={id} data-testid={`text-guided-estimate-${id}`}>{label}: <b>{units} {units === 1 ? "unit" : "units"}</b></p>)}</div><p className="mt-2 text-xs text-muted-foreground" data-testid="text-guided-estimate-total">Total remaining: {draft.estimates.totalRemainingUnits} units. No paise estimate is supplied; final settlement follows provider receipts.</p></div>;
 }

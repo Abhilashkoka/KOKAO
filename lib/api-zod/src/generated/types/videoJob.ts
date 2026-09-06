@@ -89,6 +89,8 @@ export interface VideoJob {
      * @nullable
      */
   guidedStoryDraftId: number | null;
+  /** True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job. */
+  guidedStoryDirectRender: boolean;
   /** True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard. */
   guidedStoryRecoveryUnavailable: boolean;
   /** True after the user dismisses an unavailable recovery; history remains visible for audit. */

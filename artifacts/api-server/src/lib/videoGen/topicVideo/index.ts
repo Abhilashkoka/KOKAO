@@ -66,6 +66,7 @@ import sharp from "sharp";
 import { createHash } from "node:crypto";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
+import { getMotionInstruction } from "../motionPrompt";
 import { appendCreativeFragment } from "../creativeBrief";
 import {
   GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
@@ -1601,6 +1602,8 @@ export async function renderTopicStoryboard(params: {
   modelOptions?: ResolvedModelOptions;
   /** Frozen Guided Story snapshot used to assemble model-specific prompts. */
   guidedStory?: VideoJobOptions["guidedStory"] | null;
+  /** Exact-marker direct Guided flow: native clip audio, no narration/TTS. */
+  directNativeAudio?: boolean;
   /** Reads narration audio and preview stills back from tenant storage. */
   load: (objectPath: string) => Promise<Buffer>;
   onStage?: (stage: string) => void;
@@ -1630,12 +1633,14 @@ export async function renderTopicStoryboard(params: {
   // Topic videos are cut against a recording; the other engines voice nothing
   // and carry a null narration, so they never reach this renderer.
   const narration = board.narration;
-  if (!narration) {
+  if (!narration && !params.directNativeAudio) {
     throw new VideoGenProviderError("This storyboard has no narration to cut against.");
   }
 
   params.onStage?.("Loading your storyboard");
-  const narrationWav = await params.load(narration.audioPath);
+  const narrationWav = narration
+    ? await params.load(narration.audioPath)
+    : Buffer.alloc(0);
   const stills = await Promise.all(
     board.scenes.map(async (scene) => {
       if (!scene.previewPath) return null;
@@ -1666,16 +1671,18 @@ export async function renderTopicStoryboard(params: {
     text: scene.text,
   }));
   const frozenSeedancePrompt =
-    params.guidedStory?.promptFormat === "seedance-2.5" &&
-    isSeedance25Model({
-      resolvedVideoModel: params.guidedStory.videoModel ?? null,
-    });
+    params.directNativeAudio === true ||
+    (params.guidedStory?.promptFormat === "seedance-2.5" &&
+      isSeedance25Model({
+        resolvedVideoModel: params.guidedStory.videoModel ?? null,
+      }));
   const seedanceNativeAudio =
     frozenSeedancePrompt &&
     params.modelOptions?.generateAudio === true;
+  const nativeAudio = seedanceNativeAudio || params.directNativeAudio === true;
   const seedancePrompts =
     frozenSeedancePrompt && params.guidedStory
-      ? (() => {
+      ? await (async () => {
           const guided = params.guidedStory!;
           const location = guided.visuals?.location ?? {
             mode: "none" as const,
@@ -1683,6 +1690,10 @@ export async function renderTopicStoryboard(params: {
             description: null,
           };
           const numbers = dialogueNumbering(guided.script);
+          const motionInstruction = await getMotionInstruction(
+            params.motionPreset ?? null,
+            params.cinematography ?? null,
+          );
           return board.scenes.map((boardScene, sceneIndex) => {
             const scriptScene =
               guided.script.scenes.find(
@@ -1705,8 +1716,11 @@ export async function renderTopicStoryboard(params: {
               dialogueNumbers: numbers,
               segmentIndex: sceneIndex,
               segmentCount: board.scenes.length,
-              nativeAudio: seedanceNativeAudio,
-              referenceMode: "opening-frame",
+              nativeAudio,
+              referenceMode: params.directNativeAudio
+                ? "primary-character-opening-frame"
+                : "opening-frame",
+              motionInstruction,
             });
           });
         })()
@@ -1731,10 +1745,10 @@ export async function renderTopicStoryboard(params: {
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
       scenePrompts: seedancePrompts?.map((prompt, index) => prompt ?? board.scenes[index]!.visual),
-      nativeAudio: params.guidedStory ? seedanceNativeAudio : undefined,
+      nativeAudio: params.guidedStory ? nativeAudio : undefined,
       savedClips,
       onCheckpoint: params.onCheckpoint,
-      lipSync: seedanceNativeAudio || !params.characterLipSync ? null : { wav: narrationWav },
+      lipSync: nativeAudio || !params.characterLipSync ? null : { wav: narrationWav },
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;
@@ -1753,7 +1767,7 @@ export async function renderTopicStoryboard(params: {
       cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
-      nativeAudio: seedanceNativeAudio,
+      nativeAudio,
       savedClips,
       lipSynced: board.scenes.map(
         (scene) => params.lipSyncedSceneIds?.has(scene.id) ?? false,
@@ -1776,7 +1790,10 @@ export async function renderTopicStoryboard(params: {
   }
   checkDeadline(startedAt, deadlineMs);
 
-  const cues = narration.cues;
+  const cues = narration?.cues ?? [];
+  const totalDurationSec =
+    narration?.totalDurationSec ??
+    board.scenes.reduce((total, scene) => total + scene.durationSec, 0);
   const planGateEnabled = await isFeatureEnabled("planGate").catch(() => true);
   const gate = planGateEnabled
     ? gateRenderPlan({
@@ -1784,7 +1801,7 @@ export async function renderTopicStoryboard(params: {
         clipCount: clips.length,
         stillImagery: !characterMode && !animatedBroll,
         cueStartsSec: cues.map((cue) => cue.startSec),
-        totalDurationSec: narration.totalDurationSec,
+        totalDurationSec,
         subtitles: params.subtitles,
       })
     : null;
@@ -1799,21 +1816,29 @@ export async function renderTopicStoryboard(params: {
   }
 
   params.onStage?.("Composing the video");
+  const composedSceneMap = gate ? gate.scenes : sceneMap;
+  const composedDurationSec = nativeAudio
+    ? composedSceneMap.reduce(
+        (total: number, scene: { durationSec: number }) =>
+          total + scene.durationSec,
+        0,
+      )
+    : totalDurationSec;
   const buffer = await composeTopicVideo({
     clips,
     narrationWav,
     cues,
-    totalDurationSec: narration.totalDurationSec,
+    totalDurationSec: composedDurationSec,
     aspectRatio: params.aspectRatio,
-    subtitles: seedanceNativeAudio ? false : params.subtitles,
+    subtitles: nativeAudio ? false : params.subtitles,
     captionStyle: params.captionStyle ?? "classic",
     accentColor: params.accentColor ?? null,
     watermark: params.watermark ?? null,
-    music: seedanceNativeAudio ? null : (params.music ?? null),
-    nativeAudio: seedanceNativeAudio,
-    sceneMap: gate ? gate.scenes : sceneMap,
+    music: nativeAudio ? null : (params.music ?? null),
+    nativeAudio,
+    sceneMap: composedSceneMap,
   });
-  return { buffer, provider, model: board.model ?? "", durationSec: narration.totalDurationSec };
+  return { buffer, provider, model: board.model ?? "", durationSec: composedDurationSec };
 }
 
 /** Regenerate one scene's preview still from an edited prompt. Returns the new

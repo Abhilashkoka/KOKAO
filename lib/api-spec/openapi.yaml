@@ -19312,7 +19312,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedStoryDialogueReplay, dialogueReplayOperation, guidedReferenceContext, guidedStoryDraftId, guidedStoryRecoveryUnavailable, guidedStoryRecoveryDismissed, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedStoryDialogueReplay, dialogueReplayOperation, guidedReferenceContext, guidedStoryDraftId, guidedStoryDirectRender, guidedStoryRecoveryUnavailable, guidedStoryRecoveryDismissed, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -19438,6 +19438,11 @@ components:
         guidedStoryDraftId:
           type: ["integer", "null"]
           description: Tenant-scoped Guided Story draft backing this job, when applicable.
+        guidedStoryDirectRender:
+          type: boolean
+          description: >-
+            True only for the immutable versioned direct-video Guided Story
+            flow. False includes every legacy marker-absent storyboard job.
         guidedStoryRecoveryUnavailable:
           type: boolean
           description: True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.

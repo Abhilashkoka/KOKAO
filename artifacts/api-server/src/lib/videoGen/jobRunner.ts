@@ -2949,6 +2949,61 @@ async function produceVideo(
 
     const reviewable = topicStoryboardEligible(job);
 
+    if (
+      !job.storyboard &&
+      options.guidedStory &&
+      options.guidedStoryRenderFlow?.version === 1 &&
+      options.guidedStoryRenderFlow.mode === "direct_video"
+    ) {
+      // New Guided Story attempts have already crossed their script, cast,
+      // reference-sheet and backdrop approval boundaries. Build the immutable
+      // execution board only as an internal per-scene receipt/checkpoint
+      // container; the approved active-speaker outfit (or identity fallback)
+      // is the provider's single opening-frame image input. Environment and
+      // the rest of the cast remain governed prompt instructions.
+      // No generated preview, preview checkpoint, or review pause is created.
+      const storyboard = guidedStoryStoryboard(options.guidedStory);
+      storyboard.scenes = storyboard.scenes.map((scene) => {
+        const scriptSceneId = scene.guidedStory?.scriptSceneId ?? scene.id;
+        const scriptScene = options.guidedStory!.script.scenes.find(
+          (candidate) => candidate.id === scriptSceneId,
+        );
+        const activeRoleId =
+          scriptScene?.lines.find(
+            (line) => line.kind === "dialogue" && line.ownerRoleId,
+          )?.ownerRoleId ??
+          scriptScene?.roleIds[0] ??
+          null;
+        const primary = options.guidedStory!.cast.find(
+          (member) => member.roleId === activeRoleId,
+        );
+        const approval = activeRoleId
+          ? options.guidedStory!.castApprovals?.roles[activeRoleId]
+          : null;
+        const approvedCharacterInput =
+          primary?.outfit?.referenceImagePath &&
+          approval?.outfit?.referenceImagePath === primary.outfit.referenceImagePath
+            ? primary.outfit.referenceImagePath
+            : primary?.character.referenceImagePath &&
+                approval?.character.referenceImagePath ===
+                  primary.character.referenceImagePath
+              ? primary.character.referenceImagePath
+              : null;
+        if (!approvedCharacterInput) {
+          throw new VideoJobInputError(
+            `Guided Story scene ${scene.id} has no approved primary-character outfit or identity input.`,
+          );
+        }
+        return {
+          ...scene,
+          previewPath: approvedCharacterInput,
+          previewCheckpoint: null,
+        };
+      });
+      await setJob(job.id, { storyboard });
+      return produceVideo({ ...job, storyboard }, onStage);
+    }
+
     // Hybrid templates deliberately have their own planner: one narrated script
     // is recorded once, then its complete cue sequence is partitioned into the
     // portable character/animation role pattern before the review pause.
@@ -3615,7 +3670,11 @@ async function produceVideo(
       // narration when only visual references changed. Re-voice from the exact
       // immutable script/voice snapshot before rendering instead of failing
       // after final approval.
-      if (board.mode === "guided_story" && !board.narration) {
+      const directGuidedNativeAudio =
+        board.mode === "guided_story" &&
+        options.guidedStoryRenderFlow?.version === 1 &&
+        options.guidedStoryRenderFlow.mode === "direct_video";
+      if (board.mode === "guided_story" && !board.narration && !directGuidedNativeAudio) {
         const guidedSnapshot = options.guidedStory;
         if (!guidedSnapshot) {
           throw new VideoJobInputError("This Guided Story has no immutable narration snapshot.");
@@ -3637,7 +3696,7 @@ async function produceVideo(
       // from its recording, so re-voice it first. The refreshed narration and
       // recomputed scene lengths are persisted before the render starts —
       // a render retry must resume from the recording it will actually use.
-      const refreshed = await refreshEditedNarration({
+      const refreshed = directGuidedNativeAudio ? null : await refreshEditedNarration({
         tenantId: job.tenantId,
         storyboard: board,
         voice: effectiveVoice,
@@ -3656,7 +3715,9 @@ async function produceVideo(
         ],
       );
       // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
-      const music = await resolveMusic(job, options, 30, onStage);
+      const music = directGuidedNativeAudio
+        ? null
+        : await resolveMusic(job, options, 30, onStage);
       let result;
       try {
       result = await renderTopicStoryboard({
@@ -3676,6 +3737,7 @@ async function produceVideo(
         seed: options.seed ?? null,
         modelOptions: model,
         guidedStory: options.guidedStory ?? null,
+        directNativeAudio: directGuidedNativeAudio,
         load: async (objectPath) =>
           (
             await loadTenantObject(

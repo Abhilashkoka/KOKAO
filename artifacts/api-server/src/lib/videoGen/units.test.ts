@@ -93,6 +93,27 @@ describe("spoken character video units", () => {
   });
 });
 
+describe("Guided Story direct-render funding", () => {
+  const guidedStory = {
+    script: { scenes: [{ id: "s1" }, { id: "s2" }] },
+  } as any;
+
+  it("funds one video call per scene without preview image units", () => {
+    expect(videoJobFullUnits("topic_to_video", {
+      aspectRatio: "9:16",
+      guidedStory,
+      guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+    } as any)).toBe(2);
+  });
+
+  it("keeps marker-absent legacy preview plus animation accounting", () => {
+    expect(videoJobFullUnits("topic_to_video", {
+      aspectRatio: "9:16",
+      guidedStory,
+    } as any)).toBe(4);
+  });
+});
+
 describe("optional Studio lip-sync funding", () => {
   it("adds exactly one independently priced provider operation", () => {
     const options = {

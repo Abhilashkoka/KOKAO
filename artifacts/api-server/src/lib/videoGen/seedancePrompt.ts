@@ -95,6 +95,7 @@ export interface SeedanceSceneInput {
   segmentIndex: number;
   segmentCount: number;
   carriedState?: string | null;
+  motionInstruction?: string | null;
   caption?: string | null;
   music?: string | null;
   sfx?: string | null;
@@ -104,7 +105,7 @@ export interface SeedanceSceneInput {
    * The default keeps the standalone multi-reference contract available for
    * providers that can upload the character assets positionally.
    */
-  referenceMode?: "character-assets" | "opening-frame";
+  referenceMode?: "character-assets" | "opening-frame" | "primary-character-opening-frame";
   nativeAudio?: boolean;
 }
 
@@ -125,7 +126,8 @@ export function seedanceScenePrompt(input: SeedanceSceneInput): string {
   const durationSec = Math.round((scene.endMs - scene.startMs) / 1000);
   const language = languageName(input.locale);
   const slots =
-    input.referenceMode === "opening-frame"
+    input.referenceMode === "opening-frame" ||
+    input.referenceMode === "primary-character-opening-frame"
       ? []
       : referenceSlots(input.sceneCast, input.backdrop);
   const lines = [...scene.lines].sort((a, b) => a.startMs - b.startMs).filter(speaks);
@@ -146,12 +148,24 @@ export function seedanceScenePrompt(input: SeedanceSceneInput): string {
       ].join("\n"),
     );
   }
+  if (!input.carriedState) {
+    blocks.push(
+      [
+        "[CONTINUITY]",
+        "Preserve identity, wardrobe, hair, environment, props, lighting direction, spatial axis, and color grade from the first frame through the last.",
+      ].join("\n"),
+    );
+  }
   const references =
     input.referenceMode === "opening-frame"
       ? [
           "@Image 1 defines the approved opening frame, including every character, wardrobe, prop, and backdrop visible in this shot.",
         ]
-      : slots.map((slot) => `@Image ${slot.slot} defines ${slot.defines}.`);
+      : input.referenceMode === "primary-character-opening-frame"
+        ? [
+            "@Image 1 is the approved active-speaker or primary-character portrait in the approved outfit. It defines only that character's face, hair, body appearance, and wardrobe; it does not define the environment or the complete shot composition.",
+          ]
+        : slots.map((slot) => `@Image ${slot.slot} defines ${slot.defines}.`);
   for (const member of input.sceneCast) {
     references.push(
       `The references show one ${member.character.name}. The video contains exactly one ${member.character.name}.`,
@@ -168,7 +182,24 @@ export function seedanceScenePrompt(input: SeedanceSceneInput): string {
     references.push(`Location: ${input.location.description}.`);
   }
   blocks.push(["[REFERENCES]", ...references].join("\n"));
-  blocks.push(["[ACTION]", `0-${durationSec}s: ${scene.visualDirection}`].join("\n"));
+  if (input.backdrop) {
+    blocks.push(
+      ["[ENVIRONMENT]", `Approved environment: ${input.backdrop.prompt}`].join("\n"),
+    );
+  }
+  blocks.push(
+    [
+      "[ACTION AND CAMERA]",
+      `0-${durationSec}s: ${scene.visualDirection}`,
+      input.motionInstruction ?? "Use controlled cinematic camera movement motivated by the action.",
+    ].join("\n"),
+  );
+  blocks.push(
+    [
+      "[PERFORMANCE]",
+      "Natural physically grounded acting, eye lines, facial expression, gestures, breathing, and reaction timing. Every speaker visibly performs their own line; non-speakers listen and react without mouthing that dialogue.",
+    ].join("\n"),
+  );
   if (input.nativeAudio !== false && lines.length) {
     const spoken = lines.map((line) => {
       const number = input.dialogueNumbers.get(line.id);

@@ -212,4 +212,45 @@ describe("renderTopicStoryboard Seedance contract", () => {
       music: Buffer.from("external-music"),
     });
   });
+
+  it("direct mode uses the approved outfit input and composes native clip audio without narration", async () => {
+    const directBoard = storyboard();
+    directBoard.narration = null as never;
+    directBoard.scenes[0]!.previewPath = "/mira-outfit.png";
+    const loaded: string[] = [];
+
+    await renderTopicStoryboard({
+      storyboard: directBoard as never,
+      aspectRatio: "9:16",
+      subtitles: true,
+      music: Buffer.from("must-not-be-used"),
+      motionPreset: "slow-dolly-in",
+      modelOptions,
+      guidedStory: guidedSnapshot("seedance-2.5") as never,
+      directNativeAudio: true,
+      load: async (path) => {
+        loaded.push(path);
+        return Buffer.from(path);
+      },
+    });
+
+    expect(loaded).toEqual(["/mira-outfit.png"]);
+    const animate = renderState.animate[0]!;
+    expect((animate.images as Buffer[])[0]?.toString()).toBe("/mira-outfit.png");
+    expect(animate.nativeAudio).toBe(true);
+    const prompt = (animate.visuals as string[])[0]!;
+    expect(prompt).toContain("@Image 1 is the approved active-speaker or primary-character portrait");
+    expect(prompt).toContain("[ACTION AND CAMERA]");
+    expect(prompt).toContain("[PERFORMANCE]");
+    expect(prompt).toContain("[CONTINUITY]");
+    expect(prompt).toContain(
+      "Dialogue 1 — 0s — Mira says in English: {Hello from the station.}",
+    );
+    expect(renderState.compose[0]).toMatchObject({
+      clips: [Buffer.from("native-clip")],
+      nativeAudio: true,
+      subtitles: false,
+      music: null,
+    });
+  });
 });

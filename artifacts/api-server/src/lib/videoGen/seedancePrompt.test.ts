@@ -145,6 +145,37 @@ describe("Seedance 2.5 prompt assembly", () => {
     expect(prompt).not.toContain("/objects/dev.png");
   });
 
+  it("governs a direct scene around one approved primary-character image", () => {
+    const prompt = seedanceScenePrompt({
+      scriptScene: scene(),
+      sceneCast: cast(),
+      backdrop: { imagePath: "/objects/ferry.png", prompt: "A coastal ferry at dawn." },
+      location: { mode: "none", imagePath: null, description: null },
+      platform: { aspectRatio: "9:16", safeArea: "Keep faces inside the center safe area." },
+      locale: "en",
+      dialogueNumbers: new Map([
+        ["line-1", 1],
+        ["line-2", 2],
+      ]),
+      segmentIndex: 0,
+      segmentCount: 1,
+      nativeAudio: true,
+      referenceMode: "primary-character-opening-frame",
+      motionInstruction: "Slow dolly in while holding a steady eye-level axis.",
+    });
+
+    expect(prompt).toContain("@Image 1 is the approved active-speaker or primary-character portrait");
+    expect(prompt).toContain("does not define the environment or the complete shot composition");
+    expect(prompt).not.toContain("including every character, wardrobe, prop, and backdrop");
+    expect(prompt).toContain("Approved environment: A coastal ferry at dawn.");
+    expect(prompt).toContain("Slow dolly in while holding a steady eye-level axis.");
+    expect(prompt).toContain("[PERFORMANCE]");
+    expect(prompt).toContain("non-speakers listen and react without mouthing that dialogue");
+    expect(prompt).toContain("[CONTINUITY]");
+    expect(prompt).toContain("Dialogue 1 — 0s — Mira says in English: {The tide is turning.}");
+    expect(prompt).toContain("Dialogue 2 — 5s — Dev says in English: {Then we leave now.}");
+  });
+
   it("preserves the existing narration contract when native audio is disabled", () => {
     const prompt = seedanceScenePrompt({
       scriptScene: scene(),

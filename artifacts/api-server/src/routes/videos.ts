@@ -1011,6 +1011,9 @@ function serializeVideoJob(
     // Public, narrow link for Guided Story review controls. Do not expose the
     // internal options object or its immutable cast/provider details.
     guidedStoryDraftId: job.options?.guidedStory?.draftId ?? null,
+    guidedStoryDirectRender:
+      job.options?.guidedStoryRenderFlow?.version === 1 &&
+      job.options.guidedStoryRenderFlow.mode === "direct_video",
     guidedStoryRecoveryUnavailable:
       job.guidedStoryRecoveryUnavailableAt != null,
     guidedStoryRecoveryDismissed:
@@ -7294,6 +7297,10 @@ router.post(
     // mutable library assets. Revalidate the currently bound tenant record at
     // the enqueue gate so a rejected/failed/replaced sheet cannot be rendered.
     const sheetBindings = await Promise.all(row.state.cast.map(async (member) => {
+      // Generated cast assets are immutable tenant-object snapshots rather than
+      // mutable character-library bindings; their hashes were checked by the
+      // approval contract above.
+      if (member.source !== "saved") return true;
       if (member.characterId == null) return false;
       const detail = await getCharacterDetail(req.tenantId, member.characterId);
       return !!detail &&
@@ -7475,7 +7482,7 @@ async function generateVideoHandler(
       aspectRatio: setup.aspectRatio,
       durationSec: setup.durationSeconds,
       visualsSource: "ai_video",
-      reviewStoryboard: true,
+      reviewStoryboard: false,
       brandKitId: setup.brandKitId,
       paragraphCount: Math.max(
         1,
@@ -8766,6 +8773,12 @@ async function generateVideoHandler(
     return;
   }
   const options: VideoJobOptions = {
+    // Presence is never interpreted as direct rendering. Only this exact
+    // immutable versioned value opts a newly approved Guided Story out of the
+    // historical storyboard-preview/review pipeline.
+    guidedStoryRenderFlow: guidedDraft
+      ? { version: 1, mode: "direct_video" }
+      : null,
     studioLipSync,
     templateRuntime:
       body.engine === "topic_to_video" &&
@@ -8993,7 +9006,9 @@ async function generateVideoHandler(
     // already approved by the caller, and there is no plan to edit.
     // Every other engine uses the request field (defaults to true).
     reviewStoryboard:
-      body.engine === "localized_dub"
+      guidedDraft
+        ? false
+        : body.engine === "localized_dub"
         ? false
         : body.engine === "dialogue_lip_sync" && characterDialogue
           ? true
@@ -9105,6 +9120,19 @@ async function generateVideoHandler(
           ? { ...resolvedVideoModel, generateAudio: true }
           : resolvedVideoModel;
       if (options.guidedStory) {
+        if (
+          resolvedVideoModel.provider !== "higgsfield" ||
+          !hasNativeSynchronizedAudio(
+            resolvedVideoModel.provider,
+            resolvedVideoModel.model,
+          )
+        ) {
+          res.status(400).json({
+            error:
+              "Guided Story direct rendering requires a selected Higgsfield model with native synchronized audio.",
+          });
+          return;
+        }
         const seedance25 = resolvedVideoModel.model.toLowerCase().includes("seedance-2.5");
         options.guidedStory = {
           ...options.guidedStory,

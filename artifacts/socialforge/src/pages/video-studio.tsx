@@ -1711,7 +1711,11 @@ export function VideoStudioPage() {
   // announcement.
   const reviewAnnouncedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!activeJob || activeJob.status !== "awaiting_review") return;
+    if (
+      !activeJob ||
+      activeJob.status !== "awaiting_review" ||
+      activeJob.guidedStoryDirectRender
+    ) return;
     if (reviewAnnouncedRef.current === activeJob.id) return;
     reviewAnnouncedRef.current = activeJob.id;
     setBoardOpen(true);
@@ -2348,6 +2352,7 @@ export function VideoStudioPage() {
     activeJob != null &&
     activeJob.id === activeJobId &&
     activeJob.status === "awaiting_review" &&
+    !activeJob.guidedStoryDirectRender &&
     activeJob.storyboard != null;
 
   const isOwner = me?.team ? me.team.role === "owner" : true;

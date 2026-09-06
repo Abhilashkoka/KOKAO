@@ -662,6 +662,34 @@ async function makeTestLogo(): Promise<Buffer> {
 
 describe("composeTopicVideo (real ffmpeg)", () => {
   it(
+    "composes cue-less native-audio scenes from their explicit scene timeline",
+    async () => {
+      const out = await composeTopicVideo({
+        clips: [
+          await makeTestClipWithAudio(1, 440),
+          await makeTestClipWithAudio(1, 660),
+        ],
+        narrationWav: Buffer.alloc(0),
+        cues: [],
+        totalDurationSec: 2,
+        aspectRatio: "9:16",
+        subtitles: false,
+        music: null,
+        nativeAudio: true,
+        sceneMap: [
+          { clipIndex: 0, durationSec: 1, lipSynced: false },
+          { clipIndex: 1, durationSec: 1, lipSynced: false },
+        ],
+      });
+
+      const audio = await extractFilteredAudio(out, "lowpass=f=1000");
+      expect(intervalRms(audio, 0.2, 0.8)).toBeGreaterThan(500);
+      expect(intervalRms(audio, 1.2, 1.8)).toBeGreaterThan(500);
+    },
+    120_000,
+  );
+
+  it(
     "keeps provider-native clip audio instead of dubbing external narration",
     async () => {
       const out = await composeTopicVideo({

@@ -596,9 +596,13 @@ export function guidedStoryEstimates(
   return {
     scriptUnits: state.script ? 0 : 1,
     castAssetUnits,
-    previewUnits: sceneCount,
+    // Newly enqueued attempts render their approved references directly with
+    // the video provider. Preview units remain in the response shape for
+    // rolling clients, but are explicitly zero rather than silently folded
+    // into the final workload.
+    previewUnits: 0,
     finalAdditionalUnits: sceneCount,
-    totalRemainingUnits: (state.script ? 0 : 1) + castAssetUnits + sceneCount * 2,
+    totalRemainingUnits: (state.script ? 0 : 1) + castAssetUnits + sceneCount,
     generatedStrategyCastUnits: generatedQuote,
     savedStrategyCastUnits: 0,
   };

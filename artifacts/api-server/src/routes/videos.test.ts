@@ -2945,25 +2945,47 @@ describe("guided story route fail-closed regressions", () => {
     return saved!;
   }
 
-  it("freezes native Guided Story audio routing before the worker receives the job", async () => {
+  it("marks new Guided Story jobs direct and requires Higgsfield native audio", async () => {
     const tenant = await newTenant("pro");
+    const makeDirectDraft = async () => {
+      const draft = await makeEnqueueableGuidedDraft(tenant.tenantId);
+      const state = {
+        ...draft.state,
+        cast: draft.state.cast.map((member) => ({
+          ...member,
+          source: "generated" as const,
+          characterId: null,
+          outfitId: null,
+        })),
+      };
+      const [saved] = await db
+        .update(guidedStoryDraftsTable)
+        .set({ state })
+        .where(eq(guidedStoryDraftsTable.id, draft.id))
+        .returning();
+      return saved!;
+    };
     const restoreSeedancePrice = await installVideoTestPrice(
-      "bytedance/seedance-2.5",
-      "openrouter",
+      "veo3.1/fast/image-to-video",
+      "higgsfield",
     );
     const restoreLipSyncPrice = await installHighLipSyncTestPrice();
     const restoreReplicateImagePrice = await installVideoTestPrice(
       "wan-video/wan-2.2-i2v-fast",
     );
-    await setStoredVideoGenKey("openrouter", "test-token");
+    const restoreSilentHiggsfieldPrice = await installVideoTestPrice(
+      "kling-video/v2.5-turbo/pro/image-to-video",
+      "higgsfield",
+    );
+    await setStoredVideoGenKey("higgsfield", "test-token");
     try {
       await setVideoGenSelection({
-        provider: "openrouter",
-        textToVideoModel: "bytedance/seedance-2.5",
-        imageToVideoModel: "bytedance/seedance-2.5",
+        provider: "higgsfield",
+        textToVideoModel: "veo3.1/fast",
+        imageToVideoModel: "veo3.1/fast/image-to-video",
         enabledModelIds: null,
       });
-      const nativeDraft = await makeEnqueueableGuidedDraft(tenant.tenantId);
+      const nativeDraft = await makeDirectDraft();
       const nativeResponse = await request(app)
         .post(`/api/ai/guided-story/drafts/${nativeDraft.id}/enqueue`)
         .send({ revision: nativeDraft.revision, consentGranted: true });
@@ -2975,16 +2997,20 @@ describe("guided story route fail-closed regressions", () => {
           .where(eq(videoGenerationsTable.id, nativeResponse.body.id))
       )[0]!;
       expect(nativeJob.options!.resolvedVideoModel).toMatchObject({
-        provider: "openrouter",
-        model: "bytedance/seedance-2.5",
+        provider: "higgsfield",
+        model: "veo3.1/fast/image-to-video",
         generateAudio: true,
       });
+      expect(nativeJob.options!.guidedStoryRenderFlow).toEqual({
+        version: 1,
+        mode: "direct_video",
+      });
+      expect(nativeJob.options!.reviewStoryboard).toBe(false);
       expect(nativeJob.options!.generateAudio).toBe(true);
       expect(nativeJob.options!.guidedStory).toMatchObject({
-        promptFormat: "seedance-2.5",
         videoModel: {
-          provider: "openrouter",
-          model: "bytedance/seedance-2.5",
+          provider: "higgsfield",
+          model: "veo3.1/fast/image-to-video",
         },
       });
       expect(nativeJob.options!.characterLipSync).toBe(false);
@@ -2997,26 +3023,31 @@ describe("guided story route fail-closed regressions", () => {
         imageToVideoModel: null,
         enabledModelIds: null,
       });
-      const replicateDraft = await makeEnqueueableGuidedDraft(tenant.tenantId);
+      const replicateDraft = await makeDirectDraft();
       const replicateResponse = await request(app)
         .post(`/api/ai/guided-story/drafts/${replicateDraft.id}/enqueue`)
         .send({ revision: replicateDraft.revision, consentGranted: true });
-      expect(replicateResponse.status, replicateResponse.body.error).toBe(201);
-      const replicateJob = (
-        await db
-          .select()
-          .from(videoGenerationsTable)
-          .where(eq(videoGenerationsTable.id, replicateResponse.body.id))
-      )[0]!;
-      expect(replicateJob.options!.guidedStoryIntrinsicLipSync).toMatchObject({
-        provider: "replicate",
-        model: HIGH_LIP_SYNC_MODEL,
-        scenes: expect.any(Array),
+      expect(replicateResponse.status).toBe(400);
+      expect(replicateResponse.body.error).toContain(
+        "requires a selected Higgsfield model with native synchronized audio",
+      );
+
+      await setVideoGenSelection({
+        provider: "higgsfield",
+        textToVideoModel: "kling-video/v2.5-turbo/pro/text-to-video",
+        imageToVideoModel: "kling-video/v2.5-turbo/pro/image-to-video",
+        enabledModelIds: null,
       });
-      expect(replicateJob.options!.guidedStoryIntrinsicLipSync!.scenes.length)
-        .toBeGreaterThan(0);
+      const silentHiggsfieldDraft = await makeDirectDraft();
+      const silentHiggsfieldResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${silentHiggsfieldDraft.id}/enqueue`)
+        .send({ revision: silentHiggsfieldDraft.revision, consentGranted: true });
+      expect(silentHiggsfieldResponse.status).toBe(400);
+      expect(silentHiggsfieldResponse.body.error).toContain(
+        "requires a selected Higgsfield model with native synchronized audio",
+      );
     } finally {
-      await clearStoredVideoGenKey("openrouter");
+      await clearStoredVideoGenKey("higgsfield");
       await setVideoGenSelection({
         provider: "replicate",
         textToVideoModel: null,
@@ -3026,6 +3057,7 @@ describe("guided story route fail-closed regressions", () => {
       await restoreSeedancePrice();
       await restoreLipSyncPrice();
       await restoreReplicateImagePrice();
+      await restoreSilentHiggsfieldPrice();
     }
   });
 
