@@ -10857,6 +10857,21 @@ function CharacterManagerDialog({
   const { data: characters, isLoading: charactersLoading } = useListCharacters({
     query: { queryKey: getListCharactersQueryKey(), enabled: open },
   });
+  const orderedCharacters = useMemo(
+    () =>
+      [...(characters ?? [])].sort(
+        (left, right) =>
+          Number(
+            "referenceSheetStatus" in right &&
+              right.referenceSheetStatus === "pending",
+          ) -
+          Number(
+            "referenceSheetStatus" in left &&
+              left.referenceSheetStatus === "pending",
+          ),
+      ),
+    [characters],
+  );
   const createCharacter = useCreateCharacter();
   const generateReferenceSheet = useGenerateCharacterReferenceSheet();
   const reviewReferenceSheet = useReviewCharacterReferenceSheet();
@@ -11362,7 +11377,7 @@ function CharacterManagerDialog({
           )}
           {characters && characters.length > 0 && (
             <div className="space-y-3">
-              {(characters as StudioCharacter[]).map((c) => {
+              {(orderedCharacters as StudioCharacter[]).map((c) => {
                 const shared = isSharedCharacter(c);
                 return (
                   <div

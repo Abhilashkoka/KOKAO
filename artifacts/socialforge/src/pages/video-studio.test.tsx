@@ -5516,6 +5516,17 @@ describe("Video Studio voice notes", () => {
 
   it("requires explicit reference-sheet review and shows regeneration revoking that review", async () => {
     mockState.characters = [{
+      id: 70,
+      name: "Already approved",
+      description: "An existing approved character",
+      referenceImagePath: "/objects/1/uploads/approved.png",
+      referenceSheetImagePath: "/objects/1/uploads/approved-sheet.png",
+      referenceSheetStatus: "approved",
+      referenceSheetError: null,
+      outfits: [],
+      createdAt: "2025-12-31T00:00:00Z",
+      updatedAt: "2025-12-31T00:00:00Z",
+    }, {
       id: 71,
       name: "Maya",
       description: "A cheerful founder",
@@ -5531,6 +5542,9 @@ describe("Video Studio voice notes", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTestId("button-manage-characters"));
 
+    expect(screen.getAllByTestId(/^character-card-/)[0]?.getAttribute("data-testid")).toBe(
+      "character-card-71",
+    );
     expect(screen.getByTestId("reference-sheet-status-71").textContent).toMatch(
       /pending approval/i,
     );
