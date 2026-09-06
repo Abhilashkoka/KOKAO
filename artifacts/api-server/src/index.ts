@@ -1,6 +1,10 @@
 import type { Server } from "node:http";
 import { assertRequiredEnv } from "./lib/assertEnv";
 import app from "./app";
+import {
+  startGuidedStoryCastSweep,
+  stopGuidedStoryCastSweep,
+} from "./routes/videos";
 import { logger } from "./lib/logger";
 import { recoverStuckPublishingItems } from "./lib/recoverStuckPublishes";
 import { createShutdownHandler } from "./lib/shutdown";
@@ -87,6 +91,7 @@ const server: Server = app.listen(port, (err) => {
   void resumeInterruptedGuidedSceneCorrections().catch((error) => {
     logger.error({ err: error }, "Failed to resume Guided Story scene corrections");
   });
+  startGuidedStoryCastSweep();
 
   // A freshly started process has no in-flight background jobs, so any content
   // item still stuck on "publishing" is an orphan left behind by a previous
@@ -195,6 +200,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopTrueUpRetrySweep();
     stopWalletSettlementRetrySweep();
     stopWalletProviderRecovery();
+    stopGuidedStoryCastSweep();
     void shutdown(signal);
   });
 }

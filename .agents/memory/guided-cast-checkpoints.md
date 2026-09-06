@@ -38,3 +38,15 @@ Reference replacement and confirmation must work in both valid editing phases: b
 **Why:** The cast-approval UI is shown before storyboard creation. Requiring an awaiting-review job at the API boundary makes “Review selected references” fail with a hidden 409 and prevents confirmation.
 
 **How to apply:** Recheck the same phase under the transaction lock. Never permit a missing linked job when the draft still claims a storyboard job ID, and preserve the stricter preview/correction activity checks for awaiting-review edits.
+
+Script approval must persist and schedule generated-cast work server-side; browsers only poll status. Recovery sweeps reserve capacity for older cursor work even under sustained immediate traffic, and process role failures independently.
+
+**Why:** Client-triggered generation dies with the tab, newest-only scans starve crash recovery, and one failed sheet must not prevent later roles from completing.
+
+**How to apply:** Use revision/role operation identities, post-commit immediate scheduling plus boot/interval recovery, a fixed recovery quota per sweep, and explicit retry only for confirmed sheet failures. Provider-running or unknown outcomes remain fail-closed.
+
+Customizing a generated Guided role is copy-on-write: clone and rebind a role-owned character/outfit revision before regeneration rather than mutating a reusable library identity.
+
+**Why:** The original generated character may already be reused by another draft; in-place edits would silently change that story's approved identity and sheet.
+
+**How to apply:** Lock the draft and exact tenant binding, create/reuse one idempotent clone for the customization operation, invalidate only the edited role's approval/downstream previews, then generate portrait and sheet against the clone.

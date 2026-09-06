@@ -6108,6 +6108,104 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/cast/{roleId}/customize:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: roleId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: customizeGuidedStoryGeneratedCastRole
+      tags: [ai]
+      summary: Customize and regenerate one generated Guided Story role
+      description: >-
+        CAS-guarded and tenant-scoped. Only the generated character and outfit
+        currently bound to this role are changed. This starts canonical portrait
+        and multi-view reference-sheet regeneration; the resulting sheet remains
+        pending explicit human approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryGeneratedCastCustomizationInput"
+      responses:
+        "200":
+          description: Customization accepted and regeneration state returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "400":
+          description: Invalid customization or role is not generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Draft or tenant-owned bound character not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale revision, active storyboard, or unresolved regeneration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/cast/{roleId}/reference-sheet/retry:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: roleId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: retryGuidedStoryGeneratedCastReferenceSheet
+      tags: [ai]
+      summary: Retry one confirmed-failed generated cast reference sheet
+      description: >-
+        CAS-guarded and tenant-scoped. Ambiguous provider outcomes remain
+        fail-closed and cannot use this endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryGuidedStoryGeneratedCastReferenceSheetInput"
+      responses:
+        "200":
+          description: Retry accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "400":
+          description: Invalid retry request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Not safely retryable or stale revision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/guided-story/drafts/{draftId}/cast/references:
     parameters:
       - name: draftId
@@ -17744,6 +17842,15 @@ components:
       required: [revision]
       properties:
         revision: { type: integer, minimum: 1 }
+    GuidedStoryGeneratedCastCustomizationInput:
+      type: object
+      additionalProperties: false
+      required: [revision, name, description, wardrobeDescription]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        description: { type: string, minLength: 3, maxLength: 4000 }
+        wardrobeDescription: { type: string, minLength: 3, maxLength: 4000 }
     GuidedStoryCastApprovalAsset:
       type: object
       additionalProperties: false
@@ -18097,7 +18204,7 @@ components:
             version: { type: integer, const: 1 }
     GuidedStoryDraft:
       type: object
-      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, castApprovals, duplicateAssignmentConfirmed, scriptGeneration, referenceOperations, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
+      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, castApprovals, duplicateAssignmentConfirmed, scriptGeneration, generatedCastOperations, referenceOperations, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
       properties:
         id: { type: integer }
         revision: { type: integer }
@@ -18131,6 +18238,21 @@ components:
           properties:
             revision: { type: integer }
             claimedAt: { type: string, format: date-time }
+        generatedCastOperations:
+          type: object
+          additionalProperties:
+            type: object
+            required: [status, characterId, outfitId, sheetStatus, sheetError]
+            properties:
+              status:
+                type: string
+                enum: [claimed, funded, provider_running, provider_outcome_unknown, provider_succeeded, upload_succeeded, uploaded]
+              characterId: { type: ["integer", "null"] }
+              outfitId: { type: ["integer", "null"] }
+              sheetStatus:
+                type: ["string", "null"]
+                enum: [claimed, funded, provider_running, provider_succeeded, uploaded, settled, failed, outcome_unknown, null]
+              sheetError: { type: ["string", "null"] }
         referenceOperations:
           type: array
           items:
@@ -18158,6 +18280,11 @@ components:
               description: Quote available before choosing Saved Cast.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    RetryGuidedStoryGeneratedCastReferenceSheetInput:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
     GuidedStoryImageModelSnapshot:
       type: object
       required: [provider, model, customBaseUrl, fallbackEnabled, lockedAt]

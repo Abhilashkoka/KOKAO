@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } 
 import request from "supertest";
 import express, { type Express } from "express";
 import { createHash } from "node:crypto";
+import { CharacterInputError } from "../lib/characters";
 
 vi.mock("@clerk/express", async () => {
   const { authState } = await import("../test/authState");
@@ -45,6 +46,9 @@ const objectStorageState = vi.hoisted(() => ({
 }));
 const guidedCastProviderState = vi.hoisted(() => ({
   calls: 0,
+  sheetCalls: 0,
+  sheetError: null as Error | null,
+  sheetFailuresRemaining: 0,
   uploads: 0,
   uploadError: false,
   contentTypes: [] as string[],
@@ -67,6 +71,19 @@ vi.mock("../lib/characters", async (importOriginal) => {
         model: "mock",
       };
     }),
+    generateCharacterReferenceSheet: vi.fn(async () => {
+      guidedCastProviderState.sheetCalls += 1;
+      if (guidedCastProviderState.sheetFailuresRemaining > 0) {
+        guidedCastProviderState.sheetFailuresRemaining -= 1;
+        throw new CharacterInputError("confirmed sheet input failure");
+      }
+      if (guidedCastProviderState.sheetError) throw guidedCastProviderState.sheetError;
+      return {
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]),
+        provider: "mock-sheet",
+        model: "mock-sheet-v1",
+      };
+    }),
     loadReferenceImage: vi.fn(async () => ({
       buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
       mimeType: "image/png",
@@ -76,10 +93,11 @@ vi.mock("../lib/characters", async (importOriginal) => {
 vi.mock("../lib/storageUpload", () => ({
   uploadBufferToStorage: vi.fn(async (
     tenantId: number,
-    _buffer: Buffer,
+    buffer: Buffer,
     contentType: string,
   ) => {
-    guidedCastProviderState.uploads += 1;
+    // Existing assertions count canonical portrait uploads separately.
+    if (buffer.at(-1) !== 0x01) guidedCastProviderState.uploads += 1;
     guidedCastProviderState.contentTypes.push(contentType);
     if (guidedCastProviderState.uploadError) {
       throw new Error("induced upload interruption");
@@ -421,7 +439,10 @@ import {
 } from "../lib/wallet";
 import { and, eq, inArray } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
-import videosRouter from "./videos";
+import videosRouter, {
+  guidedCastSweepAllocation,
+  sweepPendingGuidedStoryCasts,
+} from "./videos";
 import { actAs, resetAuthState } from "../test/authState";
 import {
   createTenant,
@@ -647,6 +668,9 @@ beforeEach(() => {
   runnerState.guidedCorrections.length = 0;
   objectStorageState.missingPaths.clear();
   guidedCastProviderState.calls = 0;
+  guidedCastProviderState.sheetCalls = 0;
+  guidedCastProviderState.sheetError = null;
+  guidedCastProviderState.sheetFailuresRemaining = 0;
   guidedCastProviderState.uploads = 0;
   guidedCastProviderState.uploadError = false;
   guidedCastProviderState.contentTypes = [];
@@ -842,6 +866,19 @@ afterAll(async () => {
   await restoreDefaultImageVideoPrice?.();
   await restoreVideoGenSelection?.();
 }, 120_000);
+
+describe("guided cast sweep allocation", () => {
+  it("always reserves recovery capacity during sustained immediate traffic", () => {
+    expect(guidedCastSweepAllocation(50)).toEqual({
+      immediateLimit: 40,
+      cursorLimit: 10,
+    });
+    expect(guidedCastSweepAllocation(5)).toEqual({
+      immediateLimit: 5,
+      cursorLimit: 45,
+    });
+  });
+});
 
 describe("POST /api/ai/generate-video", () => {
   it("treats a resolved preset Text-to-Video cast as image-input and snapshots its licensed voice", async () => {
@@ -3893,6 +3930,80 @@ describe("guided story route fail-closed regressions", () => {
     expect(response.body.scriptApprovedAt).toEqual(expect.any(String));
   });
 
+  it("continues later automatic roles after one confirmed sheet failure and safely retries only that sheet", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    guidedCastProviderState.sheetFailuresRemaining = 1;
+
+    const approved = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/script/approve`)
+      .send({ revision: draft.revision });
+    expect(approved.status).toBe(200);
+    await sweepPendingGuidedStoryCasts();
+
+    let failedState: GuidedStoryDraftState | null = null;
+    await vi.waitFor(async () => {
+      const [current] = await db
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, draft.id));
+      failedState = current!.state;
+      expect(
+        current!.state.castOperations.hero?.sheetOperation?.status,
+        JSON.stringify(current!.state.castOperations),
+      ).toBe("failed");
+      expect(current!.state.castOperations.friend?.sheetOperation?.status).toBe("settled");
+    }, { timeout: 10_000 });
+    expect(guidedCastProviderState.calls).toBe(2);
+    expect(guidedCastProviderState.sheetCalls).toBe(2);
+    const heroCharacterId = failedState!.castOperations.hero!.characterId;
+    const friendCharacterId = failedState!.castOperations.friend!.characterId;
+
+    const retried = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
+      .send({ revision: approved.body.revision });
+    expect(retried.status, JSON.stringify(retried.body)).toBe(200);
+    const resumed = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft.id}/cast`)
+      .send({
+        revision: approved.body.revision,
+        strategy: "generated",
+        duplicateAssignmentConfirmed: true,
+        assignments: routeScript().roles.map((role) => ({
+          roleId: role.id,
+          source: "generated",
+          characterId: null,
+          outfitId: null,
+          voiceId: "alloy",
+          isUserRole: false,
+          consentGranted: false,
+        })),
+      });
+    expect(resumed.status, JSON.stringify(resumed.body)).toBe(200);
+    await vi.waitFor(async () => {
+      const [current] = await db
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, draft.id));
+      expect(
+        current!.state.cast,
+        JSON.stringify(current!.state.castOperations),
+      ).toHaveLength(2);
+      expect(current!.state.castOperations).toEqual({});
+    }, { timeout: 10_000 });
+
+    expect(guidedCastProviderState.calls).toBe(2);
+    expect(guidedCastProviderState.sheetCalls).toBe(3);
+    const generatedCharacters = await db
+      .select()
+      .from(charactersTable)
+      .where(eq(charactersTable.tenantId, tenant.tenantId));
+    expect(generatedCharacters.filter((item) =>
+      item.id === heroCharacterId || item.id === friendCharacterId,
+    )).toHaveLength(2);
+  });
+
   it("saves only validated tenant-owned guided visual choices", async () => {
     const tenant = await newTenant("pro");
     const foreign = await newTenant("pro");
@@ -4952,6 +5063,9 @@ describe("guided story route fail-closed regressions", () => {
 
       expect(response.status, JSON.stringify(response.body)).toBe(200);
       expect(guidedCastProviderState.calls).toBe(0);
+      // Resuming the paid portrait still runs the separately funded sheet
+      // operation exactly once through its durable state machine.
+      expect(guidedCastProviderState.sheetCalls).toBe(1);
       expect(guidedCastProviderState.uploads).toBe(
         status === "provider_succeeded" ? 1 : 0,
       );
@@ -4963,6 +5077,18 @@ describe("guided story route fail-closed regressions", () => {
       expect(committed!.state.cast.find((member) => member.roleId === "friend")?.generatedAsset)
         .toMatchObject({ provider: "mock-image", model: "mock-image-v1" });
       expect(committed!.state.castOperations).toEqual({});
+      const generatedMember = committed!.state.cast.find(
+        (member) => member.roleId === "friend",
+      );
+      const [generatedCharacter] = await db
+        .select()
+        .from(charactersTable)
+        .where(eq(charactersTable.id, generatedMember!.characterId!));
+      expect(generatedCharacter).toMatchObject({
+        referenceSheetImagePath: `/objects/${tenant.tenantId}/uploads/resumed-guided-cast.png`,
+        referenceSheetStatus: "pending",
+        referenceSheetError: null,
+      });
       if (funding === "credit") {
         expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(beforeCredit);
       }

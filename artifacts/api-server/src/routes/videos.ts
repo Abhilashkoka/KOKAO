@@ -22,7 +22,7 @@ import {
   type GuidedStoryCastSnapshot,
   type GuidedStoryImageModelSnapshot,
 } from "@workspace/db";
-import { and, eq, desc, isNotNull, ne, sql } from "drizzle-orm";
+import { and, eq, desc, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import {
   GenerateVideoBody,
   GenerateVideoCoverCandidatesBody,
@@ -43,6 +43,7 @@ import {
   ApproveGuidedStoryDraftScriptBody,
   CastGuidedStoryDraftBody,
   ApproveGuidedStoryCastRoleBody,
+  CustomizeGuidedStoryGeneratedCastRoleBody,
   FinalizeGuidedStoryJobReferenceBody,
   FinalizeGuidedStoryReferenceBody,
   StartGuidedStoryReferenceOperationBody,
@@ -160,6 +161,7 @@ import {
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import {
   generateCharacterReference,
+  generateCharacterReferenceSheet,
   createOutfitMaskedEdit,
   CharacterInputError,
   generateOutfitVariant,
@@ -1659,6 +1661,18 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
     visualChoices: row.state.visualChoices ?? emptyGuidedVisualChoices(),
     script,
     castOperations: undefined,
+    generatedCastOperations: Object.fromEntries(
+      Object.entries(row.state.castOperations ?? {}).map(([roleId, operation]) => [
+        roleId,
+        {
+          status: operation.status,
+          characterId: operation.characterId ?? null,
+          outfitId: operation.outfitId ?? null,
+          sheetStatus: operation.sheetOperation?.status ?? null,
+          sheetError: operation.sheetOperation?.error ?? null,
+        },
+      ]),
+    ),
     referenceOperations: Object.values(row.state.referenceOperations ?? {}).map(
       ({
         executionClaimToken: _token,
@@ -2320,6 +2334,13 @@ async function claimGuidedCastRoles(params: {
         .limit(1)
     )[0];
     if (!row || row.revision !== params.revision) return { row: null };
+    // A user may switch an approved draft to saved while an automatic runner
+    // is queued.  Do not let that stale runner consume an undispatched
+    // generated claim. Existing provider-bound checkpoints are intentionally
+    // left for safe reconciliation.
+    if (params.strategy === "generated" && row.state.castStrategy === "saved") {
+      return { row, busyRoleId: "saved-strategy" };
+    }
     const now = new Date();
     const operations = { ...(row.state.castOperations ?? {}) };
     const expectedRoles = new Map(
@@ -2423,7 +2444,7 @@ async function claimGuidedCastRoles(params: {
           now.getTime(),
           GUIDED_CAST_CLAIM_TTL_MS,
         );
-      if (current && !reusable && !resumable)
+      if (current && !reusable && !resumable && !current.autoStart)
         return { row, busyRoleId: role.roleId };
       if (
         !current ||
@@ -2435,6 +2456,16 @@ async function claimGuidedCastRoles(params: {
           operationKey,
           voiceId: role.voiceId,
           status: "claimed",
+          claimedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        };
+      } else if (current.autoStart && current.status === "claimed") {
+        // Script approval creates this durable handoff before any browser
+        // arrives. Exactly one subsequent cast request consumes it; every
+        // concurrent tab then observes a normal in-flight claim.
+        operations[role.roleId] = {
+          ...current,
+          autoStart: undefined,
           claimedAt: now.toISOString(),
           updatedAt: now.toISOString(),
         };
@@ -2525,6 +2556,144 @@ async function checkpointGuidedCastOperation(params: {
           .returning()
       )[0] ?? null
     );
+  });
+}
+
+/**
+ * Promote a completed fictional portrait into the tenant character library.
+ * The draft row is locked with the inserts, so retries and parallel tabs either
+ * observe the same IDs or create exactly one character/outfit pair.
+ */
+async function ensureGuidedGeneratedCharacter(params: {
+  row: GuidedStoryDraft;
+  roleId: string;
+  operationKey: string;
+  name: string;
+  description: string;
+  wardrobeDescription: string;
+  referenceImagePath: string;
+}): Promise<{
+  row: GuidedStoryDraft;
+  characterId: number;
+  outfitId: number;
+} | null> {
+  return db.transaction(async (tx) => {
+    const [fresh] = await tx
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(
+        and(
+          eq(guidedStoryDraftsTable.id, params.row.id),
+          eq(guidedStoryDraftsTable.tenantId, params.row.tenantId),
+        ),
+      )
+      .for("update")
+      .limit(1);
+    const operation = fresh?.state.castOperations?.[params.roleId];
+    if (
+      !fresh ||
+      fresh.revision !== params.row.revision ||
+      operation?.operationKey !== params.operationKey ||
+      operation.status !== "uploaded" ||
+      operation.path !== params.referenceImagePath
+    ) return null;
+
+    if (operation.characterId && operation.outfitId) {
+      const [character] = await tx
+        .select({ id: charactersTable.id })
+        .from(charactersTable)
+        .where(
+          and(
+            eq(charactersTable.id, operation.characterId),
+            eq(charactersTable.tenantId, fresh.tenantId),
+          ),
+        )
+        .limit(1);
+      const [outfit] = await tx
+        .select({ id: characterOutfitsTable.id })
+        .from(characterOutfitsTable)
+        .where(
+          and(
+            eq(characterOutfitsTable.id, operation.outfitId),
+            eq(characterOutfitsTable.characterId, operation.characterId),
+            eq(characterOutfitsTable.tenantId, fresh.tenantId),
+          ),
+        )
+        .limit(1);
+      if (!character || !outfit) return null;
+      // This branch is only reachable through the role-bound customization
+      // handoff. Re-check both tenant and pair ownership above before replacing
+      // any library bytes; an arbitrary tenant library character can never be
+      // edited by a draft request.
+      await tx.update(charactersTable).set({
+        name: params.name,
+        description: params.description,
+        referenceImagePath: params.referenceImagePath,
+        referenceSheetImagePath: null,
+        referenceSheetStatus: "pending",
+        referenceSheetError: null,
+        updatedAt: new Date(),
+      }).where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, fresh.tenantId)));
+      await tx.update(characterOutfitsTable).set({
+        name: `${params.name} story wardrobe`,
+        description: params.wardrobeDescription,
+        referenceImagePath: params.referenceImagePath,
+        canonicalReferenceImagePath: params.referenceImagePath,
+        updatedAt: new Date(),
+      }).where(and(eq(characterOutfitsTable.id, outfit.id), eq(characterOutfitsTable.characterId, character.id), eq(characterOutfitsTable.tenantId, fresh.tenantId)));
+      return { row: fresh, characterId: character.id, outfitId: outfit.id };
+    }
+
+    const [character] = await tx
+      .insert(charactersTable)
+      .values({
+        tenantId: fresh.tenantId,
+        name: params.name,
+        description: params.description,
+        referenceImagePath: params.referenceImagePath,
+        referenceSheetStatus: "pending",
+      })
+      .returning();
+    const [outfit] = await tx
+      .insert(characterOutfitsTable)
+      .values({
+        tenantId: fresh.tenantId,
+        characterId: character!.id,
+        name: `${params.name} story wardrobe`,
+        description: params.wardrobeDescription,
+        referenceImagePath: params.referenceImagePath,
+        isDefault: true,
+      })
+      .returning();
+    const state: GuidedStoryDraftState = {
+      ...fresh.state,
+      castOperations: {
+        ...fresh.state.castOperations,
+        [params.roleId]: {
+          ...operation,
+          characterId: character!.id,
+          outfitId: outfit!.id,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+    const [saved] = await tx
+      .update(guidedStoryDraftsTable)
+      .set({ state, updatedAt: new Date() })
+      .where(
+        and(
+          eq(guidedStoryDraftsTable.id, fresh.id),
+          eq(guidedStoryDraftsTable.revision, fresh.revision),
+        ),
+      )
+      .returning();
+    return saved
+      ? {
+          row: saved,
+          characterId: character!.id,
+          outfitId: outfit!.id,
+        }
+      : null;
   });
 }
 
@@ -3502,6 +3671,22 @@ router.post(
         return;
       }
     }
+    const autoStartedAt = new Date().toISOString();
+    const automaticCastRevision = row.revision + 1;
+    const automaticCastOperations = Object.fromEntries(
+      row.state.script.roles.map((role) => [
+        role.id,
+        {
+          revision: automaticCastRevision,
+          operationKey: `guided-story-cast:${row.id}:${automaticCastRevision}:${role.id}`,
+          voiceId: GUIDED_STORY_STOCK_VOICES[0],
+          status: "claimed" as const,
+          autoStart: true,
+          claimedAt: autoStartedAt,
+          updatedAt: autoStartedAt,
+        },
+      ]),
+    );
     let saved = await saveGuidedState(row, parsed.data.revision, {
       ...row.state,
       scriptApprovedAt: new Date().toISOString(),
@@ -3511,6 +3696,10 @@ router.post(
       castApprovals: null,
       duplicateAssignmentConfirmed: false,
       scriptGeneration: null,
+      // This is the durable, server-owned kickoff. The first client/worker
+      // resume consumes each claim; a second approval or browser tab cannot
+      // create another role identity or cross a provider boundary.
+      castOperations: automaticCastOperations,
       storyboardJobId: null,
     });
     if (!saved) {
@@ -3519,6 +3708,9 @@ router.post(
         .json({ error: "This draft changed. Reload it and try again." });
       return;
     }
+    // saveGuidedState has committed the durable role claims; provider work is
+    // scheduled only after that transaction boundary.
+    schedulePendingGuidedStoryCastSweep(saved.id);
     res.json(serializeGuidedDraft(saved));
   },
 );
@@ -3549,9 +3741,234 @@ async function validateGuidedWalletCheckpoint(
   });
 }
 
-router.put(
-  "/ai/guided-story/drafts/:draftId/cast",
+router.post(
+  "/ai/guided-story/drafts/:draftId/cast/:roleId/customize",
   async (req: Request, res: Response) => {
+    const parsed = CustomizeGuidedStoryGeneratedCastRoleBody.safeParse(req.body);
+    const draftId = Number(req.params.draftId);
+    const roleId = Array.isArray(req.params.roleId)
+      ? req.params.roleId[0]
+      : req.params.roleId;
+    if (!parsed.success || !roleId || !Number.isInteger(draftId) || draftId <= 0) {
+      res.status(400).json({ error: "Invalid generated character customization." });
+      return;
+    }
+    const saved = await db.transaction(async (tx) => {
+      const [row] = await tx.select().from(guidedStoryDraftsTable).where(
+        and(eq(guidedStoryDraftsTable.id, draftId), eq(guidedStoryDraftsTable.tenantId, req.tenantId)),
+      ).for("update").limit(1);
+      if (!row) return { kind: "missing" as const };
+      if (row.revision !== parsed.data.revision) return { kind: "stale" as const };
+      const role = row.state.script?.roles.find((item) => item.id === roleId);
+      const member = row.state.cast.find((item) => item.roleId === roleId);
+      const customization = {
+        name: parsed.data.name.trim(),
+        description: parsed.data.description.trim(),
+        wardrobeDescription: parsed.data.wardrobeDescription.trim(),
+      };
+      const existing = row.state.castOperations?.[roleId];
+      // A duplicate submission after its atomic reset is safe: return its
+      // durable handoff rather than creating another provider boundary.
+      if (!member && existing?.customization &&
+        JSON.stringify(existing.customization) === JSON.stringify(customization)) {
+        return { kind: "saved" as const, row };
+      }
+      const generatedBinding =
+        member?.source === "generated" && member.characterId && member.outfitId
+          ? {
+              characterId: member.characterId,
+              outfitId: member.outfitId,
+              voiceId: member.voiceId,
+            }
+          : existing?.characterId && existing.outfitId
+            ? {
+                characterId: existing.characterId,
+                outfitId: existing.outfitId,
+                voiceId: existing.voiceId,
+              }
+            : null;
+      if (!role || !generatedBinding) return { kind: "binding" as const };
+      const [character] = await tx.select().from(charactersTable).where(
+        and(eq(charactersTable.id, generatedBinding.characterId), eq(charactersTable.tenantId, req.tenantId)),
+      ).limit(1);
+      const [outfit] = await tx.select().from(characterOutfitsTable).where(
+        and(eq(characterOutfitsTable.id, generatedBinding.outfitId), eq(characterOutfitsTable.characterId, generatedBinding.characterId), eq(characterOutfitsTable.tenantId, req.tenantId)),
+      ).limit(1);
+      if (!character || !outfit) return { kind: "binding" as const };
+      const now = new Date().toISOString();
+      // Generated cast records are reusable library records. Never edit one in
+      // place: another draft may be using its approved sheet. Clone the exact
+      // current pair inside this lock and make the durable handoff own only the
+      // clone. The provider work below replaces these copied bytes.
+      const [clone] = await tx.insert(charactersTable).values({
+        tenantId: req.tenantId,
+        name: customization.name,
+        description: customization.description,
+        referenceImagePath: character.referenceImagePath,
+        referenceSheetStatus: "pending",
+        referenceSheetImagePath: null,
+        referenceSheetError: null,
+        protectedRegion: character.protectedRegion,
+      }).returning();
+      const [cloneOutfit] = await tx.insert(characterOutfitsTable).values({
+        tenantId: req.tenantId,
+        characterId: clone!.id,
+        name: `${customization.name} story wardrobe`,
+        description: customization.wardrobeDescription,
+        referenceImagePath: outfit.referenceImagePath,
+        isDefault: true,
+        status: outfit.status,
+        identityVerified: outfit.identityVerified,
+        canonicalReferenceImagePath: outfit.canonicalReferenceImagePath,
+        protectedRegion: outfit.protectedRegion,
+      }).returning();
+      const castOperations = { ...(row.state.castOperations ?? {}) };
+      castOperations[roleId] = {
+        revision: row.revision,
+        operationKey: `guided-story-cast:${row.id}:${row.revision}:${roleId}`,
+        voiceId: generatedBinding.voiceId,
+        status: "claimed",
+        autoStart: true,
+        claimedAt: now,
+        updatedAt: now,
+        characterId: clone!.id,
+        outfitId: cloneOutfit!.id,
+        customization,
+      };
+      const castApprovals = row.state.castApprovals
+        ? {
+            ...row.state.castApprovals,
+            roles: Object.fromEntries(
+              Object.entries(row.state.castApprovals.roles).filter(
+                ([approvedRoleId]) => approvedRoleId !== roleId,
+              ),
+            ),
+          }
+        : null;
+      const nextState = {
+        ...row.state,
+        cast: row.state.cast.filter((item) => item.roleId !== roleId),
+        // Reference approval is per role and byte-bound. Other unchanged roles
+        // retain their evidence; this role must approve its new sheet.
+        castApprovals,
+        castOperations,
+        storyboardJobId: null,
+      };
+      const [next] = await tx.update(guidedStoryDraftsTable).set({
+        state: nextState, updatedAt: new Date(),
+      }).where(and(eq(guidedStoryDraftsTable.id, row.id), eq(guidedStoryDraftsTable.tenantId, req.tenantId), eq(guidedStoryDraftsTable.revision, row.revision))).returning();
+      return next ? { kind: "saved" as const, row: next } : { kind: "stale" as const };
+    });
+    if (saved.kind === "missing") { res.status(404).json({ error: "Guided story draft not found." }); return; }
+    if (saved.kind === "stale") { res.status(409).json({ error: "This draft changed. Reload it and try again." }); return; }
+    if (saved.kind === "binding") { res.status(400).json({ error: "Only the currently bound generated tenant character can be customized." }); return; }
+    schedulePendingGuidedStoryCastSweep(saved.row.id);
+    res.json(serializeGuidedDraft(saved.row));
+  },
+);
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/cast/:roleId/reference-sheet/retry",
+  async (req: Request, res: Response) => {
+    const draftId = Number(req.params.draftId);
+    const roleId = String(req.params.roleId);
+    const revision = Number(req.body?.revision);
+    if (!Number.isSafeInteger(draftId) || !Number.isSafeInteger(revision)) {
+      res.status(400).json({ error: "Invalid reference-sheet retry request." });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [draft] = await tx
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(and(
+          eq(guidedStoryDraftsTable.id, draftId),
+          eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        ))
+        .for("update")
+        .limit(1);
+      if (!draft) return { kind: "missing" as const };
+      if (draft.revision !== revision) return { kind: "stale" as const };
+      const operation = draft.state.castOperations?.[roleId];
+      const sheet = operation?.sheetOperation;
+      if (!operation || !sheet) return { kind: "missing_operation" as const };
+      if (sheet.status === "outcome_unknown" || sheet.status === "provider_running") {
+        return { kind: "unknown" as const };
+      }
+      if (sheet.status !== "failed") return { kind: "not_failed" as const };
+      const expectedKey = `guided-story-sheet:${draft.id}:${draft.revision}:${roleId}`;
+      if (sheet.operationKey !== expectedKey) return { kind: "unknown" as const };
+      const now = new Date().toISOString();
+      const nextSheet: NonNullable<typeof sheet> = {
+        operationKey: expectedKey,
+        status: "claimed",
+        updatedAt: now,
+      };
+      const [saved] = await tx
+        .update(guidedStoryDraftsTable)
+        .set({
+          state: {
+            ...draft.state,
+            castOperations: {
+              ...draft.state.castOperations,
+              [roleId]: {
+                ...operation,
+                sheetOperation: nextSheet,
+                updatedAt: now,
+              },
+            },
+          },
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(guidedStoryDraftsTable.id, draft.id),
+          eq(guidedStoryDraftsTable.revision, draft.revision),
+        ))
+        .returning();
+      if (operation.characterId) {
+        await tx
+          .update(charactersTable)
+          .set({
+            referenceSheetStatus: "pending",
+            referenceSheetError: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(charactersTable.id, operation.characterId),
+            eq(charactersTable.tenantId, req.tenantId),
+          ));
+      }
+      return { kind: "saved" as const, row: saved! };
+    });
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Guided story draft not found." });
+      return;
+    }
+    if (result.kind === "stale") {
+      res.status(409).json({ error: "This draft changed. Reload it and try again." });
+      return;
+    }
+    if (result.kind === "unknown") {
+      res.status(409).json({
+        error: "The provider outcome is unknown and requires reconciliation; it cannot be retried.",
+      });
+      return;
+    }
+    if (result.kind !== "saved") {
+      res.status(409).json({ error: "Only a confirmed failed reference sheet can be retried." });
+      return;
+    }
+    schedulePendingGuidedStoryCastSweep(result.row.id);
+    res.json(serializeGuidedDraft(result.row));
+  },
+);
+
+/**
+ * This is deliberately also used by the server-owned cast runner below.  Keep
+ * provider work here rather than making an HTTP request back into this router:
+ * the durable operation claim is the only provider-dispatch boundary.
+ */
+async function processGuidedStoryCast(req: Request, res: Response): Promise<void> {
     const parsed = CastGuidedStoryDraftBody.safeParse(req.body);
     let row = parsed.success
       ? await loadGuidedDraft(req.tenantId, Number(req.params.draftId))
@@ -3791,6 +4208,7 @@ router.put(
     }
     row = castClaim.row;
     const cast: GuidedStoryCastSnapshot[] = [];
+    const roleErrors: Array<{ roleId: string; error: string }> = [];
     for (const assignment of assignments) {
       const role = script.roles.find(
         (candidate) => candidate.id === assignment.roleId,
@@ -4045,7 +4463,9 @@ router.put(
                 .map((scene) => scene.visualDirection)
                 .join(" ")
                 .slice(0, 1500),
-            });
+            }) + (operation.customization
+              ? `\nUse this approved role-bound character customization exactly: ${operation.customization.description}\nWardrobe: ${operation.customization.wardrobeDescription}`
+              : "");
             // This checkpoint is the one-way provider boundary on every funding
             // rail. Once written, a crash or ambiguous exception can never turn
             // into either an automatic refund or a second provider request.
@@ -4342,21 +4762,302 @@ router.put(
         referenceImagePath = operation.path;
         provider = operation.provider;
         model = operation.model;
+        const characterDescription = operation.customization?.description ??
+          `Wholly fictional character. ${role.description}`;
+        const wardrobeDescription = operation.customization?.wardrobeDescription ??
+          `Original fictional wardrobe suited to ${row.state.setup!.genre.replaceAll("_", " ")}. ` +
+          `Preserve all wardrobe details specified by the approved role description: ${role.description}`;
+        const owned = await ensureGuidedGeneratedCharacter({
+          row,
+          roleId: role.id,
+          operationKey,
+          name: operation.customization?.name ?? role.name,
+          description: characterDescription,
+          wardrobeDescription,
+          referenceImagePath,
+        });
+        if (!owned) {
+          res.status(409).json({
+            error: `The reusable character checkpoint for role ${role.name} changed. Reload and resume.`,
+          });
+          return;
+        }
+        row = owned.row;
+
+        // The canonical portrait and the multi-view sheet are intentionally
+        // separate paid assets. A failed sheet leaves the durable character
+        // available with an actionable failed state; it is never auto-approved.
+        const [ownedCharacter] = await db
+          .select()
+          .from(charactersTable)
+          .where(
+            and(
+              eq(charactersTable.id, owned.characterId),
+              eq(charactersTable.tenantId, req.tenantId),
+            ),
+          )
+          .limit(1);
+        if (ownedCharacter && !ownedCharacter.referenceSheetImagePath) {
+          const sheetOperationKey =
+            `guided-story-sheet:${row.id}:${row.revision}:${role.id}`;
+          let sheetOperation =
+            row.state.castOperations[role.id]?.sheetOperation;
+          let sheetFunding: {
+            source: "quota" | "credit" | "wallet";
+            reservation?: WalletReservation;
+          } | null = sheetOperation?.funding
+            ? {
+                source: sheetOperation.funding,
+                ...(sheetOperation.walletReservation
+                  ? { reservation: sheetOperation.walletReservation }
+                  : {}),
+              }
+            : null;
+          const checkpointSheet = async (
+            next: NonNullable<
+              GuidedStoryDraftState["castOperations"][string]["sheetOperation"]
+            >,
+          ) => {
+            const savedSheet = await checkpointGuidedCastOperation({
+              row: row!,
+              roleId: role.id,
+              operationKey,
+              update: { sheetOperation: next },
+            });
+            if (!savedSheet) throw new Error("Sheet operation checkpoint CAS failed.");
+            row = savedSheet;
+            sheetOperation = next;
+          };
+
+          try {
+            if (!sheetOperation) {
+              await checkpointSheet({
+                operationKey: sheetOperationKey,
+                status: "claimed",
+                updatedAt: new Date().toISOString(),
+              });
+            } else if (sheetOperation.operationKey !== sheetOperationKey) {
+              throw new Error("Sheet operation identity requires reconciliation.");
+            }
+
+            if (!sheetFunding) {
+              sheetFunding = await reserveImageFunding(req);
+              if (!sheetFunding) {
+                await checkpointSheet({
+                  ...sheetOperation!,
+                  status: "failed",
+                  error:
+                    "Reference sheet funding is unavailable. Add image credits or recharge, then retry.",
+                  updatedAt: new Date().toISOString(),
+                });
+                throw new CharacterInputError("Reference sheet funding is unavailable.");
+              }
+              await checkpointSheet({
+                ...sheetOperation!,
+                status: "funded",
+                funding: sheetFunding.source,
+                walletReservation: sheetFunding.reservation ?? null,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+
+            if (
+              sheetOperation?.status === "provider_running" ||
+              sheetOperation?.status === "outcome_unknown"
+            ) {
+              throw new Error(
+                "Reference sheet provider outcome is unknown and requires reconciliation.",
+              );
+            }
+            if (sheetOperation?.status === "failed") {
+              throw new CharacterInputError(
+                sheetOperation.error ??
+                  "Reference sheet generation failed and requires an explicit retry.",
+              );
+            }
+
+            let sheetBuffer: Buffer<ArrayBufferLike> | null = sheetOperation?.imageBase64
+              ? Buffer.from(sheetOperation.imageBase64, "base64")
+              : null;
+            if (
+              !sheetBuffer &&
+              sheetOperation?.status !== "provider_succeeded" &&
+              sheetOperation?.status !== "uploaded" &&
+              sheetOperation?.status !== "settled"
+            ) {
+              const primaryReference = await loadReferenceImage(
+                referenceImagePath,
+                req.tenantId,
+              );
+              await checkpointSheet({
+                ...sheetOperation!,
+                status: "provider_running",
+                updatedAt: new Date().toISOString(),
+              });
+              try {
+                const walletSheet =
+                  sheetFunding.source === "wallet" && sheetFunding.reservation
+                    ? await executeWalletProviderOperation(
+                        {
+                          tenantId: req.tenantId,
+                          reservation: sheetFunding.reservation,
+                          operationKind: "character_reference",
+                          operationKey: sheetOperationKey,
+                          settlement: {
+                            kind: "image",
+                            costPaise: null,
+                            refKind: "character",
+                            refId: String(owned.characterId),
+                          },
+                        },
+                        () =>
+                          generateCharacterReferenceSheet(
+                            ownedCharacter,
+                            primaryReference,
+                            owned.row.state.imageModelSnapshot,
+                          ),
+                        (result) => ({
+                          provider: result.provider,
+                          model: result.model,
+                        }),
+                        { isFailureConfirmed: isConfirmedImageFailure },
+                      )
+                    : null;
+                const sheet =
+                  walletSheet?.value ??
+                  (await generateCharacterReferenceSheet(
+                    ownedCharacter,
+                    primaryReference,
+                    owned.row.state.imageModelSnapshot,
+                  ));
+                sheetBuffer = sheet.buffer;
+                await checkpointSheet({
+                  ...sheetOperation!,
+                  status: "provider_succeeded",
+                  operationId: walletSheet?.operationId ?? null,
+                  provider: sheet.provider,
+                  model: sheet.model,
+                  imageBase64: sheet.buffer.toString("base64"),
+                  imageByteLength: sheet.buffer.length,
+                  updatedAt: new Date().toISOString(),
+                });
+              } catch (error) {
+                const confirmed = isConfirmedImageFailure(error);
+                await checkpointSheet({
+                  ...sheetOperation!,
+                  status: confirmed ? "failed" : "outcome_unknown",
+                  error: confirmed
+                    ? "Reference sheet provider confirmed that no image was generated."
+                    : "Reference sheet provider outcome is unknown and requires reconciliation.",
+                  updatedAt: new Date().toISOString(),
+                });
+                if (confirmed) await releaseImageFunding(req, sheetFunding);
+                throw error;
+              }
+            }
+
+            if (sheetOperation?.status === "provider_succeeded") {
+              if (!sheetBuffer) throw new Error("Sheet provider bytes are missing.");
+              const sheetPath = await uploadBufferToStorage(
+                req.tenantId,
+                sheetBuffer,
+                "image/png",
+              );
+              // Keep exact paid bytes until this path checkpoint is durable.
+              await checkpointSheet({
+                ...sheetOperation,
+                status: "uploaded",
+                path: sheetPath,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+
+            if (sheetOperation?.status === "uploaded") {
+              if (
+                !sheetOperation.path ||
+                !sheetOperation.provider ||
+                !sheetOperation.model
+              ) throw new Error("Uploaded sheet receipt is incomplete.");
+              await settleImageFunding(
+                req,
+                sheetFunding,
+                {
+                  durationMs: 0,
+                  responseBytes: sheetOperation.imageByteLength ?? 0,
+                  model: sheetOperation.model,
+                  provider: sheetOperation.provider,
+                },
+                sheetOperation.operationId ?? undefined,
+                `${sheetOperationKey}:usage`,
+              );
+              await checkpointSheet({
+                ...sheetOperation,
+                status: "settled",
+                settledAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              });
+            }
+
+            if (sheetOperation?.status === "settled" && sheetOperation.path) {
+              await db
+                .update(charactersTable)
+                .set({
+                  referenceSheetImagePath: sheetOperation.path,
+                  referenceSheetStatus: "pending",
+                  referenceSheetError: null,
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(charactersTable.id, owned.characterId),
+                    eq(charactersTable.tenantId, req.tenantId),
+                  ),
+                );
+            }
+          } catch (error) {
+            req.log.warn(
+              { err: error, roleId: role.id, characterId: owned.characterId },
+              "Guided Story character sheet generation failed",
+            );
+            await db
+              .update(charactersTable)
+              .set({
+                referenceSheetStatus: "failed",
+                referenceSheetError:
+                  sheetOperation?.error ??
+                  "The canonical portrait was saved, but its separate reference sheet requires retry or reconciliation.",
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(charactersTable.id, owned.characterId),
+                  eq(charactersTable.tenantId, req.tenantId),
+                ),
+              );
+            roleErrors.push({
+              roleId: role.id,
+              error:
+                sheetOperation?.error ??
+                `Reference sheet generation for role ${role.name} requires retry or reconciliation.`,
+            });
+            continue;
+          }
+        }
         cast.push({
           roleId: role.id,
           source: "generated",
-          characterId: null,
-          outfitId: null,
+          characterId: owned.characterId,
+          outfitId: owned.outfitId,
           brandKitId: voice.brandKitId,
           voiceId: voice.id,
           character: {
-            name: role.name,
-            description: `Wholly fictional character. ${role.description}`,
+            name: operation.customization?.name ?? role.name,
+            description: characterDescription,
             referenceImagePath,
           },
           outfit: {
             name: `${role.name} story wardrobe`,
-            description: `Original fictional wardrobe suited to ${row.state.setup!.genre.replaceAll("_", " ")}.`,
+            description: wardrobeDescription,
             referenceImagePath,
           },
           voice: {
@@ -4375,6 +5076,13 @@ router.put(
           },
         });
       }
+    }
+    if (roleErrors.length) {
+      res.status(502).json({
+        error: "One or more generated roles require retry or reconciliation.",
+        roles: roleErrors,
+      });
+      return;
     }
     const duplicates = guidedCastHasDuplicates(cast);
     if (duplicates && parsed.data.duplicateAssignmentConfirmed !== true) {
@@ -4458,8 +5166,199 @@ router.put(
       if (cleared) saved = cleared;
     }
     res.json(serializeGuidedDraft(saved));
-  },
+}
+
+router.put(
+  "/ai/guided-story/drafts/:draftId/cast",
+  processGuidedStoryCast,
 );
+
+const GUIDED_CAST_SWEEP_BATCH_SIZE = 50;
+const GUIDED_CAST_SWEEP_RECOVERY_QUOTA = 10;
+const GUIDED_CAST_SWEEP_INTERVAL_MS = 30_000;
+let guidedCastSweepTimer: ReturnType<typeof setInterval> | null = null;
+let guidedCastSweepRunning = false;
+let guidedCastSweepCursorId = 0;
+const guidedCastImmediatelyScheduledIds = new Set<number>();
+
+export function guidedCastSweepAllocation(immediateCount: number): {
+  immediateLimit: number;
+  cursorLimit: number;
+} {
+  const immediateLimit = Math.min(
+    Math.max(0, immediateCount),
+    GUIDED_CAST_SWEEP_BATCH_SIZE - GUIDED_CAST_SWEEP_RECOVERY_QUOTA,
+  );
+  return {
+    immediateLimit,
+    cursorLimit: GUIDED_CAST_SWEEP_BATCH_SIZE - immediateLimit,
+  };
+}
+
+/**
+ * Resume automatic generated casts without relying on a browser to submit the
+ * cast form.  We intentionally only pick durable pre-provider claims.  A
+ * provider_running or provider_outcome_unknown checkpoint is an ambiguous
+ * provider boundary and must be reconciled, never re-dispatched by a sweep.
+ */
+export async function sweepPendingGuidedStoryCasts(): Promise<void> {
+  if (guidedCastSweepRunning) {
+    // Do not drop a post-commit immediate handoff merely because another
+    // bounded page is finishing. Wait outside all DB transactions, then claim
+    // the next page.
+    await new Promise<void>((resolve) => {
+      setTimeout(
+        () => void sweepPendingGuidedStoryCasts().then(resolve),
+        10,
+      );
+    });
+    return;
+  }
+  guidedCastSweepRunning = true;
+  try {
+    const allocation = guidedCastSweepAllocation(
+      guidedCastImmediatelyScheduledIds.size,
+    );
+    const immediateIds = [...guidedCastImmediatelyScheduledIds].slice(
+      0,
+      allocation.immediateLimit,
+    );
+    immediateIds.forEach((id) => guidedCastImmediatelyScheduledIds.delete(id));
+    const immediateDrafts = immediateIds.length
+      ? await db
+          .select()
+          .from(guidedStoryDraftsTable)
+          .where(inArray(guidedStoryDraftsTable.id, immediateIds))
+      : [];
+    const cursorDrafts = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(gt(guidedStoryDraftsTable.id, guidedCastSweepCursorId))
+      .orderBy(guidedStoryDraftsTable.id)
+      .limit(GUIDED_CAST_SWEEP_BATCH_SIZE - immediateDrafts.length);
+    const drafts = [
+      ...immediateDrafts,
+      ...cursorDrafts.filter(
+        (draft) => !immediateIds.includes(draft.id),
+      ),
+    ];
+    if (cursorDrafts.length === 0) {
+      guidedCastSweepCursorId = 0;
+    } else {
+      guidedCastSweepCursorId = cursorDrafts.at(-1)!.id;
+      if (
+        cursorDrafts.length <
+        GUIDED_CAST_SWEEP_BATCH_SIZE - immediateDrafts.length
+      ) {
+        guidedCastSweepCursorId = 0;
+      }
+    }
+    for (const draft of drafts) {
+      const script = draft.state.script;
+      const operations = draft.state.castOperations ?? {};
+      if (
+        !script ||
+        !draft.state.scriptApprovedAt ||
+        draft.state.castStrategy === "saved" ||
+        !script.roles.length ||
+        !script.roles.some((role) => {
+          const operation = operations[role.id];
+          const sheetStatus = operation?.sheetOperation?.status;
+          if (
+            sheetStatus === "provider_running" ||
+            sheetStatus === "outcome_unknown" ||
+            sheetStatus === "failed"
+          ) {
+            return false;
+          }
+          return operation?.autoStart === true ||
+            operation?.status === "claimed" ||
+            operation?.status === "funded" ||
+            operation?.status === "provider_succeeded" ||
+            operation?.status === "upload_succeeded" ||
+            sheetStatus === "funded" ||
+            sheetStatus === "provider_succeeded" ||
+            sheetStatus === "uploaded";
+        })
+      ) continue;
+
+      // The normal cast pipeline only needs tenantId and log from Request.
+      // Its response is deliberately discarded: this runner is responsible for
+      // durable checkpoints, while callers may independently poll draft state.
+      const internalReq = {
+        tenantId: draft.tenantId,
+        params: { draftId: String(draft.id) },
+        body: {
+          revision: draft.revision,
+          strategy: "generated",
+          duplicateAssignmentConfirmed: true,
+          assignments: script.roles.map((role) => ({
+            roleId: role.id,
+            source: "generated",
+            characterId: null,
+            outfitId: null,
+            consentGranted: false,
+            isUserRole: false,
+            voiceId:
+              operations[role.id]?.voiceId ?? GUIDED_STORY_STOCK_VOICES[0],
+          })),
+        },
+        log: logger,
+      } as unknown as Request;
+      let internalStatus = 200;
+      let internalBody: unknown = null;
+      const internalRes = {
+        status: (status: number) => {
+          internalStatus = status;
+          return internalRes;
+        },
+        json: (body: unknown) => {
+          internalBody = body;
+          return internalRes;
+        },
+      } as unknown as Response;
+      await processGuidedStoryCast(internalReq, internalRes);
+      if (internalStatus >= 400) {
+        logger.warn(
+          { draftId: draft.id, status: internalStatus, body: internalBody },
+          "Guided Story automatic cast pass did not complete",
+        );
+      }
+    }
+  } catch (error) {
+    logger.error({ err: error }, "Guided Story automatic cast sweep failed");
+  } finally {
+    guidedCastSweepRunning = false;
+    // A commit may schedule work while this pass is already running. Preserve
+    // that handoff and immediately start another bounded pass rather than
+    // waiting for the recovery interval.
+    if (guidedCastImmediatelyScheduledIds.size > 0) {
+      queueMicrotask(() => void sweepPendingGuidedStoryCasts());
+    }
+  }
+}
+
+/** Queue after the approval transaction commits; coalescing is safe by CAS. */
+export function schedulePendingGuidedStoryCastSweep(draftId?: number): void {
+  if (draftId) guidedCastImmediatelyScheduledIds.add(draftId);
+  queueMicrotask(() => void sweepPendingGuidedStoryCasts());
+}
+
+export function startGuidedStoryCastSweep(): void {
+  if (guidedCastSweepTimer) return;
+  schedulePendingGuidedStoryCastSweep();
+  guidedCastSweepTimer = setInterval(
+    () => void sweepPendingGuidedStoryCasts(),
+    GUIDED_CAST_SWEEP_INTERVAL_MS,
+  );
+  guidedCastSweepTimer.unref?.();
+}
+
+export function stopGuidedStoryCastSweep(): void {
+  if (!guidedCastSweepTimer) return;
+  clearInterval(guidedCastSweepTimer);
+  guidedCastSweepTimer = null;
+}
 
 router.post(
   "/ai/guided-story/drafts/:draftId/cast/:roleId/approve",
@@ -4486,6 +5385,29 @@ router.post(
     if (!member || !characterPath || !outfitPath) {
       res.status(400).json({
         error: "Select complete character and outfit references for this role before approving.",
+      });
+      return;
+    }
+    if (member.characterId == null) {
+      res.status(409).json({
+        error: "This role is not bound to a reusable tenant character. Regenerate or replace it before approval.",
+      });
+      return;
+    }
+    const approvalCharacter = await getCharacterDetail(
+      req.tenantId,
+      member.characterId,
+    );
+    if (
+      !approvalCharacter ||
+      !isCharacterReferenceSheetApproved(approvalCharacter.character)
+    ) {
+      res.status(409).json({
+        error:
+          approvalCharacter?.character.referenceSheetStatus === "failed"
+            ? approvalCharacter.character.referenceSheetError ??
+              "Reference sheet generation failed. Retry it before approving this role."
+            : "Approve this character's separate reference sheet before approving the role.",
       });
       return;
     }
@@ -6364,6 +7286,22 @@ router.post(
           error:
             `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} Also approve the exact current script, complete casting with fresh consent, and review the shared backdrop before enqueue.`,
         });
+      return;
+    }
+    // Approval evidence alone is not sufficient: reference sheets remain
+    // mutable library assets. Revalidate the currently bound tenant record at
+    // the enqueue gate so a rejected/failed/replaced sheet cannot be rendered.
+    const sheetBindings = await Promise.all(row.state.cast.map(async (member) => {
+      if (member.characterId == null) return false;
+      const detail = await getCharacterDetail(req.tenantId, member.characterId);
+      return !!detail &&
+        detail.character.referenceImagePath === member.character.referenceImagePath &&
+        isCharacterReferenceSheetApproved(detail.character);
+    }));
+    if (sheetBindings.some((valid) => !valid)) {
+      res.status(409).json({
+        error: "A cast reference sheet changed or is no longer approved. Review and approve that role again before enqueue.",
+      });
       return;
     }
     if (

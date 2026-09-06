@@ -4862,6 +4862,26 @@ export interface GuidedStoryCastRoleApprovalInput {
   revision: number;
 }
 
+export interface GuidedStoryGeneratedCastCustomizationInput {
+  /** @minimum 1 */
+  revision: number;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  name: string;
+  /**
+     * @minLength 3
+     * @maxLength 4000
+     */
+  description: string;
+  /**
+     * @minLength 3
+     * @maxLength 4000
+     */
+  wardrobeDescription: string;
+}
+
 export interface GuidedStoryCastApprovalAsset {
   referenceImagePath: string;
   /** @pattern ^[a-f0-9]{64}$ */
@@ -6527,6 +6547,48 @@ export type GuidedStoryDraftScriptGeneration = {
   claimedAt: string;
 } | null;
 
+export type GuidedStoryDraftGeneratedCastOperationsStatus = typeof GuidedStoryDraftGeneratedCastOperationsStatus[keyof typeof GuidedStoryDraftGeneratedCastOperationsStatus];
+
+
+export const GuidedStoryDraftGeneratedCastOperationsStatus = {
+  claimed: 'claimed',
+  funded: 'funded',
+  provider_running: 'provider_running',
+  provider_outcome_unknown: 'provider_outcome_unknown',
+  provider_succeeded: 'provider_succeeded',
+  upload_succeeded: 'upload_succeeded',
+  uploaded: 'uploaded',
+} as const;
+
+/**
+ * @nullable
+ */
+export type GuidedStoryDraftGeneratedCastOperationsSheetStatus = typeof GuidedStoryDraftGeneratedCastOperationsSheetStatus[keyof typeof GuidedStoryDraftGeneratedCastOperationsSheetStatus] | null;
+
+
+export const GuidedStoryDraftGeneratedCastOperationsSheetStatus = {
+  claimed: 'claimed',
+  funded: 'funded',
+  provider_running: 'provider_running',
+  provider_succeeded: 'provider_succeeded',
+  uploaded: 'uploaded',
+  settled: 'settled',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export type GuidedStoryDraftGeneratedCastOperations = {[key: string]: {
+  status: GuidedStoryDraftGeneratedCastOperationsStatus;
+  /** @nullable */
+  characterId: number | null;
+  /** @nullable */
+  outfitId: number | null;
+  /** @nullable */
+  sheetStatus: GuidedStoryDraftGeneratedCastOperationsSheetStatus;
+  /** @nullable */
+  sheetError: string | null;
+}};
+
 /**
  * Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.
  */
@@ -6583,6 +6645,7 @@ export interface GuidedStoryDraft {
      * @nullable
      */
   scriptGeneration: GuidedStoryDraftScriptGeneration;
+  generatedCastOperations: GuidedStoryDraftGeneratedCastOperations;
   referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
   /** @nullable */
@@ -6591,6 +6654,11 @@ export interface GuidedStoryDraft {
   estimates: GuidedStoryDraftEstimates;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RetryGuidedStoryGeneratedCastReferenceSheetInput {
+  /** @minimum 1 */
+  revision: number;
 }
 
 export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];

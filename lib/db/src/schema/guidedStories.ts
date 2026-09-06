@@ -270,6 +270,51 @@ export interface GuidedStoryDraftState {
     imageByteLength?: number;
     path?: string;
     settledAt?: string;
+    /** Tenant-library identity created from the paid canonical portrait. */
+    characterId?: number;
+    outfitId?: number;
+    /** Server-side script approval has reserved this role for the first resume. */
+    autoStart?: boolean;
+    /** A role-bound edit to a generated tenant character, consumed by cast resume. */
+    customization?: {
+      name: string;
+      description: string;
+      wardrobeDescription: string;
+    };
+    /**
+     * The portrait and its multi-view reference sheet are separate paid
+     * operations.  Sheet bytes are retained at provider_succeeded so a crash
+     * between provider response and upload can be resumed without buying a
+     * second sheet.  provider_running/outcome_unknown are deliberately
+     * fail-closed and require provider reconciliation.
+     */
+    sheetOperation?: {
+      operationKey: string;
+      status:
+        | "claimed"
+        | "funded"
+        | "provider_running"
+        | "provider_succeeded"
+        | "uploaded"
+        | "settled"
+        | "failed"
+        | "outcome_unknown";
+      updatedAt: string;
+      funding?: "quota" | "credit" | "wallet";
+      walletReservation?: {
+        id: number;
+        amountPaise: number;
+        units: number;
+      } | null;
+      operationId?: number | null;
+      provider?: string;
+      model?: string;
+      imageBase64?: string;
+      imageByteLength?: number;
+      path?: string;
+      settledAt?: string;
+      error?: string;
+    };
 
   }>;
   /** Inline awaiting-review replacement candidates, keyed by opaque operation id. */

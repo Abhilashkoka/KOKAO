@@ -205,6 +205,7 @@ import type {
   GuidedStoryDraft,
   GuidedStoryDraftUpdate,
   GuidedStoryEnqueueInput,
+  GuidedStoryGeneratedCastCustomizationInput,
   GuidedStoryLineTranslationInput,
   GuidedStoryPlatformContract,
   GuidedStoryReferenceFinalizationInput,
@@ -336,6 +337,7 @@ import type {
   ResendLinkedinCommentsResult,
   ResolveSelectionInput,
   ResolveSelectionResult,
+  RetryGuidedStoryGeneratedCastReferenceSheetInput,
   RevenueAnalytics,
   SarvamTtsSettingsView,
   SaveVideoToLibraryRequest,
@@ -16641,6 +16643,154 @@ export const useApproveGuidedStoryCastRole = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getApproveGuidedStoryCastRoleMutationOptions(options));
+    }
+
+export const getCustomizeGuidedStoryGeneratedCastRoleUrl = (draftId: number,
+    roleId: string,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/cast/${roleId}/customize`
+}
+
+/**
+ * CAS-guarded and tenant-scoped. Only the generated character and outfit currently bound to this role are changed. This starts canonical portrait and multi-view reference-sheet regeneration; the resulting sheet remains pending explicit human approval.
+ * @summary Customize and regenerate one generated Guided Story role
+ */
+export const customizeGuidedStoryGeneratedCastRole = async (draftId: number,
+    roleId: string,
+    guidedStoryGeneratedCastCustomizationInput: GuidedStoryGeneratedCastCustomizationInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getCustomizeGuidedStoryGeneratedCastRoleUrl(draftId,roleId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryGeneratedCastCustomizationInput)
+  }
+);}
+
+
+
+
+export const getCustomizeGuidedStoryGeneratedCastRoleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof customizeGuidedStoryGeneratedCastRole>>, TError,{draftId: number;roleId: string;data: BodyType<GuidedStoryGeneratedCastCustomizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof customizeGuidedStoryGeneratedCastRole>>, TError,{draftId: number;roleId: string;data: BodyType<GuidedStoryGeneratedCastCustomizationInput>}, TContext> => {
+
+const mutationKey = ['customizeGuidedStoryGeneratedCastRole'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof customizeGuidedStoryGeneratedCastRole>>, {draftId: number;roleId: string;data: BodyType<GuidedStoryGeneratedCastCustomizationInput>}> = (props) => {
+          const {draftId,roleId,data} = props ?? {};
+
+          return  customizeGuidedStoryGeneratedCastRole(draftId,roleId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CustomizeGuidedStoryGeneratedCastRoleMutationResult = NonNullable<Awaited<ReturnType<typeof customizeGuidedStoryGeneratedCastRole>>>
+    export type CustomizeGuidedStoryGeneratedCastRoleMutationBody = BodyType<GuidedStoryGeneratedCastCustomizationInput>
+    export type CustomizeGuidedStoryGeneratedCastRoleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Customize and regenerate one generated Guided Story role
+ */
+export const useCustomizeGuidedStoryGeneratedCastRole = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof customizeGuidedStoryGeneratedCastRole>>, TError,{draftId: number;roleId: string;data: BodyType<GuidedStoryGeneratedCastCustomizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof customizeGuidedStoryGeneratedCastRole>>,
+        TError,
+        {draftId: number;roleId: string;data: BodyType<GuidedStoryGeneratedCastCustomizationInput>},
+        TContext
+      > => {
+      return useMutation(getCustomizeGuidedStoryGeneratedCastRoleMutationOptions(options));
+    }
+
+export const getRetryGuidedStoryGeneratedCastReferenceSheetUrl = (draftId: number,
+    roleId: string,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/cast/${roleId}/reference-sheet/retry`
+}
+
+/**
+ * CAS-guarded and tenant-scoped. Ambiguous provider outcomes remain fail-closed and cannot use this endpoint.
+ * @summary Retry one confirmed-failed generated cast reference sheet
+ */
+export const retryGuidedStoryGeneratedCastReferenceSheet = async (draftId: number,
+    roleId: string,
+    retryGuidedStoryGeneratedCastReferenceSheetInput: RetryGuidedStoryGeneratedCastReferenceSheetInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getRetryGuidedStoryGeneratedCastReferenceSheetUrl(draftId,roleId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(retryGuidedStoryGeneratedCastReferenceSheetInput)
+  }
+);}
+
+
+
+
+export const getRetryGuidedStoryGeneratedCastReferenceSheetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryGuidedStoryGeneratedCastReferenceSheet>>, TError,{draftId: number;roleId: string;data: BodyType<RetryGuidedStoryGeneratedCastReferenceSheetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryGuidedStoryGeneratedCastReferenceSheet>>, TError,{draftId: number;roleId: string;data: BodyType<RetryGuidedStoryGeneratedCastReferenceSheetInput>}, TContext> => {
+
+const mutationKey = ['retryGuidedStoryGeneratedCastReferenceSheet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryGuidedStoryGeneratedCastReferenceSheet>>, {draftId: number;roleId: string;data: BodyType<RetryGuidedStoryGeneratedCastReferenceSheetInput>}> = (props) => {
+          const {draftId,roleId,data} = props ?? {};
+
+          return  retryGuidedStoryGeneratedCastReferenceSheet(draftId,roleId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryGuidedStoryGeneratedCastReferenceSheetMutationResult = NonNullable<Awaited<ReturnType<typeof retryGuidedStoryGeneratedCastReferenceSheet>>>
+    export type RetryGuidedStoryGeneratedCastReferenceSheetMutationBody = BodyType<RetryGuidedStoryGeneratedCastReferenceSheetInput>
+    export type RetryGuidedStoryGeneratedCastReferenceSheetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Retry one confirmed-failed generated cast reference sheet
+ */
+export const useRetryGuidedStoryGeneratedCastReferenceSheet = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryGuidedStoryGeneratedCastReferenceSheet>>, TError,{draftId: number;roleId: string;data: BodyType<RetryGuidedStoryGeneratedCastReferenceSheetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryGuidedStoryGeneratedCastReferenceSheet>>,
+        TError,
+        {draftId: number;roleId: string;data: BodyType<RetryGuidedStoryGeneratedCastReferenceSheetInput>},
+        TContext
+      > => {
+      return useMutation(getRetryGuidedStoryGeneratedCastReferenceSheetMutationOptions(options));
     }
 
 export const getCreateGuidedStoryReferenceUrl = (draftId: number,) => {
