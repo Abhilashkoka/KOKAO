@@ -1695,7 +1695,7 @@ describe("POST /api/ai/generate-video", () => {
     const res = await request(app)
       .post("/api/ai/generate-video")
       .send({
-        engine: "topic_to_video",
+        engine: "guided_story",
         prompt: "5 morning habits that transform your day",
         aspectRatio: "9:16",
         voice: "nova",
@@ -1736,7 +1736,7 @@ describe("POST /api/ai/generate-video", () => {
       const template = await seedPresenterTemplate();
       const before = runnerState.calls.length;
       const res = await request(app).post("/api/ai/generate-video").send({
-        engine: "topic_to_video",
+        engine: "guided_story",
         prompt: "This is the exact script spoken in my presenter take.",
         styleProfileId: template.id,
       });
@@ -4693,7 +4693,10 @@ describe("guided story route fail-closed regressions", () => {
       .patch(`/api/ai/guided-story/drafts/${draft.id}`)
       .send({ revision: draft.revision, script });
 
-    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(
+      response.status,
+      response.text || JSON.stringify(response.body),
+    ).toBe(200);
     expect(response.body.setup.roleCount).toBe(2);
     expect(response.body.script.roles).toHaveLength(5);
     expect(response.body.scriptApprovedAt).toBeNull();
@@ -10197,6 +10200,7 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
           guidedStory: {
             draftId: draft!.id,
             draftRevision: draft!.revision,
+            script: { scenes: [] },
           },
         } as any,
       })
@@ -10231,6 +10235,105 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
     const retry = await request(app)
       .post(`/api/ai/video-jobs/${failedJob!.id}/storyboard/discard`);
     expect(retry.status).toBe(200);
+  });
+
+  it("reopens a recovery child through the root job still linked to its draft", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: null,
+      script: null,
+      scriptApprovedAt: null,
+      userRoleId: null,
+      castStrategy: null,
+      cast: [],
+      castApprovals: null,
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      sceneInsertionGeneration: null,
+      castOperations: {},
+      referenceOperations: {},
+      visualChoices: {
+        version: 1,
+        logo: { path: null, sceneIds: [] },
+        location: { mode: "none", imagePath: null, description: null },
+      },
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({
+        tenantId: tenant.tenantId,
+        state,
+      })
+      .returning();
+    const [root] = await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId: tenant.tenantId,
+        engine: "topic_to_video",
+        status: "failed",
+        options: {
+          aspectRatio: "9:16",
+          guidedStory: {
+            draftId: draft!.id,
+            draftRevision: draft!.revision,
+            script: { scenes: [] },
+          },
+        } as any,
+      })
+      .returning();
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...state,
+          storyboardJobId: root!.id,
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+    const [child] = await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId: tenant.tenantId,
+        engine: "topic_to_video",
+        status: "failed",
+        guidedStoryRecoveryUnavailableAt: new Date(),
+        guidedStoryRecoveryDismissedAt: new Date(),
+        options: {
+          aspectRatio: "9:16",
+          guidedStory: {
+            draftId: draft!.id,
+            draftRevision: draft!.revision,
+            script: { scenes: [] },
+          },
+          recovery: {
+            version: 1,
+            chainId: root!.id,
+            sourceJobId: root!.id,
+            fundedUnits: 1,
+            mode: "resume",
+            state: "queued",
+            reusable: [],
+            regenerated: [],
+          },
+        } as any,
+      })
+      .returning();
+
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${child!.id}/storyboard/discard`);
+
+    expect(
+      response.status,
+      response.text || JSON.stringify(response.body),
+    ).toBe(200);
+    expect(response.body.guidedStoryRecoveryUnavailable).toBe(false);
+    expect(response.body.guidedStoryRecoveryDismissed).toBe(false);
+    const restored = await request(app)
+      .get(`/api/ai/guided-story/drafts/${draft!.id}`);
+    expect(restored.body.storyboardJobId).toBeNull();
   });
 
   it("fails the job and gives credit funding back exactly once", async () => {

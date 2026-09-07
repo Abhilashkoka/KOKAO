@@ -13268,6 +13268,24 @@ router.post(
         return;
       }
       const snapshot = existing.options?.guidedStory;
+      const clearIncorrectUnavailableState = async () => {
+        if (
+          !existing.guidedStoryRecoveryUnavailableAt &&
+          !existing.guidedStoryRecoveryDismissedAt
+        ) {
+          return existing;
+        }
+        const [repaired] = await db
+          .update(videoGenerationsTable)
+          .set({
+            guidedStoryRecoveryUnavailableAt: null,
+            guidedStoryRecoveryDismissedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(videoGenerationsTable.id, existing.id))
+          .returning();
+        return repaired ?? existing;
+      };
       const restoredCast =
         draft.state.cast.length === 0 && snapshot?.cast?.length
           ? snapshot.cast
@@ -13312,10 +13330,19 @@ router.post(
             return;
           }
         }
-        res.json(serializeVideoJob(existing));
+        res.json(
+          serializeVideoJob(await clearIncorrectUnavailableState()),
+        );
         return;
       }
-      if (draft.state.storyboardJobId !== existing.id) {
+      const linkedStoryboardJobIds = new Set(
+        [
+          existing.id,
+          existing.options?.recovery?.sourceJobId,
+          existing.options?.recovery?.chainId,
+        ].filter((id): id is number => typeof id === "number"),
+      );
+      if (!linkedStoryboardJobIds.has(draft.state.storyboardJobId)) {
         await db
           .update(videoGenerationsTable)
           .set({
@@ -13341,7 +13368,9 @@ router.post(
       }
       // The failed job is immutable history: detaching only releases the draft
       // for a new attempt and does not refund or rewrite the old attempt.
-      res.json(serializeVideoJob(existing));
+      res.json(
+        serializeVideoJob(await clearIncorrectUnavailableState()),
+      );
       return;
     }
 
