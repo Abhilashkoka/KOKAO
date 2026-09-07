@@ -13,7 +13,7 @@ import aiRouter from "./ai";
 import videosRouter from "./videos";
 import imageJobsRouter from "./imageJobs";
 import imageLayersRouter from "./imageLayers";
-import charactersRouter from "./characters";
+import charactersRouter, { bytePlusIdentityCallbackRouter } from "./characters";
 import videoStylesRouter from "./videoStyles";
 import assetsRouter from "./assets";
 import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
@@ -62,6 +62,8 @@ const router: IRouter = Router();
 // Public routes
 router.use(healthRouter);
 router.use(publicStorageRouter);
+router.use("/characters/identities/callback", sensitiveLimiter);
+router.use(bytePlusIdentityCallbackRouter);
 router.use(plansRouter);
 router.use(publicAppBrandRouter);
 router.use(publicLandingContentRouter);

@@ -8197,6 +8197,106 @@ export interface CreateCharacterRequest {
      * @nullable
      */
   sourceImagePath?: string | null;
+  /**
+     * A liveness-verified BytePlus identity. Requires sourceImagePath; generated portraits cannot be filed as a verified real person.
+     * @nullable
+     */
+  identityId?: number | null;
+}
+
+export type BytePlusIdentityStatus = typeof BytePlusIdentityStatus[keyof typeof BytePlusIdentityStatus];
+
+
+export const BytePlusIdentityStatus = {
+  pending: 'pending',
+  verified: 'verified',
+  failed: 'failed',
+} as const;
+
+export interface BytePlusIdentity {
+  id: number;
+  label: string;
+  status: BytePlusIdentityStatus;
+  /** @nullable */
+  assetGroupId: string | null;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  verifiedAt: string | null;
+}
+
+export interface BytePlusIdentityInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  label: string;
+}
+
+export type BytePlusIdentityStart = BytePlusIdentity & {
+  verificationUrl: string;
+};
+
+export interface BytePlusAssetsKeyInput {
+  /** @minLength 1 */
+  accessKeyId: string;
+  /** @minLength 1 */
+  secretAccessKey: string;
+}
+
+export interface BytePlusAssetOutfit {
+  id: number;
+  name: string;
+  /** @nullable */
+  assetId: string | null;
+  /** @nullable */
+  status: string | null;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  syncedAt: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type BytePlusAssetCharacterReferenceSource = typeof BytePlusAssetCharacterReferenceSource[keyof typeof BytePlusAssetCharacterReferenceSource] | null;
+
+
+export const BytePlusAssetCharacterReferenceSource = {
+  generated: 'generated',
+  uploaded: 'uploaded',
+} as const;
+
+export interface BytePlusAssetCharacter {
+  id: number;
+  tenantId: number;
+  name: string;
+  /** @nullable */
+  assetGroupId: string | null;
+  /** @nullable */
+  identityId: number | null;
+  /** @nullable */
+  referenceSource: BytePlusAssetCharacterReferenceSource;
+  outfits: BytePlusAssetOutfit[];
+}
+
+/**
+ * @nullable
+ */
+export type BytePlusAssetsAdminViewKeySource = typeof BytePlusAssetsAdminViewKeySource[keyof typeof BytePlusAssetsAdminViewKeySource] | null;
+
+
+export const BytePlusAssetsAdminViewKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
+export interface BytePlusAssetsAdminView {
+  /** @nullable */
+  keySource: BytePlusAssetsAdminViewKeySource;
+  identities: BytePlusIdentity[];
+  characters: BytePlusAssetCharacter[];
 }
 
 /**

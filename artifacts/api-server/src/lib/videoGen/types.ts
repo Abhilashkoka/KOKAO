@@ -119,6 +119,8 @@ export interface VideoGenInput {
    * animated into whatever the model felt like.
    */
   endImage?: SourceImage;
+  /** Reviewed BytePlus Asset Library references. Only BytePlus consumes these. */
+  assetIds?: string[];
   /**
    * Deterministic sampling seed. Omitted (or null) means "let the provider
    * choose", which is the behaviour every job had before seeds existed.

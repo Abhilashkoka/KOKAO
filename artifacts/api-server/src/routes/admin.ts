@@ -15,6 +15,9 @@ import {
   walletBalancesTable,
   creditBalancesTable,
   videoGenerationsTable,
+  charactersTable,
+  characterOutfitsTable,
+  bytePlusIdentitiesTable,
 } from "@workspace/db";
 import {
   getWalletConfig,
@@ -27,7 +30,7 @@ import {
   reconcilePendingModel,
   trueUpModel,
 } from "../lib/wallet";
-import { eq, sql, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
+import { eq, sql, asc, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   syncActivatedModelPricing,
@@ -210,6 +213,7 @@ import {
   AdminResolveSupportRequestBody,
   AdminSetNvidiaHostedKeyBody,
   AdminSetNvidiaDeploymentBody,
+  SetAdminBytePlusAssetsKeyBody,
 } from "@workspace/api-zod";
 import {
   NVIDIA_CAPABILITIES,
@@ -323,11 +327,115 @@ import {
 } from "../lib/notificationCatalog";
 import { defaultPolicy, getPolicyMap } from "../lib/notificationSettings";
 import type { Tenant } from "@workspace/db";
+import {
+  clearStoredBytePlusAssetsKey,
+  getBytePlusAssetsKeySource,
+  setStoredBytePlusAssetsKey,
+} from "../lib/byteplus/assets";
+import { registerCharacterAssets } from "../lib/characterAssets";
 
 const router: IRouter = Router();
 
+async function serializeBytePlusAssets() {
+  const characters = await db.select().from(charactersTable).orderBy(asc(charactersTable.id));
+  const outfits = characters.length
+    ? await db.select().from(characterOutfitsTable).where(inArray(
+        characterOutfitsTable.characterId,
+        characters.map((character) => character.id),
+      ))
+    : [];
+  const identities = await db.select().from(bytePlusIdentitiesTable)
+    .orderBy(asc(bytePlusIdentitiesTable.id));
+  return {
+    keySource: await getBytePlusAssetsKeySource(),
+    identities: identities.map((identity) => ({
+      id: identity.id,
+      label: identity.label,
+      status: identity.status,
+      assetGroupId: identity.assetGroupId,
+      error: identity.error,
+      verifiedAt: identity.verifiedAt?.toISOString() ?? null,
+    })),
+    characters: characters.map((character) => ({
+      id: character.id,
+      tenantId: character.tenantId,
+      name: character.name,
+      assetGroupId: character.bytePlusAssetGroupId,
+      identityId: character.bytePlusIdentityId,
+      referenceSource: character.referenceSource,
+      outfits: outfits.filter((outfit) => outfit.characterId === character.id).map((outfit) => ({
+        id: outfit.id,
+        name: outfit.name,
+        assetId: outfit.bytePlusAssetId,
+        status: outfit.bytePlusAssetStatus,
+        error: outfit.bytePlusAssetError,
+        syncedAt: outfit.bytePlusAssetSyncedAt?.toISOString() ?? null,
+      })),
+    })),
+  };
+}
+
 // Every admin route requires superadmin privileges.
 router.use("/admin", requireSuperadmin);
+
+router.get("/admin/byteplus-assets", async (_req, res) => {
+  res.json(await serializeBytePlusAssets());
+});
+
+router.put("/admin/byteplus-assets/key", async (req, res) => {
+  const parsed = SetAdminBytePlusAssetsKeyBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Both BytePlus access-key fields are required." });
+    return;
+  }
+  await setStoredBytePlusAssetsKey({
+    accessKeyId: parsed.data.accessKeyId.trim(),
+    secretAccessKey: parsed.data.secretAccessKey.trim(),
+  });
+  await recordAdminAction({
+    action: "videogen_key_change",
+    actorTenantId: req.tenantId,
+    actorEmail: req.tenantEmail,
+    targetTenantId: null,
+    targetEmail: null,
+    oldValue: null,
+    newValue: "byteplus_assets:set",
+  }).catch((error) => req.log.error({ err: error }, "Asset key audit failed"));
+  res.json(await serializeBytePlusAssets());
+});
+
+router.delete("/admin/byteplus-assets/key", async (req, res) => {
+  await clearStoredBytePlusAssetsKey();
+  await recordAdminAction({
+    action: "videogen_key_change",
+    actorTenantId: req.tenantId,
+    actorEmail: req.tenantEmail,
+    targetTenantId: null,
+    targetEmail: null,
+    oldValue: null,
+    newValue: "byteplus_assets:cleared",
+  }).catch((error) => req.log.error({ err: error }, "Asset key audit failed"));
+  res.json(await serializeBytePlusAssets());
+});
+
+router.post("/admin/byteplus-assets/characters/:characterId/register", async (req, res) => {
+  const characterId = Number(req.params.characterId);
+  if (!Number.isInteger(characterId) || characterId <= 0) {
+    res.status(400).json({ error: "Invalid character id." });
+    return;
+  }
+  const [character] = await db.select({ tenantId: charactersTable.tenantId })
+    .from(charactersTable).where(eq(charactersTable.id, characterId)).limit(1);
+  if (!character) {
+    res.status(404).json({ error: "Character not found." });
+    return;
+  }
+  await registerCharacterAssets({
+    tenantId: character.tenantId,
+    characterId,
+  });
+  res.json(await serializeBytePlusAssets());
+});
 
 router.get("/admin/video-jobs/:jobId/diagnostics", async (req: Request, res: Response) => {
   const jobId = Number(req.params.jobId);

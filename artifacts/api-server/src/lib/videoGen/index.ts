@@ -923,6 +923,9 @@ export async function generateVideo(
     aspectRatio: VideoAspect;
     durationSec: number;
     image?: SourceImage;
+    assetIds?: string[];
+    /** Never fail over when a substitute would ignore a verified identity. */
+    identityLocked?: boolean;
     /** Optional last frame, on models that interpolate between two stills. */
     endImage?: SourceImage;
     /** Deterministic sampling seed; omitted means "the provider's choice". */
@@ -955,6 +958,12 @@ export async function generateVideo(
       "video_model_invalid",
       null,
       null,
+    );
+  }
+  if ((params.assetIds?.length || params.identityLocked) && snapshot.provider !== "byteplus") {
+    throw new VideoGenProviderError(
+      "Reviewed identity assets can only be rendered by BytePlus ModelArk.",
+      400,
     );
   }
   if (snapshot.mode !== params.mode) {
@@ -1007,6 +1016,7 @@ export async function generateVideo(
     quality: snapshot.quality,
     generateAudio: snapshot.generateAudio,
     image: params.mode === "image" ? params.image : undefined,
+    assetIds: params.assetIds,
     endImage: params.mode === "image" && withEndFrame ? params.endImage : undefined,
     providerTaskId: params.providerTaskId ?? savedTask?.taskId,
     providerRequestId: params.providerRequestId ?? savedTask?.requestId,

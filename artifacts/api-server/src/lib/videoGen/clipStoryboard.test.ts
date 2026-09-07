@@ -22,7 +22,10 @@ const state = vi.hoisted(() => ({
   keyframeFailsOn: null as string | null,
   keyframePrompts: [] as string[],
   keyframeRefs: [] as (string | null)[],
-  generateCalls: [] as { mode: string; prompt: string; durationSec: number; hasImage: boolean }[],
+  generateCalls: [] as { mode: string; prompt: string; durationSec: number; hasImage: boolean; assetIds?: string[] }[],
+  assetRefs: ["asset-role-1"] as string[],
+  detailCalls: [] as Array<[number, number]>,
+  detailMissing: false,
   slideshowCall: null as {
     slideDurationsSec?: number[] | null;
     slideCaptions?: string[] | null;
@@ -30,6 +33,11 @@ const state = vi.hoisted(() => ({
   } | null,
   concatCount: 0,
   musicMixed: false,
+}));
+
+vi.mock("../characterAssets", () => ({
+  assetRefsForOutfit: vi.fn(async () => state.assetRefs),
+  requiresVerifiedBytePlusAsset: vi.fn(async () => true),
 }));
 
 vi.mock("@workspace/db", async (importOriginal) => {
@@ -96,10 +104,14 @@ vi.mock("../characters", () => ({
       characterId: snapshot.character.id,
     })),
   })),
-  getCharacterDetail: vi.fn(async () => ({
+  getCharacterDetail: vi.fn(async (tenantId: number, characterId: number) => {
+    state.detailCalls.push([tenantId, characterId]);
+    if (state.detailMissing) return null;
+    return ({
     character: { id: 7, name: "Mira" },
     outfits: [{ id: 3, referenceImagePath: "/objects/1/c/mira-red.png" }],
-  })),
+    });
+  }),
   resolveOutfit: vi.fn(
     (
       detail: { outfits: Array<{ id: number; referenceImagePath: string }> },
@@ -125,12 +137,13 @@ vi.mock("../characters", () => ({
 
 vi.mock("./index", () => ({
   generateVideo: vi.fn(
-    async (args: { mode: string; prompt: string; durationSec: number; image?: unknown }) => {
+    async (args: { mode: string; prompt: string; durationSec: number; image?: unknown; assetIds?: string[] }) => {
       state.generateCalls.push({
         mode: args.mode,
         prompt: args.prompt,
         durationSec: args.durationSec,
         hasImage: args.image != null,
+        ...(args.assetIds ? { assetIds: args.assetIds } : {}),
       });
       return { buffer: Buffer.from(`clip:${args.prompt}`), provider: "replicate", model: "veo-test" };
     },
@@ -177,6 +190,9 @@ beforeEach(() => {
   state.splitPrompt = "";
   state.systemPrompt = "";
   state.llmCalls = 0;
+  state.assetRefs = ["asset-role-1"];
+  state.detailCalls = [];
+  state.detailMissing = false;
   pk.governedByFlow = {};
   pk.getCalls = [];
   pk.logged = [];
@@ -613,6 +629,93 @@ describe("renderClipStoryboard", () => {
     await expect(
       render(board({ visualsSource: "character", scenes: [scene({ previewPath: null })] })),
     ).rejects.toThrow(/no longer available/);
+  });
+
+  it("maps only participating Guided Story cast to asset-only BytePlus input", async () => {
+    const guidedScene = scene({
+      previewPath: "/objects/1/approved.png",
+      guidedStory: {
+        scriptSceneId: "script-1", startMs: 0, endMs: 5000, roleIds: ["role-1"],
+        lineOwnership: [],
+        cast: [
+          { roleId: "role-1", source: "saved", characterId: 7, outfitId: 3 },
+          { roleId: "role-2", source: "saved", characterId: 8, outfitId: 4 },
+        ],
+        inconsistencyFlags: [], inputFingerprint: "fp",
+        visuals: { logoPath: null, locationMode: "none", locationImagePath: null, locationDescription: null },
+      } as never,
+    });
+    await renderClipStoryboard({
+      job: makeJob({ options: {
+        aspectRatio: "9:16",
+        resolvedVideoModel: { version: 1, provider: "byteplus", model: "seedance", resolvedAt: "2026-01-01T00:00:00Z" },
+      } as never }),
+      storyboard: board({ mode: "guided_story", visualsSource: "character", scenes: [guidedScene] }),
+      aspectRatio: "9:16",
+      load: async () => ({ buffer: Buffer.from("approved"), mimeType: "image/png" }),
+    });
+    expect(state.generateCalls).toEqual([
+      expect.objectContaining({ mode: "text", hasImage: false, assetIds: ["asset-role-1"] }),
+    ]);
+    expect(state.detailCalls).toEqual([[1, 7]]);
+  });
+
+  it("fails Guided Story when a participating cast member has no active mapping", async () => {
+    state.assetRefs = [];
+    const guided = scene({
+      previewPath: "/objects/1/approved.png",
+      guidedStory: {
+        scriptSceneId: "script-1", startMs: 0, endMs: 5000, roleIds: ["role-1"],
+        lineOwnership: [], cast: [{ roleId: "role-1", source: "generated", characterId: 7, outfitId: 3 }],
+        inconsistencyFlags: [], inputFingerprint: "fp",
+        visuals: { logoPath: null, locationMode: "none", locationImagePath: null, locationDescription: null },
+      } as never,
+    });
+    await expect(renderClipStoryboard({
+      job: makeJob({ options: { aspectRatio: "9:16", resolvedVideoModel: {
+        version: 1, provider: "byteplus", model: "seedance", resolvedAt: "2026-01-01T00:00:00Z",
+      } } as never }),
+      storyboard: board({ mode: "guided_story", visualsSource: "character", scenes: [guided] }),
+      aspectRatio: "9:16",
+      load: async () => ({ buffer: Buffer.from("approved"), mimeType: "image/png" }),
+    })).rejects.toThrow(/without an active BytePlus asset mapping/);
+  });
+
+  it("rejects asset-backed Guided Story cast on non-BytePlus before dispatch", async () => {
+    const guided = scene({
+      previewPath: "/objects/1/approved.png",
+      guidedStory: {
+        scriptSceneId: "script-1", startMs: 0, endMs: 5000, roleIds: ["role-1"],
+        lineOwnership: [], cast: [{
+          roleId: "role-1", source: "saved", characterId: 7, outfitId: 3,
+          requiresBytePlusAsset: true, bytePlusAssetId: "asset-role-1", bytePlusAssetStatus: "Active",
+        }],
+        inconsistencyFlags: [], inputFingerprint: "fp",
+        visuals: { logoPath: null, locationMode: "none", locationImagePath: null, locationDescription: null },
+      } as never,
+    });
+    await expect(render(board({ mode: "guided_story", visualsSource: "character", scenes: [guided] })))
+      .rejects.toThrow(/requires BytePlus/);
+    expect(state.generateCalls).toHaveLength(0);
+  });
+
+  it("fails closed when a participating Guided Story character was deleted", async () => {
+    state.detailMissing = true;
+    const guided = scene({
+      previewPath: "/objects/1/approved.png",
+      guidedStory: {
+        scriptSceneId: "script-1", startMs: 0, endMs: 5000, roleIds: ["role-1"],
+        lineOwnership: [], cast: [{
+          roleId: "role-1", source: "saved", characterId: 7, outfitId: 3,
+          requiresBytePlusAsset: true, bytePlusAssetId: "asset-role-1", bytePlusAssetStatus: "Active",
+        }],
+        inconsistencyFlags: [], inputFingerprint: "fp",
+        visuals: { logoPath: null, locationMode: "none", locationImagePath: null, locationDescription: null },
+      } as never,
+    });
+    await expect(render(board({ mode: "guided_story", visualsSource: "character", scenes: [guided] })))
+      .rejects.toThrow(/unavailable approved cast member/);
+    expect(state.generateCalls).toHaveLength(0);
   });
 
   it("re-clamps a stored length that is outside what the providers accept", async () => {

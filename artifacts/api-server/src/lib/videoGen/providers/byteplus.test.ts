@@ -62,6 +62,22 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
     expect(bytePlusRequestBody(input)).toMatchObject({ ratio: "9:16" });
   });
 
+  it("uses reviewed asset references without sending a conflicting ratio", () => {
+    const body = bytePlusRequestBody({
+      ...input,
+      assetIds: ["asset-one", "asset-two"],
+    });
+    expect(body).not.toHaveProperty("ratio");
+    expect(body.content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("@Image1 and @Image2"),
+      }),
+      { type: "image_url", image_url: { url: "asset://asset-one" } },
+      { type: "image_url", image_url: { url: "asset://asset-two" } },
+    ]);
+  });
+
   it("persists accepted task diagnostics and returns them without output URLs", async () => {
     const onProviderTaskAccepted = vi.fn(async () => {});
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {

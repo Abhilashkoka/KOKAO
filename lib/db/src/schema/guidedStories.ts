@@ -80,6 +80,10 @@ export interface GuidedStoryCastSnapshot {
   };
   isUserRole: boolean;
   consentGranted: boolean;
+  /** Immutable dispatch policy frozen when this cast selection is approved. */
+  requiresBytePlusAsset?: boolean;
+  bytePlusAssetId?: string | null;
+  bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
   /** Durable receipt for fictional cast reference generation. */
   generatedAsset?: {
     path: string;

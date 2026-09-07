@@ -5,6 +5,7 @@ import {
   generateSceneKeyframe,
 } from "../characters";
 import { generateVideo } from "./index";
+import { assetRefsForOutfit, currentBytePlusAssetPolicy } from "../characterAssets";
 import { getMotionInstruction } from "./motionPrompt";
 import { VideoGenProviderError, type VideoAspect } from "./types";
 import type { ResolvedModelOptions } from "./modelCatalog";
@@ -43,6 +44,9 @@ export async function generateCharacterClip(params: {
   snapshot?: {
     referenceImagePath: string; characterName: string; characterDescription: string;
     outfitReferenceImagePath: string; outfitName: string; outfitDescription: string;
+    requiresBytePlusAsset?: boolean;
+    bytePlusAssetId?: string | null;
+    bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
   };
   /** Generic enqueue-time wardrobe snapshot used by ordinary character jobs. */
   wardrobeSnapshot?: CharacterSnapshot | null;
@@ -66,8 +70,54 @@ export async function generateCharacterClip(params: {
   if (!outfit) {
     throw new VideoGenProviderError("The selected outfit no longer exists.");
   }
-  const reference = await loadReferenceImage(outfit.referenceImagePath, params.tenantId);
   const scene = params.prompt.trim() || "a cinematic portrait moment";
+  const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
+  const assetIds = params.model?.resolvedVideoModel?.provider === "byteplus"
+    ? await assetRefsForOutfit({
+        tenantId: params.tenantId,
+        character: detail.character,
+        outfit,
+      })
+    : [];
+  const frozenPolicy = params.wardrobeSnapshot?.character.requiresBytePlusAsset
+    ?? params.snapshot?.requiresBytePlusAsset;
+  const currentPolicy = await currentBytePlusAssetPolicy(params.tenantId, params.characterId);
+  if (!currentPolicy.exists && (params.wardrobeSnapshot || params.snapshot)) {
+    throw new VideoGenProviderError(
+      frozenPolicy === undefined
+        ? "This legacy character snapshot has no immutable identity policy and cannot use an image fallback."
+        : "This snapshotted character was deleted and cannot use an image or provider fallback.",
+      409,
+    );
+  }
+  if (frozenPolicy === true || currentPolicy?.requiresBytePlusAsset) {
+    if (params.model?.resolvedVideoModel?.provider !== "byteplus" || assetIds.length === 0) {
+      throw new VideoGenProviderError(
+        "This verified identity requires active BytePlus assets and cannot use an image fallback.",
+        409,
+      );
+    }
+  }
+  if (assetIds.length > 0) {
+    const clip = await generateVideo({
+      mode: "image",
+      prompt: `${scene}. Wearing ${outfit.description}. ${motion}`,
+      aspectRatio: params.aspectRatio,
+      durationSec: params.durationSec,
+      seed: params.seed ?? null,
+      assetIds,
+      identityLocked: frozenPolicy === true || currentPolicy?.requiresBytePlusAsset === true,
+      ...(params.model ?? {}),
+      operationKey: params.operationKey,
+    });
+    return {
+      buffer: clip.buffer,
+      provider: clip.provider,
+      model: clip.model,
+      effectiveDurationSec: clip.effectiveDurationSec,
+    };
+  }
+  const reference = await loadReferenceImage(outfit.referenceImagePath, params.tenantId);
   const generatedKeyframe = params.keyframe ? null : await generateSceneKeyframe(
       detail.character,
       outfit,
@@ -79,7 +129,7 @@ export async function generateCharacterClip(params: {
   const keyframe = generatedKeyframe ?? { buffer: params.keyframe! };
   const clip = await generateVideo({
     mode: "image",
-    prompt: `${scene}. ${await getMotionInstruction(params.motionPreset, params.cinematography)}`,
+    prompt: `${scene}. ${motion}`,
     aspectRatio: params.aspectRatio,
     durationSec: params.durationSec,
     seed: params.seed ?? null,

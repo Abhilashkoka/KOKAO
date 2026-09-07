@@ -1,5 +1,6 @@
 export * from "./tenants";
 export * from "./characters";
+export * from "./bytePlusIdentities";
 export * from "./brandKits";
 export * from "./brandKitPayload";
 export * from "./brandKitVersions";

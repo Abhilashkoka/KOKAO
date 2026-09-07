@@ -450,6 +450,8 @@ export interface VideoJobOptions {
       name: string;
       description: string;
       referenceImagePath: string;
+      referenceSource?: "generated" | "uploaded" | null;
+      requiresBytePlusAsset?: boolean;
     };
     outfits: Array<{
       id: number;
@@ -466,6 +468,8 @@ export interface VideoJobOptions {
         width: number;
         height: number;
       } | null;
+      bytePlusAssetId?: string | null;
+      bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
     }>;
   } | null;
   /**
@@ -493,6 +497,9 @@ export interface VideoJobOptions {
       outfitReferenceImagePath: string;
       outfitName: string;
       outfitDescription: string;
+      requiresBytePlusAsset?: boolean;
+      bytePlusAssetId?: string | null;
+      bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
     };
     lipSyncConsent: true;
   } | null;
@@ -1070,6 +1077,9 @@ export interface VideoStoryboardScene {
       outfitReferenceSha256?: string;
       voiceProvider: string;
       providerVoiceId: string | null;
+        requiresBytePlusAsset?: boolean;
+        bytePlusAssetId?: string | null;
+        bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
     }>;
     inconsistencyFlags: string[];
     inputFingerprint: string;

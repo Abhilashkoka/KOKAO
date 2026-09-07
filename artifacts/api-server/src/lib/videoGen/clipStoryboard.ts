@@ -25,6 +25,7 @@ import {
   MAX_SLIDESHOW_IMAGES,
 } from "./slideshow";
 import { VideoGenProviderError, type SourceImage, type VideoAspect } from "./types";
+import { assetRefsForOutfit, requiresVerifiedBytePlusAsset } from "../characterAssets";
 
 /**
  * Storyboards for the three engines that are not topic mode: text_to_video,
@@ -592,6 +593,33 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     const promptPlanText = scene.renderVisual ?? scene.visual;
     const promptPlanMotion = motionPresetClause(motionPreset, cinematography);
     const saved = scene.providerCheckpoint;
+    let assetIds: string[] = [];
+    if (storyboard.mode === "guided_story" && scene.guidedStory) {
+      for (const member of scene.guidedStory.cast.filter((cast) => scene.guidedStory!.roleIds.includes(cast.roleId))) {
+        const immutableRequiresAsset =
+          member.requiresBytePlusAsset ?? (member.source === "generated" ? true : undefined);
+        if (!member.characterId) {
+          if (immutableRequiresAsset !== false) {
+            throw new VideoGenProviderError(`Guided Story scene ${i + 1} has no tenant-owned active asset mapping for an approved cast member.`);
+          }
+          continue;
+        }
+        const detail = await getCharacterDetail(params.job.tenantId, member.characterId);
+        const outfit = detail && resolveOutfit(detail, member.outfitId);
+        if (!detail || !outfit) throw new VideoGenProviderError(`Guided Story scene ${i + 1} has an unavailable approved cast member.`);
+        const requiresAsset = immutableRequiresAsset ??
+          (detail.character.referenceSource === "generated" ||
+            await requiresVerifiedBytePlusAsset(params.job.tenantId, member.characterId) ||
+            outfit.bytePlusAssetId !== null);
+        if (!requiresAsset) continue;
+        if (modelOptions.resolvedVideoModel?.provider !== "byteplus") {
+          throw new VideoGenProviderError(`Guided Story scene ${i + 1} has asset-backed cast and requires BytePlus.`);
+        }
+        const refs = await assetRefsForOutfit({ tenantId: params.job.tenantId, character: detail.character, outfit });
+        if (!refs.length) throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a participating cast member without an active BytePlus asset mapping.`);
+        assetIds.push(...refs);
+      }
+    }
     const result = saved?.path
       ? {
           buffer: (await params.load(saved.path)).buffer,
@@ -599,7 +627,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
           model: saved.model,
         }
       : await generateVideo({
-      mode: image ? "image" : "text",
+      mode: assetIds.length ? "text" : image ? "image" : "text",
       prompt:
         storyboard.visualsSource === "character"
           ? `${scene.visual}. ${await getMotionInstruction(motionPreset, cinematography)}`
@@ -612,7 +640,8 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
             : promptPlanText,
       aspectRatio,
       seed,
-      ...(image ? { image } : {}),
+       ...(image && !assetIds.length ? { image } : {}),
+       ...(assetIds.length ? { assetIds, identityLocked: true } : {}),
       ...modelOptions,
       // Shot lengths come from the approved storyboard, which the duration
       // bounds already held to what the renderer can deliver — so the board

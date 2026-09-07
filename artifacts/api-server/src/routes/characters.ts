@@ -15,6 +15,7 @@ import {
   UpdateCharacterBody,
   UpdateCharacterOutfitBody,
   UpdatePresetOutfitDerivativeBody,
+  StartBytePlusIdentityVerificationBody,
 } from "@workspace/api-zod";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
@@ -45,12 +46,23 @@ import {
   ImagePreservationError,
 } from "../lib/imageGen/types";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
+import { canonicalAppOrigin } from "../lib/corsOrigins";
 import {
   ensurePresetCharacterSeeds,
   bundledPresetAsset,
   getPresetForTenant,
   listTenantPresetDerivatives,
 } from "../lib/presetCharacters";
+import {
+  deleteBytePlusAssetsInBackground,
+  registerOutfitAssetInBackground,
+} from "../lib/characterAssets";
+import {
+  completeBytePlusIdentityVerification,
+  getBytePlusIdentity,
+  listBytePlusIdentities,
+  startBytePlusIdentityVerification,
+} from "../lib/bytePlusIdentity";
 
 const router: IRouter = Router();
 
@@ -474,6 +486,10 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       name: resolved.preset.name,
       description: resolved.preset.description,
       referenceImagePath: resolved.preset.referenceImagePath,
+      bytePlusAssetGroupId: null,
+      bytePlusAssetGroupClaimedAt: null,
+      bytePlusIdentityId: null,
+      referenceSource: "generated" as const,
       referenceSheetImagePath: null,
       referenceSheetStatus: "approved" as const,
       referenceSheetError: null,
@@ -821,6 +837,7 @@ router.post("/characters", async (req: Request, res: Response) => {
   const name = parsed.data.name.trim();
   const description = parsed.data.description?.trim() ?? "";
   const sourceImagePath = parsed.data.sourceImagePath ?? null;
+  const identityId = parsed.data.identityId ?? null;
   if (!name) {
     res.status(400).json({ error: "A character name is required." });
     return;
@@ -834,6 +851,15 @@ router.post("/characters", async (req: Request, res: Response) => {
   if (sourceImagePath && !sourceImagePath.startsWith(`/objects/${req.tenantId}/`)) {
     res.status(400).json({ error: "Invalid reference image path." });
     return;
+  }
+  if (identityId !== null) {
+    const identity = await getBytePlusIdentity(req.tenantId, identityId);
+    if (!sourceImagePath || identity?.status !== "verified" || !identity.assetGroupId) {
+      res.status(400).json({
+        error: "A verified BytePlus identity and its uploaded reference photo are required.",
+      });
+      return;
+    }
   }
 
   const existing = await db
@@ -927,7 +953,14 @@ router.post("/characters", async (req: Request, res: Response) => {
     const character = (
       await tx
         .insert(charactersTable)
-        .values({ tenantId: req.tenantId, name, description, referenceImagePath })
+        .values({
+          tenantId: req.tenantId,
+          name,
+          description,
+          referenceImagePath,
+          referenceSource: sourceImagePath ? "uploaded" : "generated",
+          bytePlusIdentityId: identityId,
+        })
         .returning()
     )[0]!;
     const defaultOutfit = (
@@ -956,6 +989,11 @@ router.post("/characters", async (req: Request, res: Response) => {
     req,
     created.character,
   );
+  registerOutfitAssetInBackground({
+    tenantId: req.tenantId,
+    character: characterWithSheet,
+    outfit: created.defaultOutfit,
+  });
   res
     .status(201)
     .json(serializeCharacter(characterWithSheet, [created.defaultOutfit]));
@@ -1071,19 +1109,77 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
     res.status(404).json({ error: "Not found" });
     return;
   }
-  await db
+  const deletedOutfits = await db
     .delete(characterOutfitsTable)
     .where(
       and(
         eq(characterOutfitsTable.characterId, character.id),
         eq(characterOutfitsTable.tenantId, req.tenantId),
       ),
-    );
+    ).returning({ assetId: characterOutfitsTable.bytePlusAssetId });
   await db
     .delete(charactersTable)
     .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)));
   res.status(204).end();
+  deleteBytePlusAssetsInBackground(deletedOutfits.map((row) => row.assetId));
 });
+
+router.get("/characters/identities", async (req: Request, res: Response) => {
+  res.json((await listBytePlusIdentities(req.tenantId)).map((identity) => ({
+    id: identity.id,
+    label: identity.label,
+    status: identity.status,
+    assetGroupId: identity.assetGroupId,
+    error: identity.error,
+    verifiedAt: identity.verifiedAt?.toISOString() ?? null,
+  })));
+});
+
+router.post("/characters/identities", async (req: Request, res: Response) => {
+  const parsed = StartBytePlusIdentityVerificationBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "An identity label is required." });
+    return;
+  }
+  const label = parsed.data.label.trim();
+  let started: Awaited<ReturnType<typeof startBytePlusIdentityVerification>>;
+  try {
+    started = await startBytePlusIdentityVerification({
+      tenantId: req.tenantId,
+      label,
+      callbackBaseUrl: `${canonicalAppOrigin()}/api/characters/identities/callback`,
+    });
+  } catch (error) {
+    req.log.warn({ err: error }, "BytePlus identity verification could not start");
+    res.status(503).json({ error: "BytePlus identity verification is unavailable." });
+    return;
+  }
+  res.status(201).json({
+    id: started.identity.id,
+    label: started.identity.label,
+    status: started.identity.status,
+    assetGroupId: null,
+    error: null,
+    verifiedAt: null,
+    verificationUrl: started.verificationUrl,
+  });
+});
+
+/** Public callback: authorization is the short-lived HMAC state, not a session cookie. */
+export const bytePlusIdentityCallbackRouter: IRouter = Router();
+bytePlusIdentityCallbackRouter.get(
+  "/characters/identities/callback/:state",
+  async (req: Request, res: Response) => {
+    const outcome = await completeBytePlusIdentityVerification({
+      state: String(req.params.state),
+      bytedToken: typeof req.query.BytedToken === "string"
+        ? req.query.BytedToken
+        : typeof req.query.bytedToken === "string" ? req.query.bytedToken : undefined,
+      resultCode: typeof req.query.resultCode === "string" ? req.query.resultCode : undefined,
+    });
+    res.redirect(`/studio?identity=${outcome.ok ? "verified" : "failed"}`);
+  },
+);
 
 router.patch("/characters/:characterId", async (req: Request, res: Response) => {
   const character = await loadCharacter(req);
@@ -1233,7 +1329,7 @@ router.post(
         "image/png",
       );
 
-      await db
+      const [createdOutfit] = await db
         .insert(characterOutfitsTable)
         .values({
           tenantId: req.tenantId,
@@ -1246,7 +1342,13 @@ router.post(
           identityVerified: true,
           canonicalReferenceImagePath: character.referenceImagePath,
           protectedRegion,
-        });
+        })
+        .returning();
+      registerOutfitAssetInBackground({
+        tenantId: req.tenantId,
+        character,
+        outfit: createdOutfit!,
+      });
       const outfits = await db
         .select()
         .from(characterOutfitsTable)
@@ -1370,9 +1472,11 @@ router.delete(
       res.status(400).json({ error: "The default outfit cannot be removed." });
       return;
     }
-    await db
+    const [deleted] = await db
       .delete(characterOutfitsTable)
-      .where(eq(characterOutfitsTable.id, outfit.id));
+      .where(eq(characterOutfitsTable.id, outfit.id))
+      .returning({ assetId: characterOutfitsTable.bytePlusAssetId });
+    deleteBytePlusAssetsInBackground([deleted?.assetId ?? null]);
     res.status(204).end();
   },
 );

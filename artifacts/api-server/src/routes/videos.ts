@@ -4313,6 +4313,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           source: "saved",
           characterId: detail.character.id,
           outfitId: outfit.id,
+          requiresBytePlusAsset:
+            detail.character.referenceSource === "generated" ||
+            detail.character.bytePlusIdentityId !== null ||
+            outfit.bytePlusAssetId !== null,
+          bytePlusAssetId: outfit.bytePlusAssetId,
+          bytePlusAssetStatus: outfit.bytePlusAssetStatus,
           brandKitId: voice.brandKitId,
           voiceId: voice.id,
           character: {
@@ -5815,6 +5821,12 @@ router.put(
         source: "saved",
         characterId: lockedCharacter.id,
         outfitId: lockedOutfit.id,
+        requiresBytePlusAsset:
+          lockedCharacter.referenceSource === "generated" ||
+          lockedCharacter.bytePlusIdentityId !== null ||
+          lockedOutfit.bytePlusAssetId !== null,
+        bytePlusAssetId: lockedOutfit.bytePlusAssetId,
+        bytePlusAssetStatus: lockedOutfit.bytePlusAssetStatus,
         character: {
           name: lockedCharacter.name,
           description: lockedCharacter.description,
@@ -6239,6 +6251,12 @@ router.post(
             source: "saved",
             characterId: detail.character.id,
             outfitId: outfit.id,
+            requiresBytePlusAsset:
+              detail.character.referenceSource === "generated" ||
+              detail.character.bytePlusIdentityId !== null ||
+              outfit.bytePlusAssetId !== null,
+            bytePlusAssetId: outfit.bytePlusAssetId,
+            bytePlusAssetStatus: outfit.bytePlusAssetStatus,
             character: {
               name: detail.character.name,
               description: detail.character.description,
@@ -6255,6 +6273,12 @@ router.post(
         : {
             ...member,
             outfitId: outfit.id,
+            requiresBytePlusAsset:
+              detail.character.referenceSource === "generated" ||
+              detail.character.bytePlusIdentityId !== null ||
+              outfit.bytePlusAssetId !== null,
+            bytePlusAssetId: outfit.bytePlusAssetId,
+            bytePlusAssetStatus: outfit.bytePlusAssetStatus,
             outfit: {
               name: outfit.name,
               description: outfit.description,
@@ -8264,6 +8288,8 @@ async function generateVideoHandler(
           name: detail.character.name,
           description: detail.character.description,
           referenceImagePath: detail.character.referenceImagePath,
+          referenceSource: detail.character.referenceSource,
+          requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
         },
         outfits: detail.outfits.filter(isOutfitSelectable).map((savedOutfit) => ({
           id: savedOutfit.id,
@@ -8276,6 +8302,8 @@ async function generateVideoHandler(
           canonicalReferenceImagePath:
             savedOutfit.canonicalReferenceImagePath,
           protectedRegion: savedOutfit.protectedRegion,
+          bytePlusAssetId: savedOutfit.bytePlusAssetId,
+          bytePlusAssetStatus: savedOutfit.bytePlusAssetStatus,
         })),
       };
       if (hybridTemplate) {
@@ -8286,6 +8314,9 @@ async function generateVideoHandler(
           outfitReferenceImagePath: outfit.referenceImagePath,
           outfitName: outfit.name,
           outfitDescription: outfit.description,
+          requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
+          bytePlusAssetId: outfit.bytePlusAssetId,
+          bytePlusAssetStatus: outfit.bytePlusAssetStatus,
         };
       }
     }

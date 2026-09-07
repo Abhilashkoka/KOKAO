@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import express from "express";
 import cors from "cors";
 import request from "supertest";
-import { buildAllowedOrigins, isAllowedOrigin } from "./corsOrigins";
+import { buildAllowedOrigins, canonicalAppOrigin, isAllowedOrigin } from "./corsOrigins";
 
 describe("buildAllowedOrigins", () => {
   it("includes every REPLIT_DOMAINS entry and REPLIT_EXPO_DEV_DOMAIN", () => {
@@ -84,6 +84,24 @@ describe("buildAllowedOrigins", () => {
     expect(
       origins.has(`https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`),
     ).toBe(true);
+  });
+});
+
+describe("canonicalAppOrigin", () => {
+  it("uses configured HTTPS domains and never request headers", () => {
+    expect(canonicalAppOrigin({
+      REPLIT_DOMAINS: "Public.Example.com",
+      HOST: "attacker.example",
+      HTTP_HOST: "attacker.example",
+    } as NodeJS.ProcessEnv)).toBe("https://public.example.com");
+  });
+
+  it("rejects missing and malformed configuration", () => {
+    expect(() => canonicalAppOrigin({} as NodeJS.ProcessEnv)).toThrow(/configured HTTPS/);
+    expect(() => canonicalAppOrigin({
+      REPLIT_DOMAINS: "good.example/path",
+      REPLIT_INTERNAL_APP_DOMAIN: "evil.example?x=1",
+    } as NodeJS.ProcessEnv)).toThrow(/configured HTTPS/);
   });
 });
 

@@ -2520,6 +2520,104 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /characters/identities:
+    get:
+      operationId: listBytePlusIdentities
+      tags: [characters]
+      summary: List real-person BytePlus verification records for this workspace
+      responses:
+        "200":
+          description: Identity records
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BytePlusIdentity" }
+    post:
+      operationId: startBytePlusIdentityVerification
+      tags: [characters]
+      summary: Start BytePlus liveness verification for a real person
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BytePlusIdentityInput" }
+      responses:
+        "201":
+          description: Verification started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BytePlusIdentityStart" }
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "503":
+          description: BytePlus Asset Library is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /characters/identities/callback/{state}:
+    get:
+      operationId: completeBytePlusIdentityVerification
+      tags: [characters]
+      summary: Complete BytePlus liveness verification (public, HMAC-authenticated)
+      parameters:
+        - { name: state, in: path, required: true, schema: { type: string } }
+      responses:
+        "302":
+          description: Redirect to Studio with the verification outcome
+  /admin/byteplus-assets:
+    get:
+      operationId: getAdminBytePlusAssets
+      tags: [admin]
+      summary: Get BytePlus Asset Library configuration and registration status
+      responses:
+        "200":
+          description: Asset Library status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BytePlusAssetsAdminView" }
+  /admin/byteplus-assets/key:
+    put:
+      operationId: setAdminBytePlusAssetsKey
+      tags: [admin]
+      summary: Save the BytePlus Assets API access-key pair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BytePlusAssetsKeyInput" }
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BytePlusAssetsAdminView" }
+    delete:
+      operationId: clearAdminBytePlusAssetsKey
+      tags: [admin]
+      summary: Clear the stored BytePlus Assets API access-key pair
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BytePlusAssetsAdminView" }
+  /admin/byteplus-assets/characters/{characterId}/register:
+    post:
+      operationId: registerAdminBytePlusCharacterAssets
+      tags: [admin]
+      summary: Retry BytePlus asset registration for one character
+      parameters:
+        - { name: characterId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BytePlusAssetsAdminView" }
   /characters/{characterId}/reference-sheet/generate:
     parameters:
       - { name: characterId, in: path, required: true, schema: { type: integer } }
@@ -20834,6 +20932,75 @@ components:
             Optional uploaded reference photo (/objects/... path). Used as the
             character's canonical reference. The separate multi-view sheet is
             still generated as a billed, reference-required image.
+        identityId:
+          type: ["integer", "null"]
+          description: >-
+            A liveness-verified BytePlus identity. Requires sourceImagePath;
+            generated portraits cannot be filed as a verified real person.
+    BytePlusIdentity:
+      type: object
+      required: [id, label, status, assetGroupId, error, verifiedAt]
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        status: { type: string, enum: [pending, verified, failed] }
+        assetGroupId: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        verifiedAt: { type: ["string", "null"], format: date-time }
+    BytePlusIdentityInput:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 80 }
+    BytePlusIdentityStart:
+      allOf:
+        - $ref: "#/components/schemas/BytePlusIdentity"
+        - type: object
+          required: [verificationUrl]
+          properties:
+            verificationUrl: { type: string }
+    BytePlusAssetsKeyInput:
+      type: object
+      additionalProperties: false
+      required: [accessKeyId, secretAccessKey]
+      properties:
+        accessKeyId: { type: string, minLength: 1 }
+        secretAccessKey: { type: string, minLength: 1 }
+    BytePlusAssetOutfit:
+      type: object
+      required: [id, name, assetId, status, error, syncedAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        assetId: { type: ["string", "null"] }
+        status: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        syncedAt: { type: ["string", "null"], format: date-time }
+    BytePlusAssetCharacter:
+      type: object
+      required: [id, tenantId, name, assetGroupId, identityId, referenceSource, outfits]
+      properties:
+        id: { type: integer }
+        tenantId: { type: integer }
+        name: { type: string }
+        assetGroupId: { type: ["string", "null"] }
+        identityId: { type: ["integer", "null"] }
+        referenceSource: { type: ["string", "null"], enum: [generated, uploaded, null] }
+        outfits:
+          type: array
+          items: { $ref: "#/components/schemas/BytePlusAssetOutfit" }
+    BytePlusAssetsAdminView:
+      type: object
+      required: [keySource, identities, characters]
+      properties:
+        keySource: { type: ["string", "null"], enum: [database, env, null] }
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/BytePlusIdentity" }
+        characters:
+          type: array
+          items: { $ref: "#/components/schemas/BytePlusAssetCharacter" }
     VisualAsset:
       type: object
       description: A saved, reusable image for AI generation (reference or source photo).

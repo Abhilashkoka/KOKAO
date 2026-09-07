@@ -120,6 +120,11 @@ import type {
   BrandVoicePreview,
   BrandVoiceSampleDeleteRequest,
   BrandVoiceStatus,
+  BytePlusAssetsAdminView,
+  BytePlusAssetsKeyInput,
+  BytePlusIdentity,
+  BytePlusIdentityInput,
+  BytePlusIdentityStart,
   CampaignInput,
   CampaignReport,
   CampaignRequest,
@@ -7310,6 +7315,517 @@ export const useCreateCharacter = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCreateCharacterMutationOptions(options));
+    }
+
+export const getListBytePlusIdentitiesUrl = () => {
+
+
+
+
+  return `/api/characters/identities`
+}
+
+/**
+ * @summary List real-person BytePlus verification records for this workspace
+ */
+export const listBytePlusIdentities = async ( options?: RequestInit): Promise<BytePlusIdentity[]> => {
+
+  return customFetch<BytePlusIdentity[]>(getListBytePlusIdentitiesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBytePlusIdentitiesQueryKey = () => {
+    return [
+    `/api/characters/identities`
+    ] as const;
+    }
+
+
+export const getListBytePlusIdentitiesQueryOptions = <TData = Awaited<ReturnType<typeof listBytePlusIdentities>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBytePlusIdentities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBytePlusIdentitiesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBytePlusIdentities>>> = ({ signal }) => listBytePlusIdentities({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBytePlusIdentities>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBytePlusIdentitiesQueryResult = NonNullable<Awaited<ReturnType<typeof listBytePlusIdentities>>>
+export type ListBytePlusIdentitiesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List real-person BytePlus verification records for this workspace
+ */
+
+export function useListBytePlusIdentities<TData = Awaited<ReturnType<typeof listBytePlusIdentities>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBytePlusIdentities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBytePlusIdentitiesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getStartBytePlusIdentityVerificationUrl = () => {
+
+
+
+
+  return `/api/characters/identities`
+}
+
+/**
+ * @summary Start BytePlus liveness verification for a real person
+ */
+export const startBytePlusIdentityVerification = async (bytePlusIdentityInput: BytePlusIdentityInput, options?: RequestInit): Promise<BytePlusIdentityStart> => {
+
+  return customFetch<BytePlusIdentityStart>(getStartBytePlusIdentityVerificationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bytePlusIdentityInput)
+  }
+);}
+
+
+
+
+export const getStartBytePlusIdentityVerificationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>, TError,{data: BodyType<BytePlusIdentityInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>, TError,{data: BodyType<BytePlusIdentityInput>}, TContext> => {
+
+const mutationKey = ['startBytePlusIdentityVerification'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>, {data: BodyType<BytePlusIdentityInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  startBytePlusIdentityVerification(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartBytePlusIdentityVerificationMutationResult = NonNullable<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>>
+    export type StartBytePlusIdentityVerificationMutationBody = BodyType<BytePlusIdentityInput>
+    export type StartBytePlusIdentityVerificationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Start BytePlus liveness verification for a real person
+ */
+export const useStartBytePlusIdentityVerification = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>, TError,{data: BodyType<BytePlusIdentityInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startBytePlusIdentityVerification>>,
+        TError,
+        {data: BodyType<BytePlusIdentityInput>},
+        TContext
+      > => {
+      return useMutation(getStartBytePlusIdentityVerificationMutationOptions(options));
+    }
+
+export const getCompleteBytePlusIdentityVerificationUrl = (state: string,) => {
+
+
+
+
+  return `/api/characters/identities/callback/${state}`
+}
+
+/**
+ * @summary Complete BytePlus liveness verification (public, HMAC-authenticated)
+ */
+export const completeBytePlusIdentityVerification = async (state: string, options?: RequestInit): Promise<unknown> => {
+
+  return customFetch<unknown>(getCompleteBytePlusIdentityVerificationUrl(state),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCompleteBytePlusIdentityVerificationQueryKey = (state: string,) => {
+    return [
+    `/api/characters/identities/callback/${state}`
+    ] as const;
+    }
+
+
+export const getCompleteBytePlusIdentityVerificationQueryOptions = <TData = Awaited<ReturnType<typeof completeBytePlusIdentityVerification>>, TError = ErrorType<void>>(state: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof completeBytePlusIdentityVerification>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCompleteBytePlusIdentityVerificationQueryKey(state);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof completeBytePlusIdentityVerification>>> = ({ signal }) => completeBytePlusIdentityVerification(state, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: state !== null && state !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof completeBytePlusIdentityVerification>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type CompleteBytePlusIdentityVerificationQueryResult = NonNullable<Awaited<ReturnType<typeof completeBytePlusIdentityVerification>>>
+export type CompleteBytePlusIdentityVerificationQueryError = ErrorType<void>
+
+
+/**
+ * @summary Complete BytePlus liveness verification (public, HMAC-authenticated)
+ */
+
+export function useCompleteBytePlusIdentityVerification<TData = Awaited<ReturnType<typeof completeBytePlusIdentityVerification>>, TError = ErrorType<void>>(
+ state: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof completeBytePlusIdentityVerification>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getCompleteBytePlusIdentityVerificationQueryOptions(state,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAdminBytePlusAssetsUrl = () => {
+
+
+
+
+  return `/api/admin/byteplus-assets`
+}
+
+/**
+ * @summary Get BytePlus Asset Library configuration and registration status
+ */
+export const getAdminBytePlusAssets = async ( options?: RequestInit): Promise<BytePlusAssetsAdminView> => {
+
+  return customFetch<BytePlusAssetsAdminView>(getGetAdminBytePlusAssetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminBytePlusAssetsQueryKey = () => {
+    return [
+    `/api/admin/byteplus-assets`
+    ] as const;
+    }
+
+
+export const getGetAdminBytePlusAssetsQueryOptions = <TData = Awaited<ReturnType<typeof getAdminBytePlusAssets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminBytePlusAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminBytePlusAssetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminBytePlusAssets>>> = ({ signal }) => getAdminBytePlusAssets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminBytePlusAssets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminBytePlusAssetsQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminBytePlusAssets>>>
+export type GetAdminBytePlusAssetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get BytePlus Asset Library configuration and registration status
+ */
+
+export function useGetAdminBytePlusAssets<TData = Awaited<ReturnType<typeof getAdminBytePlusAssets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminBytePlusAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminBytePlusAssetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSetAdminBytePlusAssetsKeyUrl = () => {
+
+
+
+
+  return `/api/admin/byteplus-assets/key`
+}
+
+/**
+ * @summary Save the BytePlus Assets API access-key pair
+ */
+export const setAdminBytePlusAssetsKey = async (bytePlusAssetsKeyInput: BytePlusAssetsKeyInput, options?: RequestInit): Promise<BytePlusAssetsAdminView> => {
+
+  return customFetch<BytePlusAssetsAdminView>(getSetAdminBytePlusAssetsKeyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bytePlusAssetsKeyInput)
+  }
+);}
+
+
+
+
+export const getSetAdminBytePlusAssetsKeyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setAdminBytePlusAssetsKey>>, TError,{data: BodyType<BytePlusAssetsKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setAdminBytePlusAssetsKey>>, TError,{data: BodyType<BytePlusAssetsKeyInput>}, TContext> => {
+
+const mutationKey = ['setAdminBytePlusAssetsKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setAdminBytePlusAssetsKey>>, {data: BodyType<BytePlusAssetsKeyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  setAdminBytePlusAssetsKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetAdminBytePlusAssetsKeyMutationResult = NonNullable<Awaited<ReturnType<typeof setAdminBytePlusAssetsKey>>>
+    export type SetAdminBytePlusAssetsKeyMutationBody = BodyType<BytePlusAssetsKeyInput>
+    export type SetAdminBytePlusAssetsKeyMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Save the BytePlus Assets API access-key pair
+ */
+export const useSetAdminBytePlusAssetsKey = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setAdminBytePlusAssetsKey>>, TError,{data: BodyType<BytePlusAssetsKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setAdminBytePlusAssetsKey>>,
+        TError,
+        {data: BodyType<BytePlusAssetsKeyInput>},
+        TContext
+      > => {
+      return useMutation(getSetAdminBytePlusAssetsKeyMutationOptions(options));
+    }
+
+export const getClearAdminBytePlusAssetsKeyUrl = () => {
+
+
+
+
+  return `/api/admin/byteplus-assets/key`
+}
+
+/**
+ * @summary Clear the stored BytePlus Assets API access-key pair
+ */
+export const clearAdminBytePlusAssetsKey = async ( options?: RequestInit): Promise<BytePlusAssetsAdminView> => {
+
+  return customFetch<BytePlusAssetsAdminView>(getClearAdminBytePlusAssetsKeyUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getClearAdminBytePlusAssetsKeyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearAdminBytePlusAssetsKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearAdminBytePlusAssetsKey>>, TError,void, TContext> => {
+
+const mutationKey = ['clearAdminBytePlusAssetsKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearAdminBytePlusAssetsKey>>, void> = () => {
+
+
+          return  clearAdminBytePlusAssetsKey(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearAdminBytePlusAssetsKeyMutationResult = NonNullable<Awaited<ReturnType<typeof clearAdminBytePlusAssetsKey>>>
+
+    export type ClearAdminBytePlusAssetsKeyMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear the stored BytePlus Assets API access-key pair
+ */
+export const useClearAdminBytePlusAssetsKey = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearAdminBytePlusAssetsKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearAdminBytePlusAssetsKey>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getClearAdminBytePlusAssetsKeyMutationOptions(options));
+    }
+
+export const getRegisterAdminBytePlusCharacterAssetsUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/admin/byteplus-assets/characters/${characterId}/register`
+}
+
+/**
+ * @summary Retry BytePlus asset registration for one character
+ */
+export const registerAdminBytePlusCharacterAssets = async (characterId: number, options?: RequestInit): Promise<BytePlusAssetsAdminView> => {
+
+  return customFetch<BytePlusAssetsAdminView>(getRegisterAdminBytePlusCharacterAssetsUrl(characterId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRegisterAdminBytePlusCharacterAssetsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerAdminBytePlusCharacterAssets>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof registerAdminBytePlusCharacterAssets>>, TError,{characterId: number}, TContext> => {
+
+const mutationKey = ['registerAdminBytePlusCharacterAssets'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerAdminBytePlusCharacterAssets>>, {characterId: number}> = (props) => {
+          const {characterId} = props ?? {};
+
+          return  registerAdminBytePlusCharacterAssets(characterId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegisterAdminBytePlusCharacterAssetsMutationResult = NonNullable<Awaited<ReturnType<typeof registerAdminBytePlusCharacterAssets>>>
+
+    export type RegisterAdminBytePlusCharacterAssetsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Retry BytePlus asset registration for one character
+ */
+export const useRegisterAdminBytePlusCharacterAssets = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerAdminBytePlusCharacterAssets>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof registerAdminBytePlusCharacterAssets>>,
+        TError,
+        {characterId: number},
+        TContext
+      > => {
+      return useMutation(getRegisterAdminBytePlusCharacterAssetsMutationOptions(options));
     }
 
 export const getGenerateCharacterReferenceSheetUrl = (characterId: number,) => {

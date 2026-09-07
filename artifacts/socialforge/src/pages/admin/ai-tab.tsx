@@ -86,6 +86,11 @@ import {
   type NvidiaCapability,
   type NvidiaDeploymentView,
   type NvidiaProtocol,
+  useGetAdminBytePlusAssets,
+  useSetAdminBytePlusAssetsKey,
+  useClearAdminBytePlusAssetsKey,
+  useRegisterAdminBytePlusCharacterAssets,
+  getGetAdminBytePlusAssetsQueryKey,
 } from "@workspace/api-client-react";
 import { useFeatureFlags } from "@/lib/features";
 import { useQueryClient } from "@tanstack/react-query";
@@ -5473,6 +5478,127 @@ export function NvidiaAdminCard() {
   );
 }
 
+function BytePlusAssetsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [accessKeyId, setAccessKeyId] = useState("");
+  const [secretAccessKey, setSecretAccessKey] = useState("");
+  const { data, isLoading } = useGetAdminBytePlusAssets({
+    query: {
+      queryKey: getGetAdminBytePlusAssetsQueryKey(),
+      refetchInterval: 30_000,
+    },
+  });
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: getGetAdminBytePlusAssetsQueryKey() });
+  const save = useSetAdminBytePlusAssetsKey({
+    mutation: {
+      onSuccess: () => {
+        setAccessKeyId("");
+        setSecretAccessKey("");
+        refresh();
+        toast({ title: "BytePlus Asset Library key saved" });
+      },
+      onError: (error) => toast({
+        title: "Could not save BytePlus key",
+        description: apiErrorMessage(error, "Try again."),
+        variant: "destructive",
+      }),
+    },
+  });
+  const clear = useClearAdminBytePlusAssetsKey({
+    mutation: { onSuccess: refresh },
+  });
+  const register = useRegisterAdminBytePlusCharacterAssets({
+    mutation: { onSuccess: refresh },
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>BytePlus ModelArk Asset Library</CardTitle>
+        <CardDescription>
+          Reviewed fictional portraits and liveness-verified real people. The AK/SK pair is
+          separate from the video-generation bearer token and is never returned.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? <Skeleton className="h-10 w-full" /> : (
+          <>
+            <div className="flex items-center gap-2">
+              <Badge variant={data?.keySource ? "secondary" : "destructive"}>
+                {data?.keySource ? `Configured from ${data.keySource}` : "Not configured"}
+              </Badge>
+              {data?.keySource === "database" && (
+                <Button variant="destructive" size="sm" onClick={() => clear.mutate()}>
+                  Remove stored key
+                </Button>
+              )}
+            </div>
+            <form
+              className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                save.mutate({ data: { accessKeyId, secretAccessKey } });
+              }}
+            >
+              <Input
+                type="password"
+                autoComplete="off"
+                placeholder="Access key ID"
+                value={accessKeyId}
+                onChange={(event) => setAccessKeyId(event.target.value)}
+              />
+              <Input
+                type="password"
+                autoComplete="off"
+                placeholder="Secret access key"
+                value={secretAccessKey}
+                onChange={(event) => setSecretAccessKey(event.target.value)}
+              />
+              <Button
+                type="submit"
+                disabled={!accessKeyId.trim() || !secretAccessKey.trim() || save.isPending}
+              >
+                Save
+              </Button>
+            </form>
+            <div className="space-y-2">
+              {data?.characters.map((character) => (
+                <div key={character.id} className="rounded-md border p-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{character.name}</span>
+                    <Badge variant="outline">{character.referenceSource ?? "origin unknown"}</Badge>
+                    <Button
+                      className="ml-auto"
+                      size="sm"
+                      variant="outline"
+                      disabled={register.isPending}
+                      onClick={() => register.mutate({ characterId: character.id })}
+                    >
+                      Register
+                    </Button>
+                  </div>
+                  {character.outfits.map((outfit) => (
+                    <div key={outfit.id} className="mt-2 text-muted-foreground">
+                      {outfit.name}: {outfit.status ?? "not registered"}
+                      {outfit.error ? ` — ${outfit.error}` : ""}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {data?.identities.map((identity) => (
+                <div key={identity.id} className="text-sm">
+                  Verified person: {identity.label} — {identity.status}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AiTab() {
   const { flags } = useFeatureFlags();
   return (
@@ -5492,6 +5618,7 @@ export function AiTab() {
       <TextGenProviderCard />
       <ImageGenProviderCard />
       <VideoGenProviderCard />
+      <BytePlusAssetsCard />
       <StockSourcesCard />
       <AsrProviderCard />
       <SarvamTtsCard />

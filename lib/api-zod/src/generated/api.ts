@@ -3539,7 +3539,8 @@ export const createCharacterBodyDescriptionMax = 1000;
 export const CreateCharacterBody = zod.object({
   "name": zod.string().min(1).max(createCharacterBodyNameMax),
   "description": zod.string().max(createCharacterBodyDescriptionMax).nullish().describe('Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).'),
-  "sourceImagePath": zod.string().nullish().describe('Optional uploaded reference photo (\/objects\/... path). Used as the character\'s canonical reference. The separate multi-view sheet is still generated as a billed, reference-required image.')
+  "sourceImagePath": zod.string().nullish().describe('Optional uploaded reference photo (\/objects\/... path). Used as the character\'s canonical reference. The separate multi-view sheet is still generated as a billed, reference-required image.'),
+  "identityId": zod.number().nullish().describe('A liveness-verified BytePlus identity. Requires sourceImagePath; generated portraits cannot be filed as a verified real person.')
 })
 
 export const createCharacterResponseProtectedRegionOneXMin = 0;
@@ -3600,6 +3601,197 @@ export const CreateCharacterResponse = zod.object({
 })),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List real-person BytePlus verification records for this workspace
+ */
+export const ListBytePlusIdentitiesResponseItem = zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "status": zod.enum(['pending', 'verified', 'failed']),
+  "assetGroupId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "verifiedAt": zod.coerce.date().nullable()
+})
+export const ListBytePlusIdentitiesResponse = zod.array(ListBytePlusIdentitiesResponseItem)
+
+
+/**
+ * @summary Start BytePlus liveness verification for a real person
+ */
+export const startBytePlusIdentityVerificationBodyLabelMax = 80;
+
+
+
+export const StartBytePlusIdentityVerificationBody = zod.object({
+  "label": zod.string().min(1).max(startBytePlusIdentityVerificationBodyLabelMax)
+})
+
+export const StartBytePlusIdentityVerificationResponse = zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "status": zod.enum(['pending', 'verified', 'failed']),
+  "assetGroupId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "verifiedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "verificationUrl": zod.string()
+}))
+
+
+/**
+ * @summary Complete BytePlus liveness verification (public, HMAC-authenticated)
+ */
+export const CompleteBytePlusIdentityVerificationParams = zod.object({
+  "state": zod.coerce.string()
+})
+
+export const CompleteBytePlusIdentityVerificationResponse = zod.void()
+
+
+/**
+ * @summary Get BytePlus Asset Library configuration and registration status
+ */
+export const GetAdminBytePlusAssetsResponse = zod.object({
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identities": zod.array(zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "status": zod.enum(['pending', 'verified', 'failed']),
+  "assetGroupId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "verifiedAt": zod.coerce.date().nullable()
+})),
+  "characters": zod.array(zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "name": zod.string(),
+  "assetGroupId": zod.string().nullable(),
+  "identityId": zod.number().nullable(),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "assetId": zod.string().nullable(),
+  "status": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "syncedAt": zod.coerce.date().nullable()
+}))
+}))
+})
+
+
+/**
+ * @summary Save the BytePlus Assets API access-key pair
+ */
+
+
+
+
+export const SetAdminBytePlusAssetsKeyBody = zod.object({
+  "accessKeyId": zod.string().min(1),
+  "secretAccessKey": zod.string().min(1)
+})
+
+export const SetAdminBytePlusAssetsKeyResponse = zod.object({
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identities": zod.array(zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "status": zod.enum(['pending', 'verified', 'failed']),
+  "assetGroupId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "verifiedAt": zod.coerce.date().nullable()
+})),
+  "characters": zod.array(zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "name": zod.string(),
+  "assetGroupId": zod.string().nullable(),
+  "identityId": zod.number().nullable(),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "assetId": zod.string().nullable(),
+  "status": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "syncedAt": zod.coerce.date().nullable()
+}))
+}))
+})
+
+
+/**
+ * @summary Clear the stored BytePlus Assets API access-key pair
+ */
+export const ClearAdminBytePlusAssetsKeyResponse = zod.object({
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identities": zod.array(zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "status": zod.enum(['pending', 'verified', 'failed']),
+  "assetGroupId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "verifiedAt": zod.coerce.date().nullable()
+})),
+  "characters": zod.array(zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "name": zod.string(),
+  "assetGroupId": zod.string().nullable(),
+  "identityId": zod.number().nullable(),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "assetId": zod.string().nullable(),
+  "status": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "syncedAt": zod.coerce.date().nullable()
+}))
+}))
+})
+
+
+/**
+ * @summary Retry BytePlus asset registration for one character
+ */
+
+
+
+export const RegisterAdminBytePlusCharacterAssetsParams = zod.object({
+  "characterId": zod.coerce.number().min(1)
+})
+
+export const RegisterAdminBytePlusCharacterAssetsResponse = zod.object({
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identities": zod.array(zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "status": zod.enum(['pending', 'verified', 'failed']),
+  "assetGroupId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "verifiedAt": zod.coerce.date().nullable()
+})),
+  "characters": zod.array(zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "name": zod.string(),
+  "assetGroupId": zod.string().nullable(),
+  "identityId": zod.number().nullable(),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "assetId": zod.string().nullable(),
+  "status": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "syncedAt": zod.coerce.date().nullable()
+}))
+}))
 })
 
 

@@ -23,4 +23,9 @@ export interface CreateCharacterRequest {
      * @nullable
      */
   sourceImagePath?: string | null;
+  /**
+     * A liveness-verified BytePlus identity. Requires sourceImagePath; generated portraits cannot be filed as a verified real person.
+     * @nullable
+     */
+  identityId?: number | null;
 }

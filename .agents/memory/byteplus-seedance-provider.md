@@ -9,6 +9,12 @@ Use BytePlus ModelArk’s international API as the first-party ByteDance route f
 
 **How to apply:** Use the exact documented ModelArk model and structured multimodal content contract. Treat native audio, first/last frames, durations, resolutions, and aspect ratios as provider-and-model capabilities rather than inferring them from a display name. Omit `ratio` for every frame-guided request: ModelArk inherits it from the first frame and rejects an explicit value with `InvalidParameter.TaskTypeConstraint`.
 
+The trusted Asset Library is a separate BytePlus API authenticated with its own AK/SK pair, not the bearer key used for video tasks. AI-generated fictional characters belong only in virtual-portrait groups; uploaded real people require BytePlus liveness verification and must never fall back to inline-image generation.
+
+**Why:** Seedance can reject photorealistic fictional portraits as possible real people, while silently downgrading a verified person to an ordinary image request would bypass the provider's identity-rights boundary.
+
+**How to apply:** Use active `asset://` references and freeze the BytePlus-only requirement in every job snapshot. Re-check tenant-owned asset activity on dispatch/retry; missing or deleted mappings fail closed. Bind liveness callbacks to the exact provider token and a configured canonical origin.
+
 Never automatically retry the task-creation POST unless BytePlus publishes an idempotency mechanism that KOKAO uses with a stable key.
 
 **Why:** A lost response after ModelArk accepts the request can otherwise create multiple paid renders, with only one tracked by KOKAO.

@@ -47,10 +47,20 @@ function responseRequestId(response: Response): string | null {
 }
 
 export function bytePlusRequestBody(input: VideoGenInput): Record<string, unknown> {
+  const assetIds = (input.assetIds ?? []).filter((id) =>
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{2,255}$/.test(id));
   const content: Record<string, unknown>[] = [{
     type: "text",
-    text: compiledClipPrompt(input.prompt, input.durationSec),
+    text: compiledClipPrompt(
+      assetIds.length
+        ? `${input.prompt}\n\nKeep the identity and appearance from ${assetIds.map((_, index) => `@Image${index + 1}`).join(" and ")}.`
+        : input.prompt,
+      input.durationSec,
+    ),
   }];
+  for (const id of assetIds) {
+    content.push({ type: "image_url", image_url: { url: `asset://${id}` } });
+  }
   if (input.image) {
     content.push({
       type: "image_url",
@@ -75,7 +85,7 @@ export function bytePlusRequestBody(input: VideoGenInput): Record<string, unknow
     generate_audio: input.generateAudio === true,
     // ModelArk rejects an explicit ratio for frame-guided generation because
     // the output ratio is inherited from the supplied frame.
-    ...(!input.image && !input.endImage
+    ...(!input.image && !input.endImage && assetIds.length === 0
       ? {
           ratio: providerAspect(input.aspectRatio, [
             "16:9",

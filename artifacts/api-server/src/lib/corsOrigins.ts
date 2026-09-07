@@ -45,6 +45,19 @@ export function buildAllowedOrigins(
   );
 }
 
+/** A configured, HTTPS public origin for provider callbacks; never request headers. */
+export function canonicalAppOrigin(env: NodeJS.ProcessEnv = process.env): string {
+  const candidates = [
+    ...(env.REPLIT_DOMAINS ?? "").split(","),
+    env.REPLIT_INTERNAL_APP_DOMAIN ?? "",
+  ];
+  for (const candidate of candidates) {
+    const host = candidate.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase();
+    if (host && !/[/?#@\s]/.test(host)) return `https://${host}`;
+  }
+  throw new Error("A configured HTTPS public application origin is required for BytePlus callbacks.");
+}
+
 export function isAllowedOrigin(
   origin: string | undefined,
   allowedOrigins: ReadonlySet<string>,

@@ -8,6 +8,7 @@ import {
   jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { bytePlusIdentitiesTable } from "./bytePlusIdentities";
 
 /**
  * Reusable AI characters for the Video Studio. A character is an identity —
@@ -29,6 +30,15 @@ export const charactersTable = pgTable("characters", {
   description: text("description").notNull().default(""),
   /** Canonical full-body reference image (/objects/<tenantId>/uploads/...). */
   referenceImagePath: text("reference_image_path").notNull(),
+  /** Virtual portrait group, or null when this is a verified real-person character. */
+  bytePlusAssetGroupId: text("byteplus_asset_group_id"),
+  bytePlusAssetGroupClaimedAt: timestamp("byteplus_asset_group_claimed_at", { withTimezone: true }),
+  /** Liveness-verified real person linked to this character. */
+  bytePlusIdentityId: integer("byteplus_identity_id").references(() => bytePlusIdentitiesTable.id, {
+    onDelete: "restrict",
+  }),
+  /** Governs privacy-safe registration: generated, uploaded, or null for legacy rows. */
+  referenceSource: text("reference_source").$type<"generated" | "uploaded">(),
   /** Separate multi-view review asset. Never replaces the canonical portrait. */
   referenceSheetImagePath: text("reference_sheet_image_path"),
   /** A sheet is never usable until a person explicitly approves it. */
@@ -60,6 +70,13 @@ export const characterOutfitsTable = pgTable("character_outfits", {
   referenceImagePath: text("reference_image_path").notNull(),
   /** The outfit used when a video doesn't pick one explicitly. */
   isDefault: boolean("is_default").notNull().default(false),
+  bytePlusAssetId: text("byteplus_asset_id"),
+  bytePlusAssetStatus: text("byteplus_asset_status")
+    .$type<"Processing" | "Active" | "Failed">(),
+  bytePlusAssetError: text("byteplus_asset_error"),
+  bytePlusAssetSyncedAt: timestamp("byteplus_asset_synced_at", { withTimezone: true }),
+  /** Short lease held while one worker registers this outfit upstream. */
+  bytePlusAssetClaimedAt: timestamp("byteplus_asset_claimed_at", { withTimezone: true }),
   /** Non-default generated outfits stay previews until explicitly approved. */
   status: text("status")
     .$type<"preview" | "approved" | "rejected">()
@@ -78,7 +95,9 @@ export const characterOutfitsTable = pgTable("character_outfits", {
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
-});
+}, (table) => [
+  uniqueIndex("character_outfits_byteplus_asset_uniq").on(table.bytePlusAssetId),
+]);
 
 export interface PresetStockVoice {
   id: string;
