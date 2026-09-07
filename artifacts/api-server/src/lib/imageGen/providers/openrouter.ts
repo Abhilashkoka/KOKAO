@@ -9,11 +9,10 @@ import {
 
 export const OPENROUTER_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 
-interface OpenRouterChatResponse {
-  choices?: Array<{
-    message?: {
-      images?: Array<{ image_url?: { url?: string } }>;
-    };
+interface OpenRouterImageResponse {
+  data?: Array<{
+    b64_json?: string;
+    media_type?: string;
   }>;
   usage?: {
     prompt_tokens?: number;
@@ -21,21 +20,19 @@ interface OpenRouterChatResponse {
   };
 }
 
-/** Parse a data URL ("data:image/png;base64,....") into a Buffer. */
-function bufferFromDataUrl(url: string): Buffer | null {
-  const match = /^data:[^;,]+;base64,(.+)$/.exec(url);
-  if (!match) return null;
+function bufferFromBase64(value: string | undefined): Buffer | null {
+  if (!value) return null;
   try {
-    return Buffer.from(match[1]!, "base64");
+    const buffer = Buffer.from(value, "base64");
+    return buffer.length > 0 ? buffer : null;
   } catch {
     return null;
   }
 }
 
 /**
- * OpenRouter image generation: image-output models are served through the
- * chat completions endpoint with `modalities: ["image", "text"]`; the result
- * comes back as a base64 data URL in `message.images`.
+ * OpenRouter image generation uses the dedicated Images API. The response
+ * contains raw base64 image bytes in `data[].b64_json`.
  */
 export async function generateWithOpenRouter(
   input: ImageGenInput,
@@ -47,27 +44,14 @@ export async function generateWithOpenRouter(
     );
   }
 
-  // OpenRouter has no size parameter; steer the aspect ratio via the prompt.
-  const aspect =
+  const aspectRatio =
     input.size === "1024x1024"
-      ? "a square (1:1) image"
+      ? "1:1"
       : input.size === "1536x1024"
-        ? "a landscape (3:2) image"
-        : "a portrait (2:3) image";
-  const promptText = `${input.prompt}\n\nGenerate ${aspect}.`;
+        ? "3:2"
+        : "2:3";
 
-  const content: Array<Record<string, unknown>> = [];
-  if (input.referenceImage) {
-    content.push({
-      type: "image_url",
-      image_url: {
-        url: `data:${input.referenceImage.mimeType};base64,${input.referenceImage.buffer.toString("base64")}`,
-      },
-    });
-  }
-  content.push({ type: "text", text: promptText });
-
-  const res = await imageGenFetch("https://openrouter.ai/api/v1/chat/completions", {
+  const res = await imageGenFetch("https://openrouter.ai/api/v1/images", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -75,14 +59,21 @@ export async function generateWithOpenRouter(
     },
     body: JSON.stringify({
       model: input.model,
-      messages: [{ role: "user", content }],
-      modalities: ["image", "text"],
-      // OpenRouter otherwise applies the model's full text-output ceiling
-      // (currently tens of thousands of tokens) to its affordability check.
-      // We consume only message.images; reserve the minimum possible text
-      // output so a healthy image request is not rejected for unused text
-      // capacity when the provider account is low.
-      max_tokens: 1,
+      prompt: input.prompt,
+      aspect_ratio: aspectRatio,
+      n: 1,
+      ...(input.referenceImage
+        ? {
+            input_references: [
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${input.referenceImage.mimeType};base64,${input.referenceImage.buffer.toString("base64")}`,
+                },
+              },
+            ],
+          }
+        : {}),
     }),
   });
   if (!res.ok) {
@@ -91,9 +82,8 @@ export async function generateWithOpenRouter(
       res.status,
     );
   }
-  const data = (await res.json()) as OpenRouterChatResponse;
-  const url = data.choices?.[0]?.message?.images?.find((i) => i.image_url?.url)?.image_url?.url;
-  const buffer = url ? bufferFromDataUrl(url) : null;
+  const data = (await res.json()) as OpenRouterImageResponse;
+  const buffer = bufferFromBase64(data.data?.find((item) => item.b64_json)?.b64_json);
   if (!buffer) {
     throw new ImageGenProviderError(
       "OpenRouter returned no image data. Make sure the selected model supports image output.",
