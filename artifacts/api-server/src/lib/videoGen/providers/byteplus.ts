@@ -19,7 +19,7 @@ const MAX_VIDEO_BYTES = 250 * 1024 * 1024;
 const MAX_MODELARK_RESPONSE_BYTES = 1024 * 1024;
 
 /** Official Seedance 2.5 model identifier. Do not alias this to an aggregator slug. */
-export const BYTEPLUS_SEEDANCE_25_MODEL = "doubao-seedance-2-5-260628";
+export const BYTEPLUS_SEEDANCE_25_MODEL = "dreamina-seedance-2-5-260628";
 
 interface ModelArkTask {
   id?: string;

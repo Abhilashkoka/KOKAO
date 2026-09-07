@@ -491,7 +491,7 @@ describe("preflightVideoJob", () => {
           version: 1,
           source: "explicit",
           provider: "byteplus",
-          model: "doubao-seedance-2-5-260628",
+          model: "dreamina-seedance-2-5-260628",
           catalogModelId: "byteplus-seedance-2.5",
           mode: "image",
           durationSec: 5,

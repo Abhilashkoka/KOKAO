@@ -59,15 +59,15 @@ describe("video model catalog", () => {
     expect(provider).toMatchObject({
       label: "BytePlus ModelArk",
       envKey: "ARK_API_KEY",
-      defaultTextToVideoModel: "doubao-seedance-2-5-260628",
-      defaultImageToVideoModel: "doubao-seedance-2-5-260628",
+      defaultTextToVideoModel: "dreamina-seedance-2-5-260628",
+      defaultImageToVideoModel: "dreamina-seedance-2-5-260628",
       supportsModelOverride: false,
     });
     expect(findVideoModel("byteplus-seedance-2.5")).toMatchObject({
       provider: "byteplus",
       models: {
-        text: "doubao-seedance-2-5-260628",
-        image: "doubao-seedance-2-5-260628",
+        text: "dreamina-seedance-2-5-260628",
+        image: "dreamina-seedance-2-5-260628",
       },
       canGenerateAudio: true,
       supportsEndFrame: true,

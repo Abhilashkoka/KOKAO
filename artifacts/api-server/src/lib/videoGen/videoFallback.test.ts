@@ -142,7 +142,7 @@ describe("generateVideo frozen model contract", () => {
 
   it("recognizes Seedance 2.5 as providing synchronized native audio", () => {
     expect(
-      hasNativeSynchronizedAudio("byteplus", "doubao-seedance-2-5-260628"),
+      hasNativeSynchronizedAudio("byteplus", "dreamina-seedance-2-5-260628"),
     ).toBe(true);
     expect(
       hasNativeSynchronizedAudio("BYTEPLUS", " Doubao-Seedance-2-5-260628 "),

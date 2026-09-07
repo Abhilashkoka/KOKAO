@@ -2997,7 +2997,7 @@ describe("guided story route fail-closed regressions", () => {
       "higgsfield",
     );
     const restoreBytePlusSeedancePrice = await installVideoTestPrice(
-      "doubao-seedance-2-5-260628",
+      "dreamina-seedance-2-5-260628",
       "byteplus",
     );
     await setStoredVideoGenKey("higgsfield", "test-token");
@@ -3062,14 +3062,14 @@ describe("guided story route fail-closed regressions", () => {
       )[0]!;
       expect(bytePlusJob.options!.resolvedVideoModel).toMatchObject({
         provider: "byteplus",
-        model: "doubao-seedance-2-5-260628",
+        model: "dreamina-seedance-2-5-260628",
         generateAudio: true,
       });
       expect(bytePlusJob.options!.guidedStory).toMatchObject({
         promptFormat: "seedance-2.5",
         videoModel: {
           provider: "byteplus",
-          model: "doubao-seedance-2-5-260628",
+          model: "dreamina-seedance-2-5-260628",
         },
       });
 

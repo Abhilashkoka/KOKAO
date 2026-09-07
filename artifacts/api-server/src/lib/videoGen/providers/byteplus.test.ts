@@ -35,7 +35,7 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
       endImage: { buffer: Buffer.from("last"), mimeType: "image/jpeg" },
     });
     expect(body).toMatchObject({
-      model: "doubao-seedance-2-5-260628",
+      model: "dreamina-seedance-2-5-260628",
       generate_audio: true,
       ratio: "9:16",
       duration: 8,
@@ -76,7 +76,7 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
 
     expect(result).toMatchObject({
       provider: "byteplus",
-      model: "doubao-seedance-2-5-260628",
+      model: "dreamina-seedance-2-5-260628",
       effectiveDurationSec: 8,
     });
     expect(result.buffer.toString()).toBe("video-bytes");

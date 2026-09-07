@@ -103,8 +103,8 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     blurb: "Official Seedance 2.5 with synchronized dialogue and sound.",
     provider: "byteplus",
     models: {
-      text: "doubao-seedance-2-5-260628",
-      image: "doubao-seedance-2-5-260628",
+      text: "dreamina-seedance-2-5-260628",
+      image: "dreamina-seedance-2-5-260628",
     },
     tier: "premium",
     aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
