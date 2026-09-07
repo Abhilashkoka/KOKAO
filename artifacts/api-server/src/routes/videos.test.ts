@@ -2992,6 +2992,10 @@ describe("guided story route fail-closed regressions", () => {
       "kling-video/v2.5-turbo/pro/image-to-video",
       "higgsfield",
     );
+    const restoreUndocumentedHiggsfieldSeedancePrice = await installVideoTestPrice(
+      "bytedance/seedance-2.5",
+      "higgsfield",
+    );
     await setStoredVideoGenKey("higgsfield", "test-token");
     try {
       await setVideoGenSelection({
@@ -3061,6 +3065,24 @@ describe("guided story route fail-closed regressions", () => {
       expect(silentHiggsfieldResponse.body.error).toContain(
         "requires a selected Higgsfield model with native synchronized audio",
       );
+
+      // Do not treat an OpenRouter Seedance path as a Higgsfield capability:
+      // Higgsfield's public OpenAPI has no such route, so a new direct Guided
+      // Story job must be refused rather than frozen as native audio.
+      await setVideoGenSelection({
+        provider: "higgsfield",
+        textToVideoModel: "bytedance/seedance-2.5",
+        imageToVideoModel: "bytedance/seedance-2.5",
+        enabledModelIds: null,
+      });
+      const undocumentedDraft = await makeDirectDraft();
+      const undocumentedResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${undocumentedDraft.id}/enqueue`)
+        .send({ revision: undocumentedDraft.revision, consentGranted: true });
+      expect(undocumentedResponse.status).toBe(400);
+      expect(undocumentedResponse.body.error).toContain(
+        "requires a selected Higgsfield model with native synchronized audio",
+      );
     } finally {
       await clearStoredVideoGenKey("higgsfield");
       await setVideoGenSelection({
@@ -3073,6 +3095,7 @@ describe("guided story route fail-closed regressions", () => {
       await restoreLipSyncPrice();
       await restoreReplicateImagePrice();
       await restoreSilentHiggsfieldPrice();
+      await restoreUndocumentedHiggsfieldSeedancePrice();
     }
   });
 

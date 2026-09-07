@@ -3,11 +3,17 @@ name: Higgsfield video provider
 description: Non-obvious request and polling contracts for Higgsfield video generation.
 ---
 
-Higgsfield model identifiers are API endpoint paths, not request-body model names. Veo routes accept strict duration, resolution, aspect-ratio, and audio fields; Higgsfield Kling and Seedance routes accept only prompt plus an optional image and reject leaked Veo parameters.
+Higgsfield model identifiers are API endpoint paths, not request-body model names. Only paths published in Higgsfield's current OpenAPI should be activatable. Veo routes accept strict duration, resolution, aspect-ratio, and audio fields; other families use their own schemas.
 
-**Why:** Treating every model as one generic request shape causes delayed provider 400s after users have already waited.
+**Why:** Treating a marketing product name as an API route, or treating every model as one generic request shape, causes terminal provider 4xx errors after users have already waited.
 
-**How to apply:** Keep route-specific request builders. Snap Veo duration to the supported string enum, map unsupported aspects to an orientation the compositor can crop, and treat generated audio as opt-in.
+**How to apply:** Verify paths and schemas against the public OpenAPI before activation. Snap Veo duration to the supported string enum, map unsupported aspects to an orientation the compositor can crop, and treat generated audio as opt-in.
+
+Higgsfield image/video inputs must be uploaded through its file-upload flow; model requests receive the returned public HTTPS URL, never a data URI.
+
+**Why:** Higgsfield's documented model inputs are fetchable URLs, and inline base64 images are rejected. Provider-returned upload URLs are also an SSRF boundary.
+
+**How to apply:** Request a presigned target, validate HTTPS/public hosts, PUT bytes with exactly the returned upload headers and no API auth, then use `public_url` in the model request.
 
 Completed output URLs may be nested differently across Higgsfield status responses and expire quickly.
 
@@ -21,8 +27,8 @@ Higgsfield is also an image provider. Its default image route is the documented 
 
 **How to apply:** Reuse the saved video credential when no image-specific key exists. Soul v2 Standard is text-to-image only in the current adapter; do not claim reference-image, transparency, or masked-edit support.
 
-Higgsfield Veo 3.1 routes and Higgsfield's `bytedance/seedance-2.5` endpoint provide native synchronized audio for Guided Story; do not add a Replicate lip-sync pass unless the user explicitly requests separate finishing. Kling 2.5 remains non-audio.
+Higgsfield Veo 3.1 routes provide native synchronized audio for Guided Story. Higgsfield's public API does not currently publish a `bytedance/seedance-2.5` route; do not activate or silently remap it. OpenRouter's model with that name is a separate contract.
 
-**Why:** Treating all Higgsfield models as silent incorrectly blocks native-audio Guided Stories on a Replicate credential and would replace provider-owned dialogue.
+**Why:** Marketing availability does not guarantee API availability. A guessed endpoint caused immediate provider rejection without a request ID, while silent remapping would change model quality and capabilities.
 
-**How to apply:** Keep native-audio capability model-specific. Opt Higgsfield Veo and Seedance 2.5 into generated audio and skip intrinsic Replicate lip-sync; retain Replicate requirements for non-audio models or explicit finishing. Seedance audio is intrinsic and does not use Veo's `generate_audio` request field.
+**How to apply:** Keep native-audio capability provider-and-model specific. Use documented Higgsfield Veo routes with `generate_audio`; require a newly published schema before enabling Higgsfield Seedance 2.5.

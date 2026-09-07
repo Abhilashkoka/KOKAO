@@ -9,6 +9,7 @@ import {
   type VideoGenResult,
 } from "../types";
 import { withRetries, isTransientStatus } from "../retry";
+import { assertPublicHost } from "../../webFetch";
 
 /**
  * Higgsfield: one key across Veo 3.1, Kling and Seedance.
@@ -80,15 +81,12 @@ function isVeoPath(model: string): boolean {
  * duration Veo does not accept is a 400 after the user has waited, and every
  * one of these values is a documented enum rather than a free number.
  */
-export function higgsfieldRequestBody(input: VideoGenInput): Record<string, unknown> {
+export function higgsfieldRequestBody(
+  input: VideoGenInput,
+  imageUrl?: string,
+  endImageUrl?: string,
+): Record<string, unknown> {
   const prompt = compiledClipPrompt(input.prompt, input.durationSec);
-  // Both existing providers hand images over as data URIs, so this follows
-  // them. Higgsfield documents image_url only as "format: uri", which a data
-  // URI satisfies by the letter; if it turns out to want a fetchable http(s)
-  // URL, the fix is a signed storage URL rather than a different shape.
-  const imageUrl = input.image
-    ? `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`
-    : null;
 
   if (!isVeoPath(input.model)) {
     // Kling and Seedance: prompt, plus the still when there is one.
@@ -106,11 +104,127 @@ export function higgsfieldRequestBody(input: VideoGenInput): Record<string, unkn
   };
   if (imageUrl) body.image_url = imageUrl;
   if (input.endImage && input.model.includes("first-last-frame")) {
+    // The caller has uploaded both stills through Higgsfield's file API. This
+    // route does not accept data URIs; it needs fetchable public URLs.
     body.first_frame_url = imageUrl;
-    body.last_frame_url = `data:${input.endImage.mimeType};base64,${input.endImage.buffer.toString("base64")}`;
+    body.last_frame_url = endImageUrl;
     delete body.image_url;
   }
   return body;
+}
+
+interface HiggsfieldUploadTarget {
+  public_url: string;
+  upload_url: string;
+  upload_headers: Record<string, string>;
+}
+
+async function safeHiggsfieldUrl(value: unknown, description: string): Promise<string> {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new VideoGenProviderError(`${description} was not a valid URL.`, 502);
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new VideoGenProviderError(`${description} was not a valid URL.`, 502);
+  }
+  if (url.protocol !== "https:") {
+    throw new VideoGenProviderError(`${description} must use https.`, 502);
+  }
+  try {
+    await assertPublicHost(url.hostname);
+  } catch {
+    throw new VideoGenProviderError(`${description} points to a blocked or private host.`, 502);
+  }
+  return url.toString();
+}
+
+/** Validate the documented upload-url response before trusting a storage URL. */
+async function higgsfieldUploadTarget(payload: unknown): Promise<HiggsfieldUploadTarget> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new VideoGenProviderError("Higgsfield upload URL response was not an object.", 502);
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    !record.upload_headers ||
+    typeof record.upload_headers !== "object" ||
+    Array.isArray(record.upload_headers)
+  ) {
+    throw new VideoGenProviderError(
+      "Higgsfield upload URL response did not include upload_headers.",
+      502,
+    );
+  }
+  const headers = record.upload_headers as Record<string, unknown>;
+  if (Object.entries(headers).some(([name, value]) => !name.trim() || typeof value !== "string")) {
+    throw new VideoGenProviderError(
+      "Higgsfield upload URL response included invalid upload_headers.",
+      502,
+    );
+  }
+  const [publicUrl, uploadUrl] = await Promise.all([
+    safeHiggsfieldUrl(record.public_url, "The Higgsfield public URL"),
+    safeHiggsfieldUrl(record.upload_url, "The Higgsfield upload URL"),
+  ]);
+  return {
+    public_url: publicUrl,
+    upload_url: uploadUrl,
+    upload_headers: headers as Record<string, string>,
+  };
+}
+
+async function uploadedHiggsfieldImage(
+  image: NonNullable<VideoGenInput["image"]>,
+  apiKey: string,
+): Promise<string> {
+  const target = await withRetries(
+    async () => {
+      const res = await videoGenFetch(`${HIGGSFIELD_BASE_URL}/files/generate-upload-url`, {
+        method: "POST",
+        headers: {
+          Authorization: `Key ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content_type: image.mimeType }),
+      });
+      if (!res.ok) {
+        throw new VideoGenProviderError(
+          `Higgsfield upload URL request failed (${res.status}): ${await errorDetail(res)}`,
+          res.status,
+        );
+      }
+      let payload: unknown;
+      try {
+        payload = await res.json();
+      } catch {
+        throw new VideoGenProviderError("Higgsfield upload URL response was not valid JSON.", 502);
+      }
+      return await higgsfieldUploadTarget(payload);
+    },
+    { attempts: 3 },
+  );
+
+  await withRetries(
+    async () => {
+      // This is a presigned object-store request. In particular, do not add
+      // Higgsfield authorization or a Content-Type header: signed headers must
+      // be exactly the values returned by Higgsfield.
+      const res = await videoGenFetch(target.upload_url, {
+        method: "PUT",
+        headers: target.upload_headers,
+        body: image.buffer,
+      });
+      if (!res.ok) {
+        throw new VideoGenProviderError(
+          `Higgsfield image upload failed (${res.status}): ${await errorDetail(res)}`,
+          res.status,
+        );
+      }
+    },
+    { attempts: 3 },
+  );
+  return target.public_url;
 }
 
 /** What a submit or poll response can carry, across the shapes seen in the wild. */
@@ -171,7 +285,7 @@ export function higgsfieldTerminalState(status: string | undefined): "done" | "f
   if (["completed", "complete", "succeeded", "success", "finished", "ready"].includes(value)) {
     return "done";
   }
-  if (["failed", "error", "errored", "cancelled", "canceled", "expired"].includes(value)) {
+  if (["failed", "error", "errored", "nsfw", "cancelled", "canceled", "expired"].includes(value)) {
     return "failed";
   }
   return null;
@@ -194,13 +308,27 @@ export async function generateWithHiggsfield(
     "Content-Type": "application/json",
   };
   const path = input.model.startsWith("/") ? input.model : `/${input.model}`;
+  const needsFirstLastFrames =
+    Boolean(input.endImage) && input.model.includes("first-last-frame");
+  if (needsFirstLastFrames && !input.image) {
+    throw new VideoGenProviderError(
+      "Higgsfield first/last-frame generation requires both a start and end image.",
+      400,
+    );
+  }
+  const imageUrl = input.image
+    ? await uploadedHiggsfieldImage(input.image, apiKey)
+    : undefined;
+  const endImageUrl = needsFirstLastFrames && input.endImage
+    ? await uploadedHiggsfieldImage(input.endImage, apiKey)
+    : undefined;
 
   let status = await withRetries(
     async () => {
       const res = await videoGenFetch(`${HIGGSFIELD_BASE_URL}${path}`, {
         method: "POST",
         headers,
-        body: JSON.stringify(higgsfieldRequestBody(input)),
+        body: JSON.stringify(higgsfieldRequestBody(input, imageUrl, endImageUrl)),
       });
       if (!res.ok) {
         throw new VideoGenProviderError(

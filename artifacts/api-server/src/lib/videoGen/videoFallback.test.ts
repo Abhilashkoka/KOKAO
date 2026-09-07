@@ -143,7 +143,9 @@ describe("generateVideo frozen model contract", () => {
   it("recognizes Seedance 2.5 as providing synchronized native audio", () => {
     expect(hasNativeSynchronizedAudio("openrouter", "bytedance/seedance-2.5")).toBe(true);
     expect(hasNativeSynchronizedAudio("OPENROUTER", " ByteDance/Seedance-2.5 ")).toBe(true);
-    expect(hasNativeSynchronizedAudio("higgsfield", "bytedance/seedance-2.5")).toBe(true);
+    // Higgsfield's public OpenAPI does not document this route. It must not
+    // enter Guided Story's native-audio path under an undocumented remap.
+    expect(hasNativeSynchronizedAudio("higgsfield", "bytedance/seedance-2.5")).toBe(false);
     expect(hasNativeSynchronizedAudio("openrouter", "bytedance/seedance-2.0")).toBe(false);
   });
 

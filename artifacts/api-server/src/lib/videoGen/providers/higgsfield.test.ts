@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+
+vi.mock("../../webFetch", () => ({
+  assertPublicHost: vi.fn(async () => {}),
+}));
+
 import {
+  generateWithHiggsfield,
   higgsfieldRequestBody,
   higgsfieldOutputUrl,
   higgsfieldTerminalState,
@@ -46,9 +52,10 @@ describe("higgsfieldRequestBody", () => {
     expect(higgsfieldRequestBody({ ...base, generateAudio: true }).generate_audio).toBe(true);
   });
 
-  it("passes the still as a data URI, like the other providers", () => {
-    const body = higgsfieldRequestBody({ ...base, image });
-    expect(body.image_url).toBe(`data:image/png;base64,${image.buffer.toString("base64")}`);
+  it("uses the already-uploaded public URL rather than embedding image bytes", () => {
+    const body = higgsfieldRequestBody({ ...base, image }, "https://files.hf.ai/still.png");
+    expect(body.image_url).toBe("https://files.hf.ai/still.png");
+    expect(JSON.stringify(body)).not.toContain("data:image");
   });
 
   it("sends only prompt and image to Kling and Seedance routes", () => {
@@ -58,7 +65,7 @@ describe("higgsfieldRequestBody", () => {
       ...base,
       model: "kling-video/v2.5-turbo/pro/image-to-video",
       image,
-    });
+    }, "https://files.hf.ai/still.png");
     expect(Object.keys(body).sort()).toEqual(["image_url", "prompt"]);
   });
 
@@ -68,9 +75,9 @@ describe("higgsfieldRequestBody", () => {
       model: "veo3.1/first-last-frame-to-video",
       image,
       endImage: { buffer: Buffer.from("end"), mimeType: "image/png" },
-    });
-    expect(body.first_frame_url).toBeTruthy();
-    expect(body.last_frame_url).toBeTruthy();
+    }, "https://files.hf.ai/start.png", "https://files.hf.ai/end.png");
+    expect(body.first_frame_url).toBe("https://files.hf.ai/start.png");
+    expect(body.last_frame_url).toBe("https://files.hf.ai/end.png");
     expect(body.image_url).toBeUndefined();
   });
 
@@ -79,12 +86,103 @@ describe("higgsfieldRequestBody", () => {
   });
 });
 
+describe("Higgsfield file uploads", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("requests an upload URL, PUTs the raw bytes with only signed headers, then submits its public URL", async () => {
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/files/generate-upload-url")) {
+        return new Response(JSON.stringify({
+          public_url: "https://files.hf.ai/still.png",
+          upload_url: "https://upload.hf.ai/still",
+          upload_headers: { "x-upload-token": "signed", "Content-Type": "image/png" },
+        }), { status: 200 });
+      }
+      if (url === "https://upload.hf.ai/still") return new Response(null, { status: 200 });
+      if (url.endsWith("/veo3.1/fast/image-to-video")) {
+        return new Response(JSON.stringify({
+          id: "job-1", status: "completed", output: { url: "https://cdn.hf.ai/final.mp4" },
+        }), { status: 200 });
+      }
+      if (url === "https://cdn.hf.ai/final.mp4") return new Response("video", { status: 200 });
+      throw new Error(`unexpected URL ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await generateWithHiggsfield({ ...base, image }, "key-id:key-secret");
+
+    expect(fetch.mock.calls).toHaveLength(4);
+    expect(fetch.mock.calls[0]![0]).toBe("https://api.higgsfield.ai/files/generate-upload-url");
+    expect(fetch.mock.calls[0]![1]).toMatchObject({
+      method: "POST",
+      headers: { Authorization: "Key key-id:key-secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ content_type: "image/png" }),
+    });
+    expect(fetch.mock.calls[1]![0]).toBe("https://upload.hf.ai/still");
+    expect(fetch.mock.calls[1]![1]).toMatchObject({
+      method: "PUT",
+      body: image.buffer,
+    });
+    expect(fetch.mock.calls[1]![1]?.headers).toEqual({
+      "x-upload-token": "signed",
+      "Content-Type": "image/png",
+    });
+    const submit = JSON.parse(String(fetch.mock.calls[2]![1]?.body));
+    expect(submit.image_url).toBe("https://files.hf.ai/still.png");
+    expect(JSON.stringify(submit)).not.toContain("data:");
+  });
+
+  it("uploads each first/last frame and sends both resulting public URLs", async () => {
+    let uploads = 0;
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.endsWith("/files/generate-upload-url")) {
+        uploads += 1;
+        return new Response(JSON.stringify({
+          public_url: `https://files.hf.ai/${uploads}.png`,
+          upload_url: `https://upload.hf.ai/${uploads}`,
+          upload_headers: { "x-upload-token": `signed-${uploads}` },
+        }));
+      }
+      if (url.startsWith("https://upload.hf.ai/")) return new Response(null);
+      if (url.endsWith("/veo3.1/first-last-frame-to-video")) {
+        return new Response(JSON.stringify({
+          id: "job-1", status: "completed", output: { url: "https://cdn.hf.ai/final.mp4" },
+        }));
+      }
+      if (url === "https://cdn.hf.ai/final.mp4") return new Response("video");
+      throw new Error(`unexpected URL ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await generateWithHiggsfield({
+      ...base, model: "veo3.1/first-last-frame-to-video", image,
+      endImage: { buffer: Buffer.from("end"), mimeType: "image/png" },
+    }, "key-id:key-secret");
+
+    const submit = JSON.parse(String(fetch.mock.calls[4]![1]?.body));
+    expect(submit).toMatchObject({
+      first_frame_url: "https://files.hf.ai/1.png",
+      last_frame_url: "https://files.hf.ai/2.png",
+    });
+    expect(submit.image_url).toBeUndefined();
+  });
+
+  it("fails safely when Higgsfield returns an invalid upload target", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ public_url: "not-a-url" })));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(generateWithHiggsfield({ ...base, image }, "key-id:key-secret"))
+      .rejects.toMatchObject({ name: "VideoGenProviderError", status: 502 });
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("higgsfieldTerminalState", () => {
   it("recognises success and failure across the vocabularies these APIs use", () => {
     for (const done of ["completed", "succeeded", "SUCCESS", "finished", "ready"]) {
       expect(higgsfieldTerminalState(done)).toBe("done");
     }
-    for (const bad of ["failed", "error", "cancelled", "canceled", "expired"]) {
+    for (const bad of ["failed", "error", "nsfw", "cancelled", "canceled", "expired"]) {
       expect(higgsfieldTerminalState(bad)).toBe("failed");
     }
   });
