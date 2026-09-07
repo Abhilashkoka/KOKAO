@@ -40,6 +40,7 @@ const ENV_KEYS = [
   "PIXABAY_API_KEY",
   "GEMINI_API_KEY",
   "ARK_API_KEY",
+  "HIGGSFIELD_API_KEY",
   "BFL_API_KEY",
   "STABILITY_API_KEY",
   "OPENROUTER_API_KEY",
@@ -504,5 +505,37 @@ describe("preflightVideoJob", () => {
     );
 
     expect(issue).toBeNull();
+  });
+
+  it("rejects a direct Guided Story frozen to an unsupported provider before funding", async () => {
+    process.env.HIGGSFIELD_API_KEY = "test-higgsfield-key";
+
+    const issue = await preflightVideoJob(
+      "topic_to_video",
+      options({
+        visualsSource: "stock",
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        resolvedVideoModel: {
+          version: 1,
+          source: "default",
+          provider: "higgsfield",
+          model: "bytedance/seedance-2.5",
+          catalogModelId: null,
+          mode: "image",
+          durationSec: 5,
+          permittedDurationSec: [5, 8, 10],
+          resolution: null,
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
+      }),
+    );
+
+    expect(issue?.status).toBe(400);
+    expect(issue?.message).toContain(
+      "higgsfield/bytedance/seedance-2.5",
+    );
+    expect(issue?.message).toContain("Start a new Guided Story");
   });
 });

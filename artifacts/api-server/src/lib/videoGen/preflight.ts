@@ -11,6 +11,7 @@ import {
   getVideoGenProviderDef,
   resolveVideoGenProviderDef,
   getVideoGenSelection,
+  hasNativeSynchronizedAudio,
   isVideoGenProviderConfigured,
   videoGenFailoverProviderIds,
   videoGenHealthKey,
@@ -182,6 +183,18 @@ export async function preflightVideoJob(
       (visualsSource === "character" || visualsSource === "ai_video"));
   if (needsVideoGen) {
     const frozen = options?.resolvedVideoModel;
+    if (
+      isDirectGuidedStory &&
+      frozen &&
+      !hasNativeSynchronizedAudio(frozen.provider, frozen.model)
+    ) {
+      return {
+        status: 400,
+        message:
+          `This Guided Story is pinned to the unsupported video model ${frozen.provider}/${frozen.model}. ` +
+          "Start a new Guided Story to use the currently selected native-audio provider.",
+      };
+    }
     if (frozen) {
       if (frozen.mode !== modeForVideoJob(engine, options)) {
         return {
