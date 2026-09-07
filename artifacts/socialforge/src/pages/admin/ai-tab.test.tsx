@@ -311,7 +311,7 @@ describe("video provider validation guidance", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(screen.getByTestId("button-toggle-video-gen-settings"));
+    await userEvent.click(screen.getByTestId("card-video-gen-provider"));
     const textModel = screen.getByTestId("input-video-gen-text-model");
     await userEvent.clear(textModel);
     await userEvent.type(textModel, "bytedance/seedance-2.5");
@@ -365,7 +365,7 @@ describe("video provider validation guidance", () => {
     expect(screen.queryByTestId("video-model-pricing-requirement")).toBeNull();
     await userEvent
       .setup()
-      .click(screen.getByTestId("button-toggle-video-gen-settings"));
+      .click(screen.getByTestId("card-video-gen-provider"));
     expect(
       screen.getByTestId("video-model-pricing-requirement").textContent,
     ).toContain(

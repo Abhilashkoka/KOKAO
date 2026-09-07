@@ -1937,23 +1937,41 @@ export function VideoGenProviderCard() {
     );
   };
 
+  const toggleExpanded = () => {
+    if (!isLoading && settings) setExpanded((value) => !value);
+  };
+  const handleCardClick = (event: React.MouseEvent<HTMLElement>) => {
+    const interactiveTarget =
+      event.target instanceof HTMLElement
+        ? event.target.closest(
+        "button, input, textarea, select, a, [role='button'], [role='combobox'], [role='option']",
+      )
+        : null;
+    if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+      return;
+    }
+    toggleExpanded();
+  };
+
   return (
-    <Card data-testid="card-video-gen-provider">
+    <Card
+      data-testid="card-video-gen-provider"
+      className={!isLoading && settings ? "cursor-pointer transition-colors hover:bg-muted/20" : undefined}
+      role={!isLoading && settings ? "button" : undefined}
+      tabIndex={!isLoading && settings ? 0 : undefined}
+      aria-expanded={!isLoading && settings ? expanded : undefined}
+      aria-controls={!isLoading && settings ? "video-gen-provider-settings" : undefined}
+      onClick={handleCardClick}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggleExpanded();
+        }
+      }}
+    >
       <CardHeader className={expanded ? undefined : "pb-3"}>
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle>Video Generation Provider</CardTitle>
-          {!isLoading && settings && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setExpanded((value) => !value)}
-              data-testid="button-toggle-video-gen-settings"
-            >
-              {expanded ? "Collapse" : "Configure"}
-            </Button>
-          )}
-        </div>
+        <CardTitle>Video Generation Provider</CardTitle>
         {expanded && (
           <CardDescription>
             Which service and models power the Studio's Video tab. "Text to Video"
@@ -1964,7 +1982,7 @@ export function VideoGenProviderCard() {
           </CardDescription>
         )}
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent id="video-gen-provider-settings" className="space-y-3">
         {isLoading || !settings ? (
           <Skeleton className="h-9 w-64" />
         ) : !expanded ? (
