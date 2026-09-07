@@ -863,7 +863,7 @@ describe("GuidedStoryWorkflow", () => {
       "Telugu writing system",
     );
     expect(screen.getByTestId("text-guided-voice-language").textContent).toContain(
-      "voices choose how a character sounds; they are not language-specific",
+      "Higgsfield receives the exact approved dialogue",
     );
     await userEvent.click(screen.getByTestId("button-guided-approve-script"));
     expect(screen.getByTestId("button-guided-approve-script").textContent).toBe("Approve anyway");
@@ -971,7 +971,7 @@ describe("GuidedStoryWorkflow", () => {
     const { onJobReady } = renderWorkflow();
 
     const openJob = await screen.findByTestId("button-guided-enqueue");
-    expect(openJob.textContent).toBe("Open existing storyboard job");
+    expect(openJob.textContent).toBe("Open existing video job");
     expect(screen.getByTestId("guided-story-workflow")).toBeTruthy();
     expect(localStorage.getItem("kokao-guided-story-draft-v1:99")).toBe("7");
     await userEvent.click(openJob);
@@ -1004,7 +1004,7 @@ describe("GuidedStoryWorkflow", () => {
     const { onJobReady } = renderWorkflow();
 
     expect(screen.getByTestId("button-guided-enqueue").textContent).toBe(
-      "Edit story and rebuild storyboard",
+      "Edit story and rebuild legacy storyboard",
     );
     await userEvent.click(screen.getByTestId("button-guided-enqueue"));
 
@@ -1068,14 +1068,17 @@ describe("GuidedStoryWorkflow", () => {
     expect(
       screen.getByTestId("guided-intrinsic-lipsync-notice").textContent,
     ).toContain(
-      "Eligible one-character, one-face dialogue shots automatically use the approved role voice and exact timing.",
+      "Higgsfield renders the visible ensemble and synchronized audio together",
     );
     expect(screen.queryByTestId("checkbox-guided-studio-lipsync")).toBeNull();
     expect(screen.getByTestId("section-guided-attempt-consent")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reapprove Ari" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reapprove Bo" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Approve / })).toBeNull();
-    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
+    const directEnqueue = screen.getByTestId("button-guided-enqueue") as HTMLButtonElement;
+    expect(directEnqueue.textContent).toBe("Compile final prompt & send to Higgsfield");
+    expect(directEnqueue.textContent).not.toContain("storyboard");
+    expect(directEnqueue.disabled).toBe(true);
 
     await userEvent.click(screen.getByTestId("checkbox-guided-attempt-consent"));
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
@@ -1525,7 +1528,7 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("card-guided-backdrop-review")).toBeTruthy();
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("status-guided-enqueue-blocked").textContent).toBe(
-      "Approve Ari and Bo before building the storyboard.",
+      "Approve Ari and Bo before starting final generation.",
     );
     expect(screen.queryByTestId("button-guided-approve-cast-r1")).toBeNull();
     expect(screen.getByTestId("button-guided-manage-sheet-r1").textContent).toContain("Review & approve reference sheet");
