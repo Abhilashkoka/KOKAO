@@ -4039,6 +4039,63 @@ describe("guided story route fail-closed regressions", () => {
     expect(response.body.scriptApprovedAt).toEqual(expect.any(String));
   });
 
+  it("does not regenerate a complete locked cast when an unchanged recovered script is approved again", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const lockedCast = draft.state.script!.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "generated" as const,
+      characterId: 9_700 + index,
+      outfitId: 16_100 + index,
+      brandKitId: null,
+      voiceId: index === 0 ? "alloy" : "echo",
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/${role.id}-locked-character.png`,
+      },
+      outfit: {
+        name: `${role.name} locked outfit`,
+        description: "The exact approved wardrobe.",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/${role.id}-locked-outfit.png`,
+      },
+      voice: {
+        id: index === 0 ? "alloy" : "echo",
+        label: index === 0 ? "alloy" : "echo",
+        provider: "stock" as const,
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: false,
+    }));
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          scriptApprovedAt: "2026-09-07T02:16:05.456Z",
+          castStrategy: "generated",
+          cast: lockedCast,
+          castApprovals: null,
+          castOperations: {},
+          storyboardJobId: null,
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/script/approve`)
+      .send({ revision: draft.revision });
+
+    expect(response.status, response.body.error).toBe(200);
+    expect(response.body.revision).toBe(draft.revision);
+    expect(response.body.cast).toEqual(lockedCast);
+    expect(response.body.generatedCastOperations).toEqual({});
+    expect(guidedCastProviderState.calls).toBe(0);
+    expect(guidedCastProviderState.sheetCalls).toBe(0);
+  });
+
   it("continues later automatic roles after one confirmed sheet failure and safely retries only that sheet", async () => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);

@@ -3621,6 +3621,23 @@ router.post(
         });
       return;
     }
+    const lockedCastRoleIds = new Set(
+      row.state.cast.map((member) => member.roleId),
+    );
+    const hasCompleteLockedCast =
+      row.state.scriptApprovedAt !== null &&
+      row.state.cast.length === row.state.script.roles.length &&
+      row.state.script.roles.every((role) => lockedCastRoleIds.has(role.id));
+    if (hasCompleteLockedCast && row.state.storyboardJobId === null) {
+      // Reopening a failed attempt deliberately exposes the already-approved
+      // script for review. Approving that unchanged script again must be a
+      // no-op: clearing the exact cast here would buy replacement portraits and
+      // reference sheets even though the prior byte-bound references still
+      // exist. A real script edit goes through invalidateGuidedStoryDownstream
+      // first, which clears scriptApprovedAt and therefore cannot take this path.
+      res.json(serializeGuidedDraft(row));
+      return;
+    }
     if (row.state.storyboardJobId !== null) {
       const linkedJob =
         row.state.storyboardJobId > 0
@@ -3648,6 +3665,22 @@ router.post(
         });
         return;
       }
+    }
+    if (hasCompleteLockedCast) {
+      const detached = await saveGuidedState(
+        row,
+        parsed.data.revision,
+        { ...row.state, storyboardJobId: null },
+        { preserveCurrentCastApprovals: true },
+      );
+      if (!detached) {
+        res.status(409).json({
+          error: "This story draft changed. Reload it and try again.",
+        });
+        return;
+      }
+      res.json(serializeGuidedDraft(detached));
+      return;
     }
     const autoStartedAt = new Date().toISOString();
     const automaticCastRevision = row.revision + 1;

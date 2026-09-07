@@ -8,3 +8,9 @@ Rule: never stamp a wallet charge as trued-up unless the shortfall was FULLY col
 **Why:** the balance-clamping ledger discipline means a requested debit can apply only partially; stamping regardless permanently forgave the rest.
 
 **How to apply:** any retryable collection path must (1) count prior partial collections against the same reservation as already-charged, computed inside the same transaction that locks the target row (or concurrent triggers double-collect), and (2) be tenant-scoped when triggered by one tenant's payment — a top-up must never move another tenant's money.
+
+Rule: when compensating an estimated generation charge, reimburse the final signed sum of the reservation and all settle/refund/true-up rows—not the original reserve and not a sweep log's unsigned `netPaise`.
+
+**Why:** Price reconciliation can either debit or credit the difference. Treating its magnitude as a charge can over-credit the wallet.
+
+**How to apply:** identify the affected reservation IDs, sum every ledger row whose ID or `reservationId` belongs to them, then make the compensating adjustment and verify the combined net is exactly zero.

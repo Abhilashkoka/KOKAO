@@ -26,3 +26,9 @@ A failed recovery child may still be backed by a draft whose `storyboardJobId` p
 **Why:** Requiring the draft to point directly at the latest recovery child falsely marked an intact editable story as deleted after a child attempt failed.
 
 **How to apply:** Validate the draft link against the current job plus its immutable recovery root/source IDs. Keep the failed rows as audit history, but release the preserved draft for a new provider attempt.
+
+Re-approving an unchanged script after recovery must be a no-op when every script role still has a locked cast member. Only an actual script edit may invalidate cast assets and start paid replacement work.
+
+**Why:** The recovery editor exposed an already-approved script, and its ordinary approval action discarded exact approved portraits/sheets and bought replacements.
+
+**How to apply:** Preserve cast IDs, byte-bound approvals, and generated assets when `scriptApprovedAt` and complete role coverage still exist. Script-save invalidation remains the boundary for regeneration.
