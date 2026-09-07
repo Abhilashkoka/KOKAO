@@ -1142,6 +1142,66 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("button-guided-save-custom-character")).toBeTruthy();
   });
 
+  it("shows portrait, character sheet, and outfit on each cast approval card", async () => {
+    const cast = generatedCast();
+    state.draft = draft({ castStrategy: "generated", cast });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow({
+      characters: cast.map((member) => ({
+        ...character,
+        id: member.characterId,
+        name: member.character.name,
+        referenceSheetStatus: "pending",
+        referenceSheetImagePath: `/objects/99/sheet-${member.roleId}.png`,
+      })),
+    });
+
+    const card = await screen.findByTestId("card-guided-cast-approval-r1");
+    expect(card.querySelector('[data-testid="img-guided-character-reference"]')?.getAttribute("src"))
+      .toContain("/objects/99/generated-r1.png");
+    expect(card.querySelector('[data-testid="img-guided-character-sheet-reference"]')?.getAttribute("src"))
+      .toContain("/objects/99/sheet-r1.png");
+    expect(card.querySelector('[data-testid="img-guided-outfit-reference"]')?.getAttribute("src"))
+      .toContain("/objects/99/outfit-r1.png");
+
+    for (const reference of ["character", "character-sheet", "outfit"]) {
+      await userEvent.click(
+        card.querySelector(`[data-testid="button-enlarge-guided-${reference}-reference"]`)!,
+      );
+      expect(screen.getByTestId("dialog-guided-cast-review")).toBeTruthy();
+      expect(screen.getByTestId("img-guided-reference-sheet").getAttribute("src"))
+        .toContain("/objects/99/sheet-r1.png");
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() =>
+        expect(screen.queryByTestId("dialog-guided-cast-review")).toBeNull(),
+      );
+    }
+  });
+
+  it("shows an explicit missing character-sheet state without substituting the portrait", async () => {
+    const cast = generatedCast();
+    state.draft = draft({ castStrategy: "generated", cast });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow({
+      characters: cast.map((member) => ({
+        ...character,
+        id: member.characterId,
+        name: member.character.name,
+        referenceSheetStatus: "pending",
+        referenceSheetImagePath: null,
+      })),
+    });
+
+    const card = await screen.findByTestId("card-guided-cast-approval-r1");
+    expect(
+      card.querySelector('[data-testid="status-guided-character-sheet-reference-missing"]')
+        ?.textContent,
+    ).toContain("No character sheet reference image is available.");
+    expect(card.querySelector('[data-testid="img-guided-character-sheet-reference"]')).toBeNull();
+    expect(card.querySelector('[data-testid="img-guided-character-reference"]')?.getAttribute("src"))
+      .toContain("/objects/99/generated-r1.png");
+  });
+
   it("opens and approves a pending generated sheet directly from the cast card", async () => {
     const cast = generatedCast();
     state.draft = draft({ castStrategy: "generated", cast });

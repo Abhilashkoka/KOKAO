@@ -1470,8 +1470,18 @@ function CastApprovalStep(props: any) {
         return <Card key={role.id} className={approvalNeeded ? "border-amber-500 ring-2 ring-amber-300/60 dark:ring-amber-700/60" : "border-primary/20"} data-testid={`card-guided-cast-approval-${role.id}`}>
           <CardHeader className="pb-2"><CardTitle className="text-base">{role.name}</CardTitle><CardDescription data-testid={`status-guided-cast-approval-${role.id}`}>{approved ? "Approved for this draft revision" : manifest && !manifestIsCurrent ? "Approval is stale — review and reapprove" : "Approval needed"}</CardDescription></CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
               <ReferenceThumbnail label="Character" asset={cast?.character} onClick={() => setReviewRoleId(role.id)} />
+              <ReferenceThumbnail
+                label="Character sheet"
+                asset={libraryCharacter
+                  ? {
+                      name: libraryCharacter.name,
+                      referenceImagePath: libraryCharacter.referenceSheetImagePath,
+                    }
+                  : null}
+                onClick={() => setReviewRoleId(role.id)}
+              />
               <ReferenceThumbnail label="Outfit" asset={cast?.outfit} onClick={() => setReviewRoleId(role.id)} />
             </div>
             {props.castApprovalError?.roleId === role.id && <p className="text-sm text-destructive" role="alert" data-testid={`error-guided-cast-approval-${role.id}`}>{props.castApprovalError.message}</p>}
@@ -1493,7 +1503,7 @@ function CastApprovalStep(props: any) {
         className="max-h-[90vh] max-w-2xl overflow-x-hidden overflow-y-auto"
         data-testid="dialog-guided-cast-review"
       >
-        <DialogHeader><DialogTitle>Review {roles.find((role: any) => role.id === reviewRoleId)?.name} references</DialogTitle><DialogDescription>Confirm the exact character and outfit images before approving this role.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Review {roles.find((role: any) => role.id === reviewRoleId)?.name} references</DialogTitle><DialogDescription>Confirm the exact character portrait, multi-view sheet, and outfit images before approving this role.</DialogDescription></DialogHeader>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
           <ReferenceThumbnail label="Character" asset={selected?.character} enlarged />
           <ReferenceThumbnail label="Outfit" asset={selected?.outfit} enlarged />
@@ -2435,13 +2445,14 @@ function GeneratedCastRole({ role }: { role: { id: string; name: string } }) {
 }
 
 function ReferenceThumbnail({ label, asset, enlarged = false, onClick }: { label: string; asset?: { name?: string; referenceImagePath?: string | null } | null; enlarged?: boolean; onClick?: () => void }) {
-  return <div className="space-y-1" data-testid={`reference-guided-${label.toLowerCase()}`}>
+  const testIdLabel = label.toLowerCase().replaceAll(" ", "-");
+  return <div className="space-y-1" data-testid={`reference-guided-${testIdLabel}`}>
     <p className="font-medium">{label}</p>
     {asset?.referenceImagePath
       ? onClick
-        ? <button type="button" className="block w-full rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" onClick={onClick} aria-label={`Enlarge ${label.toLowerCase()} reference`} data-testid={`button-enlarge-guided-${label.toLowerCase()}-reference`}><img className="h-24 w-full rounded border object-cover transition-opacity hover:opacity-85" src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${label.toLowerCase()}-reference`} /></button>
-        : <img className={enlarged ? "h-64 w-full rounded-md border object-contain bg-muted" : "h-24 w-full rounded border object-cover"} src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${label.toLowerCase()}-reference`} />
-      : <p className="rounded border border-dashed p-2 text-xs text-muted-foreground">No {label.toLowerCase()} reference image is available.</p>}
+        ? <button type="button" className="block w-full rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" onClick={onClick} aria-label={`Enlarge ${label.toLowerCase()} reference`} data-testid={`button-enlarge-guided-${testIdLabel}-reference`}><img className="h-24 w-full rounded border object-cover transition-opacity hover:opacity-85" src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${testIdLabel}-reference`} /></button>
+        : <img className={enlarged ? "h-64 w-full rounded-md border object-contain bg-muted" : "h-24 w-full rounded border object-cover"} src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${testIdLabel}-reference`} />
+      : <p className="rounded border border-dashed p-2 text-xs text-muted-foreground" role="status" data-testid={`status-guided-${testIdLabel}-reference-missing`}>No {label.toLowerCase()} reference image is available.</p>}
     {asset?.name && <p className="text-xs text-muted-foreground">{asset.name}</p>}
   </div>;
 }
