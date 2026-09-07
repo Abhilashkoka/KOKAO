@@ -561,6 +561,7 @@ export async function animateSceneKeyframes(params: {
         // Scene lengths come from the narration timing; the audio is already
         // recorded, so the model's own duration snap must not override it.
         durationSec,
+        operationKey: `character_scene:${i}`,
       });
       provider = clip.provider;
       model = clip.model;

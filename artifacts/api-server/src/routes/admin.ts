@@ -14,6 +14,7 @@ import {
   subscriptionsTable,
   walletBalancesTable,
   creditBalancesTable,
+  videoGenerationsTable,
 } from "@workspace/db";
 import {
   getWalletConfig,
@@ -319,6 +320,44 @@ const router: IRouter = Router();
 
 // Every admin route requires superadmin privileges.
 router.use("/admin", requireSuperadmin);
+
+router.get("/admin/video-jobs/:jobId/diagnostics", async (req: Request, res: Response) => {
+  const jobId = Number(req.params.jobId);
+  if (!Number.isInteger(jobId) || jobId <= 0) {
+    res.status(400).json({ error: "Invalid video job id." });
+    return;
+  }
+  const [job] = await db.select({
+    id: videoGenerationsTable.id,
+    status: videoGenerationsTable.status,
+    provider: videoGenerationsTable.provider,
+    model: videoGenerationsTable.model,
+    providerTaskId: videoGenerationsTable.providerTaskId,
+    providerRequestId: videoGenerationsTable.providerRequestId,
+    error: videoGenerationsTable.error,
+    errorHistory: videoGenerationsTable.errorHistory,
+    options: videoGenerationsTable.options,
+  }).from(videoGenerationsTable)
+    .where(eq(videoGenerationsTable.id, jobId))
+    .limit(1);
+  if (!job) {
+    res.status(404).json({ error: "Video job not found." });
+    return;
+  }
+  res.json({
+    id: job.id,
+    status: job.status,
+    provider: job.provider,
+    model: job.model,
+    providerTaskId: job.providerTaskId,
+    providerRequestId: job.providerRequestId,
+    error: job.error,
+    errorHistory: job.errorHistory ?? [],
+    providerTasks: Object.entries(job.options?.providerTasks ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([operationKey, receipt]) => ({ operationKey, ...receipt })),
+  });
+});
 
 // Actual-cost tracking has its own platform kill switch: when it is off the
 // cost admin endpoints 403 like any other gated module. The feature-flag

@@ -58,27 +58,38 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
       .toContain("A presenter speaks naturally");
   });
 
-  it("uses the international task endpoint, Bearer auth, and downloads immediately", async () => {
+  it("persists accepted task diagnostics and returns them without output URLs", async () => {
+    const onProviderTaskAccepted = vi.fn(async () => {});
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/api/v3/contents/generations/tasks")) {
         return new Response(JSON.stringify({
           id: "task-1",
           status: "succeeded",
           content: { video_url: "https://media.example.com/result.mp4" },
-        }));
+        }), { headers: { "x-request-id": "request-accepted-1" } });
       }
       if (url === "https://media.example.com/result.mp4") return new Response("video-bytes");
       throw new Error(`unexpected URL ${url}`);
     });
     vi.stubGlobal("fetch", fetch);
 
-    const result = await generateWithBytePlusModelArk(input, "ark-secret");
+    const result = await generateWithBytePlusModelArk(
+      { ...input, onProviderTaskAccepted },
+      "ark-secret",
+    );
 
     expect(result).toMatchObject({
       provider: "byteplus",
       model: "dreamina-seedance-2-5-260628",
       effectiveDurationSec: 8,
+      providerTaskId: "task-1",
+      providerRequestId: "request-accepted-1",
     });
+    expect(onProviderTaskAccepted).toHaveBeenCalledWith({
+      taskId: "task-1",
+      requestId: "request-accepted-1",
+    });
+    expect(result).not.toHaveProperty("outputUrl");
     expect(result.buffer.toString()).toBe("video-bytes");
     expect(fetch.mock.calls[0]?.[0]).toBe(
       "https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks",
@@ -125,23 +136,82 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
       id: "task-failed",
       status: "failed",
       error: "prompt rejected",
-    })));
+    }), { headers: { "x-request-id": "request-terminal-1" } }));
     vi.stubGlobal("fetch", fetch);
 
     await expect(generateWithBytePlusModelArk(input, "ark-secret"))
-      .rejects.toThrow("BytePlus ModelArk generation did not succeed: prompt rejected");
+      .rejects.toMatchObject({
+        message: "BytePlus ModelArk generation did not succeed: prompt rejected",
+        providerTaskId: "task-failed",
+        requestId: "request-terminal-1",
+      });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry a failed task-creation POST without an idempotency contract", async () => {
     const fetch = vi.fn(async (_url: string, _init?: RequestInit) =>
-      new Response("upstream unavailable", { status: 503 }));
+      new Response("upstream unavailable", {
+        status: 503,
+        headers: { "x-request-id": "request-rejected-1" },
+      }));
     vi.stubGlobal("fetch", fetch);
 
     await expect(generateWithBytePlusModelArk(input, "ark-secret"))
-      .rejects.toMatchObject({ name: "VideoGenProviderError", status: 503 });
+      .rejects.toMatchObject({
+        name: "VideoGenProviderError",
+        status: 503,
+        requestId: "request-rejected-1",
+      });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("resumes an accepted task without repeating the paid creation call", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(init?.method).toBe("GET");
+      if (url.endsWith("/tasks/task-existing")) {
+        return new Response(JSON.stringify({
+          id: "task-existing",
+          status: "succeeded",
+          content: { video_url: "https://media.example.com/resumed.mp4" },
+        }), { headers: { "x-request-id": "request-resumed-1" } });
+      }
+      if (url === "https://media.example.com/resumed.mp4") return new Response("resumed");
+      throw new Error(`unexpected URL ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const generation = generateWithBytePlusModelArk(
+      { ...input, providerTaskId: "task-existing" },
+      "ark-secret",
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(generation).resolves.toMatchObject({
+      providerTaskId: "task-existing",
+      providerRequestId: "request-resumed-1",
+    });
+    expect(fetch.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
+  });
+
+  it("retains accepted identifiers when the durable checkpoint write fails", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      id: "task-checkpoint-failed",
+      status: "queued",
+    }), { headers: { "x-request-id": "request-checkpoint-failed" } }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(generateWithBytePlusModelArk({
+      ...input,
+      onProviderTaskAccepted: async () => {
+        throw new Error("database unavailable");
+      },
+    }, "ark-secret")).rejects.toMatchObject({
+      status: 503,
+      providerTaskId: "task-checkpoint-failed",
+      requestId: "request-checkpoint-failed",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("aborts a create response body that stalls after headers", async () => {

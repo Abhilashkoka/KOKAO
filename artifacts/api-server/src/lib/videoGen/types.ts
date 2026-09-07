@@ -132,6 +132,15 @@ export interface VideoGenInput {
   quality?: string | null;
   /** Ask the model for its own audio (dialogue, SFX) where it supports it. */
   generateAudio?: boolean | null;
+  /** Provider-owned async task to resume without repeating a paid create call. */
+  providerTaskId?: string | null;
+  /** Request correlation retained alongside a resumed async task. */
+  providerRequestId?: string | null;
+  /** Persist an accepted async task before polling or downloading its output. */
+  onProviderTaskAccepted?: (receipt: {
+    taskId: string;
+    requestId: string | null;
+  }) => Promise<void>;
 }
 
 /** Result returned by every provider. */
@@ -142,6 +151,9 @@ export interface VideoGenResult {
   model: string;
   /** Actual provider-call duration after frozen composite quantization. */
   effectiveDurationSec?: number;
+  /** Sanitized provider correlation identifiers; never URLs or credentials. */
+  providerTaskId?: string;
+  providerRequestId?: string;
 }
 
 /** Thrown when the selected provider is missing its API key. */
@@ -157,6 +169,8 @@ export class VideoGenProviderError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
+    public readonly providerTaskId?: string,
+    public readonly requestId?: string,
   ) {
     super(message);
     this.name = "VideoGenProviderError";

@@ -23,11 +23,27 @@ export const BYTEPLUS_SEEDANCE_25_MODEL = "dreamina-seedance-2-5-260628";
 
 interface ModelArkTask {
   id?: string;
+  request_id?: string;
+  requestId?: string;
   status?: string;
   error?: unknown;
   content?: {
     video_url?: unknown;
   };
+}
+
+function safeProviderId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{3,127}$/.test(trimmed) ? trimmed : null;
+}
+
+function responseRequestId(response: Response): string | null {
+  return safeProviderId(
+    response.headers.get("x-request-id") ??
+      response.headers.get("x-tt-logid") ??
+      response.headers.get("trace-id"),
+  );
 }
 
 export function bytePlusRequestBody(input: VideoGenInput): Record<string, unknown> {
@@ -107,8 +123,16 @@ function taskError(task: ModelArkTask): string {
   return task.status ?? "unknown status";
 }
 
-function generationTimeout(): VideoGenProviderError {
-  return new VideoGenProviderError("BytePlus ModelArk generation timed out before completion.");
+function generationTimeout(
+  taskId?: string,
+  requestId?: string | null,
+): VideoGenProviderError {
+  return new VideoGenProviderError(
+    "BytePlus ModelArk generation timed out before completion.",
+    undefined,
+    taskId,
+    requestId ?? undefined,
+  );
 }
 
 /**
@@ -311,24 +335,56 @@ export async function generateWithBytePlusModelArk(
   // ModelArk does not document an idempotency key for task creation. Retrying
   // a timed-out POST could purchase two generations, so submit exactly once.
   const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
-  const createActive = await fetchWithinDeadline(deadline, TASKS_URL, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(bytePlusRequestBody(input)),
-  });
-  if (!createActive.response.ok) {
-    const detail = await modelArkErrorDetail(createActive).finally(() => createActive.dispose());
-    throw new VideoGenProviderError(
-      `BytePlus ModelArk request failed (${createActive.response.status}): ${detail}`,
-      createActive.response.status,
-    );
+  let task: ModelArkTask;
+  let requestId: string | null = safeProviderId(input.providerRequestId);
+  const resumedTaskId = safeProviderId(input.providerTaskId);
+  if (input.providerTaskId && !resumedTaskId) {
+    throw new VideoGenProviderError("Stored BytePlus ModelArk task id was invalid.", 502);
   }
-  let task = await parseModelArkTask(createActive).finally(() => createActive.dispose());
-  if (!task.id) {
-    throw new VideoGenProviderError("BytePlus ModelArk returned no task id.", 502);
+  if (resumedTaskId) {
+    task = { id: resumedTaskId, status: "queued" };
+  } else {
+    const createActive = await fetchWithinDeadline(deadline, TASKS_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(bytePlusRequestBody(input)),
+    });
+    requestId = responseRequestId(createActive.response);
+    if (!createActive.response.ok) {
+      const detail = await modelArkErrorDetail(createActive).finally(() => createActive.dispose());
+      throw new VideoGenProviderError(
+        `BytePlus ModelArk request failed (${createActive.response.status}): ${detail}`,
+        createActive.response.status,
+        undefined,
+        requestId ?? undefined,
+      );
+    }
+    task = await parseModelArkTask(createActive).finally(() => createActive.dispose());
+    requestId = safeProviderId(task.request_id ?? task.requestId) ?? requestId;
+    const taskId = safeProviderId(task.id);
+    if (!taskId) {
+      throw new VideoGenProviderError(
+        "BytePlus ModelArk returned no valid task id.",
+        502,
+        undefined,
+        requestId ?? undefined,
+      );
+    }
+    task.id = taskId;
+    try {
+      await input.onProviderTaskAccepted?.({ taskId, requestId });
+    } catch {
+      throw new VideoGenProviderError(
+        "BytePlus ModelArk accepted the task, but its recovery checkpoint could not be saved.",
+        503,
+        taskId,
+        requestId ?? undefined,
+      );
+    }
   }
 
-  const pollUrl = `${TASKS_URL}/${encodeURIComponent(task.id)}`;
+  const taskId = task.id!;
+  const pollUrl = `${TASKS_URL}/${encodeURIComponent(taskId)}`;
   let consecutivePollFailures = 0;
   while (
     task.status !== "succeeded" &&
@@ -336,12 +392,13 @@ export async function generateWithBytePlusModelArk(
     Date.now() < deadline
   ) {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) throw generationTimeout();
+    if (remaining <= 0) throw generationTimeout(taskId, requestId);
     await new Promise((resolve) => setTimeout(resolve, Math.min(POLL_INTERVAL_MS, remaining)));
-    if (Date.now() >= deadline) throw generationTimeout();
+    if (Date.now() >= deadline) throw generationTimeout(taskId, requestId);
     try {
       const active = await fetchWithinDeadline(deadline, pollUrl, { method: "GET", headers });
       const { response } = active;
+      requestId = responseRequestId(response) ?? requestId;
       if (!response.ok) {
         const detail = await modelArkErrorDetail(active).finally(() => active.dispose());
         throw new VideoGenProviderError(
@@ -350,25 +407,46 @@ export async function generateWithBytePlusModelArk(
         );
       }
       task = await parseModelArkTask(active).finally(() => active.dispose());
+      requestId = safeProviderId(task.request_id ?? task.requestId) ?? requestId;
       consecutivePollFailures = 0;
     } catch (error) {
       const transient =
         !(error instanceof VideoGenProviderError) || isTransientStatus(error.status);
       consecutivePollFailures += 1;
-      if (!transient || consecutivePollFailures >= 3) throw error;
+      if (!transient || consecutivePollFailures >= 3) {
+        throw new VideoGenProviderError(
+          error instanceof Error ? error.message : "BytePlus ModelArk polling failed.",
+          error instanceof VideoGenProviderError ? error.status : undefined,
+          taskId,
+          requestId ?? undefined,
+        );
+      }
     }
   }
   if (Date.now() >= deadline && task.status !== "succeeded" && task.status !== "failed") {
-    throw generationTimeout();
+    throw generationTimeout(taskId, requestId);
   }
   if (task.status !== "succeeded") {
     throw new VideoGenProviderError(
       `BytePlus ModelArk generation did not succeed: ${taskError(task)}`,
+      undefined,
+      taskId,
+      requestId ?? undefined,
     );
   }
 
-  const outputUrl = await safeBytePlusMediaUrl(task.content?.video_url);
-  const buffer = await downloadBytePlusVideo(outputUrl, deadline);
+  let buffer: Buffer;
+  try {
+    const outputUrl = await safeBytePlusMediaUrl(task.content?.video_url);
+    buffer = await downloadBytePlusVideo(outputUrl, deadline);
+  } catch (error) {
+    throw new VideoGenProviderError(
+      error instanceof Error ? error.message : "BytePlus ModelArk video download failed.",
+      error instanceof VideoGenProviderError ? error.status : undefined,
+      taskId,
+      requestId ?? undefined,
+    );
+  }
   if (buffer.length === 0) {
     throw new VideoGenProviderError("BytePlus ModelArk returned an empty video.", 502);
   }
@@ -377,5 +455,7 @@ export async function generateWithBytePlusModelArk(
     provider: "byteplus",
     model: BYTEPLUS_SEEDANCE_25_MODEL,
     effectiveDurationSec: Math.round(input.durationSec),
+    providerTaskId: taskId,
+    ...(requestId ? { providerRequestId: requestId } : {}),
   };
 }

@@ -8583,6 +8583,7 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
       sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/source.png`],
       options,
       error: "Provider stopped after scene two.",
+      providerTaskId: "source-task-1234",
       providerRequestId: "source-request-1234",
       errorHistory: [{
         jobId: 99, jobNumber: 99, scope: "scene", sceneId: "s2",
@@ -8603,6 +8604,15 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
     const source = await failedFreshSource(tenant, {
       aspectRatio: "9:16", shotCount: 3,
       recovery: { version: 1, chainId: 7, sourceJobId: 7, fundedUnits: 1, mode: "resume", state: "queued", reusable: [], regenerated: [] },
+      providerTasks: {
+        text_to_video: {
+          provider: "byteplus",
+          model: "dreamina-seedance-2-5-260628",
+          taskId: "source-task-1234",
+          requestId: "source-request-1234",
+          acceptedAt: "2026-09-07T00:00:00.000Z",
+        },
+      },
       renderCheckpoint: { stage: "final", path: `/objects/${tenant.tenantId}/uploads/old.mp4`, provider: "replicate", model: "old", durationSec: 4, providerEvents: [] },
       storyboardFunding: { version: 1, sceneCount: 3, requiredUnits: 3, fundedUnits: 3, planningUnits: 0 },
     });
@@ -8628,10 +8638,12 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
       options: { freshRestart: { sourceJobId: source.id, childJobId: null }, shotCount: 3 },
     });
     expect(child.options?.recovery).toBeUndefined();
+    expect(child.options?.providerTasks).toBeUndefined();
     expect(child.options?.renderCheckpoint).toBeUndefined();
     expect(child.options?.storyboardFunding).toBeUndefined();
     expect(child.storyboard).toBeNull();
     expect(child.errorHistory).toBeNull();
+    expect(child.providerTaskId).toBeNull();
   });
 
   it("is tenant-scoped, permits one concurrent child, and rolls an unfunded creation back", async () => {

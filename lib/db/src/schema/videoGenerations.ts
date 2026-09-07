@@ -190,6 +190,14 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Accepted async provider tasks, keyed by immutable paid-operation identity. */
+  providerTasks?: Record<string, {
+    provider: string;
+    model: string;
+    taskId: string;
+    requestId: string | null;
+    acceptedAt: string;
+  }> | null;
   /**
    * Immutable Guided Story execution contract. Only the exact versioned value
    * below enables direct video rendering; marker-absent rows are legacy
@@ -540,6 +548,8 @@ export interface VideoJobOptions {
       criteria?: VideoPriceCriteria;
       accounted?: boolean;
       unitWeight?: number;
+      providerTaskId?: string;
+      providerRequestId?: string;
     }>;
   } | null;
   musicCheckpoint?: {
@@ -595,6 +605,8 @@ export interface VideoJobOptions {
         criteria?: VideoPriceCriteria;
         accounted?: boolean;
         unitWeight?: number;
+        providerTaskId?: string;
+        providerRequestId?: string;
       }>;
     } | null;
   } | null;
@@ -1403,6 +1415,8 @@ export const videoGenerationsTable = pgTable("video_generations", {
   error: text("error"),
   /** Last provider correlation id, when the provider safely supplied one. */
   providerRequestId: text("provider_request_id"),
+  /** Accepted async provider task, used for diagnostics and create-free recovery. */
+  providerTaskId: text("provider_task_id"),
   /** Durable append-only error audit. Legacy rows simply have an empty history. */
   errorHistory: jsonb("error_history").$type<VideoGenerationErrorHistoryEntry[]>(),
   /** What the pipeline is doing right now ("Writing the script", ...); only

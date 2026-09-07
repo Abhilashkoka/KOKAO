@@ -464,6 +464,7 @@ export async function animateBrollStills(params: {
           params.nativeAudio === undefined
             ? params.modelOptions?.generateAudio
             : params.nativeAudio,
+        operationKey: `topic_animation:${i}`,
         // Scene lengths come from the narration timing, which the model does
         // not get a vote on — the audio is already recorded.
         durationSec,

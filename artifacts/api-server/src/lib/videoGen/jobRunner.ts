@@ -63,6 +63,10 @@ import {
   VideoGenProviderError,
   VideoModelResolutionError,
 } from "./index";
+import {
+  withVideoProviderTaskStore,
+  type VideoProviderTaskStore,
+} from "./providerTaskContext";
 import { generateLipSyncWithReplicate } from "./providers/replicate";
 import { prepareLipSyncSource, MIN_USABLE_HEIGHT } from "./lipSyncSource";
 import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
@@ -247,6 +251,9 @@ interface VideoProviderEvent {
   accounted?: boolean;
   /** Deferred-template units consumed by this operation. Absent keeps legacy event-count semantics. */
   unitWeight?: number;
+  /** Sanitized async provider diagnostics; never output URLs or credentials. */
+  providerTaskId?: string;
+  providerRequestId?: string;
 }
 
 function jobVideoPriceCriteria(job: VideoGeneration, hasReferenceVideo = false): VideoPriceCriteria {
@@ -838,6 +845,49 @@ async function setJob(
     .where(eq(videoGenerationsTable.id, jobId));
 }
 
+function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
+  return {
+    async load(operationKey, provider, model) {
+      const [row] = await db.select({ options: videoGenerationsTable.options })
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, jobId))
+        .limit(1);
+      const saved = row?.options?.providerTasks?.[operationKey];
+      return saved?.provider === provider && saved.model === model
+        ? { taskId: saved.taskId, requestId: saved.requestId }
+        : null;
+    },
+    async save(operationKey, provider, model, receipt) {
+      await db.transaction(async (tx) => {
+        const [row] = await tx.select({ options: videoGenerationsTable.options })
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, jobId))
+          .for("update")
+          .limit(1);
+        if (!row?.options) {
+          throw new Error(`Video job ${jobId} disappeared while saving its provider task.`);
+        }
+        const options = structuredClone(row.options);
+        options.providerTasks = {
+          ...(options.providerTasks ?? {}),
+          [operationKey]: {
+            provider,
+            model,
+            taskId: receipt.taskId,
+            requestId: receipt.requestId,
+            acceptedAt: new Date().toISOString(),
+          },
+        };
+        await tx.update(videoGenerationsTable).set({
+          options,
+          providerTaskId: receipt.taskId,
+          ...(receipt.requestId ? { providerRequestId: receipt.requestId } : {}),
+        }).where(eq(videoGenerationsTable.id, jobId));
+      });
+    },
+  };
+}
+
 /** Never persist arbitrary provider payloads/tokens in the customer-visible audit. */
 function safeVideoErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof VideoGenNotConfiguredError) {
@@ -1252,7 +1302,13 @@ async function resolveMusic(
 /** Write paid provider output before downstream ffmpeg/QA/final upload work. */
 async function checkpointProviderRender(
   job: VideoGeneration,
-  result: { buffer: Buffer; provider: string; model: string },
+  result: {
+    buffer: Buffer;
+    provider: string;
+    model: string;
+    providerTaskId?: string;
+    providerRequestId?: string;
+  },
   label: string,
   durationSec: number,
   criteria = jobVideoPriceCriteria(
@@ -1274,6 +1330,8 @@ async function checkpointProviderRender(
       durationSec,
       variantCriteria: criteria,
     }).catch(() => null),
+    ...(result.providerTaskId ? { providerTaskId: result.providerTaskId } : {}),
+    ...(result.providerRequestId ? { providerRequestId: result.providerRequestId } : {}),
   };
   const latest = (
     await db.select({ options: videoGenerationsTable.options })
@@ -1294,6 +1352,12 @@ async function checkpointProviderRender(
   const path = await uploadToStorage(job.tenantId, result.buffer, "video/mp4");
   options.renderCheckpoint.path = path;
   await db.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, job.id));
+  if (result.providerTaskId || result.providerRequestId) {
+    await db.update(videoGenerationsTable).set({
+      ...(result.providerTaskId ? { providerTaskId: result.providerTaskId } : {}),
+      ...(result.providerRequestId ? { providerRequestId: result.providerRequestId } : {}),
+    }).where(eq(videoGenerationsTable.id, job.id));
+  }
   return event;
 }
 
@@ -1569,6 +1633,7 @@ async function produceVideo(
         cinematography: options.cinematography ?? null,
         seed: options.seed ?? null,
         model,
+        operationKey: "text_to_video",
       });
       const event = await checkpointProviderRender(
         job, result, "text_to_video", result.effectiveDurationSec ?? model.durationSec,
@@ -1596,6 +1661,7 @@ async function produceVideo(
       aspectRatio,
       seed: options.seed ?? null,
       ...model,
+      operationKey: "text_to_video",
     });
     const event = await checkpointProviderRender(
       job, result, "text_to_video", result.effectiveDurationSec ?? model.durationSec,
@@ -1642,6 +1708,7 @@ async function produceVideo(
       image,
       ...(endImage ? { endImage } : {}),
       ...model,
+      operationKey: "image_to_video",
     });
     const event = await checkpointProviderRender(
       job, result, "image_to_video", result.effectiveDurationSec ?? model.durationSec,
@@ -1841,6 +1908,7 @@ async function produceVideo(
               aspectRatio,
               image: still,
               ...animationModel,
+              operationKey: `guided_animation:${line.lineId}`,
             });
             const animatedDurationSec = (await verifyRenderedVideo(animated.buffer, {
               minDurationSec: 0.1, label: "Guided Story approved-preview animation",
@@ -2056,6 +2124,7 @@ async function produceVideo(
             wardrobeSnapshot: options.characterSnapshot,
             prompt: sourcePlatePrompt, aspectRatio, durationSec: Math.min(30, narrationDurationSec + 0.35),
             model: resolveModelOptions(options, 5),
+            operationKey: `character_plate:${scene.id}`,
           });
           plate = visual.buffer;
           visualEvent = {
@@ -2376,6 +2445,7 @@ async function produceVideo(
       aspectRatio,
       durationSec: options.durationSec ?? 5,
       resolvedVideoModel: options.resolvedVideoModel,
+      operationKey: "ai_person_plate",
     });
     // Provider success is the partial-work boundary. Start with an unmeasured
     // event: flat-per-video models can still resolve an exact cost, while a
@@ -3276,6 +3346,7 @@ async function produceVideo(
                 snapshot: hybrid.characterSnapshot,
                 prompt: lipSyncSourcePlatePrompt(scene.visual), aspectRatio, durationSec: Math.min(30, targetSec + .35),
                  model,
+                 operationKey: `hybrid_plate:${scene.id}`,
                 keyframe: scene.previewPath
                   ? (await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Saved hybrid character keyframe")).buffer
                   : null,
@@ -5978,6 +6049,7 @@ async function finishGuidedStoryIntrinsicDialogue(
           // A selected model must not re-enable provider-native audio after
           // this silent approved-still plate contract was chosen.
           generateAudio: false,
+          operationKey: `guided_intrinsic_animation:${planned.sceneId}`,
         });
         animationEvent = {
           eventId: videoProviderEventId(job, `guided_intrinsic_animation:${planned.sceneId}`),
@@ -6381,7 +6453,10 @@ async function executeVideoJob(
           providerEvents: [],
           qa: { minDurationSec: 0.5, label: "saved completed render" },
         }
-      : await produceVideo(job, onStage);
+      : await withVideoProviderTaskStore(
+          providerTaskStoreForJob(job.id),
+          () => produceVideo(job, onStage),
+        );
     completedProviderEvents =
       ("providerEvents" in produced ? produced.providerEvents : undefined) ?? [];
     // Music/raw-provider checkpoints can be written by a nested stage after
@@ -6472,11 +6547,14 @@ async function executeVideoJob(
       }];
     }
     if (job.options?.guidedStoryIntrinsicLipSync) {
-      const finished = await finishGuidedStoryIntrinsicDialogue(
-        job,
-        buffer,
-        completedProviderEvents,
-        onStage,
+      const finished = await withVideoProviderTaskStore(
+        providerTaskStoreForJob(job.id),
+        () => finishGuidedStoryIntrinsicDialogue(
+          job,
+          buffer,
+          completedProviderEvents,
+          onStage,
+        ),
       );
       buffer = finished.buffer;
       completedProviderEvents = [...completedProviderEvents, ...finished.events];
@@ -6794,6 +6872,7 @@ async function executeVideoJob(
         options: videoGenerationsTable.options,
         storyboard: videoGenerationsTable.storyboard,
         status: videoGenerationsTable.status,
+        providerTaskId: videoGenerationsTable.providerTaskId,
       })
         .from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, jobId))
@@ -6879,6 +6958,41 @@ async function executeVideoJob(
          model: latest?.options?.resolvedVideoModel?.model ??
            job.options?.resolvedVideoModel?.model,
       });
+      const failedTaskId = safeProviderIdentifier(
+        (surfacedError as { providerTaskId?: unknown } | null)?.providerTaskId,
+        128,
+      );
+      const failedOperationKey = safeProviderIdentifier(
+        (surfacedError as { providerOperationKey?: unknown } | null)
+          ?.providerOperationKey,
+        160,
+      );
+      const failedRequestId = providerRequestIdFromError(surfacedError);
+      if (failedOptions && failedTaskId && failedOperationKey) {
+        failedOptions = structuredClone(failedOptions);
+        const failedProvider =
+          latest?.options?.resolvedVideoModel?.provider ??
+          job.options?.resolvedVideoModel?.provider ??
+          "byteplus";
+        const failedModel =
+          latest?.options?.resolvedVideoModel?.model ??
+          job.options?.resolvedVideoModel?.model ??
+          "unknown";
+        failedOptions.providerTasks = {
+          ...(failedOptions.providerTasks ?? {}),
+          [failedOperationKey]: {
+            provider: failedProvider,
+            model: failedModel,
+            taskId: failedTaskId,
+            requestId:
+              failedRequestId ??
+              latest?.providerRequestId ??
+              job.providerRequestId ??
+              null,
+            acceptedAt: new Date().toISOString(),
+          },
+        };
+      }
       let errorHistory = appendFailureHistory(latest?.errorHistory, baseHistory);
       // Make stopping behavior explicit for a reviewed board: any scene without
       // a durable render receipt was not attempted after this failure.
@@ -6969,7 +7083,16 @@ async function executeVideoJob(
           job.options?.resolvedVideoModel?.provider ?? null,
         model: latest?.options?.resolvedVideoModel?.model ??
           job.options?.resolvedVideoModel?.model ?? null,
-        providerRequestId: baseHistory.providerRequestId,
+        providerRequestId:
+          baseHistory.providerRequestId ??
+          latest?.providerRequestId ??
+          job.providerRequestId ??
+          null,
+        providerTaskId:
+          safeProviderIdentifier(
+            (surfacedError as { providerTaskId?: unknown } | null)?.providerTaskId,
+            128,
+          ) ?? latestCheckpointRow?.providerTaskId ?? job.providerTaskId ?? null,
         errorHistory,
         durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
         ...(failedOptions?.studioLipSync && failedOptions.renderCheckpoint?.path

@@ -41,7 +41,13 @@ vi.mock("../lib/connectionSweep", () => ({
   SWEEP_FAIL_RATIO_ALERT_THRESHOLD: 0.5,
 }));
 
-import { pool, db, adminAuditLogsTable, appCredentialsTable } from "@workspace/db";
+import {
+  pool,
+  db,
+  adminAuditLogsTable,
+  appCredentialsTable,
+  videoGenerationsTable,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { triggerSweepNow } from "../lib/connectionSweep";
 import { createAdminTestApp } from "../test/testApp";
@@ -76,6 +82,65 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetAuthState();
+});
+
+describe("BytePlus video job diagnostics", () => {
+  it("shows sanitized operation receipts only to superadmins", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    const regular = await createTenant({
+      email: `regular-${randomUUID()}@example.com`,
+    });
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId: regular.tenantId,
+      engine: "text_to_video",
+      status: "failed",
+      options: {
+        aspectRatio: "9:16",
+        providerTasks: {
+          "storyboard_scene:scene-1": {
+            provider: "byteplus",
+            model: "dreamina-seedance-2-5-260628",
+            taskId: "task-safe-1",
+            requestId: "request-safe-1",
+            acceptedAt: new Date().toISOString(),
+          },
+        },
+      },
+      provider: "byteplus",
+      model: "dreamina-seedance-2-5-260628",
+      providerTaskId: "task-safe-1",
+      providerRequestId: "request-safe-1",
+      error: "Video generation failed. Please try again.",
+    }).returning();
+    try {
+      actAs(regular.clerkUserId, regular.email);
+      expect((await request(app)
+        .get(`/api/admin/video-jobs/${job!.id}/diagnostics`)).status).toBe(403);
+
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+      const response = await request(app)
+        .get(`/api/admin/video-jobs/${job!.id}/diagnostics`);
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        id: job!.id,
+        providerTaskId: "task-safe-1",
+        providerRequestId: "request-safe-1",
+        providerTasks: [{
+          operationKey: "storyboard_scene:scene-1",
+          taskId: "task-safe-1",
+          requestId: "request-safe-1",
+        }],
+      });
+      expect(JSON.stringify(response.body)).not.toMatch(
+        /authorization|bearer|video_url|https?:\/\//i,
+      );
+    } finally {
+      await db.delete(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job!.id));
+      await deleteTenant(regular.tenantId);
+      await deleteTenant(owner.tenantId);
+    }
+  });
 });
 
 describe("Sarvam TTS superadmin credentials", () => {

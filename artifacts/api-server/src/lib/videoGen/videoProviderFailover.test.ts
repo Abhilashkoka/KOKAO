@@ -4,6 +4,7 @@ import { db, appCredentialsTable, videoGenSettingsTable } from "@workspace/db";
 import { recordProviderFailure, resetProviderHealthForTests } from "../providerHealth";
 import { generateVideo, videoGenHealthKey } from "./index";
 import { VideoGenProviderError, type VideoGenResult } from "./types";
+import { withVideoProviderTaskStore } from "./providerTaskContext";
 
 vi.mock("../aiCost", () => ({ isVideoModelPriced: vi.fn(async () => true) }));
 vi.mock("../nvidiaCore", () => ({
@@ -78,5 +79,42 @@ describe("generateVideo exact-provider behavior", () => {
     expect(output.provider).toBe("replicate");
     expect(generateWithReplicate).toHaveBeenCalledTimes(1);
     expect(generateWithOpenRouterVideo).not.toHaveBeenCalled();
+  });
+
+  it("loads and saves an operation-scoped async provider task receipt", async () => {
+    const load = vi.fn(async () => ({
+      taskId: "task-existing",
+      requestId: "request-existing",
+    }));
+    const save = vi.fn(async () => {});
+    vi.mocked(generateWithReplicate).mockImplementation(async (input) => {
+      expect(input.providerTaskId).toBe("task-existing");
+      expect(input.providerRequestId).toBe("request-existing");
+      await input.onProviderTaskAccepted?.({
+        taskId: "task-accepted",
+        requestId: "request-accepted",
+      });
+      return {
+        buffer: Buffer.from("video"),
+        provider: "replicate",
+        model: "wan-video/wan-2.5-t2v",
+      };
+    });
+
+    await withVideoProviderTaskStore({ load, save }, () =>
+      generateVideo({ ...params, operationKey: "scene:one" })
+    );
+
+    expect(load).toHaveBeenCalledWith(
+      "scene:one",
+      "replicate",
+      "wan-video/wan-2.5-t2v",
+    );
+    expect(save).toHaveBeenCalledWith(
+      "scene:one",
+      "replicate",
+      "wan-video/wan-2.5-t2v",
+      { taskId: "task-accepted", requestId: "request-accepted" },
+    );
   });
 });

@@ -177,6 +177,7 @@ import type {
   GenerateHooksRequest,
   GetAcquisitionAnalyticsParams,
   GetAdCampaignDetailParams,
+  GetAdminVideoJobDiagnostics200,
   GetAudienceAnalyticsParams,
   GetConsentAnalyticsParams,
   GetDataConsumptionAnalyticsParams,
@@ -478,6 +479,83 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetAdminVideoJobDiagnosticsUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/admin/video-jobs/${jobId}/diagnostics`
+}
+
+/**
+ * @summary Get sanitized provider diagnostics for a video job
+ */
+export const getAdminVideoJobDiagnostics = async (jobId: number, options?: RequestInit): Promise<GetAdminVideoJobDiagnostics200> => {
+
+  return customFetch<GetAdminVideoJobDiagnostics200>(getGetAdminVideoJobDiagnosticsUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminVideoJobDiagnosticsQueryKey = (jobId: number,) => {
+    return [
+    `/api/admin/video-jobs/${jobId}/diagnostics`
+    ] as const;
+    }
+
+
+export const getGetAdminVideoJobDiagnosticsQueryOptions = <TData = Awaited<ReturnType<typeof getAdminVideoJobDiagnostics>>, TError = ErrorType<void>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminVideoJobDiagnostics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminVideoJobDiagnosticsQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminVideoJobDiagnostics>>> = ({ signal }) => getAdminVideoJobDiagnostics(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminVideoJobDiagnostics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminVideoJobDiagnosticsQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminVideoJobDiagnostics>>>
+export type GetAdminVideoJobDiagnosticsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get sanitized provider diagnostics for a video job
+ */
+
+export function useGetAdminVideoJobDiagnostics<TData = Awaited<ReturnType<typeof getAdminVideoJobDiagnostics>>, TError = ErrorType<void>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminVideoJobDiagnostics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminVideoJobDiagnosticsQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getHealthCheckUrl = () => {
 

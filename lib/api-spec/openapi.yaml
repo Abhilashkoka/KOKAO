@@ -45,6 +45,46 @@ tags:
   - name: prompt-kit
     description: Governed prompt templates - cases, versions, reviews, playground, and user customizations.
 paths:
+  /admin/video-jobs/{jobId}/diagnostics:
+    get:
+      summary: Get sanitized provider diagnostics for a video job
+      operationId: getAdminVideoJobDiagnostics
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Sanitized provider task diagnostics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, provider, model, providerTaskId, providerRequestId, error, errorHistory, providerTasks]
+                properties:
+                  id: { type: integer }
+                  status: { type: string }
+                  provider: { type: ["string", "null"] }
+                  model: { type: ["string", "null"] }
+                  providerTaskId: { type: ["string", "null"] }
+                  providerRequestId: { type: ["string", "null"] }
+                  error: { type: ["string", "null"] }
+                  errorHistory: { type: array, items: { type: object, additionalProperties: true } }
+                  providerTasks:
+                    type: array
+                    items:
+                      type: object
+                      required: [operationKey, provider, model, taskId, requestId, acceptedAt]
+                      properties:
+                        operationKey: { type: string }
+                        provider: { type: string }
+                        model: { type: string }
+                        taskId: { type: string }
+                        requestId: { type: ["string", "null"] }
+                        acceptedAt: { type: string, format: date-time }
+        "400": { description: Invalid job id }
+        "404": { description: Video job not found }
   /healthz:
     get:
       operationId: healthCheck

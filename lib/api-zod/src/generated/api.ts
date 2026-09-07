@@ -9,6 +9,36 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary Get sanitized provider diagnostics for a video job
+ */
+
+
+
+export const GetAdminVideoJobDiagnosticsParams = zod.object({
+  "jobId": zod.coerce.number().min(1)
+})
+
+export const GetAdminVideoJobDiagnosticsResponse = zod.object({
+  "id": zod.number(),
+  "status": zod.string(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerTaskId": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "errorHistory": zod.array(zod.record(zod.string(), zod.unknown())),
+  "providerTasks": zod.array(zod.object({
+  "operationKey": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "taskId": zod.string(),
+  "requestId": zod.string().nullable(),
+  "acceptedAt": zod.coerce.date()
+}))
+})
+
+
+/**
  * Returns server health status
  * @summary Health check
  */

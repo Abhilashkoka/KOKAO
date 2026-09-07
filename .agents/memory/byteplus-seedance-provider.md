@@ -13,4 +13,4 @@ Never automatically retry the task-creation POST unless BytePlus publishes an id
 
 **Why:** A lost response after ModelArk accepts the request can otherwise create multiple paid renders, with only one tracked by KOKAO.
 
-**How to apply:** Submit creation once. Polling is safe to retry. Keep one absolute deadline over request and body reads, abort stalled requests, cap response sizes, and revalidate every output redirect as HTTPS on a public host.
+**How to apply:** Submit creation once. As soon as ModelArk accepts it, durably store the sanitized task/request IDs before polling; retries and recovery children must resume that task rather than POST again. Polling is safe to retry. Keep one absolute deadline over request and body reads, abort stalled requests, cap response sizes, and revalidate every output redirect as HTTPS on a public host.

@@ -61,6 +61,7 @@ import {
   type VideoModelDef,
 } from "./modelCatalog";
 import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
+import { currentVideoProviderTaskStore } from "./providerTaskContext";
 
 export { VideoGenNotConfiguredError, VideoGenProviderError, compiledClipPrompt } from "./types";
 export type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
@@ -939,6 +940,11 @@ export async function generateVideo(
     resolution?: string | null;
     quality?: string | null;
     generateAudio?: boolean | null;
+    providerTaskId?: string | null;
+    providerRequestId?: string | null;
+    onProviderTaskAccepted?: VideoGenInput["onProviderTaskAccepted"];
+    /** Stable identity for one paid operation within a durable video job. */
+    operationKey?: string;
   },
   deps: VideoGenFailoverDeps = {},
 ): Promise<VideoGenResult> {
@@ -985,6 +991,11 @@ export async function generateVideo(
     );
   }
   const key = videoGenHealthKey(def.id);
+  const taskStore = currentVideoProviderTaskStore();
+  const savedTask =
+    params.operationKey && taskStore
+      ? await taskStore.load(params.operationKey, snapshot.provider, snapshot.model)
+      : null;
 
   const input = (model: string, withEndFrame = true): VideoGenInput => ({
     prompt: params.prompt,
@@ -997,6 +1008,14 @@ export async function generateVideo(
     generateAudio: snapshot.generateAudio,
     image: params.mode === "image" ? params.image : undefined,
     endImage: params.mode === "image" && withEndFrame ? params.endImage : undefined,
+    providerTaskId: params.providerTaskId ?? savedTask?.taskId,
+    providerRequestId: params.providerRequestId ?? savedTask?.requestId,
+    onProviderTaskAccepted: async (receipt) => {
+      if (params.operationKey && taskStore) {
+        await taskStore.save(params.operationKey, snapshot.provider, model, receipt);
+      }
+      await params.onProviderTaskAccepted?.(receipt);
+    },
   });
 
   /**
@@ -1074,6 +1093,10 @@ export async function generateVideo(
     recordProviderSuccess(key);
     return result;
   } catch (error) {
+    if (params.operationKey && error && typeof error === "object") {
+      (error as { providerOperationKey?: string }).providerOperationKey ??=
+        params.operationKey;
+    }
     if (isTransientVideoGenError(error)) {
       recordProviderFailure(key, error instanceof Error ? error.message : undefined);
     }

@@ -618,6 +618,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       // bounds already held to what the renderer can deliver — so the board
       // wins over the model's generic snap here.
       durationSec: durations[i]!,
+      operationKey: `storyboard_scene:${scene.id}`,
         });
     if (!saved?.path) {
       await params.onCheckpoint?.({

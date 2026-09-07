@@ -12078,6 +12078,35 @@ export const AdsDatePresetParameter = {
   maximum: 'maximum',
 } as const;
 
+export type GetAdminVideoJobDiagnostics200ErrorHistoryItem = { [key: string]: unknown };
+
+export type GetAdminVideoJobDiagnostics200ProviderTasksItem = {
+  operationKey: string;
+  provider: string;
+  model: string;
+  taskId: string;
+  /** @nullable */
+  requestId: string | null;
+  acceptedAt: string;
+};
+
+export type GetAdminVideoJobDiagnostics200 = {
+  id: number;
+  status: string;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  providerTaskId: string | null;
+  /** @nullable */
+  providerRequestId: string | null;
+  /** @nullable */
+  error: string | null;
+  errorHistory: GetAdminVideoJobDiagnostics200ErrorHistoryItem[];
+  providerTasks: GetAdminVideoJobDiagnostics200ProviderTasksItem[];
+};
+
 export type ListPromptCasesParams = {
 includeArchived?: boolean;
 };

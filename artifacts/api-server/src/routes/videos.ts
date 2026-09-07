@@ -11006,6 +11006,8 @@ router.post(
             options: childOptions,
             provider: childOptions.resolvedVideoModel?.provider ?? source.provider,
             model: childOptions.resolvedVideoModel?.model ?? source.model,
+            providerTaskId: source.providerTaskId,
+            providerRequestId: source.providerRequestId,
             funding: null,
             chargedRatePaise: (await getAiSpendRates()).videoPaise,
           })
@@ -11194,6 +11196,7 @@ function freshRestartOptions(source: VideoGeneration): VideoJobOptions {
   );
   delete options.recovery;
   delete options.repair;
+  delete options.providerTasks;
   delete options.renderCheckpoint;
   delete options.musicCheckpoint;
   delete options.presenterMusicCheckpoint;
