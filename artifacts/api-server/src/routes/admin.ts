@@ -37,6 +37,11 @@ import {
   refreshBytePlusSeedancePricing,
 } from "../lib/modelPricingSync";
 import {
+  BYTEPLUS_SEEDANCE_25_MODEL,
+  BYTEPLUS_SEEDANCE_25_PRICING_URL,
+  type BytePlusSeedancePricing,
+} from "../lib/byteplusPricing";
+import {
   recordAdminAction,
   sweepAbandonedEmailTestSends,
 } from "../lib/adminAudit";
@@ -1985,6 +1990,106 @@ async function auditAiCostChange(
   }
 }
 
+type SeedanceResolution = "480p" | "720p" | "1080p";
+type SeedanceRateSnapshot = {
+  provider: "byteplus";
+  model: string;
+  sourceUrl: string;
+  sourceCheckedAt: string | null;
+  rates: Record<
+    SeedanceResolution,
+    {
+      listUsdPerSecond: number | null;
+      promotionUsdPerSecond: number | null;
+      promotionExpiresAt: string | null;
+    }
+  >;
+};
+
+function emptySeedanceRates(): SeedanceRateSnapshot["rates"] {
+  return {
+    "480p": {
+      listUsdPerSecond: null,
+      promotionUsdPerSecond: null,
+      promotionExpiresAt: null,
+    },
+    "720p": {
+      listUsdPerSecond: null,
+      promotionUsdPerSecond: null,
+      promotionExpiresAt: null,
+    },
+    "1080p": {
+      listUsdPerSecond: null,
+      promotionUsdPerSecond: null,
+      promotionExpiresAt: null,
+    },
+  };
+}
+
+async function storedSeedanceRateSnapshot(): Promise<SeedanceRateSnapshot> {
+  const rows = (await listModelPrices()).filter(
+    (row) =>
+      row.kind === "video" &&
+      row.provider === "byteplus" &&
+      row.model === BYTEPLUS_SEEDANCE_25_MODEL,
+  );
+  const rates = emptySeedanceRates();
+  for (const row of rows) {
+    const resolution = row.variantCriteria?.resolution;
+    if (resolution !== "480p" && resolution !== "720p" && resolution !== "1080p") {
+      continue;
+    }
+    rates[resolution] = {
+      listUsdPerSecond: row.usdPerSecond,
+      promotionUsdPerSecond: row.promotionalUsdPerSecond,
+      promotionExpiresAt: row.promotionExpiresAt?.toISOString() ?? null,
+    };
+  }
+  const newest = rows.reduce<(typeof rows)[number] | undefined>(
+    (current, row) =>
+      !current ||
+      (row.sourceCheckedAt?.getTime() ?? 0) >
+        (current.sourceCheckedAt?.getTime() ?? 0)
+        ? row
+        : current,
+    undefined,
+  );
+  return {
+    provider: "byteplus",
+    model: BYTEPLUS_SEEDANCE_25_MODEL,
+    sourceUrl: newest?.sourceUrl ?? BYTEPLUS_SEEDANCE_25_PRICING_URL,
+    sourceCheckedAt: newest?.sourceCheckedAt?.toISOString() ?? null,
+    rates,
+  };
+}
+
+function refreshedSeedanceRateSnapshot(
+  pricing: BytePlusSeedancePricing,
+): SeedanceRateSnapshot {
+  const rates = emptySeedanceRates();
+  for (const price of pricing.prices) {
+    rates[price.resolution] = {
+      listUsdPerSecond: price.usdPerSecond,
+      promotionUsdPerSecond: price.promotionalUsdPerSecond,
+      promotionExpiresAt: price.promotionExpiresAt?.toISOString() ?? null,
+    };
+  }
+  return {
+    provider: "byteplus",
+    model: pricing.model,
+    sourceUrl: pricing.sourceUrl,
+    sourceCheckedAt: pricing.sourceCheckedAt.toISOString(),
+    rates,
+  };
+}
+
+function seedanceRatesChanged(
+  before: SeedanceRateSnapshot,
+  after: SeedanceRateSnapshot,
+): boolean {
+  return JSON.stringify(before.rates) !== JSON.stringify(after.rates);
+}
+
 /**
  * GET /admin/ai-cost/config
  * Actual-cost settings: USD→INR rate + the admin-maintained model price
@@ -2105,15 +2210,26 @@ router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) =
 router.post(
   "/admin/ai-cost/prices/byteplus-seedance/refresh",
   async (req: Request, res: Response) => {
+    const before = await storedSeedanceRateSnapshot();
     try {
       const pricing = await refreshBytePlusSeedancePricing();
-      await auditAiCostChange(
-        req,
-        null,
-        `refreshed video:byteplus/${pricing.model} resolutions=${pricing.prices
-          .map((price) => price.resolution)
-          .join(",")} source=${pricing.sourceUrl}`,
-      );
+      const after = refreshedSeedanceRateSnapshot(pricing);
+      try {
+        await recordAdminAction({
+          action: "seedance_rate_refresh",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: JSON.stringify(before),
+          newValue: JSON.stringify({
+            ...after,
+            outcome: seedanceRatesChanged(before, after) ? "changed" : "no_change",
+          }),
+        });
+      } catch (error) {
+        req.log.error({ err: error }, "Failed to audit BytePlus Seedance rate refresh");
+      }
       res.json(await serializeAiCostConfig());
     } catch (error) {
       req.log.error({ err: error }, "BytePlus Seedance price refresh failed");
@@ -4685,6 +4801,7 @@ const AUDIT_ACTIONS = new Set([
   "ai_spend_settings_change",
   "signup_credit_settings_change",
   "ai_cost_change",
+  "seedance_rate_refresh",
   "wallet_settings_change",
   "billing_mode_change",
   "wallet_adjust",

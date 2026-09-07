@@ -4153,6 +4153,7 @@ paths:
                 prompt_promotion,
                 prompt_rollback,
                 prompt_kit_import,
+                seedance_rate_refresh,
               ]
           description: Only return records of this action type.
         - name: actor

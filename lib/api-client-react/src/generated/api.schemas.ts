@@ -12258,6 +12258,7 @@ export const AdminListAuditLogsAction = {
   prompt_promotion: 'prompt_promotion',
   prompt_rollback: 'prompt_rollback',
   prompt_kit_import: 'prompt_kit_import',
+  seedance_rate_refresh: 'seedance_rate_refresh',
 } as const;
 
 export type AdminExportAuditLogsParams = {

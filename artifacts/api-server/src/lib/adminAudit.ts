@@ -39,6 +39,7 @@ export type AdminAuditAction =
   | "ai_spend_settings_change"
   | "signup_credit_settings_change"
   | "ai_cost_change"
+  | "seedance_rate_refresh"
   | "wallet_settings_change"
   | "billing_mode_change"
   | "wallet_adjust"

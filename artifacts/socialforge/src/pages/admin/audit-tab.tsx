@@ -61,6 +61,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   ai_spend_settings_change: "AI spend rates changed",
   signup_credit_settings_change: "Signup credits changed",
   ai_cost_change: "AI cost pricing changed",
+  seedance_rate_refresh: "Seedance rates refreshed",
   wallet_settings_change: "Wallet settings changed",
   billing_mode_change: "Billing mode changed",
   wallet_adjust: "Wallet balance adjusted",
@@ -73,7 +74,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   prompt_rollback: "Prompt rolled back",
   prompt_kit_import: "Prompt Kit bundle imported",
 };
-function formatAuditValue(action: string, value: string | null): string {
+export function formatAuditValue(action: string, value: string | null): string {
   if (value === null || value === "") return "—";
   if (action === "plan_change") return PLAN_LABELS[value] ?? value;
   if (action === "notification_policy_change") {
@@ -163,6 +164,58 @@ function formatAuditValue(action: string, value: string | null): string {
       const provider =
         parsed.provider === "twitter" ? "X (Twitter)" : parsed.provider;
       return [provider, parsed.idMasked].filter(Boolean).join(" ");
+    } catch {
+      return value;
+    }
+  }
+  if (action === "seedance_rate_refresh") {
+    try {
+      const parsed = JSON.parse(value) as {
+        outcome?: "changed" | "no_change";
+        provider?: string;
+        sourceUrl?: string;
+        sourceCheckedAt?: string | null;
+        rates?: Record<
+          "480p" | "720p" | "1080p",
+          {
+            listUsdPerSecond?: number | null;
+            promotionUsdPerSecond?: number | null;
+            promotionExpiresAt?: string | null;
+          }
+        >;
+      };
+      const rate = (resolution: "480p" | "720p" | "1080p") => {
+        const item = parsed.rates?.[resolution];
+        if (!item) return `${resolution}: unset`;
+        const list =
+          item.listUsdPerSecond == null ? "unset" : `$${item.listUsdPerSecond}/s`;
+        const promotion =
+          item.promotionUsdPerSecond == null
+            ? ""
+            : `, promo $${item.promotionUsdPerSecond}/s until ${
+                item.promotionExpiresAt
+                  ? new Date(item.promotionExpiresAt).toLocaleString()
+                  : "no expiry"
+              }`;
+        return `${resolution}: ${list}${promotion}`;
+      };
+      const details = [
+        parsed.outcome === "changed"
+          ? "rates changed"
+          : parsed.outcome === "no_change"
+            ? "no rate change"
+            : null,
+        rate("480p"),
+        rate("720p"),
+        rate("1080p"),
+        `source: ${parsed.provider ?? "byteplus"}${parsed.sourceUrl ? ` (${parsed.sourceUrl})` : ""}`,
+        `checked: ${
+          parsed.sourceCheckedAt
+            ? new Date(parsed.sourceCheckedAt).toLocaleString()
+            : "not previously checked"
+        }`,
+      ];
+      return details.filter(Boolean).join("; ");
     } catch {
       return value;
     }
