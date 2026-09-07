@@ -11179,6 +11179,51 @@ function freshRestartOptions(source: VideoGeneration): VideoJobOptions {
   return options;
 }
 
+async function prepareFreshRestartOptions(
+  source: VideoGeneration,
+): Promise<VideoJobOptions> {
+  const options = freshRestartOptions(source);
+  const frozen = options.resolvedVideoModel;
+  const needsCurrentNativeAudioModel =
+    options.guidedStoryRenderFlow?.mode === "direct_video" &&
+    options.guidedStory != null &&
+    (!frozen ||
+      !hasNativeSynchronizedAudio(frozen.provider, frozen.model));
+
+  if (!needsCurrentNativeAudioModel) return options;
+
+  // A fresh restart keeps the approved story inputs, not an obsolete provider
+  // contract. Resolve and freeze the current platform selection before
+  // preflight/funding so the worker never guesses from mutable settings.
+  const resolved = await resolveVideoModelSnapshot({
+    mode: "image",
+    modelId: null,
+    durationSec: options.durationSec ?? 5,
+    resolution: options.resolution,
+    quality: options.quality,
+    generateAudio: true,
+    permittedDurationSec: compositeVideoDurations(source.engine, options),
+  });
+  options.modelId = null;
+  options.resolvedVideoModel = { ...resolved, generateAudio: true };
+  options.generateAudio = true;
+  options.characterLipSync = false;
+  options.studioLipSync = null;
+  options.guidedStory = {
+    ...options.guidedStory!,
+    promptFormat: /seedance-2(?:[.-])5(?:\b|-)/.test(
+      resolved.model.toLowerCase(),
+    )
+      ? "seedance-2.5"
+      : "guided-v1",
+    videoModel: {
+      provider: resolved.provider,
+      model: resolved.model,
+    },
+  };
+  return options;
+}
+
 // Share retry's lock namespace: recovery and clean-room restart are mutually
 // exclusive terminal actions for the same failed source.
 const VIDEO_FRESH_RESTART_LOCK_NS = VIDEO_STORYBOARD_RECOVERY_LOCK_NS;
@@ -11207,7 +11252,21 @@ router.post(
       return;
     }
     if (await rejectDisabledVideoMode(initial.engine, res)) return;
-    const options = freshRestartOptions(initial);
+    let options: VideoJobOptions;
+    try {
+      options = await prepareFreshRestartOptions(initial);
+    } catch (error) {
+      if (error instanceof VideoModelResolutionError) {
+        res.status(400).json({
+          error: error.message,
+          code: error.code,
+          provider: error.provider,
+          model: error.model,
+        });
+        return;
+      }
+      throw error;
+    }
     if (await isFeatureEnabled("providerResilience").catch(() => true)) {
       const preflight = await preflightVideoJob(initial.engine, options);
       if (preflight) {
@@ -11277,7 +11336,12 @@ router.post(
           rejection = "insufficient";
           return;
         }
-        const clean = freshRestartOptions(source);
+        const clean = structuredClone(options);
+        clean.freshRestart = {
+          version: 1,
+          sourceJobId: source.id,
+          childJobId: null,
+        };
         const [created] = await tx.insert(videoGenerationsTable).values({
           tenantId: source.tenantId,
           engine: source.engine,
