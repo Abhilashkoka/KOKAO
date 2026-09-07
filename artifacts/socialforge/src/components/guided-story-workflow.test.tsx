@@ -1305,6 +1305,46 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.queryByTestId("status-guided-automatic-cast")).toBeNull();
   });
 
+  it("uses one selected saved character and generates the remaining roles with AI", async () => {
+    state.draft = draft();
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("button-guided-cast-saved"));
+    const useSavedCast = screen.getByTestId("button-guided-save-cast") as HTMLButtonElement;
+    expect(useSavedCast.disabled).toBe(true);
+
+    await user.click(screen.getByTestId("select-guided-character-r1"));
+    await user.click(screen.getByText("Me"));
+    await user.click(screen.getByTestId("checkbox-guided-consent"));
+
+    expect(useSavedCast.disabled).toBe(false);
+    expect(screen.getByTestId("button-guided-cast-generated").textContent).toContain(
+      "automatic generated cast",
+    );
+    expect(screen.getByTestId("button-guided-back-to-script").textContent).toContain(
+      "Back to scene editor",
+    );
+
+    await user.click(useSavedCast);
+    await waitFor(() => expect(state.cast).not.toBeNull());
+    expect(state.cast.assignments).toEqual([
+      expect.objectContaining({
+        roleId: "r1",
+        source: "saved",
+        characterId: 1,
+        consentGranted: true,
+      }),
+      expect.objectContaining({
+        roleId: "r2",
+        source: "generated",
+        characterId: null,
+        consentGranted: false,
+      }),
+    ]);
+  });
+
   it("continuously shows animated server-owned progress while cast work is busy", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");

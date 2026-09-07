@@ -690,15 +690,21 @@ export function GuidedStoryWorkflow({
   const needsSaved = draft?.script?.roles.filter(
     (role) => (userRoleId !== null && role.id === userRoleId) || strategy === "saved",
   ) ?? [];
-  const castComplete = !!draft?.script && userRoleChoiceMade &&
-    (needsSaved.length === 0 || voices.length > 0) &&
-    draft.script.roles.every((role) => {
-      const assigned = assignments[role.id];
-      const isUserRole = userRoleId !== null && role.id === userRoleId;
-      return isUserRole || strategy === "generated"
-        ? !isUserRole || (!!assigned?.characterId && !!assigned.voiceId && consent)
-        : !!assigned?.characterId && !!assigned.voiceId && consent;
-    });
+  const selectedSavedRoles = needsSaved.filter(
+    (role) => !!assignments[role.id]?.characterId,
+  );
+  const castComplete = !!draft?.script &&
+    (strategy === "saved"
+      ? selectedSavedRoles.length > 0 &&
+        voices.length > 0 &&
+        consent &&
+        selectedSavedRoles.every((role) => !!assignments[role.id]?.voiceId)
+      : userRoleChoiceMade &&
+        draft.script.roles.every((role) => {
+          const assigned = assignments[role.id];
+          const isUserRole = userRoleId !== null && role.id === userRoleId;
+          return !isUserRole || (!!assigned?.characterId && !!assigned.voiceId && consent);
+        }));
   const pendingCastApprovalRoles = draft?.script?.roles.filter((role) => {
     const approval = draft.castApprovals?.roles[role.id];
     return !approval || draft.castApprovals?.draftRevision !== draft.revision;
@@ -726,12 +732,13 @@ export function GuidedStoryWorkflow({
         duplicateAssignmentConfirmed: duplicateConfirmed,
         assignments: draft.script.roles.map((role) => {
           const isUserRole = userRoleId !== null && role.id === userRoleId;
-          const saved = isUserRole || strategy === "saved";
           const item = assignments[role.id] ?? {
             characterId: null,
             outfitId: null,
             voiceId: voices[0]?.id ?? "",
           };
+          const saved =
+            isUserRole || (strategy === "saved" && item.characterId != null);
           return {
             roleId: role.id,
             source: saved ? "saved" as const : "generated" as const,
