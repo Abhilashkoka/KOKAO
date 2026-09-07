@@ -477,4 +477,32 @@ describe("preflightVideoJob", () => {
     expect(issue?.status).toBe(400);
     expect(issue?.message).toContain("stock footage source");
   });
+
+  it("does not require legacy stock footage or TTS for a direct Guided Story", async () => {
+    process.env.ARK_API_KEY = "test-byteplus-key";
+
+    const issue = await preflightVideoJob(
+      "topic_to_video",
+      options({
+        visualsSource: "stock",
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          provider: "byteplus",
+          model: "doubao-seedance-2-5-260628",
+          catalogModelId: "byteplus-seedance-2.5",
+          mode: "image",
+          durationSec: 5,
+          permittedDurationSec: [5],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: true,
+        },
+      }),
+    );
+
+    expect(issue).toBeNull();
+  });
 });

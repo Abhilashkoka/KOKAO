@@ -162,6 +162,9 @@ export async function preflightVideoJob(
   options: VideoJobOptions | null,
 ): Promise<PreflightIssue | null> {
   const visualsSource = options?.visualsSource ?? "stock";
+  const isDirectGuidedStory =
+    engine === "topic_to_video" &&
+    options?.guidedStoryRenderFlow?.mode === "direct_video";
   const isPresenterBroll = Boolean(options?.presenterVideoPath && options?.videoTemplateId);
   const wantsAiMusic = !options?.musicPath && Boolean(options?.musicPrompt?.trim());
   const modelOptions = resolveModelOptions(options, 5);
@@ -173,6 +176,7 @@ export async function preflightVideoJob(
     engine === "text_to_video" ||
     engine === "image_to_video" ||
     engine === "dialogue_lip_sync" ||
+    isDirectGuidedStory ||
     (engine === "topic_to_video" &&
       !isPresenterBroll &&
       (visualsSource === "character" || visualsSource === "ai_video"));
@@ -297,7 +301,11 @@ export async function preflightVideoJob(
   }
 
   // 3) Stock footage for a stock-visuals topic video.
-  if (engine === "topic_to_video" && visualsSource === "stock") {
+  if (
+    engine === "topic_to_video" &&
+    !isDirectGuidedStory &&
+    visualsSource === "stock"
+  ) {
     const choice = (options?.stockSource ?? "auto") as StockSourceChoice;
     const issue = evaluate(
       await stockKeys(choice),
@@ -312,7 +320,11 @@ export async function preflightVideoJob(
   }
 
   // 4) Narration: every topic video is spoken.
-  if (engine === "topic_to_video" && !isPresenterBroll) {
+  if (
+    engine === "topic_to_video" &&
+    !isPresenterBroll &&
+    !isDirectGuidedStory
+  ) {
     const issue = evaluate(
       await ttsKeys(),
       "Narration is not configured: no text-to-speech provider is available.",
