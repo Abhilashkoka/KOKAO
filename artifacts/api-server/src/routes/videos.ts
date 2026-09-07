@@ -150,6 +150,7 @@ import {
   parsePersistedOpenRouterInputImagePrivacyError,
 } from "../lib/videoGen/providers/openrouter";
 import { availableVideoModels } from "../lib/videoGen";
+import { registerAtlasOutfitAssetInBackground } from "../lib/characterAssets";
 import {
   CAMERAS,
   LENSES,
@@ -389,14 +390,36 @@ type CharacterDialogueVoiceSnapshot = {
 async function resolveCharacterDialogueVoice(
   tenantId: number,
   voiceId: string,
+  brandKitId: number | null,
 ): Promise<CharacterDialogueVoiceSnapshot | null> {
+  const cloneCatalog = await guidedStoryCloneCatalog(tenantId);
+  // When the request binds a Brand Kit, freeze its active tenant-owned clone,
+  // rather than accepting a client-selected stock id alongside that kit.
+  // This keeps the immutable dialogue snapshot's Brand Kit and provider voice
+  // coherent and prevents a foreign/unconfigured kit from becoming metadata.
+  if (brandKitId !== null) {
+    const activeClone = cloneCatalog.find(
+      (voice) =>
+        voice.brandKitId === brandKitId &&
+        voice.id === `brand-kit:${brandKitId}:active`,
+    );
+    return activeClone
+      ? {
+          id: activeClone.id,
+          label: activeClone.label,
+          provider: "elevenlabs",
+          providerVoiceId: activeClone.providerVoiceId,
+          brandKitId: activeClone.brandKitId,
+        }
+      : null;
+  }
   if (voiceId.startsWith("stock:")) {
     const stockId = voiceId.slice("stock:".length);
     return GUIDED_STORY_STOCK_VOICE_SET.has(stockId)
       ? { id: voiceId, label: stockId, provider: "stock", providerVoiceId: null, brandKitId: null }
       : null;
   }
-  const clone = (await guidedStoryCloneCatalog(tenantId)).find(
+  const clone = cloneCatalog.find(
     (voice) => voice.id === voiceId || voice.legacyIds.includes(voiceId),
   );
   if (clone) {
@@ -2624,6 +2647,7 @@ async function ensureGuidedGeneratedCharacter(params: {
         name: params.name,
         description: params.description,
         referenceImagePath: params.referenceImagePath,
+        referenceSource: "generated",
         referenceSheetImagePath: null,
         referenceSheetStatus: "pending",
         referenceSheetError: null,
@@ -2647,6 +2671,7 @@ async function ensureGuidedGeneratedCharacter(params: {
         description: params.description,
         referenceImagePath: params.referenceImagePath,
         referenceSheetStatus: "pending",
+        referenceSource: "generated",
       })
       .returning();
     const [outfit] = await tx
@@ -4311,6 +4336,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         cast.push({
           roleId: role.id,
           source: "saved",
+          referenceSource: detail.character.referenceSource,
           characterId: detail.character.id,
           outfitId: outfit.id,
           requiresBytePlusAsset:
@@ -4319,6 +4345,9 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             outfit.bytePlusAssetId !== null,
           bytePlusAssetId: outfit.bytePlusAssetId,
           bytePlusAssetStatus: outfit.bytePlusAssetStatus,
+          requiresAtlasAsset: detail.character.referenceSource === "generated",
+          atlasAssetId: outfit.atlasAssetId,
+          atlasAssetStatus: outfit.atlasAssetStatus,
           brandKitId: voice.brandKitId,
           voiceId: voice.id,
           character: {
@@ -4800,7 +4829,6 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           return;
         }
         row = owned.row;
-
         // The canonical portrait and the multi-view sheet are intentionally
         // separate paid assets. A failed sheet leaves the durable character
         // available with an actionable failed state; it is never auto-approved.
@@ -4814,6 +4842,18 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             ),
           )
           .limit(1);
+        const [ownedOutfitForAtlas] = await db.select().from(characterOutfitsTable).where(and(
+          eq(characterOutfitsTable.id, owned.outfitId),
+          eq(characterOutfitsTable.characterId, owned.characterId),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        )).limit(1);
+        if (ownedCharacter && ownedOutfitForAtlas) {
+          registerAtlasOutfitAssetInBackground({
+            tenantId: req.tenantId,
+            character: ownedCharacter,
+            outfit: ownedOutfitForAtlas,
+          });
+        }
         if (ownedCharacter && !ownedCharacter.referenceSheetImagePath) {
           const sheetOperationKey =
             `guided-story-sheet:${row.id}:${row.revision}:${role.id}`;
@@ -5827,6 +5867,9 @@ router.put(
           lockedOutfit.bytePlusAssetId !== null,
         bytePlusAssetId: lockedOutfit.bytePlusAssetId,
         bytePlusAssetStatus: lockedOutfit.bytePlusAssetStatus,
+        requiresAtlasAsset: lockedCharacter.referenceSource === "generated",
+        atlasAssetId: lockedOutfit.atlasAssetId,
+        atlasAssetStatus: lockedOutfit.atlasAssetStatus,
         character: {
           name: lockedCharacter.name,
           description: lockedCharacter.description,
@@ -6257,6 +6300,9 @@ router.post(
               outfit.bytePlusAssetId !== null,
             bytePlusAssetId: outfit.bytePlusAssetId,
             bytePlusAssetStatus: outfit.bytePlusAssetStatus,
+            requiresAtlasAsset: detail.character.referenceSource === "generated",
+            atlasAssetId: outfit.atlasAssetId,
+            atlasAssetStatus: outfit.atlasAssetStatus,
             character: {
               name: detail.character.name,
               description: detail.character.description,
@@ -6279,6 +6325,9 @@ router.post(
               outfit.bytePlusAssetId !== null,
             bytePlusAssetId: outfit.bytePlusAssetId,
             bytePlusAssetStatus: outfit.bytePlusAssetStatus,
+            requiresAtlasAsset: detail.character.referenceSource === "generated",
+            atlasAssetId: outfit.atlasAssetId,
+            atlasAssetStatus: outfit.atlasAssetStatus,
             outfit: {
               name: outfit.name,
               description: outfit.description,
@@ -7665,6 +7714,13 @@ async function generateVideoHandler(
       });
       return;
     }
+    if (!(await isFeatureEnabled("brandVoiceClone"))) {
+      res.status(403).json({
+        error: "Brand voice cloning is currently turned off.",
+        code: "feature_disabled",
+      });
+      return;
+    }
     if (!body.prompt?.trim()) {
       res
         .status(400)
@@ -7703,11 +7759,35 @@ async function generateVideoHandler(
           });
         return;
       }
+      if (
+        body.brandKitId != null &&
+        !(await loadActivePayload(req.tenantId, body.brandKitId))
+      ) {
+        res.status(400).json({
+          error: "The selected Brand Voice does not belong to this workspace.",
+        });
+        return;
+      }
     }
     if (body.aiPersonConsent !== true) {
       res.status(400).json({
         error:
           "Please confirm you are authorized to create this AI person or likeness and make them speak the dialogue.",
+      });
+      return;
+    }
+    // Plain single-speaker dialogue can select a Brand Voice without the
+    // Character Dialogue catalog. Validate it before funding rather than
+    // letting a foreign or inactive kit reach a queued job. Character Dialogue
+    // resolves its voice from the tenant-scoped catalog below and deliberately
+    // ignores this free-form id.
+    if (
+      !body.characterDialogue &&
+      body.brandKitId != null &&
+      !(await loadActivePayload(req.tenantId, body.brandKitId))
+    ) {
+      res.status(400).json({
+        error: "The selected Brand Voice does not belong to this workspace.",
       });
       return;
     }
@@ -8231,6 +8311,7 @@ async function generateVideoHandler(
           outfitReferenceImagePath: resolved.outfit.referenceImagePath,
           outfitName: resolved.outfit.name,
           outfitDescription: resolved.outfit.description,
+          referenceSource: null,
         };
       }
     } else {
@@ -8290,6 +8371,7 @@ async function generateVideoHandler(
           referenceImagePath: detail.character.referenceImagePath,
           referenceSource: detail.character.referenceSource,
           requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
+          requiresAtlasAsset: detail.character.referenceSource === "generated",
         },
         outfits: detail.outfits.filter(isOutfitSelectable).map((savedOutfit) => ({
           id: savedOutfit.id,
@@ -8304,6 +8386,8 @@ async function generateVideoHandler(
           protectedRegion: savedOutfit.protectedRegion,
           bytePlusAssetId: savedOutfit.bytePlusAssetId,
           bytePlusAssetStatus: savedOutfit.bytePlusAssetStatus,
+          atlasAssetId: savedOutfit.atlasAssetId,
+          atlasAssetStatus: savedOutfit.atlasAssetStatus,
         })),
       };
       if (hybridTemplate) {
@@ -8314,9 +8398,13 @@ async function generateVideoHandler(
           outfitReferenceImagePath: outfit.referenceImagePath,
           outfitName: outfit.name,
           outfitDescription: outfit.description,
+          referenceSource: detail.character.referenceSource,
           requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
           bytePlusAssetId: outfit.bytePlusAssetId,
           bytePlusAssetStatus: outfit.bytePlusAssetStatus,
+          requiresAtlasAsset: detail.character.referenceSource === "generated",
+          atlasAssetId: outfit.atlasAssetId,
+          atlasAssetStatus: outfit.atlasAssetStatus,
         };
       }
     }
@@ -8405,13 +8493,16 @@ async function generateVideoHandler(
     resolvedCharacterDialogueVoice = await resolveCharacterDialogueVoice(
       req.tenantId,
       body.characterDialogue.voiceId,
+      body.brandKitId ?? null,
     );
     if (
       !locale ||
       !resolvedCharacterDialogueVoice
     ) {
       res.status(400).json({
-        error: "That Character Dialogue voice is not available in this workspace.",
+        error: body.brandKitId != null
+          ? "Character Dialogue requires a cloned ElevenLabs voice in the selected Brand Kit."
+          : "That Character Dialogue voice is not available in this workspace.",
       });
       return;
     }

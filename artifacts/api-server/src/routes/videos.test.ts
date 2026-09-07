@@ -49,6 +49,8 @@ const guidedCastProviderState = vi.hoisted(() => ({
   sheetCalls: 0,
   sheetError: null as Error | null,
   sheetFailuresRemaining: 0,
+  sheetFailureTenantId: null as number | null,
+  sheetCallsByTenant: new Map<number, number>(),
   uploads: 0,
   uploadError: false,
   contentTypes: [] as string[],
@@ -71,9 +73,17 @@ vi.mock("../lib/characters", async (importOriginal) => {
         model: "mock",
       };
     }),
-    generateCharacterReferenceSheet: vi.fn(async () => {
+    generateCharacterReferenceSheet: vi.fn(async (character) => {
       guidedCastProviderState.sheetCalls += 1;
-      if (guidedCastProviderState.sheetFailuresRemaining > 0) {
+      guidedCastProviderState.sheetCallsByTenant.set(
+        character.tenantId,
+        (guidedCastProviderState.sheetCallsByTenant.get(character.tenantId) ?? 0) + 1,
+      );
+      if (
+        guidedCastProviderState.sheetFailuresRemaining > 0 &&
+        (guidedCastProviderState.sheetFailureTenantId === null ||
+          character.tenantId === guidedCastProviderState.sheetFailureTenantId)
+      ) {
         guidedCastProviderState.sheetFailuresRemaining -= 1;
         throw new CharacterInputError("confirmed sheet input failure");
       }
@@ -573,6 +583,25 @@ async function installVideoTestPrice(
     }
   };
 }
+async function installGuidedNativeTestModel(): Promise<() => Promise<void>> {
+  const previous = await getVideoGenSelection();
+  const restorePrice = await installVideoTestPrice(
+    "dreamina-seedance-2-5-260628",
+    "byteplus",
+  );
+  await setStoredVideoGenKey("byteplus", "test-byteplus-token");
+  await setVideoGenSelection({
+    provider: "byteplus",
+    textToVideoModel: null,
+    imageToVideoModel: null,
+    enabledModelIds: null,
+  });
+  return async () => {
+    await setVideoGenSelection(previous);
+    await clearStoredVideoGenKey("byteplus");
+    await restorePrice();
+  };
+}
 let restoreDefaultTextVideoPrice: (() => Promise<void>) | null = null;
 let restoreDefaultImageVideoPrice: (() => Promise<void>) | null = null;
 let restoreVideoGenSelection: (() => Promise<void>) | null = null;
@@ -671,6 +700,8 @@ beforeEach(() => {
   guidedCastProviderState.sheetCalls = 0;
   guidedCastProviderState.sheetError = null;
   guidedCastProviderState.sheetFailuresRemaining = 0;
+  guidedCastProviderState.sheetFailureTenantId = null;
+  guidedCastProviderState.sheetCallsByTenant.clear();
   guidedCastProviderState.uploads = 0;
   guidedCastProviderState.uploadError = false;
   guidedCastProviderState.contentTypes = [];
@@ -704,6 +735,12 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
         name: "Maya",
         description: "cheerful founder",
         referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
+        // Keep provider-asset dispatch deterministic: these fixture characters
+        // are tenant uploads, never generated fictional identities.
+        referenceSource: "uploaded",
+        bytePlusAssetGroupId: null,
+        atlasAssetGroupId: null,
+        bytePlusIdentityId: null,
         referenceSheetImagePath: `/objects/${tenantId}/uploads/maya-sheet.png`,
         referenceSheetStatus: "approved",
       })
@@ -719,6 +756,10 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
         description: "casual",
         referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
         isDefault: true,
+        bytePlusAssetId: null,
+        bytePlusAssetStatus: null,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
       })
       .returning()
   )[0]!;
@@ -732,6 +773,10 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
         description: "leggings and top",
         referenceImagePath: `/objects/${tenantId}/uploads/maya-gym.png`,
         isDefault: false,
+        bytePlusAssetId: null,
+        bytePlusAssetStatus: null,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
       })
       .returning()
   )[0]!;
@@ -890,7 +935,7 @@ describe("POST /api/ai/generate-video", () => {
       presetLanguage: "en",
       presetVoiceId: "openai-gpt-audio-nova",
     });
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     const [job] = await db
       .select()
       .from(videoGenerationsTable)
@@ -1695,7 +1740,7 @@ describe("POST /api/ai/generate-video", () => {
     const res = await request(app)
       .post("/api/ai/generate-video")
       .send({
-        engine: "guided_story",
+        engine: "topic_to_video",
         prompt: "5 morning habits that transform your day",
         aspectRatio: "9:16",
         voice: "nova",
@@ -1705,7 +1750,7 @@ describe("POST /api/ai/generate-video", () => {
         stockSource: "pexels",
         musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
       });
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.engine).toBe("topic_to_video");
     expect(res.body.status).toBe("queued");
 
@@ -1736,7 +1781,7 @@ describe("POST /api/ai/generate-video", () => {
       const template = await seedPresenterTemplate();
       const before = runnerState.calls.length;
       const res = await request(app).post("/api/ai/generate-video").send({
-        engine: "guided_story",
+        engine: "topic_to_video",
         prompt: "This is the exact script spoken in my presenter take.",
         styleProfileId: template.id,
       });
@@ -2800,15 +2845,23 @@ describe("guided story route fail-closed regressions", () => {
     const script = routeScript();
     const draft = await insertEditableGuidedDraft(tenant.tenantId, script);
     const role = script.roles[0]!;
-    const characterPath = `/objects/${tenant.tenantId}/character-approved.png`;
-    const outfitPath = `/objects/${tenant.tenantId}/outfit-approved.png`;
+    const savedCharacter = await seedCharacter(tenant.tenantId);
+    const characterPath = `/objects/${tenant.tenantId}/uploads/maya.png`;
+    const outfitPath = `/objects/${tenant.tenantId}/uploads/maya.png`;
     const cast: GuidedStoryCastSnapshot[] = [{
       roleId: role.id,
       source: "saved",
-      characterId: 1,
-      outfitId: 2,
+      referenceSource: "uploaded",
+      characterId: savedCharacter.characterId,
+      outfitId: savedCharacter.outfitId,
       brandKitId: null,
       voiceId: "alloy",
+      requiresBytePlusAsset: false,
+      bytePlusAssetId: null,
+      bytePlusAssetStatus: null,
+      requiresAtlasAsset: false,
+      atlasAssetId: null,
+      atlasAssetStatus: null,
       character: {
         name: role.name,
         description: role.description,
@@ -2901,24 +2954,32 @@ describe("guided story route fail-closed regressions", () => {
     script.scenes[0]!.lines[0]!.endMs = 2_500;
     script.runtimeSeconds = 3;
     const draft = await insertEditableGuidedDraft(tenantId, script);
+    const savedCharacter = await seedCharacter(tenantId);
     const approvedAt = new Date().toISOString();
     const cast: GuidedStoryDraftState["cast"] = draft.state.script!.roles.map(
       (role, index) => ({
         roleId: role.id,
         source: "saved",
-        characterId: index + 1,
-        outfitId: index + 11,
+        referenceSource: "uploaded",
+        characterId: savedCharacter.characterId,
+        outfitId: savedCharacter.outfitId,
         brandKitId: null,
         voiceId: index === 0 ? "alloy" : "echo",
+        requiresBytePlusAsset: false,
+        bytePlusAssetId: null,
+        bytePlusAssetStatus: null,
+        requiresAtlasAsset: false,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
         character: {
           name: role.name,
           description: role.description,
-          referenceImagePath: `/objects/${tenantId}/character-${index}.png`,
+          referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
         },
         outfit: {
           name: "Approved outfit",
           description: "Approved wardrobe",
-          referenceImagePath: `/objects/${tenantId}/outfit-${index}.png`,
+          referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
         },
         voice: {
           id: index === 0 ? "alloy" : "echo",
@@ -3148,6 +3209,7 @@ describe("guided story route fail-closed regressions", () => {
     const previousSelectionRow = (
       await db.select().from(imageGenSettingsTable).limit(1)
     )[0] ?? null;
+    const restoreNativeVideoModel = await installGuidedNativeTestModel();
     try {
       await setImageGenSelection({
         provider: "openai",
@@ -3180,11 +3242,20 @@ describe("guided story route fail-closed regressions", () => {
       const approvedAt = new Date().toISOString();
       const cast: GuidedStoryDraftState["cast"] = script.roles.map((role, index) => ({
         roleId: role.id,
-        source: "saved",
-        characterId: index + 1,
-        outfitId: index + 11,
+        // This snapshot test deliberately exercises frozen generated assets;
+        // it has no mutable character-library sheet binding to revalidate.
+        source: "generated",
+        referenceSource: "generated",
+        characterId: null,
+        outfitId: null,
         brandKitId: null,
         voiceId: index === 0 ? "alloy" : "echo",
+        requiresBytePlusAsset: false,
+        bytePlusAssetId: null,
+        bytePlusAssetStatus: null,
+        requiresAtlasAsset: true,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
         character: {
           name: role.name,
           description: role.description,
@@ -3213,7 +3284,7 @@ describe("guided story route fail-closed regressions", () => {
         ...draft!.state,
         script,
         scriptApprovedAt: approvedAt,
-        castStrategy: "saved",
+        castStrategy: "generated",
         cast,
         castApprovals: castApprovals(cast, draft!.revision),
         duplicateAssignmentConfirmed: true,
@@ -3239,6 +3310,7 @@ describe("guided story route fail-closed regressions", () => {
       expect(job!.options!.guidedStory!.imageModelSnapshot)
         .toEqual(created.body.imageModelSnapshot);
     } finally {
+      await restoreNativeVideoModel();
       await db.delete(imageGenSettingsTable);
       if (previousSelectionRow) {
         await db.insert(imageGenSettingsTable).values(previousSelectionRow);
@@ -3491,25 +3563,34 @@ describe("guided story route fail-closed regressions", () => {
 
   it("canonicalizes a legacy regional locale before freezing the enqueued snapshot", async () => {
     const tenant = await newTenant("pro");
+    const restoreNativeVideoModel = await installGuidedNativeTestModel();
     const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const savedCharacter = await seedCharacter(tenant.tenantId);
     const approvedAt = new Date().toISOString();
     const cast: GuidedStoryDraftState["cast"] = draft.state.script!.roles.map(
       (role, index) => ({
         roleId: role.id,
         source: "saved",
-        characterId: index + 1,
-        outfitId: index + 11,
+        referenceSource: "uploaded",
+        characterId: savedCharacter.characterId,
+        outfitId: savedCharacter.outfitId,
         brandKitId: null,
         voiceId: index === 0 ? "alloy" : "echo",
+        requiresBytePlusAsset: false,
+        bytePlusAssetId: null,
+        bytePlusAssetStatus: null,
+        requiresAtlasAsset: false,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
         character: {
           name: role.name,
           description: role.description,
-          referenceImagePath: `/objects/${tenant.tenantId}/character-${index}.png`,
+          referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
         },
         outfit: {
           name: "Approved outfit",
           description: "Approved wardrobe",
-          referenceImagePath: `/objects/${tenant.tenantId}/outfit-${index}.png`,
+          referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
         },
         voice: {
           id: index === 0 ? "alloy" : "echo",
@@ -3587,6 +3668,7 @@ describe("guided story route fail-closed regressions", () => {
         (member) => member.source !== "saved" || member.consentGranted,
       ),
     ).toBe(true);
+    await restoreNativeVideoModel();
   });
 
   it("keeps inline reference candidates inert until atomic whole-role finalization", async () => {
@@ -4100,13 +4182,16 @@ describe("guided story route fail-closed regressions", () => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);
     const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    // Let prior tests' scheduled cast work drain before arming this global mock
+    // failure, so an unrelated background sheet cannot consume it.
+    await waitForPendingJobs();
     guidedCastProviderState.sheetFailuresRemaining = 1;
+    guidedCastProviderState.sheetFailureTenantId = tenant.tenantId;
 
     const approved = await request(app)
       .post(`/api/ai/guided-story/drafts/${draft.id}/script/approve`)
       .send({ revision: draft.revision });
     expect(approved.status).toBe(200);
-    await sweepPendingGuidedStoryCasts();
 
     let failedState: GuidedStoryDraftState | null = null;
     await vi.waitFor(async () => {
@@ -4121,8 +4206,7 @@ describe("guided story route fail-closed regressions", () => {
       ).toBe("failed");
       expect(current!.state.castOperations.friend?.sheetOperation?.status).toBe("settled");
     }, { timeout: 10_000 });
-    expect(guidedCastProviderState.calls).toBe(2);
-    expect(guidedCastProviderState.sheetCalls).toBe(2);
+    expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(2);
     const heroCharacterId = failedState!.castOperations.hero!.characterId;
     const friendCharacterId = failedState!.castOperations.friend!.characterId;
 
@@ -4159,8 +4243,7 @@ describe("guided story route fail-closed regressions", () => {
       expect(current!.state.castOperations).toEqual({});
     }, { timeout: 10_000 });
 
-    expect(guidedCastProviderState.calls).toBe(2);
-    expect(guidedCastProviderState.sheetCalls).toBe(3);
+    expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(3);
     const generatedCharacters = await db
       .select()
       .from(charactersTable)
@@ -7487,7 +7570,7 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
     return kit!.id;
   }
 
-  function savedCharacterBody(characterId: number, outfitId: number, brandKitId: number) {
+  function savedCharacterBody(characterId: number, outfitId: number, brandKitId: number | null) {
     return {
       ...body,
       dialogue: "తెలుగు సంభాషణ. ఇది ఆమోదించబడిన పొడవైన స్క్రిప్ట్.",
@@ -7600,7 +7683,7 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
     const tenant = await newTenant();
     const character = await seedCharacter(tenant.tenantId);
     const res = await request(app).post("/api/ai/generate-video").send({
-      ...savedCharacterBody(character.characterId, character.outfitId, 1),
+      ...savedCharacterBody(character.characterId, character.outfitId, null),
       characterDialogue: { scriptApproved: true, locale: "te", voiceId: "brand-kit:999999:active" },
     });
     expect(res.status).toBe(400);

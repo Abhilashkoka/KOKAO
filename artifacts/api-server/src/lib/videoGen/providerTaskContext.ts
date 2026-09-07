@@ -17,6 +17,8 @@ export interface VideoProviderTaskStore {
     model: string,
     receipt: VideoProviderTaskReceipt,
   ): Promise<void>;
+  markSubmitStarted?(operationKey: string, provider: string, model: string): Promise<void>;
+  isSubmitUncertain?(operationKey: string, provider: string, model: string): Promise<boolean>;
 }
 
 const storage = new AsyncLocalStorage<VideoProviderTaskStore>();

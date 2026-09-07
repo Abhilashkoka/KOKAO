@@ -116,7 +116,26 @@ function isBlockedIp(ip: string): boolean {
   return true;
 }
 
+/** Resolve once for callers that pin the subsequent socket lookup. */
+export async function resolvePublicHost(hostname: string): Promise<Array<{ address: string; family: number }>> {
+  const host = hostname.replace(/^\[/, "").replace(/\]$/, "");
+  if (net.isIP(host)) {
+    if (isBlockedIp(host)) throw new Error("Blocked host");
+    return [{ address: host, family: net.isIP(host) }];
+  }
+  const lower = host.toLowerCase();
+  if (lower === "localhost" || lower.endsWith(".localhost") || lower.endsWith(".local") || lower.endsWith(".internal")) {
+    throw new Error("Blocked host");
+  }
+  const addrs = await dns.lookup(hostname, { all: true });
+  if (!addrs.length || addrs.some((a) => isBlockedIp(a.address))) throw new Error("Blocked host");
+  return addrs;
+}
+
 export async function assertPublicHost(hostname: string): Promise<void> {
+  await resolvePublicHost(hostname);
+  return;
+  /* c8 ignore start -- retained unreachable implementation removed next pass */
   const host = hostname.replace(/^\[/, "").replace(/\]$/, "");
   if (net.isIP(host)) {
     if (isBlockedIp(host)) throw new Error("Blocked host");
@@ -136,6 +155,7 @@ export async function assertPublicHost(hostname: string): Promise<void> {
   for (const a of addrs) {
     if (isBlockedIp(a.address)) throw new Error("Blocked host");
   }
+  /* c8 ignore stop */
 }
 
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;

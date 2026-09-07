@@ -119,6 +119,23 @@ const genState = vi.hoisted(() => ({
 const storageState = vi.hoisted(() => ({
   failNext: false,
 }));
+const atlasState = vi.hoisted(() => ({
+  getCalls: [] as string[],
+  outcomes: new Map<string, { status: "Active" | "Processing" | "Failed" } | Error>(),
+}));
+vi.mock("../lib/atlascloud/assets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/atlascloud/assets")>();
+  return {
+    ...actual,
+    resolveAtlasAssetsKey: vi.fn(async () => "atlas-test-key"),
+    getAtlasAsset: vi.fn(async (id: string) => {
+      atlasState.getCalls.push(id);
+      const outcome = atlasState.outcomes.get(id);
+      if (outcome instanceof Error) throw outcome;
+      return { status: outcome?.status ?? "Active", error: null };
+    }),
+  };
+});
 const protectedRegion = { x: 0.2, y: 0.04, width: 0.6, height: 0.38 };
 
 async function persistReviewedRegion(characterId: number) {
@@ -268,6 +285,8 @@ beforeEach(() => {
   genState.failNext = null;
   genState.failPreservationAfterProvider = false;
   storageState.failNext = false;
+  atlasState.getCalls.length = 0;
+  atlasState.outcomes.clear();
 });
 
 function errorLogged(substring: string): boolean {
@@ -905,6 +924,46 @@ describe("outfits", () => {
     );
     expect(res.status).toBe(204);
   });
+
+  it("retains an Atlas outfit while it exists and deletes it only after documented GET 404", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Atlas outfit owner",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/owner.png`,
+    });
+    await persistReviewedRegion(created.body.id);
+    const withOutfit = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Atlas coat", description: "silver coat", protectedRegion });
+    const outfit = withOutfit.body.outfits.find(
+      (candidate: { name: string }) => candidate.name === "Atlas coat",
+    );
+    const assetId = "atlas-outfit-gated";
+    await db.update(characterOutfitsTable).set({
+      atlasAssetId: assetId,
+      atlasAssetStatus: "Processing",
+    }).where(eq(characterOutfitsTable.id, outfit.id));
+    atlasState.outcomes.set(assetId, { status: "Processing" });
+
+    const blocked = await request(app).delete(
+      `/api/characters/${created.body.id}/outfits/${outfit.id}`,
+    );
+    expect(blocked.status).toBe(409);
+    expect(await db.select().from(characterOutfitsTable)
+      .where(eq(characterOutfitsTable.id, outfit.id))).toHaveLength(1);
+
+    atlasState.outcomes.set(
+      assetId,
+      Object.assign(new Error("not found"), { status: 404 }),
+    );
+    const deleted = await request(app).delete(
+      `/api/characters/${created.body.id}/outfits/${outfit.id}`,
+    );
+    expect(deleted.status).toBe(204);
+    expect(atlasState.getCalls).toEqual([assetId, assetId]);
+    expect(await db.select().from(characterOutfitsTable)
+      .where(eq(characterOutfitsTable.id, outfit.id))).toHaveLength(0);
+  });
 });
 
 describe("list + delete", () => {
@@ -916,6 +975,10 @@ describe("list + delete", () => {
         name: "Other",
         sourceImagePath: `/objects/${other.tenantId}/uploads/o.png`,
       });
+    await db.update(characterOutfitsTable).set({
+      atlasAssetId: "atlas-foreign-owned",
+      atlasAssetStatus: "Active",
+    }).where(eq(characterOutfitsTable.characterId, otherChar.body.id));
 
     const mine = await newTenant();
     await request(app)
@@ -934,6 +997,7 @@ describe("list + delete", () => {
 
     const crossDelete = await request(app).delete(`/api/characters/${otherChar.body.id}`);
     expect(crossDelete.status).toBe(404);
+    expect(atlasState.getCalls).toEqual([]);
   });
 
   it("deletes a character together with its outfits", async () => {
@@ -951,5 +1015,103 @@ describe("list + delete", () => {
       .from(characterOutfitsTable)
       .where(eq(characterOutfitsTable.characterId, created.body.id));
     expect(outfits).toHaveLength(0);
+  });
+
+  it("checks every tenant-owned Atlas outfit and retains all rows if any asset still exists", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Atlas fictional",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/atlas.png`,
+    });
+    await persistReviewedRegion(created.body.id);
+    const withOutfit = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Coat", description: "navy coat", protectedRegion });
+    const coat = withOutfit.body.outfits.find((outfit: { name: string }) => outfit.name === "Coat");
+    const defaultOutfit = withOutfit.body.outfits.find((outfit: { isDefault: boolean }) => outfit.isDefault);
+    await db.update(characterOutfitsTable).set({
+      atlasAssetId: "atlas-default-404",
+      atlasAssetStatus: "Failed",
+    }).where(eq(characterOutfitsTable.id, defaultOutfit.id));
+    await db.update(characterOutfitsTable).set({
+      atlasAssetId: "atlas-coat-active",
+      atlasAssetStatus: "Active",
+    }).where(eq(characterOutfitsTable.id, coat.id));
+    atlasState.outcomes.set(
+      "atlas-default-404",
+      Object.assign(new Error("not found"), { status: 404 }),
+    );
+    atlasState.outcomes.set("atlas-coat-active", { status: "Active" });
+
+    const response = await request(app).delete(`/api/characters/${created.body.id}`);
+
+    expect(response.status).toBe(409);
+    expect(new Set(atlasState.getCalls)).toEqual(
+      new Set(["atlas-default-404", "atlas-coat-active"]),
+    );
+    expect(await db.select().from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id))).toHaveLength(1);
+    expect(await db.select().from(characterOutfitsTable)
+      .where(eq(characterOutfitsTable.characterId, created.body.id))).toHaveLength(2);
+  });
+
+  it.each([
+    ["Active", { status: "Active" as const }],
+    ["Processing", { status: "Processing" as const }],
+    ["Failed but existing", { status: "Failed" as const }],
+    ["401", Object.assign(new Error("unauthorized"), { status: 401 })],
+    ["timeout", new Error("Atlas Cloud asset request timed out.")],
+  ])("blocks character deletion for Atlas %s and retains local ownership", async (_label, outcome) => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: `Blocked ${_label}`,
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/blocked.png`,
+    });
+    const outfit = created.body.outfits[0];
+    const assetId = `atlas-blocked-${String(_label).replaceAll(" ", "-")}`;
+    await db.update(characterOutfitsTable).set({
+      atlasAssetId: assetId,
+      atlasAssetStatus: "Active",
+    }).where(eq(characterOutfitsTable.id, outfit.id));
+    atlasState.outcomes.set(assetId, outcome);
+
+    const response = await request(app).delete(`/api/characters/${created.body.id}`);
+
+    expect(response.status).toBe(409);
+    expect(atlasState.getCalls).toEqual([assetId]);
+    expect(await db.select().from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id))).toHaveLength(1);
+    expect(await db.select().from(characterOutfitsTable)
+      .where(eq(characterOutfitsTable.id, outfit.id))).toHaveLength(1);
+  });
+
+  it("accepts documented Atlas GET 404 and remains safe under concurrent deletion", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Already removed remotely",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/removed.png`,
+    });
+    const assetId = "atlas-remote-gone";
+    await db.update(characterOutfitsTable).set({
+      atlasAssetId: assetId,
+      atlasAssetStatus: "Active",
+    }).where(eq(characterOutfitsTable.id, created.body.outfits[0].id));
+    atlasState.outcomes.set(
+      assetId,
+      Object.assign(new Error("not found"), { status: 404 }),
+    );
+
+    const responses = await Promise.all([
+      request(app).delete(`/api/characters/${created.body.id}`),
+      request(app).delete(`/api/characters/${created.body.id}`),
+    ]);
+
+    expect(responses.every((response) => response.status === 204 || response.status === 404))
+      .toBe(true);
+    expect(responses.some((response) => response.status === 204)).toBe(true);
+    expect(await db.select().from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id))).toHaveLength(0);
+    expect(await db.select().from(characterOutfitsTable)
+      .where(eq(characterOutfitsTable.characterId, created.body.id))).toHaveLength(0);
   });
 });

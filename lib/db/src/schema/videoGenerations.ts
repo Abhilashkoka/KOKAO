@@ -197,6 +197,7 @@ export interface VideoJobOptions {
     taskId: string;
     requestId: string | null;
     acceptedAt: string;
+    submitStartedAt?: string;
   }> | null;
   /**
    * Immutable Guided Story execution contract. Only the exact versioned value
@@ -452,6 +453,7 @@ export interface VideoJobOptions {
       referenceImagePath: string;
       referenceSource?: "generated" | "uploaded" | null;
       requiresBytePlusAsset?: boolean;
+      requiresAtlasAsset?: boolean;
     };
     outfits: Array<{
       id: number;
@@ -470,6 +472,8 @@ export interface VideoJobOptions {
       } | null;
       bytePlusAssetId?: string | null;
       bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
+      atlasAssetId?: string | null;
+      atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
     }>;
   } | null;
   /**
@@ -497,9 +501,13 @@ export interface VideoJobOptions {
       outfitReferenceImagePath: string;
       outfitName: string;
       outfitDescription: string;
+      referenceSource?: "generated" | "uploaded" | null;
       requiresBytePlusAsset?: boolean;
+      requiresAtlasAsset?: boolean;
       bytePlusAssetId?: string | null;
       bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
+      atlasAssetId?: string | null;
+      atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
     };
     lipSyncConsent: true;
   } | null;
@@ -1068,6 +1076,7 @@ export interface VideoStoryboardScene {
       roleId: string;
       characterName: string;
       source: "saved" | "generated";
+      referenceSource?: "generated" | "uploaded" | null;
       characterId: number | null;
       outfitId: number | null;
       referenceImagePath: string | null;
@@ -1080,6 +1089,9 @@ export interface VideoStoryboardScene {
         requiresBytePlusAsset?: boolean;
         bytePlusAssetId?: string | null;
         bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
+        requiresAtlasAsset?: boolean;
+        atlasAssetId?: string | null;
+        atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
     }>;
     inconsistencyFlags: string[];
     inputFingerprint: string;

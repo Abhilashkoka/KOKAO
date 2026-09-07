@@ -1073,11 +1073,18 @@ export function guidedStoryStoryboard(
       roleId: member.roleId,
       characterName: member.character.name,
       source: member.source,
+      // jsonb drops undefined. Normalize optional provider-asset metadata at
+      // this immutable boundary so legacy rows retain identical scene inputs
+      // after a database round trip.
+      referenceSource: member.referenceSource ?? null,
       characterId: member.characterId,
       outfitId: member.outfitId,
-      requiresBytePlusAsset: member.requiresBytePlusAsset,
-      bytePlusAssetId: member.bytePlusAssetId,
-      bytePlusAssetStatus: member.bytePlusAssetStatus,
+      requiresBytePlusAsset: member.requiresBytePlusAsset === true,
+      bytePlusAssetId: member.bytePlusAssetId ?? null,
+      bytePlusAssetStatus: member.bytePlusAssetStatus ?? null,
+      requiresAtlasAsset: member.requiresAtlasAsset === true,
+      atlasAssetId: member.atlasAssetId ?? null,
+      atlasAssetStatus: member.atlasAssetStatus ?? null,
       referenceImagePath: member.character.referenceImagePath,
       outfitReferenceImagePath: member.outfit?.referenceImagePath ?? null,
       castApprovedAt: approvalByRole[member.roleId]?.approvedAt,

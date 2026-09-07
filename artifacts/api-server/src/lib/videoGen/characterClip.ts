@@ -5,7 +5,11 @@ import {
   generateSceneKeyframe,
 } from "../characters";
 import { generateVideo } from "./index";
-import { assetRefsForOutfit, currentBytePlusAssetPolicy } from "../characterAssets";
+import {
+  assetRefsForOutfit,
+  atlasAssetRefsForOutfit,
+  currentBytePlusAssetPolicy,
+} from "../characterAssets";
 import { getMotionInstruction } from "./motionPrompt";
 import { VideoGenProviderError, type VideoAspect } from "./types";
 import type { ResolvedModelOptions } from "./modelCatalog";
@@ -44,9 +48,13 @@ export async function generateCharacterClip(params: {
   snapshot?: {
     referenceImagePath: string; characterName: string; characterDescription: string;
     outfitReferenceImagePath: string; outfitName: string; outfitDescription: string;
+    referenceSource?: "generated" | "uploaded" | null;
     requiresBytePlusAsset?: boolean;
     bytePlusAssetId?: string | null;
     bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
+    requiresAtlasAsset?: boolean;
+    atlasAssetId?: string | null;
+    atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
   };
   /** Generic enqueue-time wardrobe snapshot used by ordinary character jobs. */
   wardrobeSnapshot?: CharacterSnapshot | null;
@@ -70,15 +78,43 @@ export async function generateCharacterClip(params: {
   if (!outfit) {
     throw new VideoGenProviderError("The selected outfit no longer exists.");
   }
+  const frozenProvider = params.model?.resolvedVideoModel?.provider;
+  // Atlas Asset Library is exclusively for explicitly immutable fictional
+  // references. Do this before any keyframe/image provider work: snapshots
+  // without provenance intentionally fail closed rather than inheriting a
+  // mutable current character classification.
+  if (frozenProvider === "atlascloud") {
+    const immutableSource =
+      params.wardrobeSnapshot?.character.referenceSource ??
+      params.snapshot?.referenceSource;
+    if (
+      immutableSource !== "generated" ||
+      detail.character.bytePlusIdentityId != null ||
+      params.wardrobeSnapshot?.character.requiresBytePlusAsset === true ||
+      params.snapshot?.requiresBytePlusAsset === true
+    ) {
+      throw new VideoGenProviderError(
+        "Atlas Cloud character rendering requires an immutable AI-generated fictional identity; uploaded, legacy, and verified-person references are not allowed.",
+        409,
+      );
+    }
+  }
   const scene = params.prompt.trim() || "a cinematic portrait moment";
   const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
-  const assetIds = params.model?.resolvedVideoModel?.provider === "byteplus"
+  const assetIds = frozenProvider === "byteplus"
     ? await assetRefsForOutfit({
         tenantId: params.tenantId,
         character: detail.character,
         outfit,
       })
-    : [];
+    : frozenProvider === "atlascloud"
+      ? await atlasAssetRefsForOutfit({
+          tenantId: params.tenantId,
+          characterId: detail.character.id,
+          outfitId: outfit.id,
+          expectedAssetId: outfit.atlasAssetId,
+        })
+      : [];
   const frozenPolicy = params.wardrobeSnapshot?.character.requiresBytePlusAsset
     ?? params.snapshot?.requiresBytePlusAsset;
   const currentPolicy = await currentBytePlusAssetPolicy(params.tenantId, params.characterId);
@@ -96,6 +132,18 @@ export async function generateCharacterClip(params: {
         "This verified identity requires active BytePlus assets and cannot use an image fallback.",
         409,
       );
+    }
+  }
+  const frozenAtlasPolicy = params.wardrobeSnapshot?.character.requiresAtlasAsset
+    ?? params.snapshot?.requiresAtlasAsset;
+  if (frozenAtlasPolicy === true || currentPolicy?.requiresAtlasAsset) {
+    if (frozenProvider === "atlascloud") {
+      if (assetIds.length === 0) {
+        throw new VideoGenProviderError(
+          "This fictional character requires an active tenant-owned Atlas Cloud asset and cannot use a raw image fallback.",
+          409,
+        );
+      }
     }
   }
   if (assetIds.length > 0) {

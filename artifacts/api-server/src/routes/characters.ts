@@ -54,7 +54,9 @@ import {
   listTenantPresetDerivatives,
 } from "../lib/presetCharacters";
 import {
+  assertAtlasAssetsDeleted,
   deleteBytePlusAssetsInBackground,
+  registerAtlasOutfitAssetInBackground,
   registerOutfitAssetInBackground,
 } from "../lib/characterAssets";
 import {
@@ -488,6 +490,7 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       referenceImagePath: resolved.preset.referenceImagePath,
       bytePlusAssetGroupId: null,
       bytePlusAssetGroupClaimedAt: null,
+      atlasAssetGroupId: null,
       bytePlusIdentityId: null,
       referenceSource: "generated" as const,
       referenceSheetImagePath: null,
@@ -994,6 +997,11 @@ router.post("/characters", async (req: Request, res: Response) => {
     character: characterWithSheet,
     outfit: created.defaultOutfit,
   });
+  registerAtlasOutfitAssetInBackground({
+    tenantId: req.tenantId,
+    character: characterWithSheet,
+    outfit: created.defaultOutfit,
+  });
   res
     .status(201)
     .json(serializeCharacter(characterWithSheet, [created.defaultOutfit]));
@@ -1109,6 +1117,17 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
     res.status(404).json({ error: "Not found" });
     return;
   }
+  const atlasOutfits = await db.select({ assetId: characterOutfitsTable.atlasAssetId })
+    .from(characterOutfitsTable).where(and(
+      eq(characterOutfitsTable.characterId, character.id),
+      eq(characterOutfitsTable.tenantId, req.tenantId),
+    ));
+  try {
+    await assertAtlasAssetsDeleted(atlasOutfits.map((outfit) => outfit.assetId));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "Atlas asset deletion could not be verified." });
+    return;
+  }
   const deletedOutfits = await db
     .delete(characterOutfitsTable)
     .where(
@@ -1116,7 +1135,10 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
         eq(characterOutfitsTable.characterId, character.id),
         eq(characterOutfitsTable.tenantId, req.tenantId),
       ),
-    ).returning({ assetId: characterOutfitsTable.bytePlusAssetId });
+    ).returning({
+      assetId: characterOutfitsTable.bytePlusAssetId,
+      atlasAssetId: characterOutfitsTable.atlasAssetId,
+    });
   await db
     .delete(charactersTable)
     .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)));
@@ -1434,6 +1456,13 @@ router.patch(
       })
       .where(eq(characterOutfitsTable.id, outfit.id))
       .returning();
+    if (updated?.status === "approved") {
+      registerAtlasOutfitAssetInBackground({
+        tenantId: req.tenantId,
+        character,
+        outfit: updated,
+      });
+    }
     res.json(serializeOutfit(updated!));
   },
 );
@@ -1470,6 +1499,12 @@ router.delete(
     }
     if (outfit.isDefault) {
       res.status(400).json({ error: "The default outfit cannot be removed." });
+      return;
+    }
+    try {
+      await assertAtlasAssetsDeleted([outfit.atlasAssetId]);
+    } catch (error) {
+      res.status(409).json({ error: error instanceof Error ? error.message : "Atlas asset deletion could not be verified." });
       return;
     }
     const [deleted] = await db

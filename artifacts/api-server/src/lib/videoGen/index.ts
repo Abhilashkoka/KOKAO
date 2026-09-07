@@ -43,6 +43,11 @@ import {
   BYTEPLUS_SEEDANCE_25_MODEL,
   generateWithBytePlusModelArk,
 } from "./providers/byteplus";
+import {
+  ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
+  ATLASCLOUD_SEEDANCE_25_I2V_MODEL,
+  generateWithAtlasCloud,
+} from "./providers/atlascloud";
 import { isTransientStatus } from "./retry";
 import {
   parseCustomProviderId,
@@ -74,6 +79,8 @@ export type VideoGenMode = "text" | "image";
 const NATIVE_SYNCHRONIZED_AUDIO_MODELS = new Set([
   "openrouter/bytedance/seedance-2.5",
   `byteplus/${BYTEPLUS_SEEDANCE_25_MODEL}`,
+  `atlascloud/${ATLASCLOUD_SEEDANCE_25_T2V_MODEL}`,
+  `atlascloud/${ATLASCLOUD_SEEDANCE_25_I2V_MODEL}`,
   "higgsfield/veo3.1/fast",
   "higgsfield/veo3.1/fast/image-to-video",
   "higgsfield/veo3.1",
@@ -136,6 +143,17 @@ function normalizedPersistedModelOverride(
 
 /** Catalog of selectable AI video generation providers. Add new ones here only. */
 export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
+  {
+    id: "atlascloud",
+    label: "Atlas Cloud",
+    defaultTextToVideoModel: ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
+    defaultImageToVideoModel: ATLASCLOUD_SEEDANCE_25_I2V_MODEL,
+    envKey: "ATLASCLOUD_API_KEY",
+    supportsModelOverride: false,
+    textModelOptions: catalogModelOptions("atlascloud", "text"),
+    imageModelOptions: catalogModelOptions("atlascloud", "image"),
+    generate: generateWithAtlasCloud,
+  },
   {
     id: "byteplus",
     label: "BytePlus ModelArk",
@@ -960,9 +978,13 @@ export async function generateVideo(
       null,
     );
   }
-  if ((params.assetIds?.length || params.identityLocked) && snapshot.provider !== "byteplus") {
+  if (
+    (params.assetIds?.length || params.identityLocked) &&
+    snapshot.provider !== "byteplus" &&
+    snapshot.provider !== "atlascloud"
+  ) {
     throw new VideoGenProviderError(
-      "Reviewed identity assets can only be rendered by BytePlus ModelArk.",
+      "Reviewed identity assets require their frozen BytePlus or Atlas Cloud provider.",
       400,
     );
   }
@@ -1005,6 +1027,13 @@ export async function generateVideo(
     params.operationKey && taskStore
       ? await taskStore.load(params.operationKey, snapshot.provider, snapshot.model)
       : null;
+  if (params.operationKey && taskStore &&
+    await taskStore.isSubmitUncertain?.(params.operationKey, snapshot.provider, snapshot.model)) {
+    throw new VideoGenProviderError(
+      "Atlas Cloud submit outcome is uncertain and requires manual reconciliation; this paid operation will not be retried.",
+      409,
+    );
+  }
 
   const input = (model: string, withEndFrame = true): VideoGenInput => ({
     prompt: params.prompt,
@@ -1025,6 +1054,11 @@ export async function generateVideo(
         await taskStore.save(params.operationKey, snapshot.provider, model, receipt);
       }
       await params.onProviderTaskAccepted?.(receipt);
+    },
+    onProviderSubmitStarted: async () => {
+      if (params.operationKey && taskStore) {
+        await taskStore.markSubmitStarted?.(params.operationKey, snapshot.provider, model);
+      }
     },
   });
 

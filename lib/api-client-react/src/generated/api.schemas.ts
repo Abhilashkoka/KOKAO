@@ -8300,6 +8300,34 @@ export interface BytePlusAssetsAdminView {
 }
 
 /**
+ * @nullable
+ */
+export type AtlasCloudAssetCharacterReferenceSource = typeof AtlasCloudAssetCharacterReferenceSource[keyof typeof AtlasCloudAssetCharacterReferenceSource] | null;
+
+
+export const AtlasCloudAssetCharacterReferenceSource = {
+  generated: 'generated',
+  uploaded: 'uploaded',
+} as const;
+
+export interface AtlasCloudAssetCharacter {
+  id: number;
+  tenantId: number;
+  name: string;
+  /** @nullable */
+  assetGroupId: string | null;
+  /** @nullable */
+  referenceSource: AtlasCloudAssetCharacterReferenceSource;
+  eligible: boolean;
+  outfits: BytePlusAssetOutfit[];
+}
+
+export interface AtlasCloudAssetsAdminView {
+  configured: boolean;
+  characters: AtlasCloudAssetCharacter[];
+}
+
+/**
  * A saved, reusable image for AI generation (reference or source photo).
  */
 export interface VisualAsset {

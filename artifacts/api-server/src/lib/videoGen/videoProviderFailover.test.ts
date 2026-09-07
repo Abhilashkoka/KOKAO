@@ -21,12 +21,19 @@ vi.mock("./providers/openrouter", () => ({
   OPENROUTER_I2V_MODEL: "kwaivgi/kling-v3.0-std",
   generateWithOpenRouterVideo: vi.fn(),
 }));
+vi.mock("./providers/atlascloud", () => ({
+  ATLASCLOUD_SEEDANCE_25_T2V_MODEL: "bytedance/seedance-2.5/text-to-video",
+  ATLASCLOUD_SEEDANCE_25_I2V_MODEL: "bytedance/seedance-2.5/image-to-video",
+  generateWithAtlasCloud: vi.fn(),
+}));
 
 import { generateWithReplicate } from "./providers/replicate";
 import { generateWithOpenRouterVideo } from "./providers/openrouter";
+import { generateWithAtlasCloud } from "./providers/atlascloud";
 
 const savedReplicate = process.env.REPLICATE_API_TOKEN;
 const savedOpenRouter = process.env.OPENROUTER_API_KEY;
+const savedAtlas = process.env.ATLASCLOUD_API_KEY;
 const params = {
   mode: "text" as const, prompt: "a pastel sunrise over still water",
   aspectRatio: "9:16" as const, durationSec: 5,
@@ -42,17 +49,21 @@ describe("generateVideo exact-provider behavior", () => {
   beforeEach(async () => {
     vi.mocked(generateWithReplicate).mockReset();
     vi.mocked(generateWithOpenRouterVideo).mockReset();
+    vi.mocked(generateWithAtlasCloud).mockReset();
     resetProviderHealthForTests();
     await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "videogen_%"));
     await db.delete(videoGenSettingsTable);
     process.env.REPLICATE_API_TOKEN = "test-replicate-token";
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    process.env.ATLASCLOUD_API_KEY = "test-atlas-token";
   });
   afterAll(() => {
     if (savedReplicate === undefined) delete process.env.REPLICATE_API_TOKEN;
     else process.env.REPLICATE_API_TOKEN = savedReplicate;
     if (savedOpenRouter === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = savedOpenRouter;
+    if (savedAtlas === undefined) delete process.env.ATLASCLOUD_API_KEY;
+    else process.env.ATLASCLOUD_API_KEY = savedAtlas;
   });
 
   it("never diverts a frozen job to OpenRouter after a Replicate outage", async () => {
@@ -116,5 +127,57 @@ describe("generateVideo exact-provider behavior", () => {
       "wan-video/wan-2.5-t2v",
       { taskId: "task-accepted", requestId: "request-accepted" },
     );
+  });
+
+  it("persists an operation-scoped submit marker without a task id across recovery and never POSTs it twice", async () => {
+    const durable = new Map<string, {
+      provider: string;
+      model: string;
+      submitStartedAt: string;
+      taskId: string;
+    }>();
+    const store = () => ({
+      load: vi.fn(async () => null),
+      save: vi.fn(async () => {}),
+      markSubmitStarted: vi.fn(async (operationKey: string, provider: string, model: string) => {
+        durable.set(operationKey, {
+          provider,
+          model,
+          submitStartedAt: "2026-09-07T00:00:00.000Z",
+          taskId: "",
+        });
+      }),
+      isSubmitUncertain: vi.fn(async (operationKey: string, provider: string, model: string) => {
+        const receipt = durable.get(operationKey);
+        return receipt?.provider === provider && receipt.model === model &&
+          Boolean(receipt.submitStartedAt) && !receipt.taskId;
+      }),
+    });
+    const atlasParams = {
+      ...params,
+      operationKey: "scene:atlas-one",
+      resolvedVideoModel: {
+        ...params.resolvedVideoModel,
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/text-to-video",
+      },
+    };
+    vi.mocked(generateWithAtlasCloud).mockImplementation(async (input) => {
+      await input.onProviderSubmitStarted?.();
+      throw new VideoGenProviderError("connection ended before acceptance", 503);
+    });
+
+    await expect(withVideoProviderTaskStore(store(), () => generateVideo(atlasParams)))
+      .rejects.toThrow(/connection ended/);
+    expect(durable.get("scene:atlas-one")).toMatchObject({
+      provider: "atlascloud",
+      taskId: "",
+      submitStartedAt: expect.any(String),
+    });
+    const callsAfterFirstInvocation = vi.mocked(generateWithAtlasCloud).mock.calls.length;
+
+    await expect(withVideoProviderTaskStore(store(), () => generateVideo(atlasParams)))
+      .rejects.toThrow(/outcome is uncertain/);
+    expect(vi.mocked(generateWithAtlasCloud)).toHaveBeenCalledTimes(callsAfterFirstInvocation);
   });
 });

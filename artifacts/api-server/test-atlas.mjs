@@ -1,7 +1,7 @@
 import pg from "pg";
 
-const key = process.env.ATLAS_API_KEY;
-if (!key) { console.error("Set ATLAS_API_KEY first."); process.exit(1); }
+const key = process.env.ATLASCLOUD_API_KEY;
+if (!key) { console.error("Set ATLASCLOUD_API_KEY first."); process.exit(1); }
 
 const c = new pg.Client({ connectionString: process.env.DATABASE_URL });
 await c.connect();

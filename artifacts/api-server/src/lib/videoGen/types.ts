@@ -143,6 +143,8 @@ export interface VideoGenInput {
     taskId: string;
     requestId: string | null;
   }) => Promise<void>;
+  /** Durable fence written immediately before an ambiguous paid submit. */
+  onProviderSubmitStarted?: () => Promise<void>;
 }
 
 /** Result returned by every provider. */

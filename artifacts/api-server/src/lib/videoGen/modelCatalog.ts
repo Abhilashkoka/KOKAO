@@ -420,6 +420,41 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     hasQuality: false,
     canGenerateAudio: true,
   },
+
+  // ── Atlas Cloud ─────────────────────────────────────────────────────────
+  // Append new selectable models. Several legacy/default resolution paths
+  // intentionally retain catalog order, so inserting Atlas ahead of existing
+  // entries would silently change a pre-Atlas default.
+  {
+    id: "atlascloud-seedance-2.5",
+    label: "Seedance 2.5 (Atlas Cloud)",
+    blurb: "Official Atlas Cloud Seedance 2.5 with synchronized dialogue and sound.",
+    provider: "atlascloud",
+    models: {
+      text: "bytedance/seedance-2.5/text-to-video",
+      image: "bytedance/seedance-2.5/image-to-video",
+    },
+    tier: "premium",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+    durations: Array.from({ length: 27 }, (_, index) => index + 4),
+    resolutions: ["480p", "720p", "1080p"],
+    hasQuality: false,
+    canGenerateAudio: true,
+    supportsEndFrame: true,
+  },
+  {
+    id: "atlascloud-seedance-2.5-reference",
+    label: "Seedance 2.5 Reference (Atlas Cloud)",
+    blurb: "Approved fictional character references through Atlas Cloud assets.",
+    provider: "atlascloud",
+    models: { text: "bytedance/seedance-2.5/reference-to-video" },
+    tier: "premium",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+    durations: Array.from({ length: 27 }, (_, index) => index + 4),
+    resolutions: ["480p", "720p", "1080p"],
+    hasQuality: false,
+    canGenerateAudio: true,
+  },
 ] as const;
 
 const BY_ID = new Map(VIDEO_MODEL_CATALOG.map((def) => [def.id, def]));

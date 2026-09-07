@@ -33,6 +33,12 @@ export const charactersTable = pgTable("characters", {
   /** Virtual portrait group, or null when this is a verified real-person character. */
   bytePlusAssetGroupId: text("byteplus_asset_group_id"),
   bytePlusAssetGroupClaimedAt: timestamp("byteplus_asset_group_claimed_at", { withTimezone: true }),
+  /**
+   * Atlas keeps assets account-wide rather than exposing BytePlus groups. This
+   * tenant-local group key prevents Atlas metadata from ever sharing a
+   * BytePlus identifier namespace.
+   */
+  atlasAssetGroupId: text("atlas_asset_group_id"),
   /** Liveness-verified real person linked to this character. */
   bytePlusIdentityId: integer("byteplus_identity_id").references(() => bytePlusIdentitiesTable.id, {
     onDelete: "restrict",
@@ -77,6 +83,13 @@ export const characterOutfitsTable = pgTable("character_outfits", {
   bytePlusAssetSyncedAt: timestamp("byteplus_asset_synced_at", { withTimezone: true }),
   /** Short lease held while one worker registers this outfit upstream. */
   bytePlusAssetClaimedAt: timestamp("byteplus_asset_claimed_at", { withTimezone: true }),
+  atlasAssetId: text("atlas_asset_id"),
+  atlasAssetStatus: text("atlas_asset_status")
+    .$type<"Processing" | "Active" | "Failed">(),
+  atlasAssetError: text("atlas_asset_error"),
+  atlasAssetSyncedAt: timestamp("atlas_asset_synced_at", { withTimezone: true }),
+  /** Atomic ten-minute registration lease. */
+  atlasAssetClaimedAt: timestamp("atlas_asset_claimed_at", { withTimezone: true }),
   /** Non-default generated outfits stay previews until explicitly approved. */
   status: text("status")
     .$type<"preview" | "approved" | "rejected">()
@@ -97,6 +110,7 @@ export const characterOutfitsTable = pgTable("character_outfits", {
     .$onUpdate(() => new Date()),
 }, (table) => [
   uniqueIndex("character_outfits_byteplus_asset_uniq").on(table.bytePlusAssetId),
+  uniqueIndex("character_outfits_atlas_asset_uniq").on(table.atlasAssetId),
 ]);
 
 export interface PresetStockVoice {

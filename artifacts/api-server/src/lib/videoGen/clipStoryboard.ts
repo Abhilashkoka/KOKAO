@@ -25,7 +25,11 @@ import {
   MAX_SLIDESHOW_IMAGES,
 } from "./slideshow";
 import { VideoGenProviderError, type SourceImage, type VideoAspect } from "./types";
-import { assetRefsForOutfit, requiresVerifiedBytePlusAsset } from "../characterAssets";
+import {
+  assetRefsForOutfit,
+  atlasAssetRefsForOutfit,
+  requiresVerifiedBytePlusAsset,
+} from "../characterAssets";
 
 /**
  * Storyboards for the three engines that are not topic mode: text_to_video,
@@ -596,6 +600,34 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     let assetIds: string[] = [];
     if (storyboard.mode === "guided_story" && scene.guidedStory) {
       for (const member of scene.guidedStory.cast.filter((cast) => scene.guidedStory!.roleIds.includes(cast.roleId))) {
+        const frozenProvider = modelOptions.resolvedVideoModel?.provider;
+        if (frozenProvider === "atlascloud") {
+          if (member.requiresBytePlusAsset === true) {
+            throw new VideoGenProviderError(
+              `Guided Story scene ${i + 1} has a BytePlus identity-linked cast member and cannot send that identity to Atlas Cloud.`,
+            );
+          }
+          const requiresAtlas =
+            member.requiresAtlasAsset ??
+            (member.referenceSource === "generated" ? true : undefined);
+          if (member.referenceSource !== "generated" || !requiresAtlas) {
+            throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a non-fictional, uploaded, or legacy cast reference and cannot use Atlas Cloud.`);
+          }
+          if (!member.characterId || !member.outfitId) {
+            throw new VideoGenProviderError(`Guided Story scene ${i + 1} has no tenant-owned Atlas Cloud mapping for an approved cast member.`);
+          }
+          const refs = await atlasAssetRefsForOutfit({
+            tenantId: params.job.tenantId,
+            characterId: member.characterId,
+            outfitId: member.outfitId,
+            expectedAssetId: member.atlasAssetId,
+          });
+          if (!refs.length) {
+            throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a participating cast member without an active Atlas Cloud asset mapping.`);
+          }
+          assetIds.push(...refs);
+          continue;
+        }
         const immutableRequiresAsset =
           member.requiresBytePlusAsset ?? (member.source === "generated" ? true : undefined);
         if (!member.characterId) {

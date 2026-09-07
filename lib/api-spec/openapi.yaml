@@ -2618,6 +2618,30 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BytePlusAssetsAdminView" }
+  /admin/atlascloud-assets:
+    get:
+      operationId: getAdminAtlasCloudAssets
+      tags: [admin]
+      summary: Get Atlas Cloud fictional-character asset registration status
+      responses:
+        "200":
+          description: Atlas Cloud asset status (never includes credentials)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AtlasCloudAssetsAdminView" }
+  /admin/atlascloud-assets/characters/{characterId}/register:
+    post:
+      operationId: registerAdminAtlasCloudCharacterAssets
+      tags: [admin]
+      summary: Retry Atlas Cloud registration for one eligible fictional character
+      parameters:
+        - { name: characterId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AtlasCloudAssetsAdminView" }
   /characters/{characterId}/reference-sheet/generate:
     parameters:
       - { name: characterId, in: path, required: true, schema: { type: integer } }
@@ -21001,6 +21025,27 @@ components:
         characters:
           type: array
           items: { $ref: "#/components/schemas/BytePlusAssetCharacter" }
+    AtlasCloudAssetCharacter:
+      type: object
+      required: [id, tenantId, name, assetGroupId, referenceSource, eligible, outfits]
+      properties:
+        id: { type: integer }
+        tenantId: { type: integer }
+        name: { type: string }
+        assetGroupId: { type: ["string", "null"] }
+        referenceSource: { type: ["string", "null"], enum: [generated, uploaded, null] }
+        eligible: { type: boolean }
+        outfits:
+          type: array
+          items: { $ref: "#/components/schemas/BytePlusAssetOutfit" }
+    AtlasCloudAssetsAdminView:
+      type: object
+      required: [configured, characters]
+      properties:
+        configured: { type: boolean }
+        characters:
+          type: array
+          items: { $ref: "#/components/schemas/AtlasCloudAssetCharacter" }
     VisualAsset:
       type: object
       description: A saved, reusable image for AI generation (reference or source photo).

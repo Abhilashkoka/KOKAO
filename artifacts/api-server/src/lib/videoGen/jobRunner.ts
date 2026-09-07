@@ -885,6 +885,26 @@ function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
         }).where(eq(videoGenerationsTable.id, jobId));
       });
     },
+    async markSubmitStarted(operationKey, provider, model) {
+      await db.transaction(async (tx) => {
+        const [row] = await tx.select({ options: videoGenerationsTable.options })
+          .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+        if (!row?.options) throw new Error("Video job disappeared before Atlas Cloud submit.");
+        const options = structuredClone(row.options);
+        options.providerTasks = {
+          ...(options.providerTasks ?? {}),
+          [operationKey]: { provider, model, taskId: "", requestId: null, acceptedAt: "", submitStartedAt: new Date().toISOString() },
+        };
+        await tx.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, jobId));
+      });
+    },
+    async isSubmitUncertain(operationKey, provider, model) {
+      const [row] = await db.select({ options: videoGenerationsTable.options })
+        .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).limit(1);
+      const saved = row?.options?.providerTasks?.[operationKey];
+      return saved?.provider === provider && saved.model === model &&
+        Boolean(saved.submitStartedAt) && !saved.taskId;
+    },
   };
 }
 
@@ -3025,6 +3045,23 @@ async function produceVideo(
       options.guidedStoryRenderFlow?.version === 1 &&
       options.guidedStoryRenderFlow.mode === "direct_video"
     ) {
+      if (options.resolvedVideoModel?.provider === "atlascloud") {
+        const participatingRoleIds = new Set(
+          options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+        );
+        const unsafeMember = options.guidedStory.cast.find((member) =>
+          participatingRoleIds.has(member.roleId) &&
+          (
+            member.referenceSource !== "generated" ||
+            member.requiresBytePlusAsset === true
+          )
+        );
+        if (unsafeMember) {
+          throw new VideoJobInputError(
+            `Guided Story role ${unsafeMember.roleId} cannot use Atlas Cloud: uploaded, legacy, and BytePlus-verified identities are not allowed.`,
+          );
+        }
+      }
       // New Guided Story attempts have already crossed their script, cast,
       // reference-sheet and backdrop approval boundaries. Build the immutable
       // execution board only as an internal per-scene receipt/checkpoint

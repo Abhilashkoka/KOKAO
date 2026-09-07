@@ -3796,6 +3796,61 @@ export const RegisterAdminBytePlusCharacterAssetsResponse = zod.object({
 
 
 /**
+ * @summary Get Atlas Cloud fictional-character asset registration status
+ */
+export const GetAdminAtlasCloudAssetsResponse = zod.object({
+  "configured": zod.boolean(),
+  "characters": zod.array(zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "name": zod.string(),
+  "assetGroupId": zod.string().nullable(),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "eligible": zod.boolean(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "assetId": zod.string().nullable(),
+  "status": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "syncedAt": zod.coerce.date().nullable()
+}))
+}))
+})
+
+
+/**
+ * @summary Retry Atlas Cloud registration for one eligible fictional character
+ */
+
+
+
+export const RegisterAdminAtlasCloudCharacterAssetsParams = zod.object({
+  "characterId": zod.coerce.number().min(1)
+})
+
+export const RegisterAdminAtlasCloudCharacterAssetsResponse = zod.object({
+  "configured": zod.boolean(),
+  "characters": zod.array(zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "name": zod.string(),
+  "assetGroupId": zod.string().nullable(),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "eligible": zod.boolean(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "assetId": zod.string().nullable(),
+  "status": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "syncedAt": zod.coerce.date().nullable()
+}))
+}))
+})
+
+
+/**
  * @summary Generate or regenerate the character's multi-view reference sheet
  */
 export const GenerateCharacterReferenceSheetParams = zod.object({

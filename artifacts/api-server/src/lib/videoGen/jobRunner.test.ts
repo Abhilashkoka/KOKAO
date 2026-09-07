@@ -3888,10 +3888,17 @@ describe("Guided Story preview-only runner", () => {
       cast: [{
         roleId: "hero",
         source: "saved" as const,
+         referenceSource: "uploaded" as const,
         characterId: 1,
         outfitId: 2,
         brandKitId: 3,
         voiceId: "voice",
+         requiresBytePlusAsset: false,
+         bytePlusAssetId: null,
+         bytePlusAssetStatus: null,
+         requiresAtlasAsset: false,
+         atlasAssetId: null,
+         atlasAssetStatus: null,
         character: {
           name: "Hero",
           description: "A fictional hero",
@@ -4005,6 +4012,60 @@ describe("Guided Story preview-only runner", () => {
     expect(resumedSaved.videoPath).toBeTruthy();
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
   });
+
+  it.each([
+    ["uploaded", "uploaded", false],
+    ["legacy", null, false],
+    ["BytePlus identity", "generated", true],
+  ] as const)(
+    "blocks a participating %s Guided Story cast member before every provider call",
+    async (_label, referenceSource, requiresBytePlusAsset) => {
+      const tenant = await newTenant();
+      const snapshot = guidedSnapshot(tenant.tenantId, 1);
+      Object.assign(snapshot.cast[0]!, {
+        referenceSource,
+        requiresBytePlusAsset,
+      });
+      const checkpointsBefore = state.topicCheckpointed.length;
+      const previewsBefore = state.guidedPreviewProviderCalls;
+      const speechBefore = state.dialogueSpeech.length;
+      const videoRequestsBefore = state.videoRequests.length;
+      const job = await seedJob(tenant.tenantId, {
+        engine: "topic_to_video",
+        storyboard: null,
+        options: {
+          aspectRatio: "9:16",
+          reviewStoryboard: false,
+          guidedStory: snapshot,
+          guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+          resolvedVideoModel: {
+            version: 1,
+            source: "explicit",
+            mode: "image",
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/image-to-video",
+            catalogModelId: "atlascloud-seedance-2.5",
+            durationSec: 5,
+            permittedDurationSec: [5],
+            resolution: "720p",
+            quality: null,
+            generateAudio: true,
+            supportsEndFrame: false,
+          },
+        },
+      });
+
+      await runVideoGenerationJob(job.id, "quota");
+
+      const saved = await readJob(job.id);
+      expect(saved.status).toBe("failed");
+      expect(saved.error).toMatch(/cannot use Atlas Cloud/i);
+      expect(state.topicCheckpointed).toHaveLength(checkpointsBefore);
+      expect(state.guidedPreviewProviderCalls).toBe(previewsBefore);
+      expect(state.dialogueSpeech).toHaveLength(speechBefore);
+      expect(state.videoRequests).toHaveLength(videoRequestsBefore);
+    },
+  );
 
   it("fails an invalid Guided backdrop fingerprint before initial planning", async () => {
     const tenant = await newTenant();
@@ -4221,10 +4282,17 @@ describe("Guided Story preview-only runner", () => {
       cast: [{
         roleId: "hero",
         source: "saved" as const,
+         referenceSource: "uploaded" as const,
         characterId: 1,
         outfitId: 2,
         brandKitId: 3,
         voiceId: "voice",
+         requiresBytePlusAsset: false,
+         bytePlusAssetId: null,
+         bytePlusAssetStatus: null,
+         requiresAtlasAsset: false,
+         atlasAssetId: null,
+         atlasAssetStatus: null,
         character: {
           name: "Hero",
           description: "A fictional hero",

@@ -332,7 +332,11 @@ import {
   getBytePlusAssetsKeySource,
   setStoredBytePlusAssetsKey,
 } from "../lib/byteplus/assets";
-import { registerCharacterAssets } from "../lib/characterAssets";
+import {
+  registerAtlasCharacterAssets,
+  registerCharacterAssets,
+} from "../lib/characterAssets";
+import { resolveAtlasAssetsKey } from "../lib/atlascloud/assets";
 
 const router: IRouter = Router();
 
@@ -370,6 +374,37 @@ async function serializeBytePlusAssets() {
         status: outfit.bytePlusAssetStatus,
         error: outfit.bytePlusAssetError,
         syncedAt: outfit.bytePlusAssetSyncedAt?.toISOString() ?? null,
+      })),
+    })),
+  };
+}
+
+async function serializeAtlasCloudAssets() {
+  const characters = await db.select().from(charactersTable).orderBy(asc(charactersTable.id));
+  const outfits = characters.length
+    ? await db.select().from(characterOutfitsTable).where(inArray(
+        characterOutfitsTable.characterId,
+        characters.map((character) => character.id),
+      ))
+    : [];
+  return {
+    configured: Boolean(await resolveAtlasAssetsKey()),
+    characters: characters.map((character) => ({
+      id: character.id,
+      tenantId: character.tenantId,
+      name: character.name,
+      assetGroupId: character.atlasAssetGroupId,
+      referenceSource: character.referenceSource,
+      eligible:
+        character.referenceSource === "generated" &&
+        character.bytePlusIdentityId === null,
+      outfits: outfits.filter((outfit) => outfit.characterId === character.id).map((outfit) => ({
+        id: outfit.id,
+        name: outfit.name,
+        assetId: outfit.atlasAssetId,
+        status: outfit.atlasAssetStatus,
+        error: outfit.atlasAssetError,
+        syncedAt: outfit.atlasAssetSyncedAt?.toISOString() ?? null,
       })),
     })),
   };
@@ -435,6 +470,26 @@ router.post("/admin/byteplus-assets/characters/:characterId/register", async (re
     characterId,
   });
   res.json(await serializeBytePlusAssets());
+});
+
+router.get("/admin/atlascloud-assets", async (_req, res) => {
+  res.json(await serializeAtlasCloudAssets());
+});
+
+router.post("/admin/atlascloud-assets/characters/:characterId/register", async (req, res) => {
+  const characterId = Number(req.params.characterId);
+  if (!Number.isInteger(characterId) || characterId <= 0) {
+    res.status(400).json({ error: "Invalid character id." });
+    return;
+  }
+  const [character] = await db.select({ tenantId: charactersTable.tenantId })
+    .from(charactersTable).where(eq(charactersTable.id, characterId)).limit(1);
+  if (!character) {
+    res.status(404).json({ error: "Character not found." });
+    return;
+  }
+  await registerAtlasCharacterAssets({ tenantId: character.tenantId, characterId });
+  res.json(await serializeAtlasCloudAssets());
 });
 
 router.get("/admin/video-jobs/:jobId/diagnostics", async (req: Request, res: Response) => {

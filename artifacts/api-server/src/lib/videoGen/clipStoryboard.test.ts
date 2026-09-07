@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   keyframeRefs: [] as (string | null)[],
   generateCalls: [] as { mode: string; prompt: string; durationSec: number; hasImage: boolean; assetIds?: string[] }[],
   assetRefs: ["asset-role-1"] as string[],
+  atlasAssetCalls: 0,
   detailCalls: [] as Array<[number, number]>,
   detailMissing: false,
   slideshowCall: null as {
@@ -37,6 +38,10 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../characterAssets", () => ({
   assetRefsForOutfit: vi.fn(async () => state.assetRefs),
+  atlasAssetRefsForOutfit: vi.fn(async () => {
+    state.atlasAssetCalls += 1;
+    return ["atlas-role-1"];
+  }),
   requiresVerifiedBytePlusAsset: vi.fn(async () => true),
 }));
 
@@ -191,6 +196,7 @@ beforeEach(() => {
   state.systemPrompt = "";
   state.llmCalls = 0;
   state.assetRefs = ["asset-role-1"];
+  state.atlasAssetCalls = 0;
   state.detailCalls = [];
   state.detailMissing = false;
   pk.governedByFlow = {};
@@ -696,6 +702,34 @@ describe("renderClipStoryboard", () => {
     });
     await expect(render(board({ mode: "guided_story", visualsSource: "character", scenes: [guided] })))
       .rejects.toThrow(/requires BytePlus/);
+    expect(state.generateCalls).toHaveLength(0);
+  });
+
+  it("rejects BytePlus-linked generated cast before Atlas mapping or dispatch", async () => {
+    const guided = scene({
+      previewPath: "/objects/1/approved.png",
+      guidedStory: {
+        scriptSceneId: "script-1", startMs: 0, endMs: 5000, roleIds: ["role-1"],
+        lineOwnership: [], cast: [{
+          roleId: "role-1", source: "generated", referenceSource: "generated",
+          characterId: 7, outfitId: 3, requiresAtlasAsset: true,
+          requiresBytePlusAsset: true, atlasAssetId: "atlas-role-1", atlasAssetStatus: "Active",
+        }],
+        inconsistencyFlags: [], inputFingerprint: "fp",
+        visuals: { logoPath: null, locationMode: "none", locationImagePath: null, locationDescription: null },
+      } as never,
+    });
+    await expect(renderClipStoryboard({
+      job: makeJob({ options: { aspectRatio: "9:16", resolvedVideoModel: {
+        version: 1, provider: "atlascloud",
+        model: "bytedance/seedance-2.5/reference-to-video",
+        resolvedAt: "2026-01-01T00:00:00Z",
+      } } as never }),
+      storyboard: board({ mode: "guided_story", visualsSource: "character", scenes: [guided] }),
+      aspectRatio: "9:16",
+      load: async () => ({ buffer: Buffer.from("approved"), mimeType: "image/png" }),
+    })).rejects.toThrow(/BytePlus identity-linked.*cannot send.*Atlas Cloud/);
+    expect(state.atlasAssetCalls).toBe(0);
     expect(state.generateCalls).toHaveLength(0);
   });
 

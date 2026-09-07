@@ -16,6 +16,12 @@ import {
   resolveBytePlusAssetsCredentials,
   waitForAssetActive,
 } from "./byteplus/assets";
+import {
+  createAtlasAsset,
+  getAtlasAsset,
+  resolveAtlasAssetsKey,
+  waitForAtlasAsset,
+} from "./atlascloud/assets";
 
 const storage = new ObjectStorageService();
 
@@ -228,8 +234,11 @@ export async function requiresVerifiedBytePlusAsset(
 export async function currentBytePlusAssetPolicy(
   tenantId: number,
   characterId: number,
-): Promise<{ exists: boolean; requiresBytePlusAsset: boolean }> {
-  const [character] = await db.select({ identityId: charactersTable.bytePlusIdentityId })
+): Promise<{ exists: boolean; requiresBytePlusAsset: boolean; requiresAtlasAsset: boolean }> {
+  const [character] = await db.select({
+    identityId: charactersTable.bytePlusIdentityId,
+    referenceSource: charactersTable.referenceSource,
+  })
     .from(charactersTable).where(and(
       eq(charactersTable.id, characterId),
       eq(charactersTable.tenantId, tenantId),
@@ -237,6 +246,7 @@ export async function currentBytePlusAssetPolicy(
   return {
     exists: Boolean(character),
     requiresBytePlusAsset: character?.identityId != null,
+    requiresAtlasAsset: character?.referenceSource === "generated",
   };
 }
 
@@ -251,4 +261,212 @@ export function deleteBytePlusAssetsInBackground(ids: Array<string | null>): voi
         logger.warn({ err: error, assetId: id }, "BytePlus asset cleanup failed"));
     }
   })();
+}
+
+export function atlasRegistrationSourceError(
+  character: Pick<Character, "referenceSource" | "bytePlusIdentityId">,
+  outfit: Pick<CharacterOutfit, "status" | "identityVerified">,
+): string | null {
+  if (character.bytePlusIdentityId !== null) {
+    return "BytePlus-verified real-person identities can never be registered with Atlas Cloud.";
+  }
+  if (character.referenceSource === "uploaded") {
+    return "Uploaded reference images can never be registered with Atlas Cloud.";
+  }
+  if (character.referenceSource !== "generated") {
+    return "Only explicitly classified AI-generated fictional characters can use Atlas Cloud assets.";
+  }
+  if (outfit.status !== "approved" || !outfit.identityVerified) {
+    return "Only approved, identity-verified generated outfits can use Atlas Cloud assets.";
+  }
+  return null;
+}
+
+/** Register one tenant-owned, approved fictional outfit under a ten-minute lease. */
+export async function registerAtlasOutfitAsset(args: {
+  tenantId: number;
+  character: Character;
+  outfit: CharacterOutfit;
+}): Promise<CharacterOutfit> {
+  const policyError = atlasRegistrationSourceError(args.character, args.outfit);
+  const failWithoutClaim = async (message: string): Promise<CharacterOutfit> => {
+    const [updated] = await db.update(characterOutfitsTable).set({
+      atlasAssetStatus: "Failed",
+      atlasAssetError: message.slice(0, 500),
+      atlasAssetSyncedAt: new Date(),
+      atlasAssetClaimedAt: null,
+    }).where(and(
+      eq(characterOutfitsTable.id, args.outfit.id),
+      eq(characterOutfitsTable.characterId, args.character.id),
+      eq(characterOutfitsTable.tenantId, args.tenantId),
+    )).returning();
+    return updated ?? args.outfit;
+  };
+  if (policyError) return failWithoutClaim(policyError);
+  if (args.outfit.atlasAssetStatus === "Active") return args.outfit;
+
+  const stale = new Date(Date.now() - 10 * 60_000);
+  const [claimed] = await db.update(characterOutfitsTable).set({
+    atlasAssetStatus: "Processing",
+    atlasAssetClaimedAt: new Date(),
+  }).where(and(
+    eq(characterOutfitsTable.id, args.outfit.id),
+    eq(characterOutfitsTable.characterId, args.character.id),
+    eq(characterOutfitsTable.tenantId, args.tenantId),
+    or(
+      isNull(characterOutfitsTable.atlasAssetStatus),
+      eq(characterOutfitsTable.atlasAssetStatus, "Failed"),
+      and(
+        eq(characterOutfitsTable.atlasAssetStatus, "Processing"),
+        or(
+          isNull(characterOutfitsTable.atlasAssetClaimedAt),
+          lt(characterOutfitsTable.atlasAssetClaimedAt, stale),
+        ),
+      ),
+    ),
+  )).returning();
+  if (!claimed) {
+    const [current] = await db.select().from(characterOutfitsTable).where(and(
+      eq(characterOutfitsTable.id, args.outfit.id),
+      eq(characterOutfitsTable.characterId, args.character.id),
+      eq(characterOutfitsTable.tenantId, args.tenantId),
+    )).limit(1);
+    return current ?? args.outfit;
+  }
+  const fail = (message: string) => failWithoutClaim(message);
+  const apiKey = await resolveAtlasAssetsKey();
+  if (!apiKey) return fail("Atlas Cloud is not configured.");
+
+  try {
+    // Atlas exposes account-wide assets, not an upstream group API. Persist a
+    // separate tenant-local grouping key solely for ownership/audit.
+    const groupId = args.character.atlasAssetGroupId ??
+      `tenant-${args.tenantId}-character-${args.character.id}`;
+    if (!args.character.atlasAssetGroupId) {
+      await db.update(charactersTable).set({ atlasAssetGroupId: groupId }).where(and(
+        eq(charactersTable.id, args.character.id),
+        eq(charactersTable.tenantId, args.tenantId),
+        isNull(charactersTable.atlasAssetGroupId),
+      ));
+    }
+    const assetId =
+      args.outfit.atlasAssetStatus === "Processing" && claimed.atlasAssetId
+        ? claimed.atlasAssetId
+        : await createAtlasAsset(
+            await storage.getSignedDownloadURL(claimed.referenceImagePath, args.tenantId, 15 * 60),
+            apiKey,
+          );
+    await db.update(characterOutfitsTable).set({
+      atlasAssetId: assetId,
+      atlasAssetStatus: "Processing",
+      atlasAssetError: null,
+      atlasAssetSyncedAt: new Date(),
+      atlasAssetClaimedAt: new Date(),
+    }).where(and(
+      eq(characterOutfitsTable.id, claimed.id),
+      eq(characterOutfitsTable.tenantId, args.tenantId),
+    ));
+    const result = await waitForAtlasAsset(assetId, apiKey);
+    const [updated] = await db.update(characterOutfitsTable).set({
+      atlasAssetStatus: result.status,
+      atlasAssetError: result.error,
+      atlasAssetSyncedAt: new Date(),
+      atlasAssetClaimedAt: null,
+    }).where(and(
+      eq(characterOutfitsTable.id, claimed.id),
+      eq(characterOutfitsTable.tenantId, args.tenantId),
+    )).returning();
+    return updated!;
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Atlas Cloud asset registration failed.");
+  }
+}
+
+export function registerAtlasOutfitAssetInBackground(args: {
+  tenantId: number;
+  character: Character;
+  outfit: CharacterOutfit;
+}): void {
+  // Rejected sources are persisted as an explicit policy failure without ever
+  // obtaining a signed URL or crossing the provider boundary.
+  void registerAtlasOutfitAsset(args).catch((error) =>
+    logger.warn(
+      { err: error, characterId: args.character.id, outfitId: args.outfit.id },
+      "Atlas Cloud asset registration failed",
+    ));
+}
+
+export async function registerAtlasCharacterAssets(args: {
+  tenantId: number;
+  characterId: number;
+}): Promise<void> {
+  const [character] = await db.select().from(charactersTable).where(and(
+    eq(charactersTable.id, args.characterId),
+    eq(charactersTable.tenantId, args.tenantId),
+  )).limit(1);
+  if (!character) return;
+  const outfits = await db.select().from(characterOutfitsTable).where(and(
+    eq(characterOutfitsTable.characterId, character.id),
+    eq(characterOutfitsTable.tenantId, args.tenantId),
+  ));
+  for (const outfit of outfits) {
+    await registerAtlasOutfitAsset({ tenantId: args.tenantId, character, outfit });
+  }
+}
+
+/** Resolve only active Atlas mappings; callers decide whether absence is fatal. */
+export async function atlasAssetRefsForOutfit(args: {
+  tenantId: number;
+  characterId: number;
+  outfitId: number;
+  /** Frozen enqueue/approval-time id; a replaced mapping must not drift a retry. */
+  expectedAssetId?: string | null;
+}): Promise<string[]> {
+  const [outfit] = await db.select({
+    assetId: characterOutfitsTable.atlasAssetId,
+    status: characterOutfitsTable.atlasAssetStatus,
+  }).from(characterOutfitsTable).where(and(
+    eq(characterOutfitsTable.id, args.outfitId),
+    eq(characterOutfitsTable.characterId, args.characterId),
+    eq(characterOutfitsTable.tenantId, args.tenantId),
+  )).limit(1);
+  if (
+    outfit?.status !== "Active" ||
+    !outfit.assetId ||
+    (args.expectedAssetId !== undefined && outfit.assetId !== args.expectedAssetId)
+  ) return [];
+  return [outfit.assetId];
+}
+
+/**
+ * Atlas has no confirmed DELETE endpoint. We must prove every registered
+ * remote asset is already absent before deleting the local ownership record.
+ * Network/auth ambiguity deliberately blocks deletion rather than orphaning.
+ */
+export async function assertAtlasAssetsDeleted(ids: Array<string | null>): Promise<void> {
+  const assetIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (!assetIds.length) return;
+  const apiKey = await resolveAtlasAssetsKey();
+  if (!apiKey) {
+    throw new Error("Atlas Cloud credentials are required to verify asset deletion; remove the assets in the Atlas console first.");
+  }
+  const existing: Array<{ id: string; status: string }> = [];
+  await Promise.all(assetIds.map(async (id) => {
+    try {
+      const asset = await getAtlasAsset(id, apiKey);
+      existing.push({ id, status: asset.status });
+    } catch (error) {
+      // The documented GET 404 is the only affirmative absence signal.
+      if (error instanceof Error && "status" in error && (error as { status?: number }).status === 404) {
+        return;
+      }
+      throw error;
+    }
+  }));
+  if (existing.length) {
+    const detail = existing.map(({ id, status }) => `${id} (${status})`).join(", ");
+    throw new Error(
+      `Atlas Cloud asset${existing.length === 1 ? "" : "s"} ${detail} still exist${existing.length === 1 ? "s" : ""}. Remove ${existing.length === 1 ? "it" : "them"} in the Atlas console before deleting this character or outfit.`,
+    );
+  }
 }

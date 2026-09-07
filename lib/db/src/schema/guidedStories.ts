@@ -80,10 +80,16 @@ export interface GuidedStoryCastSnapshot {
   };
   isUserRole: boolean;
   consentGranted: boolean;
+  /** Immutable provenance; Atlas never infers this from a role's display source. */
+  referenceSource?: "generated" | "uploaded" | null;
   /** Immutable dispatch policy frozen when this cast selection is approved. */
   requiresBytePlusAsset?: boolean;
   bytePlusAssetId?: string | null;
   bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
+  /** Atlas mapping frozen with the approved fictional cast role. */
+  requiresAtlasAsset?: boolean;
+  atlasAssetId?: string | null;
+  atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
   /** Durable receipt for fictional cast reference generation. */
   generatedAsset?: {
     path: string;

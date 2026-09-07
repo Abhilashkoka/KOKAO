@@ -87,6 +87,7 @@ import type {
   AppBrandUploadUrlBody,
   AppBrandUploadUrlResponse,
   AsrSettingsView,
+  AtlasCloudAssetsAdminView,
   AudienceAnalytics,
   AudioUploadInput,
   BillingCancelSubscription200,
@@ -7826,6 +7827,153 @@ export const useRegisterAdminBytePlusCharacterAssets = <TError = ErrorType<unkno
         TContext
       > => {
       return useMutation(getRegisterAdminBytePlusCharacterAssetsMutationOptions(options));
+    }
+
+export const getGetAdminAtlasCloudAssetsUrl = () => {
+
+
+
+
+  return `/api/admin/atlascloud-assets`
+}
+
+/**
+ * @summary Get Atlas Cloud fictional-character asset registration status
+ */
+export const getAdminAtlasCloudAssets = async ( options?: RequestInit): Promise<AtlasCloudAssetsAdminView> => {
+
+  return customFetch<AtlasCloudAssetsAdminView>(getGetAdminAtlasCloudAssetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminAtlasCloudAssetsQueryKey = () => {
+    return [
+    `/api/admin/atlascloud-assets`
+    ] as const;
+    }
+
+
+export const getGetAdminAtlasCloudAssetsQueryOptions = <TData = Awaited<ReturnType<typeof getAdminAtlasCloudAssets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminAtlasCloudAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminAtlasCloudAssetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminAtlasCloudAssets>>> = ({ signal }) => getAdminAtlasCloudAssets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminAtlasCloudAssets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminAtlasCloudAssetsQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminAtlasCloudAssets>>>
+export type GetAdminAtlasCloudAssetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get Atlas Cloud fictional-character asset registration status
+ */
+
+export function useGetAdminAtlasCloudAssets<TData = Awaited<ReturnType<typeof getAdminAtlasCloudAssets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminAtlasCloudAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminAtlasCloudAssetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRegisterAdminAtlasCloudCharacterAssetsUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/admin/atlascloud-assets/characters/${characterId}/register`
+}
+
+/**
+ * @summary Retry Atlas Cloud registration for one eligible fictional character
+ */
+export const registerAdminAtlasCloudCharacterAssets = async (characterId: number, options?: RequestInit): Promise<AtlasCloudAssetsAdminView> => {
+
+  return customFetch<AtlasCloudAssetsAdminView>(getRegisterAdminAtlasCloudCharacterAssetsUrl(characterId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRegisterAdminAtlasCloudCharacterAssetsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerAdminAtlasCloudCharacterAssets>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof registerAdminAtlasCloudCharacterAssets>>, TError,{characterId: number}, TContext> => {
+
+const mutationKey = ['registerAdminAtlasCloudCharacterAssets'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerAdminAtlasCloudCharacterAssets>>, {characterId: number}> = (props) => {
+          const {characterId} = props ?? {};
+
+          return  registerAdminAtlasCloudCharacterAssets(characterId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegisterAdminAtlasCloudCharacterAssetsMutationResult = NonNullable<Awaited<ReturnType<typeof registerAdminAtlasCloudCharacterAssets>>>
+
+    export type RegisterAdminAtlasCloudCharacterAssetsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Retry Atlas Cloud registration for one eligible fictional character
+ */
+export const useRegisterAdminAtlasCloudCharacterAssets = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerAdminAtlasCloudCharacterAssets>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof registerAdminAtlasCloudCharacterAssets>>,
+        TError,
+        {characterId: number},
+        TContext
+      > => {
+      return useMutation(getRegisterAdminAtlasCloudCharacterAssetsMutationOptions(options));
     }
 
 export const getGenerateCharacterReferenceSheetUrl = (characterId: number,) => {
