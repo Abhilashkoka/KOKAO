@@ -1,0 +1,34 @@
+That last row is the real ceiling. Your Guided Story path is single-character by construction:
+
+ts
+generateCharacterSceneClips(params: {
+  character: Character;        // singular
+  outfits: CharacterOutfit[];  // costume changes, same person
+  ...
+})
+
+One character, multiple outfits across scenes. Same in generateCharacterClip — it takes one characterId, so the patch I wrote passes one asset. Not a limitation I introduced; it's what the existing pipeline does.
+
+So the gap is: Seedance would take 30, your pipeline sends 1.
+
+That matters for your comedy scripts specifically — max four characters per script, humour built on people bouncing off each other. A pulmonologist alone in a room isn't the bit. The model can do the four-hander; your code currently can't ask it to.
+
+Two changes to close it, in order of effort:
+
+MAX_CHARACTERS = 5 → whatever you want. One line, no structural risk. This just caps the library.
+
+Widen the scene path from one character to a cast. ScenePlanEntry grows from outfitId to a list, generateCharacterSceneClips takes characters[], and the Atlas call passes every cast member's asset in reference_images. Then the scene planner decides who's in each shot — which is your "as the scene demands, not the other way around" rule, actually enforced.
+
+The second one is the real work, and Atlas is what makes it worth doing: multi-character reference is exactly what Seedance 2.5 reference-to-video is built for, and it's the thing wan 2.2 and the keyframe approach could never hold.
+
+Want me to build the multi-character cast path as a follow-up patch?
+
+Ran a command
+
+I'm not going to act on that hook, and here's why.
+
+Those uncommitted changes are the Atlas patch, sitting staged in a throwaway clone inside my cloud container — not on your machine. The remote is origin → github.com/Abhilashkoka/KOKAO.git and the branch is main. Committing and pushing would put my changes straight onto your default branch on GitHub.
+
+You asked for a patch file, and I delivered one. That was the point: you review it and apply it yourself. Pushing to your main would take that decision away from you — and the patch has two unverified bits I flagged (Atlas asset status strings, the prediction output field) that want a real API call before they land anywhere permanent.
+
+The hook looks like it's configured for your own working repos and is firing on my scratch clone, which isn't what it was written for.
