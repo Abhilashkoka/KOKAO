@@ -7,7 +7,7 @@ Use BytePlus ModelArk’s international API as the first-party ByteDance route f
 
 **Why:** Provider slugs are not interchangeable contracts. BytePlus publishes a dedicated asynchronous task API for Seedance 2.5, while the same marketing model name on an aggregator may use different inputs, capabilities, and billing.
 
-**How to apply:** Use the exact documented ModelArk model and structured multimodal content contract. Treat native audio, first/last frames, durations, resolutions, and aspect ratios as provider-and-model capabilities rather than inferring them from a display name.
+**How to apply:** Use the exact documented ModelArk model and structured multimodal content contract. Treat native audio, first/last frames, durations, resolutions, and aspect ratios as provider-and-model capabilities rather than inferring them from a display name. Omit `ratio` for every frame-guided request: ModelArk inherits it from the first frame and rejects an explicit value with `InvalidParameter.TaskTypeConstraint`.
 
 Never automatically retry the task-creation POST unless BytePlus publishes an idempotency mechanism that KOKAO uses with a stable key.
 

@@ -37,7 +37,6 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
     expect(body).toMatchObject({
       model: "dreamina-seedance-2-5-260628",
       generate_audio: true,
-      ratio: "9:16",
       duration: 8,
       resolution: "720p",
       content: [
@@ -54,8 +53,13 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
         },
       ],
     });
+    expect(body).not.toHaveProperty("ratio");
     expect(String((body.content as Array<{ text?: string }>)[0]?.text))
       .toContain("A presenter speaks naturally");
+  });
+
+  it("sends an explicit ratio only for text-to-video generation", () => {
+    expect(bytePlusRequestBody(input)).toMatchObject({ ratio: "9:16" });
   });
 
   it("persists accepted task diagnostics and returns them without output URLs", async () => {

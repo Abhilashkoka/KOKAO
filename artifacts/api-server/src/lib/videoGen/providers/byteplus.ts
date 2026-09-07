@@ -73,14 +73,20 @@ export function bytePlusRequestBody(input: VideoGenInput): Record<string, unknow
     model: BYTEPLUS_SEEDANCE_25_MODEL,
     content,
     generate_audio: input.generateAudio === true,
-    ratio: providerAspect(input.aspectRatio, [
-      "16:9",
-      "9:16",
-      "1:1",
-      "4:3",
-      "3:4",
-      "21:9",
-    ]),
+    // ModelArk rejects an explicit ratio for frame-guided generation because
+    // the output ratio is inherited from the supplied frame.
+    ...(!input.image && !input.endImage
+      ? {
+          ratio: providerAspect(input.aspectRatio, [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9",
+          ]),
+        }
+      : {}),
     duration: Math.round(input.durationSec),
     resolution: input.resolution ?? "1080p",
   };
