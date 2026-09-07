@@ -11,6 +11,10 @@ import { createShutdownHandler } from "./lib/shutdown";
 import { startConnectionSweep, stopConnectionSweep } from "./lib/connectionSweep";
 import { startFxRateSweep, stopFxRateSweep } from "./lib/fxRateSweep";
 import {
+  startSeedancePricingSweep,
+  stopSeedancePricingSweep,
+} from "./lib/seedancePricingSweep";
+import {
   startScheduledPublisher,
   stopScheduledPublisher,
 } from "./lib/scheduledPublisher";
@@ -181,6 +185,7 @@ const server: Server = app.listen(port, (err) => {
   // Once a day, fetch the live USD→INR market rate, add the configured
   // markup, and save it as the AI-cost conversion rate.
   startFxRateSweep();
+  startSeedancePricingSweep();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -197,6 +202,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopBrandVoiceExtractedSampleSweep();
     stopVideoJobSweep();
     stopFxRateSweep();
+    stopSeedancePricingSweep();
     stopTrueUpRetrySweep();
     stopWalletSettlementRetrySweep();
     stopWalletProviderRecovery();

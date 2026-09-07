@@ -1875,6 +1875,121 @@ export async function resolveFxRateStaleNotifications(): Promise<void> {
   }
 }
 
+export const SEEDANCE_PRICING_STALE = "seedance_pricing_stale";
+
+export async function notifySeedancePricingStale(
+  lastRefreshedAt: Date,
+  thresholdDays: number,
+): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)));
+    const recipients = candidates.filter(
+      (tenant) => tenant.isSuperadmin || isSuperadminEmail(tenant.email),
+    );
+    const staleDays = Math.floor(
+      (Date.now() - lastRefreshedAt.getTime()) / (24 * 60 * 60 * 1000),
+    );
+    const title = "BytePlus Seedance pricing refresh keeps failing";
+    const message =
+      `The official BytePlus Seedance price refresh has not succeeded in over ` +
+      `${thresholdDays} days (last successful source check: ` +
+      `${lastRefreshedAt.toISOString()}, ~${staleDays} day(s) ago). Video cost ` +
+      `tracking is still using that last-known snapshot. Check BytePlus access ` +
+      `and use "Refresh official rates" on the admin AI tab once it recovers.`;
+
+    for (const recipient of recipients) {
+      try {
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, SEEDANCE_PRICING_STALE),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) {
+          await db
+            .update(notificationsTable)
+            .set({ title, message, createdAt: new Date() })
+            .where(eq(notificationsTable.id, existing[0].id));
+          continue;
+        }
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          SEEDANCE_PRICING_STALE,
+        );
+        if (!effective.enabled) continue;
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: SEEDANCE_PRICING_STALE,
+          platform: null,
+          title,
+          message,
+          linkUrl: "/admin",
+          inApp: effective.inApp,
+        });
+        await sendTenantPush(recipient.id, SEEDANCE_PRICING_STALE, {
+          title,
+          message,
+          linkUrl: "/admin",
+        });
+        if (effective.email) {
+          try {
+            const email = await fetchVerifiedEmail(recipient.clerkUserId);
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: title,
+                text: message,
+                html: `<p>${escapeHtml(message)}</p>`,
+              });
+            }
+          } catch (err) {
+            logger.error(
+              { err, recipientTenantId: recipient.id },
+              "Failed to email stale Seedance pricing alert",
+            );
+          }
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about stale Seedance pricing",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to record stale Seedance pricing notifications");
+  }
+}
+
+export async function resolveSeedancePricingStaleNotifications(): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, SEEDANCE_PRICING_STALE),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error({ err }, "Failed to resolve stale Seedance pricing notifications");
+  }
+}
+
 export const SWEEP_FAIL_RATIO = "sweep_fail_ratio";
 
 /** How many individual failing connections the mass-outage message lists

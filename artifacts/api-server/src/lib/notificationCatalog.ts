@@ -135,6 +135,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "seedance_pricing_stale",
+    label: "Stale Seedance pricing (platform admins)",
+    description:
+      "The official BytePlus Seedance pricing refresh has kept failing for days, so video-cost tracking is using an old provider snapshot. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "wallet_trueup_failing",
     label: "Wallet true-up keeps failing (platform admins)",
     description:

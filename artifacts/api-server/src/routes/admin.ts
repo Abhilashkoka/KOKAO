@@ -36,6 +36,7 @@ import {
   crossSourcePricingWarning,
   refreshBytePlusSeedancePricing,
 } from "../lib/modelPricingSync";
+import { resolveSeedancePricingStaleNotifications } from "../lib/notifications";
 import {
   BYTEPLUS_SEEDANCE_25_MODEL,
   BYTEPLUS_SEEDANCE_25_PRICING_URL,
@@ -2213,6 +2214,7 @@ router.post(
     const before = await storedSeedanceRateSnapshot();
     try {
       const pricing = await refreshBytePlusSeedancePricing();
+      await resolveSeedancePricingStaleNotifications();
       const after = refreshedSeedanceRateSnapshot(pricing);
       try {
         await recordAdminAction({
