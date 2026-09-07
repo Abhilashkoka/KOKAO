@@ -3255,6 +3255,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/prices/byteplus-seedance/refresh:
+    post:
+      operationId: adminRefreshBytePlusSeedancePricing
+      tags: [admin]
+      summary: Refresh Seedance 2.5 resolution prices from the official BytePlus page
+      responses:
+        "200":
+          description: Updated actual-cost configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Provider page could not be fetched or parsed; saved rates are unchanged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ai-cost/prices:
     put:
       operationId: adminUpsertAiModelPrice
@@ -23117,6 +23141,11 @@ components:
           usdPerImage,
           usdPerSecond,
           usdPerVideo,
+          effectiveUsdPerSecond,
+          sourceUrl,
+          sourceCheckedAt,
+          promotionalUsdPerSecond,
+          promotionExpiresAt,
         ]
       properties:
         id:
@@ -23155,6 +23184,24 @@ components:
         usdPerVideo:
           type: ["number", "null"]
           description: Video models — flat USD per generated video.
+        effectiveUsdPerSecond:
+          type: ["number", "null"]
+          description: Currently billable video rate after applying only an unexpired promotion.
+        sourceUrl:
+          type: ["string", "null"]
+          format: uri
+          description: Authoritative provider page used for the last successful refresh.
+        sourceCheckedAt:
+          type: ["string", "null"]
+          format: date-time
+          description: When the authoritative provider page was last fetched successfully.
+        promotionalUsdPerSecond:
+          type: ["number", "null"]
+          description: Temporary provider rate; ignored at and after promotionExpiresAt.
+        promotionExpiresAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Exact instant when the temporary provider rate expires.
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.

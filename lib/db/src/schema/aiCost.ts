@@ -52,6 +52,14 @@ export const aiModelPricesTable = pgTable(
     usdPerSecond: doublePrecision("usd_per_second"),
     /** Video models: flat USD per generated video. */
     usdPerVideo: doublePrecision("usd_per_video"),
+    /** Authoritative provider page used for the latest successful refresh. */
+    sourceUrl: text("source_url"),
+    /** When the authoritative provider page was last fetched successfully. */
+    sourceCheckedAt: timestamp("source_checked_at", { withTimezone: true }),
+    /** Temporary provider discount rate; active only before promotionExpiresAt. */
+    promotionalUsdPerSecond: doublePrecision("promotional_usd_per_second"),
+    /** Exact instant when promotionalUsdPerSecond stops being eligible. */
+    promotionExpiresAt: timestamp("promotion_expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

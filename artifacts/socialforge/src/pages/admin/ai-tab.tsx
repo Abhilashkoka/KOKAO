@@ -62,6 +62,7 @@ import {
   useAdminUpdateAiCostMarkup,
   useAdminUpdateElevenLabsCreditRate,
   useAdminRefreshAiCostRate,
+  useAdminRefreshBytePlusSeedancePricing,
   useAdminUpsertAiModelPrice,
   useAdminDeleteAiModelPrice,
   useAdminDedupeAiModelPrices,
@@ -3088,6 +3089,7 @@ export function AiCostCard() {
   const updateMarkup = useAdminUpdateAiCostMarkup();
   const updateElevenLabsCreditRate = useAdminUpdateElevenLabsCreditRate();
   const refreshRate = useAdminRefreshAiCostRate();
+  const refreshBytePlusSeedancePricing = useAdminRefreshBytePlusSeedancePricing();
   const upsertPrice = useAdminUpsertAiModelPrice();
   const deletePrice = useAdminDeleteAiModelPrice();
   const dedupePrices = useAdminDedupeAiModelPrices();
@@ -3304,6 +3306,38 @@ export function AiCostCard() {
           title: "Refresh failed",
           description:
             "Could not fetch the current USD→INR rate. The saved rate is unchanged.",
+          variant: "destructive",
+        });
+      },
+    });
+  };
+
+  const handleRefreshBytePlusSeedancePricing = () => {
+    refreshBytePlusSeedancePricing.mutate(undefined, {
+      onSuccess: () => {
+        invalidate();
+        toast({
+          title: "BytePlus Seedance prices refreshed",
+          description: "480p, 720p, and 1080p rates were updated from the official pricing page.",
+        });
+      },
+      onError: (error: unknown) => {
+        const lastChecked = config?.prices.find(
+          (price) =>
+            price.provider.toLowerCase() === "byteplus" &&
+            price.model === "dreamina-seedance-2-5-260628" &&
+            price.sourceCheckedAt,
+        )?.sourceCheckedAt;
+        toast({
+          title: "BytePlus price refresh failed",
+          description: `${apiErrorMessage(
+            error,
+            "The official BytePlus pricing page could not be read. Saved prices are unchanged.",
+          )}${
+            lastChecked
+              ? ` Last successful source check: ${new Date(lastChecked).toLocaleString()}.`
+              : ""
+          }`,
           variant: "destructive",
         });
       },
@@ -3641,6 +3675,17 @@ export function AiCostCard() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={handleRefreshBytePlusSeedancePricing}
+                    disabled={refreshBytePlusSeedancePricing.isPending}
+                    data-testid="button-refresh-byteplus-seedance-pricing"
+                  >
+                    {refreshBytePlusSeedancePricing.isPending
+                      ? "Refreshing BytePlus…"
+                      : "Refresh BytePlus Seedance"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => setPriceImportOpen(true)}
                     data-testid="button-open-import-model-price"
                   >
@@ -3657,6 +3702,78 @@ export function AiCostCard() {
                   </Button>
                 </div>
               </div>
+              {(() => {
+                const rows = config.prices.filter(
+                  (price) =>
+                    price.provider.toLowerCase() === "byteplus" &&
+                    price.model === "dreamina-seedance-2-5-260628" &&
+                    ["480p", "720p", "1080p"].includes(String(price.variant?.resolution)),
+                );
+                if (rows.length === 0) {
+                  return (
+                    <p
+                      className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+                      data-testid="text-byteplus-price-unreviewed"
+                    >
+                      BytePlus Seedance 2.5 has no provider-refreshed resolution prices. Refresh
+                      before relying on its actual-cost totals.
+                    </p>
+                  );
+                }
+                const sourceRow = rows.find((price) => price.sourceCheckedAt) ?? rows[0];
+                const promotionRow = rows.find(
+                  (price) =>
+                    price.variant?.resolution === "1080p" &&
+                    price.promotionExpiresAt !== null,
+                );
+                const promotionExpired =
+                  promotionRow?.promotionExpiresAt !== null &&
+                  promotionRow?.promotionExpiresAt !== undefined &&
+                  Date.now() >= new Date(promotionRow.promotionExpiresAt).getTime();
+                return (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      promotionExpired || rows.length !== 3
+                        ? "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                        : "border-border bg-muted/30 text-muted-foreground"
+                    }`}
+                    data-testid="text-byteplus-price-source"
+                  >
+                    <p>
+                      BytePlus Seedance: {rows.length}/3 resolution rates loaded. Last successful
+                      source check{" "}
+                      {sourceRow.sourceCheckedAt
+                        ? new Date(sourceRow.sourceCheckedAt).toLocaleString()
+                        : "not recorded"}
+                      .
+                      {sourceRow.sourceUrl && (
+                        <>
+                          {" "}
+                          <a
+                            className="font-medium underline underline-offset-2"
+                            href={sourceRow.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Review official source
+                          </a>
+                        </>
+                      )}
+                    </p>
+                    {promotionRow?.promotionExpiresAt && (
+                      <p className="mt-1 font-medium" data-testid="text-byteplus-promotion-expiry">
+                        {promotionExpired
+                          ? `The 1080p promotion expired ${new Date(
+                              promotionRow.promotionExpiresAt,
+                            ).toLocaleString()}; the saved list rate is now used automatically.`
+                          : `1080p uses the temporary $${promotionRow.promotionalUsdPerSecond} per-second rate until ${new Date(
+                              promotionRow.promotionExpiresAt,
+                            ).toLocaleString()}; it will automatically return to the $${promotionRow.usdPerSecond} list rate at expiry.`}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               {config.duplicateGroups > 0 && (
                 <p
                   className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
@@ -3731,7 +3848,14 @@ export function AiCostCard() {
                           ? `$${p.inputUsdPerMtok ?? 0} in / $${p.outputUsdPerMtok ?? 0} out per 1M tokens`
                           : p.kind === "video"
                             ? [
-                                p.usdPerSecond !== null ? `$${p.usdPerSecond} per second` : null,
+                                p.effectiveUsdPerSecond !== null
+                                  ? `$${p.effectiveUsdPerSecond} per second${
+                                      p.promotionalUsdPerSecond !== null &&
+                                      p.effectiveUsdPerSecond === p.promotionalUsdPerSecond
+                                        ? ` promotional (list $${p.usdPerSecond})`
+                                        : ""
+                                    }`
+                                  : null,
                                 p.usdPerVideo !== null ? `$${p.usdPerVideo} per video` : null,
                               ]
                                 .filter(Boolean)

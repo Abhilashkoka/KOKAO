@@ -9478,6 +9478,76 @@ export const useAdminRefreshAiCostRate = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getAdminRefreshAiCostRateMutationOptions(options));
     }
 
+export const getAdminRefreshBytePlusSeedancePricingUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/prices/byteplus-seedance/refresh`
+}
+
+/**
+ * @summary Refresh Seedance 2.5 resolution prices from the official BytePlus page
+ */
+export const adminRefreshBytePlusSeedancePricing = async ( options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminRefreshBytePlusSeedancePricingUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminRefreshBytePlusSeedancePricingMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRefreshBytePlusSeedancePricing>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRefreshBytePlusSeedancePricing>>, TError,void, TContext> => {
+
+const mutationKey = ['adminRefreshBytePlusSeedancePricing'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRefreshBytePlusSeedancePricing>>, void> = () => {
+
+
+          return  adminRefreshBytePlusSeedancePricing(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRefreshBytePlusSeedancePricingMutationResult = NonNullable<Awaited<ReturnType<typeof adminRefreshBytePlusSeedancePricing>>>
+
+    export type AdminRefreshBytePlusSeedancePricingMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Refresh Seedance 2.5 resolution prices from the official BytePlus page
+ */
+export const useAdminRefreshBytePlusSeedancePricing = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRefreshBytePlusSeedancePricing>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminRefreshBytePlusSeedancePricing>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminRefreshBytePlusSeedancePricingMutationOptions(options));
+    }
+
 export const getAdminUpsertAiModelPriceUrl = () => {
 
 

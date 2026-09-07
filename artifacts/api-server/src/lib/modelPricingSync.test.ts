@@ -3,16 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   findModelPrice: vi.fn(),
   pruneModelPriceVariants: vi.fn(),
+  replaceModelPriceVariantsAtomically: vi.fn(),
   upsertModelPrice: vi.fn(),
   lookupOpenRouterVideoPricing: vi.fn(),
   lookupReplicateUnitPricing: vi.fn(),
+  lookupBytePlusSeedancePricing: vi.fn(),
   isModelPriceAutoImportSuppressed: vi.fn(),
 }));
 
 vi.mock("./aiCost", () => ({
-  canonicalVideoVariantKey: vi.fn(() => ""),
+  canonicalVideoVariantKey: vi.fn((criteria?: Record<string, unknown>) =>
+    criteria ? JSON.stringify(criteria) : "",
+  ),
   findModelPrice: mocks.findModelPrice,
   pruneModelPriceVariants: mocks.pruneModelPriceVariants,
+  replaceModelPriceVariantsAtomically: mocks.replaceModelPriceVariantsAtomically,
   upsertModelPrice: mocks.upsertModelPrice,
   isModelPriceAutoImportSuppressed: mocks.isModelPriceAutoImportSuppressed,
 }));
@@ -26,8 +31,14 @@ vi.mock("./replicateCatalog", () => ({
   lookupReplicateTokenPricing: vi.fn(),
   lookupReplicateUnitPricing: mocks.lookupReplicateUnitPricing,
 }));
+vi.mock("./byteplusPricing", () => ({
+  lookupBytePlusSeedancePricing: mocks.lookupBytePlusSeedancePricing,
+}));
 
-import { syncActivatedModelPricing } from "./modelPricingSync";
+import {
+  refreshBytePlusSeedancePricing,
+  syncActivatedModelPricing,
+} from "./modelPricingSync";
 
 describe("syncActivatedModelPricing", () => {
   beforeEach(() => {
@@ -41,6 +52,31 @@ describe("syncActivatedModelPricing", () => {
       },
     ]);
     mocks.lookupReplicateUnitPricing.mockResolvedValue([]);
+    mocks.lookupBytePlusSeedancePricing.mockResolvedValue({
+      model: "dreamina-seedance-2-5-260628",
+      sourceUrl: "https://docs.byteplus.com/en/docs/ModelArk/1544106",
+      sourceCheckedAt: new Date("2026-09-07T12:00:00.000Z"),
+      prices: [
+        {
+          resolution: "480p",
+          usdPerSecond: 0.103,
+          promotionalUsdPerSecond: null,
+          promotionExpiresAt: null,
+        },
+        {
+          resolution: "720p",
+          usdPerSecond: 0.231,
+          promotionalUsdPerSecond: null,
+          promotionExpiresAt: null,
+        },
+        {
+          resolution: "1080p",
+          usdPerSecond: 0.569,
+          promotionalUsdPerSecond: 0.40968,
+          promotionExpiresAt: new Date("2026-09-17T06:00:00.000Z"),
+        },
+      ],
+    });
   });
 
   it("retires stale video variants after syncing the provider's generic rate", async () => {
@@ -112,5 +148,44 @@ describe("syncActivatedModelPricing", () => {
     expect(mocks.lookupOpenRouterVideoPricing).not.toHaveBeenCalled();
     expect(mocks.lookupReplicateUnitPricing).not.toHaveBeenCalled();
     expect(mocks.upsertModelPrice).not.toHaveBeenCalled();
+  });
+
+  it("refreshes BytePlus Seedance as three source-stamped resolution variants", async () => {
+    await refreshBytePlusSeedancePricing();
+
+    expect(mocks.replaceModelPriceVariantsAtomically).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "byteplus",
+        model: "dreamina-seedance-2-5-260628",
+        sourceCheckedAt: new Date("2026-09-07T12:00:00.000Z"),
+        keepVariantKeys: [
+          '{"resolution":"480p"}',
+          '{"resolution":"720p"}',
+          '{"resolution":"1080p"}',
+        ],
+        prices: expect.arrayContaining([
+          expect.objectContaining({
+            variantCriteria: { resolution: "1080p" },
+            usdPerSecond: 0.569,
+            promotionalUsdPerSecond: 0.40968,
+            promotionExpiresAt: new Date("2026-09-17T06:00:00.000Z"),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("uses the authoritative BytePlus refresh during Seedance activation", async () => {
+    const result = await syncActivatedModelPricing({
+      kind: "video",
+      provider: "byteplus",
+      models: ["dreamina-seedance-2-5-260628"],
+    });
+
+    expect(result).toEqual({ missing: [], crossSourced: [] });
+    expect(mocks.lookupBytePlusSeedancePricing).toHaveBeenCalledOnce();
+    expect(mocks.replaceModelPriceVariantsAtomically).toHaveBeenCalledOnce();
+    expect(mocks.lookupOpenRouterVideoPricing).not.toHaveBeenCalled();
+    expect(mocks.lookupReplicateUnitPricing).not.toHaveBeenCalled();
   });
 });

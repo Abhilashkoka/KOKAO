@@ -5933,7 +5933,12 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -5969,7 +5974,12 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -6005,7 +6015,12 @@ export const AdminUpdateAiCostMarkupResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -6032,7 +6047,44 @@ export const AdminRefreshAiCostRateResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
+ * @summary Refresh Seedance 2.5 resolution prices from the official BytePlus page
+ */
+export const AdminRefreshBytePlusSeedancePricingResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image', 'video']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
+  "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -6087,7 +6139,12 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -6189,7 +6246,12 @@ export const AdminConfirmAiModelPriceImportResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -6218,7 +6280,12 @@ export const AdminDedupeAiModelPricesResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 }).describe('Result of merging duplicate model price rows on demand.')
@@ -6250,7 +6317,12 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -6382,7 +6454,12 @@ export const AdminUpdateElevenLabsCreditRateResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
+  "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
+  "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
+  "promotionalUsdPerSecond": zod.number().nullable().describe('Temporary provider rate; ignored at and after promotionExpiresAt.'),
+  "promotionExpiresAt": zod.coerce.date().nullable().describe('Exact instant when the temporary provider rate expires.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 

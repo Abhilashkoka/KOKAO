@@ -34,6 +34,7 @@ import {
   syncModelPricingBestEffort,
   missingPricingError,
   crossSourcePricingWarning,
+  refreshBytePlusSeedancePricing,
 } from "../lib/modelPricingSync";
 import {
   recordAdminAction,
@@ -288,6 +289,7 @@ import {
   countDuplicateModelPriceGroups,
   duplicateModelPriceKeys,
   modelPriceGroupKey,
+  effectiveVideoUsdPerSecond,
   isImageModelPriced,
   isVideoModelPriced,
   hasVideoModelPriceConfiguration,
@@ -1953,6 +1955,11 @@ async function serializeAiCostConfig() {
       usdPerImage: p.usdPerImage,
       usdPerSecond: p.usdPerSecond,
       usdPerVideo: p.usdPerVideo,
+      effectiveUsdPerSecond: effectiveVideoUsdPerSecond(p),
+      sourceUrl: p.sourceUrl,
+      sourceCheckedAt: p.sourceCheckedAt?.toISOString() ?? null,
+      promotionalUsdPerSecond: p.promotionalUsdPerSecond,
+      promotionExpiresAt: p.promotionExpiresAt?.toISOString() ?? null,
     })),
   };
 }
@@ -2090,6 +2097,34 @@ router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) =
   }
 });
 
+/**
+ * POST /admin/ai-cost/prices/byteplus-seedance/refresh
+ * Refresh the fixed-host official Seedance 2.5 table. A fetch/parse failure
+ * occurs before any write, leaving all last-known rates and timestamps intact.
+ */
+router.post(
+  "/admin/ai-cost/prices/byteplus-seedance/refresh",
+  async (req: Request, res: Response) => {
+    try {
+      const pricing = await refreshBytePlusSeedancePricing();
+      await auditAiCostChange(
+        req,
+        null,
+        `refreshed video:byteplus/${pricing.model} resolutions=${pricing.prices
+          .map((price) => price.resolution)
+          .join(",")} source=${pricing.sourceUrl}`,
+      );
+      res.json(await serializeAiCostConfig());
+    } catch (error) {
+      req.log.error({ err: error }, "BytePlus Seedance price refresh failed");
+      res.status(502).json({
+        error:
+          "Could not refresh BytePlus Seedance pricing. The last known rates and source timestamp are unchanged.",
+      });
+    }
+  },
+);
+
 interface ModelPriceFields {
   kind: ModelPriceKind;
   provider: string;
@@ -2133,6 +2168,12 @@ function normalizeModelPrice(data: ModelPriceFields) {
     usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
     usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
     variant: data.kind === "video" ? (data.variant ?? null) : null,
+    // An explicit admin save is authoritative and must not inherit a previous
+    // provider promotion or source timestamp from the row it replaces.
+    sourceUrl: null,
+    sourceCheckedAt: null,
+    promotionalUsdPerSecond: null,
+    promotionExpiresAt: null,
     },
   };
 }

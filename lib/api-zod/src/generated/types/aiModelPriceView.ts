@@ -48,4 +48,29 @@ export interface AiModelPriceView {
      * @nullable
      */
   usdPerVideo: number | null;
+  /**
+     * Currently billable video rate after applying only an unexpired promotion.
+     * @nullable
+     */
+  effectiveUsdPerSecond: number | null;
+  /**
+     * Authoritative provider page used for the last successful refresh.
+     * @nullable
+     */
+  sourceUrl: string | null;
+  /**
+     * When the authoritative provider page was last fetched successfully.
+     * @nullable
+     */
+  sourceCheckedAt: Date | null;
+  /**
+     * Temporary provider rate; ignored at and after promotionExpiresAt.
+     * @nullable
+     */
+  promotionalUsdPerSecond: number | null;
+  /**
+     * Exact instant when the temporary provider rate expires.
+     * @nullable
+     */
+  promotionExpiresAt: Date | null;
 }

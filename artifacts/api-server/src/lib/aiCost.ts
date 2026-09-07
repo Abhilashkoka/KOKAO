@@ -225,6 +225,11 @@ export interface UpsertModelPriceInput {
   criteria?: VideoPriceCriteria;
   /** Public/API name for variant criteria. */
   variant?: VideoPriceCriteria | null;
+  /** Provider source metadata. Undefined preserves the current value. */
+  sourceUrl?: string | null;
+  sourceCheckedAt?: Date | null;
+  promotionalUsdPerSecond?: number | null;
+  promotionExpiresAt?: Date | null;
 }
 
 /**
@@ -258,25 +263,32 @@ async function retireConditionalPricesSupersededByGeneric(
   provider: string,
   model: string,
   variantKey: string,
+  executor: typeof db,
 ): Promise<void> {
   if (kind !== "video" || variantKey !== "") return;
-  await pruneModelPriceVariants({
-    kind,
-    provider,
-    model,
-    keepVariantKeys: [""],
-  });
+  await pruneModelPriceVariantsWithExecutor(
+    {
+      kind,
+      provider,
+      model,
+      keepVariantKeys: [""],
+    },
+    executor,
+  );
 }
 
 /** Remove conditional rows that an authoritative provider refresh no longer publishes. */
-export async function pruneModelPriceVariants(args: {
-  kind: string;
-  provider: string;
-  model: string;
-  keepVariantKeys: string[];
-}): Promise<void> {
+async function pruneModelPriceVariantsWithExecutor(
+  args: {
+    kind: string;
+    provider: string;
+    model: string;
+    keepVariantKeys: string[];
+  },
+  executor: typeof db,
+): Promise<void> {
   const keep = [...new Set(args.keepVariantKeys.filter(Boolean))];
-  await db.delete(aiModelPricesTable).where(
+  await executor.delete(aiModelPricesTable).where(
     and(
       eq(aiModelPricesTable.kind, args.kind),
       sql`lower(trim(${aiModelPricesTable.provider})) = lower(${args.provider.trim()})`,
@@ -287,7 +299,19 @@ export async function pruneModelPriceVariants(args: {
   );
 }
 
-export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
+export async function pruneModelPriceVariants(args: {
+  kind: string;
+  provider: string;
+  model: string;
+  keepVariantKeys: string[];
+}): Promise<void> {
+  await pruneModelPriceVariantsWithExecutor(args, db);
+}
+
+async function upsertModelPriceWithExecutor(
+  input: UpsertModelPriceInput,
+  executor: typeof db,
+): Promise<AiModelPrice> {
   const provider = input.provider.trim();
   const model = input.model.trim();
   const requestedCriteria = normalizeVideoPriceCriteria(
@@ -298,7 +322,7 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
   // Match existing rows the same way findPrice() does — trimmed and
   // case-insensitive — so saving "gpt-4o" updates an earlier "GPT-4o" row
   // instead of creating a near-duplicate that can hold a diverging price.
-  const matches = await db
+  const matches = await executor
     .select()
     .from(aiModelPricesTable)
     .where(
@@ -317,6 +341,14 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
     usdPerImage: input.usdPerImage,
     usdPerSecond: input.usdPerSecond,
     usdPerVideo: input.usdPerVideo,
+    ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl } : {}),
+    ...(input.sourceCheckedAt !== undefined ? { sourceCheckedAt: input.sourceCheckedAt } : {}),
+    ...(input.promotionalUsdPerSecond !== undefined
+      ? { promotionalUsdPerSecond: input.promotionalUsdPerSecond }
+      : {}),
+    ...(input.promotionExpiresAt !== undefined
+      ? { promotionExpiresAt: input.promotionExpiresAt }
+      : {}),
   };
 
   if (matches.length > 0) {
@@ -324,7 +356,7 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
     // (its casing is what lookups already resolve to) rather than rewriting
     // them, which could collide with a pre-existing exact-key duplicate.
     const target = matches[0];
-    const [row] = await db
+    const [row] = await executor
       .update(aiModelPricesTable)
       .set({ ...prices, updatedAt: new Date() })
       .where(eq(aiModelPricesTable.id, target.id))
@@ -333,7 +365,7 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
     // normalization existed — fold them into the canonical row by deleting
     // them, so the admin card shows one row with one price.
     if (matches.length > 1) {
-      await db.delete(aiModelPricesTable).where(
+      await executor.delete(aiModelPricesTable).where(
         inArray(
           aiModelPricesTable.id,
           matches.slice(1).map((m) => m.id),
@@ -345,11 +377,12 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
       target.provider,
       target.model,
       variantKey,
+      executor,
     );
     return row;
   }
 
-  const [row] = await db
+  const [row] = await executor
     .insert(aiModelPricesTable)
     .values({
       ...input,
@@ -373,8 +406,67 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
     row.provider,
     row.model,
     variantKey,
+    executor,
   );
   return row;
+}
+
+export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
+  return upsertModelPriceWithExecutor(input, db);
+}
+
+/**
+ * Replace one provider model's complete conditional price snapshot in a
+ * serialized transaction. Any write/prune failure rolls the whole refresh
+ * back, and a slower stale fetch cannot overwrite a newer successful fetch.
+ */
+export async function replaceModelPriceVariantsAtomically(args: {
+  kind: string;
+  provider: string;
+  model: string;
+  prices: UpsertModelPriceInput[];
+  keepVariantKeys: string[];
+  sourceCheckedAt: Date;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const lockKey = `model-price-refresh:${args.kind}:${args.provider.trim().toLowerCase()}:${args.model
+      .trim()
+      .toLowerCase()}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+    const [newest] = await tx
+      .select({ sourceCheckedAt: aiModelPricesTable.sourceCheckedAt })
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, args.kind),
+          sql`lower(trim(${aiModelPricesTable.provider})) = lower(${args.provider.trim()})`,
+          sql`lower(trim(${aiModelPricesTable.model})) = lower(${args.model.trim()})`,
+        ),
+      )
+      .orderBy(sql`${aiModelPricesTable.sourceCheckedAt} desc nulls last`)
+      .limit(1);
+    if (
+      newest?.sourceCheckedAt &&
+      newest.sourceCheckedAt.getTime() > args.sourceCheckedAt.getTime()
+    ) {
+      return;
+    }
+
+    const executor = tx as unknown as typeof db;
+    for (const price of args.prices) {
+      await upsertModelPriceWithExecutor(price, executor);
+    }
+    await pruneModelPriceVariantsWithExecutor(
+      {
+        kind: args.kind,
+        provider: args.provider,
+        model: args.model,
+        keepVariantKeys: args.keepVariantKeys,
+      },
+      executor,
+    );
+  });
 }
 
 /**
@@ -476,6 +568,10 @@ export async function dedupeModelPrices(): Promise<ModelPriceMerge[]> {
             usdPerImage: newest.usdPerImage,
             usdPerSecond: newest.usdPerSecond,
             usdPerVideo: newest.usdPerVideo,
+            sourceUrl: newest.sourceUrl,
+            sourceCheckedAt: newest.sourceCheckedAt,
+            promotionalUsdPerSecond: newest.promotionalUsdPerSecond,
+            promotionExpiresAt: newest.promotionExpiresAt,
             updatedAt: new Date(),
           })
           .where(eq(aiModelPricesTable.id, kept.id));
@@ -687,6 +783,24 @@ function resolveVideoPrice(
   );
 }
 
+/** Promotion-safe effective rate: the list rate wins at and after expiry. */
+export function effectiveVideoUsdPerSecond(
+  price: Pick<
+    AiModelPrice,
+    "usdPerSecond" | "promotionalUsdPerSecond" | "promotionExpiresAt"
+  >,
+  now = new Date(),
+): number | null {
+  if (
+    price.promotionalUsdPerSecond !== null &&
+    price.promotionExpiresAt !== null &&
+    price.promotionExpiresAt.getTime() > now.getTime()
+  ) {
+    return price.promotionalUsdPerSecond;
+  }
+  return price.usdPerSecond;
+}
+
 /**
  * Variant-aware video lookup. Video prices are provider-authoritative: a row
  * for the same model at another provider must never authorize or price this
@@ -726,8 +840,9 @@ export async function hasVideoModelPriceConfiguration(args: {
     .where(and(eq(aiModelPricesTable.kind, "video"), providerMatches, modelMatches));
   const { usdToInrPaise } = await getAiCostConfig();
   return rows.some((row) => {
-    if (row.usdPerSecond !== null) {
-      return usdToPaise(row.usdPerSecond, usdToInrPaise) !== null;
+    const usdPerSecond = effectiveVideoUsdPerSecond(row);
+    if (usdPerSecond !== null) {
+      return usdToPaise(usdPerSecond, usdToInrPaise) !== null;
     }
     if (row.usdPerVideo !== null) {
       return usdToPaise(row.usdPerVideo, usdToInrPaise) !== null;
@@ -853,8 +968,9 @@ export async function computeVideoCostPaise(args: {
   if (!price) return null;
   const { usdToInrPaise } = await getAiCostConfig();
   const durationSec = args.durationSec ?? null;
-  if (price.usdPerSecond !== null && durationSec !== null && durationSec > 0) {
-    return usdToPaise(durationSec * price.usdPerSecond, usdToInrPaise);
+  const usdPerSecond = effectiveVideoUsdPerSecond(price);
+  if (usdPerSecond !== null && durationSec !== null && durationSec > 0) {
+    return usdToPaise(durationSec * usdPerSecond, usdToInrPaise);
   }
   if (price.usdPerVideo === null) return null;
   return usdToPaise(price.usdPerVideo, usdToInrPaise);
@@ -888,9 +1004,11 @@ export async function isExactPerSecondVideoModelPriced(args: {
   const price = await findPrice("video", args.provider, args.model, {
     exactProviderOnly: true,
   });
-  if (!price || price.usdPerSecond === null) return false;
+  if (!price) return false;
+  const usdPerSecond = effectiveVideoUsdPerSecond(price);
+  if (usdPerSecond === null) return false;
   const { usdToInrPaise } = await getAiCostConfig();
-  return usdToPaise(price.usdPerSecond, usdToInrPaise) !== null;
+  return usdToPaise(usdPerSecond, usdToInrPaise) !== null;
 }
 
 interface ExactDecimal {

@@ -32,6 +32,8 @@ import {
   canonicalVideoVariantKey,
   seedPublishedModelPrices,
   hasVideoModelPriceConfiguration,
+  effectiveVideoUsdPerSecond,
+  replaceModelPriceVariantsAtomically,
 } from "./aiCost";
 
 // Unique names so runs against the shared dev DB never collide.
@@ -83,6 +85,130 @@ describe("usdToPaise", () => {
     expect(usdToPaise(1, -5)).toBeNull();
     expect(usdToPaise(-1, 8600)).toBeNull();
     expect(usdToPaise(Number.NaN, 8600)).toBeNull();
+  });
+});
+
+describe("effectiveVideoUsdPerSecond", () => {
+  const price = {
+    usdPerSecond: 0.569,
+    promotionalUsdPerSecond: 0.40968,
+    promotionExpiresAt: new Date("2026-09-17T06:00:00.000Z"),
+  };
+
+  it("uses a provider promotion only before its exact expiry", () => {
+    expect(effectiveVideoUsdPerSecond(price, new Date("2026-09-17T05:59:59.999Z"))).toBe(
+      0.40968,
+    );
+  });
+
+  it("automatically restores the list rate at expiry", () => {
+    expect(effectiveVideoUsdPerSecond(price, new Date("2026-09-17T06:00:00.000Z"))).toBe(
+      0.569,
+    );
+  });
+});
+
+describe("atomic model price variant replacement", () => {
+  it("rolls back every resolution when a later snapshot write fails", async () => {
+    const model = `${RUN}-atomic-video`;
+    const oldCheckedAt = new Date("2026-09-01T00:00:00.000Z");
+    for (const [resolution, usdPerSecond] of [
+      ["480p", 0.1],
+      ["720p", 0.2],
+      ["1080p", 0.5],
+    ] as const) {
+      const row = await upsertModelPrice({
+        kind: "video",
+        provider: "byteplus",
+        model,
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond,
+        usdPerVideo: null,
+        variantCriteria: { resolution },
+        sourceUrl: "https://docs.byteplus.com/en/docs/ModelArk/1544106",
+        sourceCheckedAt: oldCheckedAt,
+      });
+      createdPriceIds.push(row.id);
+    }
+
+    const newCheckedAt = new Date("2026-09-07T12:00:00.000Z");
+    await expect(
+      replaceModelPriceVariantsAtomically({
+        kind: "video",
+        provider: "byteplus",
+        model,
+        keepVariantKeys: [
+          canonicalVideoVariantKey({ resolution: "480p" }),
+          canonicalVideoVariantKey({ resolution: "720p" }),
+          canonicalVideoVariantKey({ resolution: "1080p" }),
+        ],
+        sourceCheckedAt: newCheckedAt,
+        prices: [
+          {
+            kind: "video",
+            provider: "byteplus",
+            model,
+            inputUsdPerMtok: null,
+            outputUsdPerMtok: null,
+            usdPerImage: null,
+            usdPerSecond: 9.9,
+            usdPerVideo: null,
+            variantCriteria: { resolution: "480p" },
+            sourceCheckedAt: newCheckedAt,
+          },
+          {
+            kind: "video",
+            provider: "byteplus",
+            model: null as unknown as string,
+            inputUsdPerMtok: null,
+            outputUsdPerMtok: null,
+            usdPerImage: null,
+            usdPerSecond: 8.8,
+            usdPerVideo: null,
+            variantCriteria: { resolution: "720p" },
+            sourceCheckedAt: newCheckedAt,
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+
+    const rows = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "video"),
+          eq(aiModelPricesTable.provider, "byteplus"),
+          eq(aiModelPricesTable.model, model),
+        ),
+      );
+    expect(
+      rows
+        .map((row) => ({
+          resolution: row.variantCriteria?.resolution,
+          usdPerSecond: row.usdPerSecond,
+          sourceCheckedAt: row.sourceCheckedAt?.toISOString(),
+        }))
+        .sort((left, right) => String(left.resolution).localeCompare(String(right.resolution))),
+    ).toEqual([
+      {
+        resolution: "1080p",
+        usdPerSecond: 0.5,
+        sourceCheckedAt: oldCheckedAt.toISOString(),
+      },
+      {
+        resolution: "480p",
+        usdPerSecond: 0.1,
+        sourceCheckedAt: oldCheckedAt.toISOString(),
+      },
+      {
+        resolution: "720p",
+        usdPerSecond: 0.2,
+        sourceCheckedAt: oldCheckedAt.toISOString(),
+      },
+    ]);
   });
 });
 

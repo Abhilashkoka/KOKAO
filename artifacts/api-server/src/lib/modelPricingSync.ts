@@ -3,6 +3,7 @@ import {
   findModelPrice,
   isModelPriceAutoImportSuppressed,
   pruneModelPriceVariants,
+  replaceModelPriceVariantsAtomically,
   upsertModelPrice,
   type UpsertModelPriceInput,
 } from "./aiCost";
@@ -10,6 +11,10 @@ import { lookupGeminiPricing } from "./geminiCatalog";
 import { lookupOpenAiPricing } from "./openaiCatalog";
 import { lookupOpenRouterPricing, lookupOpenRouterVideoPricing } from "./openrouterCatalog";
 import { lookupReplicateTokenPricing, lookupReplicateUnitPricing } from "./replicateCatalog";
+import {
+  lookupBytePlusSeedancePricing,
+  type BytePlusSeedancePricing,
+} from "./byteplusPricing";
 
 /**
  * Pricing sync for admin model activation.
@@ -218,6 +223,45 @@ export interface PricingSyncResult {
 }
 
 /**
+ * Refresh BytePlus Seedance 2.5 as three authoritative resolution variants.
+ * The list rate is always durable; the temporary 1080p discount is stored
+ * separately with its exact expiry so runtime lookup can retire it without a
+ * successful follow-up fetch.
+ */
+export async function refreshBytePlusSeedancePricing(): Promise<BytePlusSeedancePricing> {
+  const pricing = await lookupBytePlusSeedancePricing();
+  const prices = pricing.prices.map((price) => {
+    const variantCriteria = { resolution: price.resolution };
+    return {
+      kind: "video",
+      provider: "byteplus",
+      model: pricing.model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: price.usdPerSecond,
+      usdPerVideo: null,
+      variantCriteria,
+      sourceUrl: pricing.sourceUrl,
+      sourceCheckedAt: pricing.sourceCheckedAt,
+      promotionalUsdPerSecond: price.promotionalUsdPerSecond,
+      promotionExpiresAt: price.promotionExpiresAt,
+    } satisfies UpsertModelPriceInput;
+  });
+  await replaceModelPriceVariantsAtomically({
+    kind: "video",
+    provider: "byteplus",
+    model: pricing.model,
+    prices,
+    keepVariantKeys: prices.map((price) =>
+      canonicalVideoVariantKey(price.variantCriteria),
+    ),
+    sourceCheckedAt: pricing.sourceCheckedAt,
+  });
+  return pricing;
+}
+
+/**
  * Resolve pricing for every model being activated. Catalog hits are upserted
  * into ai_model_prices (so the cost-tracking card updates immediately);
  * models covered by neither the catalog nor a manual row are returned in
@@ -246,6 +290,24 @@ export async function syncActivatedModelPricing(args: {
           exactProviderOnly: true,
         });
         return manual && hasSavedPrice(args.kind, manual) ? null : model;
+      }
+      if (
+        args.kind === "video" &&
+        args.provider.trim().toLowerCase() === "byteplus" &&
+        model.trim().toLowerCase() === "dreamina-seedance-2-5-260628"
+      ) {
+        try {
+          await refreshBytePlusSeedancePricing();
+          return null;
+        } catch {
+          // Keep activation available on the last known exact-provider list
+          // rate when BytePlus is temporarily unreachable. The saved source
+          // timestamp remains visible to the administrator.
+          const saved = await findModelPrice("video", args.provider, model, {
+            exactProviderOnly: true,
+          });
+          return saved && hasSavedPrice("video", saved) ? null : model;
+        }
       }
       // Replicate video pages can publish conditional tariffs (for example,
       // Veo with/without generated audio). The aggregate lookup below keeps

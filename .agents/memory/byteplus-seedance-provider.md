@@ -14,3 +14,9 @@ Never automatically retry the task-creation POST unless BytePlus publishes an id
 **Why:** A lost response after ModelArk accepts the request can otherwise create multiple paid renders, with only one tracked by KOKAO.
 
 **How to apply:** Submit creation once. As soon as ModelArk accepts it, durably store the sanitized task/request IDs before polling; retries and recovery children must resume that task rather than POST again. Polling is safe to retry. Keep one absolute deadline over request and body reads, abort stalled requests, cap response sizes, and revalidate every output redirect as HTTPS on a public host.
+
+Treat Seedance 2.5 list prices as resolution-specific provider facts, and model temporary discounts separately with an exact expiry instant. Never overwrite the durable list rate with a promotion.
+
+**Why:** BytePlus publishes distinct 480p, 720p, and 1080p rates and can apply a time-limited discount to only one resolution. A stale discounted number must not remain billable after its published deadline.
+
+**How to apply:** Refresh all resolution variants as one atomic source-stamped snapshot. Runtime costing may select the promotional rate only strictly before its expiry; at expiry it must use the stored list rate even if the provider page cannot be refreshed.
