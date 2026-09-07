@@ -213,3 +213,31 @@ mtime_ms = 1788330221916
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/c63cbeba-1005-4124-8fb7-428c1d9226c6/68cdf1f4-7089-48a7-9c43-3d3295fc9c6f"
 storage_version_token = "1788330229519815"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "a8MWGziCMahQ-ogvGoZ1K"
+uri = "file://attached_assets/seedance-2.5-live-cgt-20260907183251-mzp4d.mp4"
+type = "video"
+title = "Seedance 2.5 live verification render"
+description = "Successful 4-second BytePlus ModelArk 480p render with native AAC audio."
+logical_id = "958e47a6-cef4-4133-81f9-a5098999d2d3"
+content_hash = "sha256:541573fb78d13738af0ad143487e43a99605475da80b422d6e3dff2da4105e57"
+size = 986743
+mtime_ms = 1788777304480
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/958e47a6-cef4-4133-81f9-a5098999d2d3/3f07659f-d672-46d6-b441-26be4537bbed"
+storage_version_token = "1788777783164759"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "OVaK3YrjiwB7oAVcB7lNq"
+uri = "file://attached_assets/seedance-2.5-live-verification.json"
+type = "unspecified"
+title = "Seedance 2.5 verification record"
+description = "Sanitized provider task/request identifiers and output metadata; contains no credentials."
+logical_id = "706ca7fc-40ae-4f12-83b4-b51f516b5c1d"
+content_hash = "sha256:be393aedd7a89e363454f249c035f51b48a704612ce11cd217c218749ed36785"
+size = 480
+mtime_ms = 1788777304492
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/706ca7fc-40ae-4f12-83b4-b51f516b5c1d/ef3047e4-5516-4d8b-aae8-d9d5cd320d5a"
+storage_version_token = "1788777784540879"
+content_type = "application/octet-stream"

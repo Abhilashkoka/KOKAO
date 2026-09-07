@@ -21,7 +21,7 @@ When recovery resets attempt-scoped likeness/voice consent, the ready-to-build s
 
 **How to apply:** Keep immutable cast approvals separate from per-attempt consent. Never require reapproval just to renew consent, and never report a consent failure as a cast-reference failure.
 
-A failed recovery child may still be backed by a draft whose `storyboardJobId` points to the root attempt. Treat the recovery chain's root/source linkage as valid when reopening the draft, and clear stale unavailable/dismissed markers after the detach succeeds.
+A failed recovery child may still be backed by a draft linked to the root attempt. Treat the recovery chain's durable root/source linkage as valid when reopening the draft, and clear stale unavailable/dismissed markers after the detach succeeds.
 
 **Why:** Requiring the draft to point directly at the latest recovery child falsely marked an intact editable story as deleted after a child attempt failed.
 

@@ -64,7 +64,15 @@ describe("generateVideo frozen model contract", () => {
       buffer: Buffer.from("video"), provider: "replicate", model: frozenText.model,
     } satisfies VideoGenResult);
 
-    const output = await generateVideo(params);
+    const output = await generateVideo({
+      ...params,
+      durationSec: 8,
+      resolvedVideoModel: {
+        ...frozenText,
+        permittedDurationSec: [5],
+        durationPolicy: "nearest",
+      },
+    });
     expect(output.model).toBe(frozenText.model);
     expect(vi.mocked(generateWithReplicate).mock.calls).toHaveLength(1);
     expect(vi.mocked(generateWithReplicate).mock.calls[0]![0]).toMatchObject({
@@ -104,7 +112,11 @@ describe("generateVideo frozen model contract", () => {
     const output = await generateVideo({
       ...params,
       durationSec: 8,
-      resolvedVideoModel: { ...frozenText, permittedDurationSec: [5, 8, 10] },
+      resolvedVideoModel: {
+        ...frozenText,
+        permittedDurationSec: [5],
+        durationPolicy: "nearest",
+      },
     });
     expect(vi.mocked(generateWithReplicate).mock.calls[0]![0].durationSec).toBe(8);
   });

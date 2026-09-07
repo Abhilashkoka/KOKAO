@@ -1,0 +1,14 @@
+{
+  "startedAt": "2026-09-07T10:32:51.162Z",
+  "finishedAt": "2026-09-07T10:35:04.485Z",
+  "taskId": "cgt-20260907183251-mzp4d",
+  "requestId": "02178877717148845c07e4ff35b1f55227084b3d76e9a80978495",
+  "status": "succeeded",
+  "model": "dreamina-seedance-2-5-260628",
+  "durationSec": 4,
+  "resolution": "480p",
+  "aspectRatio": "16:9",
+  "nativeAudioRequested": true,
+  "outputBytes": 986743,
+  "persistedPath": "attached_assets/seedance-2.5-live-cgt-20260907183251-mzp4d.mp4"
+}
