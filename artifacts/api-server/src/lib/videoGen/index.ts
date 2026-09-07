@@ -39,6 +39,10 @@ import {
   HIGGSFIELD_T2V_MODEL,
   HIGGSFIELD_I2V_MODEL,
 } from "./providers/higgsfield";
+import {
+  BYTEPLUS_SEEDANCE_25_MODEL,
+  generateWithBytePlusModelArk,
+} from "./providers/byteplus";
 import { isTransientStatus } from "./retry";
 import {
   parseCustomProviderId,
@@ -68,6 +72,7 @@ export type VideoGenMode = "text" | "image";
 
 const NATIVE_SYNCHRONIZED_AUDIO_MODELS = new Set([
   "openrouter/bytedance/seedance-2.5",
+  `byteplus/${BYTEPLUS_SEEDANCE_25_MODEL}`,
   "higgsfield/veo3.1/fast",
   "higgsfield/veo3.1/fast/image-to-video",
   "higgsfield/veo3.1",
@@ -130,6 +135,17 @@ function normalizedPersistedModelOverride(
 
 /** Catalog of selectable AI video generation providers. Add new ones here only. */
 export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
+  {
+    id: "byteplus",
+    label: "BytePlus ModelArk",
+    defaultTextToVideoModel: BYTEPLUS_SEEDANCE_25_MODEL,
+    defaultImageToVideoModel: BYTEPLUS_SEEDANCE_25_MODEL,
+    envKey: "ARK_API_KEY",
+    supportsModelOverride: false,
+    textModelOptions: catalogModelOptions("byteplus", "text"),
+    imageModelOptions: catalogModelOptions("byteplus", "image"),
+    generate: generateWithBytePlusModelArk,
+  },
   {
     id: "nvidia",
     label: "NVIDIA Visual GenAI NIM (self-hosted)",

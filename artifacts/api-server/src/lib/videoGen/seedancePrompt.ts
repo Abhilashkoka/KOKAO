@@ -28,7 +28,7 @@ export function isSeedance25Model(
     | undefined,
 ): boolean {
   const model = options?.resolvedVideoModel?.model ?? options?.modelId ?? "";
-  return model.trim().toLowerCase().includes("seedance-2.5");
+  return /seedance-2(?:[.-])5(?:\b|-)/.test(model.trim().toLowerCase());
 }
 
 function languageName(locale: GuidedStoryLocale): string {

@@ -70,6 +70,11 @@ describe("Seedance 2.5 prompt assembly", () => {
     ).toBe(true);
     expect(
       isSeedance25Model({
+        resolvedVideoModel: { model: "doubao-seedance-2-5-260628" },
+      }),
+    ).toBe(true);
+    expect(
+      isSeedance25Model({
         resolvedVideoModel: { model: "bytedance/seedance-2.0" },
       }),
     ).toBe(false);

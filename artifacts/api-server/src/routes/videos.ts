@@ -9094,7 +9094,6 @@ async function generateVideoHandler(
           : resolvedVideoModel;
       if (options.guidedStory) {
         if (
-          resolvedVideoModel.provider !== "higgsfield" ||
           !hasNativeSynchronizedAudio(
             resolvedVideoModel.provider,
             resolvedVideoModel.model,
@@ -9102,11 +9101,13 @@ async function generateVideoHandler(
         ) {
           res.status(400).json({
             error:
-              "Guided Story direct rendering requires a selected Higgsfield model with native synchronized audio.",
+              "Guided Story direct rendering requires a selected video model with native synchronized audio.",
           });
           return;
         }
-        const seedance25 = resolvedVideoModel.model.toLowerCase().includes("seedance-2.5");
+        const seedance25 = /seedance-2(?:[.-])5(?:\b|-)/.test(
+          resolvedVideoModel.model.toLowerCase(),
+        );
         options.guidedStory = {
           ...options.guidedStory,
           promptFormat: seedance25 ? "seedance-2.5" : "guided-v1",

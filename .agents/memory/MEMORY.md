@@ -146,5 +146,6 @@
 - [Optional lip-sync finishing](optional-lipsync-finishing.md) — scene refusals ship preserved base footage; solo animation holds one subject without off-frame-person prose.
 - [Guided intrinsic lip sync](guided-intrinsic-lipsync.md) — new Guided jobs auto-sync only unambiguous solo dialogue; exact synced audio, frozen funding, and receipt-safe base fallback.
 - [Higgsfield media provider](higgsfield-video-provider.md) — shared image/video credential; endpoint-path models have route-specific request contracts.
+- [BytePlus Seedance provider](byteplus-seedance-provider.md) — first-party international Seedance 2.5 uses ModelArk tasks; never retry non-idempotent creates.
 - [Character reference sheets](character-reference-sheets.md) — every tenant character keeps a canonical portrait plus a separately generated, explicitly approved multi-view sheet.
 - [Guided direct video](guided-direct-video.md) — new Guided jobs skip storyboard images/review and render approved characters directly through native-audio Higgsfield; legacy jobs stay legacy.

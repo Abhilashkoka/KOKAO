@@ -96,6 +96,25 @@ export interface VideoModelDef {
 const COMMON_ASPECTS = ["16:9", "9:16", "1:1"] as const;
 
 export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
+  // ── BytePlus ModelArk ───────────────────────────────────────────────────
+  {
+    id: "byteplus-seedance-2.5",
+    label: "Seedance 2.5 (BytePlus)",
+    blurb: "Official Seedance 2.5 with synchronized dialogue and sound.",
+    provider: "byteplus",
+    models: {
+      text: "doubao-seedance-2-5-260628",
+      image: "doubao-seedance-2-5-260628",
+    },
+    tier: "premium",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+    durations: Array.from({ length: 27 }, (_, index) => index + 4),
+    resolutions: ["480p", "720p", "1080p"],
+    hasQuality: false,
+    canGenerateAudio: true,
+    supportsEndFrame: true,
+  },
+
   // ── Self-hosted NVIDIA Visual GenAI NIM ─────────────────────────────────
   {
     id: "nvidia-wan-2.2",

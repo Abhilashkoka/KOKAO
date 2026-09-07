@@ -53,6 +53,26 @@ describe("video model catalog", () => {
   it("keeps at least one draft-tier model, so cheap iteration is always possible", () => {
     expect(VIDEO_MODEL_CATALOG.some((m) => m.tier === "draft")).toBe(true);
   });
+
+  it("registers official BytePlus Seedance without an aggregator alias", () => {
+    const provider = VIDEO_GEN_PROVIDERS.find((item) => item.id === "byteplus");
+    expect(provider).toMatchObject({
+      label: "BytePlus ModelArk",
+      envKey: "ARK_API_KEY",
+      defaultTextToVideoModel: "doubao-seedance-2-5-260628",
+      defaultImageToVideoModel: "doubao-seedance-2-5-260628",
+      supportsModelOverride: false,
+    });
+    expect(findVideoModel("byteplus-seedance-2.5")).toMatchObject({
+      provider: "byteplus",
+      models: {
+        text: "doubao-seedance-2-5-260628",
+        image: "doubao-seedance-2-5-260628",
+      },
+      canGenerateAudio: true,
+      supportsEndFrame: true,
+    });
+  });
 });
 
 describe("videoModelMultiplier", () => {

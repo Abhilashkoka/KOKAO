@@ -2960,7 +2960,7 @@ describe("guided story route fail-closed regressions", () => {
     return saved!;
   }
 
-  it("marks new Guided Story jobs direct and requires Higgsfield native audio", async () => {
+  it("marks new Guided Story jobs direct and requires native-audio capability", async () => {
     const tenant = await newTenant("pro");
     const makeDirectDraft = async () => {
       const draft = await makeEnqueueableGuidedDraft(tenant.tenantId);
@@ -2996,7 +2996,12 @@ describe("guided story route fail-closed regressions", () => {
       "bytedance/seedance-2.5",
       "higgsfield",
     );
+    const restoreBytePlusSeedancePrice = await installVideoTestPrice(
+      "doubao-seedance-2-5-260628",
+      "byteplus",
+    );
     await setStoredVideoGenKey("higgsfield", "test-token");
+    await setStoredVideoGenKey("byteplus", "test-byteplus-token");
     try {
       await setVideoGenSelection({
         provider: "higgsfield",
@@ -3036,6 +3041,38 @@ describe("guided story route fail-closed regressions", () => {
       expect(nativeJob.options!.studioLipSync).toBeFalsy();
       expect(nativeJob.options!.guidedStoryIntrinsicLipSync).toBeFalsy();
 
+      // The gate is capability-based rather than vendor-based: official
+      // Seedance on BytePlus follows the same direct native-dialogue path.
+      await setVideoGenSelection({
+        provider: "byteplus",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
+      const bytePlusDraft = await makeDirectDraft();
+      const bytePlusResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${bytePlusDraft.id}/enqueue`)
+        .send({ revision: bytePlusDraft.revision, consentGranted: true });
+      expect(bytePlusResponse.status, bytePlusResponse.body.error).toBe(201);
+      const bytePlusJob = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, bytePlusResponse.body.id))
+      )[0]!;
+      expect(bytePlusJob.options!.resolvedVideoModel).toMatchObject({
+        provider: "byteplus",
+        model: "doubao-seedance-2-5-260628",
+        generateAudio: true,
+      });
+      expect(bytePlusJob.options!.guidedStory).toMatchObject({
+        promptFormat: "seedance-2.5",
+        videoModel: {
+          provider: "byteplus",
+          model: "doubao-seedance-2-5-260628",
+        },
+      });
+
       await setVideoGenSelection({
         provider: "replicate",
         textToVideoModel: null,
@@ -3048,7 +3085,7 @@ describe("guided story route fail-closed regressions", () => {
         .send({ revision: replicateDraft.revision, consentGranted: true });
       expect(replicateResponse.status).toBe(400);
       expect(replicateResponse.body.error).toContain(
-        "requires a selected Higgsfield model with native synchronized audio",
+        "requires a selected video model with native synchronized audio",
       );
 
       await setVideoGenSelection({
@@ -3063,7 +3100,7 @@ describe("guided story route fail-closed regressions", () => {
         .send({ revision: silentHiggsfieldDraft.revision, consentGranted: true });
       expect(silentHiggsfieldResponse.status).toBe(400);
       expect(silentHiggsfieldResponse.body.error).toContain(
-        "requires a selected Higgsfield model with native synchronized audio",
+        "requires a selected video model with native synchronized audio",
       );
 
       // Do not treat an OpenRouter Seedance path as a Higgsfield capability:
@@ -3081,10 +3118,11 @@ describe("guided story route fail-closed regressions", () => {
         .send({ revision: undocumentedDraft.revision, consentGranted: true });
       expect(undocumentedResponse.status).toBe(400);
       expect(undocumentedResponse.body.error).toContain(
-        "requires a selected Higgsfield model with native synchronized audio",
+        "requires a selected video model with native synchronized audio",
       );
     } finally {
       await clearStoredVideoGenKey("higgsfield");
+      await clearStoredVideoGenKey("byteplus");
       await setVideoGenSelection({
         provider: "replicate",
         textToVideoModel: null,
@@ -3096,6 +3134,7 @@ describe("guided story route fail-closed regressions", () => {
       await restoreReplicateImagePrice();
       await restoreSilentHiggsfieldPrice();
       await restoreUndocumentedHiggsfieldSeedancePrice();
+      await restoreBytePlusSeedancePrice();
     }
   });
 
