@@ -145,7 +145,7 @@ describe("generateVideo frozen model contract", () => {
       hasNativeSynchronizedAudio("byteplus", "dreamina-seedance-2-5-260628"),
     ).toBe(true);
     expect(
-      hasNativeSynchronizedAudio("BYTEPLUS", " Doubao-Seedance-2-5-260628 "),
+      hasNativeSynchronizedAudio("BYTEPLUS", " Dreamina-Seedance-2-5-260628 "),
     ).toBe(true);
     expect(hasNativeSynchronizedAudio("openrouter", "bytedance/seedance-2.5")).toBe(true);
     // Higgsfield's public OpenAPI does not document this route. It must not

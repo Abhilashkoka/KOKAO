@@ -110,7 +110,7 @@ describe("preflightVideoJob", () => {
   it("refuses a text-to-video job with no video token as a misconfiguration", async () => {
     const issue = await preflightVideoJob("text_to_video", options());
     expect(issue?.status).toBe(400);
-    expect(issue?.message).toContain("REPLICATE_API_TOKEN");
+    expect(issue?.message).toContain("AI video generation is not configured");
   });
 
   it("refuses a text-to-video job while the video provider is failing", async () => {
