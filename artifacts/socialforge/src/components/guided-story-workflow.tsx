@@ -1276,6 +1276,10 @@ function CastApprovalStep(props: any) {
     () => new Set(),
   );
   const [sheetReviewError, setSheetReviewError] = useState<string | null>(null);
+  const [sheetActionFeedback, setSheetActionFeedback] = useState<{
+    roleId: string;
+    decision: "approve" | "reject";
+  } | null>(null);
   const automaticApprovalAttempts = useRef<Set<string>>(new Set());
   const [outfitRoleId, setOutfitRoleId] = useState<string | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
@@ -1322,7 +1326,8 @@ function CastApprovalStep(props: any) {
     setCustomizationError(null);
   };
   const reviewSheet = (decision: "approve" | "reject") => {
-    if (!selectedLibraryCharacter) return;
+    if (!selectedLibraryCharacter || !reviewRoleId) return;
+    const completedRoleId = reviewRoleId;
     setSheetReviewError(null);
     reviewReferenceSheet.mutate(
       {
@@ -1337,7 +1342,15 @@ function CastApprovalStep(props: any) {
               next.add(selectedLibraryCharacter.id);
               return next;
             });
+          } else {
+            setApprovedSheetCharacterIds((current) => {
+              const next = new Set(current);
+              next.delete(selectedLibraryCharacter.id);
+              return next;
+            });
           }
+          setSheetActionFeedback({ roleId: completedRoleId, decision });
+          setReviewRoleId(null);
           void queryClient.invalidateQueries({
             queryKey: getListCharactersQueryKey(),
           });
@@ -1515,6 +1528,8 @@ function CastApprovalStep(props: any) {
             : false);
         const sheetImageAvailable = Boolean(libraryCharacter?.referenceSheetImagePath);
         const sheetFailed = libraryCharacter?.referenceSheetStatus === "failed";
+        const roleSheetActionFeedback =
+          sheetActionFeedback?.roleId === role.id ? sheetActionFeedback : null;
         return <Card key={role.id} className={approvalNeeded ? "border-amber-500 ring-2 ring-amber-300/60 dark:ring-amber-700/60" : "border-primary/20"} data-testid={`card-guided-cast-approval-${role.id}`}>
           <CardHeader className="pb-2"><CardTitle className="text-base">{role.name}</CardTitle><CardDescription data-testid={`status-guided-cast-approval-${role.id}`}>{approved ? "Approved for this draft revision" : manifest && !manifestIsCurrent ? "Approval is stale — review and reapprove" : "Approval needed"}</CardDescription></CardHeader>
           <CardContent className="space-y-3">
@@ -1533,6 +1548,19 @@ function CastApprovalStep(props: any) {
               <ReferenceThumbnail label="Outfit" asset={cast?.outfit} onClick={() => setReviewRoleId(role.id)} />
             </div>
             {props.castApprovalError?.roleId === role.id && <p className="text-sm text-destructive" role="alert" data-testid={`error-guided-cast-approval-${role.id}`}>{props.castApprovalError.message}</p>}
+            {roleSheetActionFeedback && (
+              <p
+                className={roleSheetActionFeedback.decision === "approve"
+                  ? "text-sm font-medium text-primary"
+                  : "text-sm font-medium text-destructive"}
+                role="status"
+                data-testid={`status-guided-sheet-action-${role.id}`}
+              >
+                {roleSheetActionFeedback.decision === "approve"
+                  ? "Reference sheet approved. This role is ready for cast approval."
+                  : "Reference sheet rejected. Generate a replacement before approving this role."}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-review-cast-${role.id}`}>Review references</Button>
               {cast?.source === "generated" && <Button type="button" variant="outline" onClick={() => openCustomization(role.id, cast)} data-testid={`button-guided-customize-character-${role.id}`}>Customize Character</Button>}

@@ -1248,7 +1248,10 @@ describe("GuidedStoryWorkflow", () => {
       characterId: 101,
       decision: "approve",
     });
-    expect(screen.getByTestId("status-guided-reference-sheet-approved").textContent).toContain(
+    await waitFor(() =>
+      expect(screen.queryByTestId("dialog-guided-cast-review")).toBeNull(),
+    );
+    expect(screen.getByTestId("status-guided-sheet-action-r1").textContent).toContain(
       "Reference sheet approved",
     );
     expect(state.castApprovalRoles.r1?.roleId).toBe("r1");
@@ -1256,12 +1259,37 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("button-guided-approve-cast-r1").textContent).toContain(
       "Reapprove",
     );
-    await userEvent.click(
-      screen.getByTestId("button-guided-customize-character-from-review"),
-    );
-    expect(screen.queryByTestId("dialog-guided-cast-review")).toBeNull();
+    await userEvent.click(screen.getByTestId("button-guided-customize-character-r1"));
     expect(screen.getByTestId("dialog-guided-customize-character")).toBeTruthy();
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("closes the review after rejecting a sheet and confirms the action on the cast card", async () => {
+    const cast = generatedCast();
+    state.draft = draft({ castStrategy: "generated", cast });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow({
+      characters: cast.map((member) => ({
+        ...character,
+        id: member.characterId,
+        referenceSheetStatus: "pending",
+        referenceSheetImagePath: `/objects/99/sheet-${member.roleId}.png`,
+      })),
+    });
+
+    await userEvent.click(screen.getByTestId("button-guided-manage-sheet-r1"));
+    await userEvent.click(screen.getByTestId("button-guided-reject-reference-sheet"));
+
+    expect(state.referenceSheetReview).toEqual({
+      characterId: 101,
+      decision: "reject",
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("dialog-guided-cast-review")).toBeNull(),
+    );
+    expect(screen.getByTestId("status-guided-sheet-action-r1").textContent).toContain(
+      "Reference sheet rejected",
+    );
   });
 
   it("automatically approves cast roles whose reference sheets were already approved", async () => {
