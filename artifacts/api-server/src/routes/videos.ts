@@ -11098,6 +11098,25 @@ function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
   // subtracting inherited checkpoints, or those checkpoints are deducted
   // twice.
   let units = videoJobFullUnits(source.engine, options);
+  const atlasDownloadRecovery =
+    source.errorHistory?.some(
+      (entry) => entry.code === "atlas_output_download_failed",
+    ) ?? false;
+  if (atlasDownloadRecovery) {
+    const acceptedAtlasTasks = Object.values(options.providerTasks ?? {}).filter(
+      (task) => task.provider === "atlascloud" && Boolean(task.taskId),
+    ).length;
+    if (acceptedAtlasTasks > 0) {
+      reusable.push(
+        `${acceptedAtlasTasks} accepted Atlas generation task${acceptedAtlasTasks === 1 ? "" : "s"}`,
+        "approved storyboard and saved scene inputs",
+      );
+      regenerated.push(
+        `${acceptedAtlasTasks} Atlas output download${acceptedAtlasTasks === 1 ? "" : "s"} and final composition`,
+      );
+      return { mode: "resume", reusable, regenerated, units };
+    }
+  }
 
   const savedRender = options.renderCheckpoint ?? options.recovery?.rendered;
   // Optional Studio finishing retains the base render separately. A base

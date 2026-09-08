@@ -2209,6 +2209,70 @@ describe("Video Studio", () => {
       );
     });
 
+    it("offers only Atlas download recovery when completed provider tasks could not be downloaded", async () => {
+      mockState.activeJob = {
+        id: 68999,
+        engine: "topic_to_video",
+        status: "failed",
+        error: "The video provider could not complete this generation. Please try again.",
+        retryable: true,
+        provider: "atlascloud",
+        recovery: {
+          mode: "resume",
+          chainId: 68999,
+          sourceJobId: 68999,
+          reusable: ["3 accepted Atlas generation tasks", "approved storyboard"],
+          regenerated: ["3 Atlas output downloads and final composition"],
+        },
+        units: 3,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        guidedStoryDraftId: 4576,
+        errorHistory: [
+          {
+            jobId: 68999,
+            jobNumber: 68999,
+            scope: "job",
+            sceneNumber: null,
+            displayNumber: null,
+            operation: "Animating your storyboard",
+            occurredAt: "2026-09-08T15:06:22.783Z",
+            sceneId: null,
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/image-to-video",
+            providerRequestId: null,
+            code: "atlas_output_download_failed",
+            message: "Video generation failed. Please try again.",
+            attempt: 1,
+            recoveryAttempt: 0,
+            outcome: "stopped",
+            fingerprint: "atlas-download-failure",
+          },
+        ],
+        createdAt: "2026-09-08T15:01:24.109Z",
+        updatedAt: "2026-09-08T15:06:22.799Z",
+      };
+      renderPage();
+      const user = userEvent.setup();
+
+      expect(screen.getByText("Atlas videos are ready to recover")).toBeTruthy();
+      expect(screen.getByText(/will not submit another paid Atlas generation request/i)).toBeTruthy();
+      expect(screen.queryByTestId("button-edit-failed-guided-story")).toBeNull();
+      expect(screen.queryByTestId("button-fresh-restart-video")).toBeNull();
+      expect(screen.queryByTestId("button-replay-guided-story")).toBeNull();
+      expect(screen.queryByTestId("button-start-over-video")).toBeNull();
+
+      const action = screen.getByTestId("button-retry-video");
+      expect(action.textContent).toContain("Retry Atlas downloads");
+      await user.click(action);
+      expect(mockState.retriedJobIds).toEqual([68999]);
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Atlas download recovery started",
+        }),
+      );
+    });
+
     it("labels an ordinary failed engine as retrying from immutable saved inputs", () => {
       mockState.activeJob = {
         id: 45,

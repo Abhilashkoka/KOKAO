@@ -969,6 +969,12 @@ function safeFailureCode(error: unknown): string | null {
   if (error instanceof VideoGenNotConfiguredError) {
     return "provider_not_configured";
   }
+  if (
+    error instanceof VideoGenProviderError &&
+    /^Atlas Cloud video (?:download|output)/i.test(error.message)
+  ) {
+    return "atlas_output_download_failed";
+  }
   const status =
     error instanceof VideoGenProviderError ||
     error instanceof ImageGenProviderError

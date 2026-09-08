@@ -2277,6 +2277,11 @@ export function VideoStudioPage() {
     activeJob != null &&
     activeJob.id === activeJobId &&
     (activeJob.status === "queued" || activeJob.status === "processing");
+  const atlasOutputDownloadRecovery =
+    activeJob?.status === "failed" &&
+    activeJob.errorHistory?.some(
+      (entry) => entry.code === "atlas_output_download_failed",
+    ) === true;
   const guidedStoryCorrectionMessage = (() => {
     const error = activeJob?.error ?? "";
     if (/backdrop|background|location|reference image/i.test(error)) {
@@ -7148,7 +7153,8 @@ export function VideoStudioPage() {
                       </Button>
                     )}
                   </div>
-                ) : activeJob.guidedStoryDraftId ? (
+                ) : activeJob.guidedStoryDraftId &&
+                  !atlasOutputDownloadRecovery ? (
                   <div className="rounded-lg border-2 border-amber-500/70 bg-amber-50/70 p-3 dark:bg-amber-950/20">
                     <p className="text-sm font-medium">
                       Required action
@@ -7227,14 +7233,18 @@ export function VideoStudioPage() {
                   !activeJob.guidedStoryRecoveryUnavailable && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">
-                      {activeJob.privacyRecoveryCapability?.eligible
+                      {atlasOutputDownloadRecovery
+                        ? "Atlas videos are ready to recover"
+                        : activeJob.privacyRecoveryCapability?.eligible
                         ? `Regenerate scene ${activeJob.privacyRecoveryCapability.sceneId} safely and resume`
                         : activeJob.recovery?.mode === "resume"
                           ? "Resume generation"
                           : "Retry from saved inputs"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {activeJob.privacyRecoveryCapability?.eligible
+                      {atlasOutputDownloadRecovery
+                        ? "Retry downloading the existing Atlas results, then continue final composition. KOKAO will not submit another paid Atlas generation request."
+                        : activeJob.privacyRecoveryCapability?.eligible
                         ? "Create one anonymous, fictional keyframe for only the affected generated scene, preserve completed narration and scenes, then resume."
                         : activeJob.privacyRecoveryCapability?.reason
                           ? activeJob.privacyRecoveryCapability.reason
@@ -7289,11 +7299,15 @@ export function VideoStudioPage() {
                                 });
                                 toast({
                                   title:
-                                    job.recovery?.mode === "resume"
+                                    atlasOutputDownloadRecovery
+                                      ? "Atlas download recovery started"
+                                      : job.recovery?.mode === "resume"
                                       ? "Resume started"
                                       : "Retry started",
                                   description:
-                                    job.units === 0
+                                    atlasOutputDownloadRecovery
+                                      ? "KOKAO is retrieving the saved Atlas outputs and will resume from the existing storyboard."
+                                      : job.units === 0
                                       ? "KOKAO is finalizing the saved completed work with no new provider generation."
                                       : `KOKAO reserved only ${job.units} missing provider operation${job.units === 1 ? "" : "s"}.`,
                                 });
@@ -7317,13 +7331,15 @@ export function VideoStudioPage() {
                         ) : (
                           <RotateCcw className="mr-2 h-4 w-4" />
                         )}
-                        {activeJob.recovery?.mode === "resume"
+                        {atlasOutputDownloadRecovery
+                          ? "Retry Atlas downloads"
+                          : activeJob.recovery?.mode === "resume"
                           ? activeJob.privacyRecoveryCapability?.eligible
                             ? "Regenerate affected scene & resume"
                             : "Resume generation"
                           : "Retry from saved inputs"}
                       </Button>
-                      {isOwner && <Button
+                      {!atlasOutputDownloadRecovery && isOwner && <Button
                         variant="destructive"
                         disabled={restartVideoFresh.isPending}
                         onClick={() =>
@@ -7373,7 +7389,8 @@ export function VideoStudioPage() {
                         Fresh restart
                       </Button>}
 
-                      {canReplayGuidedStoryDialogue && (
+                      {!atlasOutputDownloadRecovery &&
+                        canReplayGuidedStoryDialogue && (
                         <Button
                           variant="outline"
                           disabled={previewReplay.isPending}
@@ -7404,7 +7421,7 @@ export function VideoStudioPage() {
                           Replay as native dialogue
                         </Button>
                       )}
-                      <Button
+                      {!atlasOutputDownloadRecovery && <Button
                         variant="ghost"
                         onClick={() => {
                           if (
@@ -7424,7 +7441,7 @@ export function VideoStudioPage() {
                         data-testid="button-start-over-video"
                       >
                         Start over
-                      </Button>
+                      </Button>}
                     </div>
                   </div>
                 )}
