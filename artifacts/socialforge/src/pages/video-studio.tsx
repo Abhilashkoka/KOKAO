@@ -35,6 +35,9 @@ import {
   useListContent,
   useListCharacters,
   useCreateCharacter,
+  useListBytePlusIdentities,
+  useStartBytePlusIdentityVerification,
+  getListBytePlusIdentitiesQueryKey,
   useGenerateCharacterReferenceSheet,
   useReviewCharacterReferenceSheet,
   useDeleteCharacter,
@@ -843,6 +846,15 @@ export function VideoStudioPage() {
   const [outfitId, setOutfitId] = useState<number | null>(null);
   const [wardrobeNotes, setWardrobeNotes] = useState("");
   const [charactersOpen, setCharactersOpen] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (
+      params.get("identity") ||
+      sessionStorage.getItem("kokao-character-verification-draft")
+    ) {
+      setCharactersOpen(true);
+    }
+  }, []);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [music, setMusic] = useState<{
     objectPath: string;
@@ -10898,6 +10910,17 @@ function CharacterManagerDialog({
   const walletBilling = useWalletBilling();
   const queryClient = useQueryClient();
   const requestUploadUrl = useRequestUploadUrl();
+  const identityQuery = useListBytePlusIdentities({
+    query: {
+      queryKey: getListBytePlusIdentitiesQueryKey(),
+      enabled: open,
+      refetchInterval: (query) =>
+        query.state.data?.some((identity) => identity.status === "pending")
+          ? 3000
+          : false,
+    },
+  });
+  const startIdentityVerification = useStartBytePlusIdentityVerification();
   const { data: characters, isLoading: charactersLoading } = useListCharacters({
     query: { queryKey: getListCharactersQueryKey(), enabled: open },
   });
@@ -10927,6 +10950,11 @@ function CharacterManagerDialog({
   const [description, setDescription] = useState("");
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState("");
+  const [selectedIdentityId, setSelectedIdentityId] = useState<number | null>(null);
+  const [verificationCharacterId, setVerificationCharacterId] = useState<number | null>(
+    null,
+  );
+  const [attachingIdentity, setAttachingIdentity] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [outfitFor, setOutfitFor] = useState<number | string | null>(null);
   const [outfitName, setOutfitName] = useState("");
@@ -10957,6 +10985,61 @@ function CharacterManagerDialog({
   const [renamingPreview, setRenamingPreview] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (!open) return;
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("identity");
+    const returnedIdentityId = Number(params.get("identityId"));
+    const saved = sessionStorage.getItem("kokao-character-verification-draft");
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved) as {
+          name?: string;
+          description?: string;
+          photoPath?: string;
+          photoName?: string;
+          identityId?: number;
+          existingCharacterId?: number;
+        };
+        setName(draft.name ?? "");
+        setDescription(draft.description ?? "");
+        setPhotoPath(draft.photoPath ?? null);
+        setPhotoName(draft.photoName ?? "");
+        if (Number.isInteger(draft.identityId) && Number(draft.identityId) > 0) {
+          setSelectedIdentityId(Number(draft.identityId));
+        }
+        if (
+          Number.isInteger(draft.existingCharacterId) &&
+          Number(draft.existingCharacterId) > 0
+        ) {
+          setVerificationCharacterId(Number(draft.existingCharacterId));
+        }
+      } catch {
+        // Ignore malformed local draft state.
+      }
+    }
+    if (!outcome) {
+      void identityQuery.refetch();
+      return;
+    }
+    if (Number.isInteger(returnedIdentityId) && returnedIdentityId > 0) {
+      setSelectedIdentityId(returnedIdentityId);
+    }
+    void identityQuery.refetch();
+    toast({
+      title: outcome === "verified" ? "Identity verified" : "Verification not completed",
+      description:
+        outcome === "verified"
+          ? "BytePlus confirmed this person. You can now create the character."
+          : "Try the liveness check again when you are ready.",
+      variant: outcome === "verified" ? "default" : "destructive",
+    });
+    params.delete("identity");
+    params.delete("identityId");
+    const query = params.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [open]);
+
   const invalidate = () =>
     void queryClient.invalidateQueries({
       queryKey: getListCharactersQueryKey(),
@@ -10968,7 +11051,7 @@ function CharacterManagerDialog({
         title: quotaToastTitle(walletBilling, "Image quota reached"),
         description: ownerQuotaMessage({
           walletBilling,
-          serverMessage: error?.message,
+          serverMessage: apiErrorMessage(error, ""),
           upgradeFallback: "Character images fund like image generations.",
         }),
         variant: "destructive",
@@ -10976,7 +11059,7 @@ function CharacterManagerDialog({
     } else {
       toast({
         title: fallbackTitle,
-        description: error?.message || "Please try again.",
+        description: apiErrorMessage(error, "Please try again."),
         variant: "destructive",
       });
     }
@@ -11014,6 +11097,8 @@ function CharacterManagerDialog({
       if (!put.ok) throw new Error(`Upload failed (${put.status})`);
       setPhotoPath(objectPath);
       setPhotoName(file.name);
+      setSelectedIdentityId(null);
+      sessionStorage.removeItem("kokao-character-verification-draft");
     } catch {
       toast({
         title: "Upload failed",
@@ -11027,12 +11112,15 @@ function CharacterManagerDialog({
   };
 
   const onCreate = () => {
+    const selectedIdentity =
+      identityQuery.data?.find((identity) => identity.id === selectedIdentityId) ?? null;
     createCharacter.mutate(
       {
         data: {
           name: name.trim(),
           description: description.trim() || null,
           sourceImagePath: photoPath,
+          identityId: selectedIdentity?.status === "verified" ? selectedIdentity.id : null,
         },
       },
       {
@@ -11041,6 +11129,9 @@ function CharacterManagerDialog({
           setDescription("");
           setPhotoPath(null);
           setPhotoName("");
+          setSelectedIdentityId(null);
+          setVerificationCharacterId(null);
+          sessionStorage.removeItem("kokao-character-verification-draft");
           invalidate();
           toast({
             title: "Character created",
@@ -11052,6 +11143,82 @@ function CharacterManagerDialog({
           onApiError(error, "Could not create the character"),
       },
     );
+  };
+
+  const beginIdentityVerification = () => {
+    if (!photoPath || !name.trim()) return;
+    startIdentityVerification.mutate(
+      { data: { label: name.trim() } },
+      {
+        onSuccess: (identity) => {
+          sessionStorage.setItem(
+            "kokao-character-verification-draft",
+            JSON.stringify({
+              name,
+              description,
+              photoPath,
+              photoName,
+              identityId: identity.id,
+            }),
+          );
+          window.location.assign(identity.verificationUrl);
+        },
+        onError: (error: any) =>
+          onApiError(error, "Could not start identity verification"),
+      },
+    );
+  };
+
+  const beginExistingIdentityVerification = (character: StudioCharacter) => {
+    const characterId = Number(character.id);
+    if (!Number.isInteger(characterId) || characterId <= 0) return;
+    startIdentityVerification.mutate(
+      { data: { label: character.name } },
+      {
+        onSuccess: (identity) => {
+          sessionStorage.setItem(
+            "kokao-character-verification-draft",
+            JSON.stringify({
+              identityId: identity.id,
+              existingCharacterId: characterId,
+            }),
+          );
+          window.location.assign(identity.verificationUrl);
+        },
+        onError: (error: any) =>
+          onApiError(error, "Could not start identity verification"),
+      },
+    );
+  };
+
+  const attachExistingIdentity = async (characterId: number) => {
+    if (selectedIdentity?.status !== "verified") return;
+    setAttachingIdentity(true);
+    try {
+      const response = await fetch(`/api/characters/${characterId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identityId: selectedIdentity.id }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      if (!response.ok) {
+        throw new Error(body?.error || "Could not attach the verified identity.");
+      }
+      sessionStorage.removeItem("kokao-character-verification-draft");
+      setSelectedIdentityId(null);
+      setVerificationCharacterId(null);
+      invalidate();
+      toast({
+        title: "Verified identity attached",
+        description: "This character can now use BytePlus real-person identity protection.",
+      });
+    } catch (error) {
+      onApiError(error, "Could not attach the verified identity");
+    } finally {
+      setAttachingIdentity(false);
+    }
   };
 
   const onAddOutfit = (character: StudioCharacter) => {
@@ -11302,6 +11469,10 @@ function CharacterManagerDialog({
     (description.trim().length >= 3 || photoPath !== null) &&
     !createCharacter.isPending &&
     !uploading;
+  const selectedIdentity =
+    identityQuery.data?.find((identity) => identity.id === selectedIdentityId) ?? null;
+  const realPersonBlocked =
+    selectedIdentityId !== null && selectedIdentity?.status !== "verified";
 
   return (
     <>
@@ -11337,7 +11508,14 @@ function CharacterManagerDialog({
                     <button
                       type="button"
                       aria-label="Remove photo"
-                      onClick={() => setPhotoPath(null)}
+                      onClick={() => {
+                        setPhotoPath(null);
+                        setPhotoName("");
+                        setSelectedIdentityId(null);
+                        sessionStorage.removeItem(
+                          "kokao-character-verification-draft",
+                        );
+                      }}
                       className="ml-auto"
                     >
                       <X className="h-4 w-4" />
@@ -11364,6 +11542,56 @@ function CharacterManagerDialog({
                 />
               </div>
             </div>
+            {photoPath && (
+              <div
+                className="space-y-2 rounded-md border border-border bg-muted/30 p-3"
+                data-testid="panel-character-identity-verification"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Is this a real person?</p>
+                    <p className="text-xs text-muted-foreground">
+                      Verify their liveness with BytePlus before attaching their identity.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!name.trim() || startIdentityVerification.isPending}
+                    onClick={beginIdentityVerification}
+                    data-testid="button-verify-character-identity"
+                  >
+                    {startIdentityVerification.isPending ? (
+                      <RippleSpinner className="mr-2 h-4 w-4" />
+                    ) : null}
+                    {selectedIdentity?.status === "failed" ? "Retry verification" : "Verify person"}
+                  </Button>
+                </div>
+                {selectedIdentity && (
+                  <div
+                    className="text-sm"
+                    data-testid={`status-character-identity-${selectedIdentity.status}`}
+                  >
+                    {selectedIdentity.status === "verified" && (
+                      <span className="text-emerald-700 dark:text-emerald-400">
+                        Verified — this identity will be attached to the character.
+                      </span>
+                    )}
+                    {selectedIdentity.status === "pending" && (
+                      <span className="text-amber-700 dark:text-amber-400">
+                        Verification pending. Finish the BytePlus liveness check, then return here.
+                      </span>
+                    )}
+                    {selectedIdentity.status === "failed" && (
+                      <span className="text-destructive">
+                        Verification failed. {selectedIdentity.error || "Please try again."}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="character-description">Appearance</Label>
@@ -11387,7 +11615,7 @@ function CharacterManagerDialog({
             </div>
             <Button
               onClick={onCreate}
-              disabled={!canCreate}
+              disabled={!canCreate || realPersonBlocked}
               data-testid="button-create-character"
             >
               {createCharacter.isPending ? (
@@ -11478,6 +11706,75 @@ function CharacterManagerDialog({
                           </button>
                         )}
                       </div>
+                      {!shared &&
+                        c.referenceSource === "uploaded" &&
+                        !c.identityId && (
+                          <div
+                            className="rounded-md border border-border bg-muted/30 p-2 text-xs"
+                            data-testid={`panel-existing-character-verification-${c.id}`}
+                          >
+                            {verificationCharacterId === c.id && selectedIdentity ? (
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span
+                                  className={
+                                    selectedIdentity.status === "verified"
+                                      ? "text-emerald-700 dark:text-emerald-400"
+                                      : selectedIdentity.status === "failed"
+                                        ? "text-destructive"
+                                        : "text-amber-700 dark:text-amber-400"
+                                  }
+                                >
+                                  {selectedIdentity.status === "verified"
+                                    ? "Liveness verified. Attach it to this character."
+                                    : selectedIdentity.status === "failed"
+                                      ? selectedIdentity.error || "Verification failed."
+                                      : "BytePlus verification is pending."}
+                                </span>
+                                {selectedIdentity.status === "verified" ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={attachingIdentity}
+                                    onClick={() => void attachExistingIdentity(Number(c.id))}
+                                    data-testid={`button-attach-character-identity-${c.id}`}
+                                  >
+                                    {attachingIdentity ? (
+                                      <RippleSpinner className="mr-2 h-4 w-4" />
+                                    ) : null}
+                                    Attach identity
+                                  </Button>
+                                ) : selectedIdentity.status === "failed" ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={startIdentityVerification.isPending}
+                                    onClick={() => beginExistingIdentityVerification(c)}
+                                    data-testid={`button-retry-character-identity-${c.id}`}
+                                  >
+                                    Retry
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>
+                                  Real person? Verify liveness before attaching their identity.
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={startIdentityVerification.isPending}
+                                  onClick={() => beginExistingIdentityVerification(c)}
+                                  data-testid={`button-verify-existing-character-${c.id}`}
+                                >
+                                  Verify person
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       {!shared && (
                         <div
                           className="rounded-md border border-border p-2 space-y-2"

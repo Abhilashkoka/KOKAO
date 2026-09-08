@@ -9,6 +9,7 @@ import {
   useDeleteVisualAsset,
   getListVisualAssetsQueryKey,
   useRequestUploadUrl,
+  useStartBytePlusIdentityVerification,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -127,6 +128,7 @@ function AddSavedImageDialog({
   description,
   saving,
   onSave,
+  onVerify,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -134,6 +136,7 @@ function AddSavedImageDialog({
   description: string;
   saving: boolean;
   onSave: (name: string, file: File) => void;
+  onVerify?: (name: string, file: File) => void;
 }) {
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -185,6 +188,17 @@ function AddSavedImageDialog({
           </Button>
         </div>
         <DialogFooter>
+          {onVerify && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving || !name.trim() || !file}
+              onClick={() => file && onVerify(name.trim(), file)}
+              data-testid="button-verify-saved-character"
+            >
+              Verify real person
+            </Button>
+          )}
           <Button
             type="button"
             disabled={saving || !name.trim() || !file}
@@ -206,6 +220,7 @@ function CharactersCard() {
   const { data: characters, isLoading } = useListCharacters();
   const createCharacter = useCreateCharacter();
   const deleteCharacter = useDeleteCharacter();
+  const startIdentityVerification = useStartBytePlusIdentityVerification();
   const { upload, uploading } = useImageUpload();
   const [addOpen, setAddOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -226,6 +241,33 @@ function CharactersCard() {
       toast({ title: "Character saved" });
     } catch (err) {
       toast({ title: "Could not save character", description: errText(err), variant: "destructive" });
+    }
+  };
+
+  const handleVerify = async (name: string, file: File) => {
+    const objectPath = await upload(file);
+    if (!objectPath) return;
+    try {
+      const identity = await startIdentityVerification.mutateAsync({
+        data: { label: name },
+      });
+      sessionStorage.setItem(
+        "kokao-character-verification-draft",
+        JSON.stringify({
+          name,
+          description: "",
+          photoPath: objectPath,
+          photoName: file.name,
+          identityId: identity.id,
+        }),
+      );
+      window.location.assign(identity.verificationUrl);
+    } catch (err) {
+      toast({
+        title: "Could not start identity verification",
+        description: errText(err),
+        variant: "destructive",
+      });
     }
   };
 
@@ -295,8 +337,13 @@ function CharactersCard() {
           onOpenChange={setAddOpen}
           title="Add a character"
           description="Upload a clear photo of the person or mascot and give it a name."
-          saving={uploading || createCharacter.isPending}
+          saving={
+            uploading ||
+            createCharacter.isPending ||
+            startIdentityVerification.isPending
+          }
           onSave={(name, file) => void handleSave(name, file)}
+          onVerify={(name, file) => void handleVerify(name, file)}
         />
       </CardContent>
     </Card>

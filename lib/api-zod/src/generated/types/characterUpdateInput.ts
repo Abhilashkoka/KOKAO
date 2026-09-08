@@ -8,5 +8,10 @@
 import type { ProtectedImageRegion } from './protectedImageRegion';
 
 export interface CharacterUpdateInput {
-  protectedRegion: ProtectedImageRegion;
+  protectedRegion?: ProtectedImageRegion;
+  /**
+     * Verified tenant-owned BytePlus identity to attach to an uploaded character.
+     * @minimum 1
+     */
+  identityId?: number;
 }

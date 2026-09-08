@@ -221,6 +221,7 @@ import {
   tenantsTable,
   creditBalancesTable,
   creditLedgerTable,
+  bytePlusIdentitiesTable,
   presetCharactersTable,
   presetOutfitDerivativesTable,
 } from "@workspace/db";
@@ -305,6 +306,9 @@ afterAll(async () => {
       .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
     await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
     await db
+      .delete(bytePlusIdentitiesTable)
+      .where(eq(bytePlusIdentitiesTable.tenantId, tenant.tenantId));
+    await db
       .delete(creditBalancesTable)
       .where(eq(creditBalancesTable.tenantId, tenant.tenantId));
     await db
@@ -387,6 +391,66 @@ describe("POST /api/characters", () => {
     const res = await request(app).post("/api/characters").send({ name: "Maya" });
     expect(res.status).toBe(400);
     expect(genState.referenceCalls).toHaveLength(0);
+  });
+
+  it("attaches only a verified identity owned by the caller", async () => {
+    const tenant = await newTenant();
+    const [verified] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values({
+        tenantId: tenant.tenantId,
+        label: "Maya",
+        status: "verified",
+        assetGroupId: "asset-group-maya",
+        verifiedAt: new Date(),
+      })
+      .returning();
+    const sourceImagePath = `/objects/${tenant.tenantId}/uploads/maya.png`;
+
+    const created = await request(app).post("/api/characters").send({
+      name: "Maya",
+      sourceImagePath,
+      identityId: verified!.id,
+    });
+
+    expect(created.status).toBe(201);
+    const [stored] = await db
+      .select({ identityId: charactersTable.bytePlusIdentityId })
+      .from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id));
+    expect(stored?.identityId).toBe(verified!.id);
+
+    const otherTenant = await newTenant();
+    const rejected = await request(app).post("/api/characters").send({
+      name: "Impostor",
+      sourceImagePath: `/objects/${otherTenant.tenantId}/uploads/impostor.png`,
+      identityId: verified!.id,
+    });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error).toMatch(/verified BytePlus identity/i);
+  });
+
+  it("lists only the caller's identities and hides the completing state", async () => {
+    const tenant = await newTenant();
+    await db.insert(bytePlusIdentitiesTable).values([
+      { tenantId: tenant.tenantId, label: "Pending", status: "completing" },
+      { tenantId: tenant.tenantId, label: "Verified", status: "verified", assetGroupId: "group" },
+    ]);
+    const otherTenant = await newTenant();
+    await db.insert(bytePlusIdentitiesTable).values({
+      tenantId: otherTenant.tenantId,
+      label: "Other workspace",
+    });
+    actAs(tenant.clerkUserId);
+
+    const listed = await request(app).get("/api/characters/identities");
+
+    expect(listed.status).toBe(200);
+    expect(listed.body.map((identity: { label: string }) => identity.label)).toEqual([
+      "Pending",
+      "Verified",
+    ]);
+    expect(listed.body[0].status).toBe("pending");
   });
 
   it("rejects an uploaded reference outside the caller's workspace", async () => {
@@ -557,6 +621,76 @@ describe("POST /api/characters", () => {
     expect(res.body.referenceImagePath).toMatch(/^\/objects\/\d+\/uploads\//);
     expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(0);
     expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
+  });
+});
+
+describe("PATCH /api/characters/:characterId identity attachment", () => {
+  it("attaches a verified workspace identity to an existing uploaded character", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Maya",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+    });
+    const [identity] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values({
+        tenantId: tenant.tenantId,
+        label: "Maya",
+        status: "verified",
+        assetGroupId: "group-existing-maya",
+        verifiedAt: new Date(),
+      })
+      .returning();
+
+    const attached = await request(app)
+      .patch(`/api/characters/${created.body.id}`)
+      .send({ identityId: identity!.id });
+
+    expect(attached.status).toBe(200);
+    expect(attached.body.identityId).toBe(identity!.id);
+    expect(attached.body.referenceSource).toBe("uploaded");
+  });
+
+  it("rejects unverified, foreign, and generated-character attachments", async () => {
+    const owner = await newTenant();
+    const uploaded = await request(app).post("/api/characters").send({
+      name: "Uploaded",
+      sourceImagePath: `/objects/${owner.tenantId}/uploads/uploaded.png`,
+    });
+    const generated = await request(app)
+      .post("/api/characters")
+      .send({ name: "Generated", description: "fictional person" });
+    const [pending] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values({ tenantId: owner.tenantId, label: "Pending" })
+      .returning();
+    const other = await newTenant();
+    const [foreign] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values({
+        tenantId: other.tenantId,
+        label: "Foreign",
+        status: "verified",
+        assetGroupId: "foreign-group",
+      })
+      .returning();
+    actAs(owner.clerkUserId);
+
+    const [unverifiedResult, foreignResult, generatedResult] = await Promise.all([
+      request(app)
+        .patch(`/api/characters/${uploaded.body.id}`)
+        .send({ identityId: pending!.id }),
+      request(app)
+        .patch(`/api/characters/${uploaded.body.id}`)
+        .send({ identityId: foreign!.id }),
+      request(app)
+        .patch(`/api/characters/${generated.body.id}`)
+        .send({ identityId: pending!.id }),
+    ]);
+
+    expect(unverifiedResult.status).toBe(400);
+    expect(foreignResult.status).toBe(400);
+    expect(generatedResult.status).toBe(400);
   });
 });
 

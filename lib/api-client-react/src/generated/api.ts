@@ -8776,7 +8776,7 @@ export const getUpdateCharacterUrl = (characterId: number,) => {
 }
 
 /**
- * @summary Confirm or adjust the canonical face-and-hair protected region
+ * @summary Update identity protection or attach a verified real-person identity
  */
 export const updateCharacter = async (characterId: number,
     characterUpdateInput: CharacterUpdateInput, options?: RequestInit): Promise<Character> => {
@@ -8825,7 +8825,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateCharacterMutationError = ErrorType<void>
 
     /**
- * @summary Confirm or adjust the canonical face-and-hair protected region
+ * @summary Update identity protection or attach a verified real-person identity
  */
 export const useUpdateCharacter = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCharacter>>, TError,{characterId: number;data: BodyType<CharacterUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

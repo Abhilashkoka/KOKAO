@@ -2851,7 +2851,7 @@ paths:
     patch:
       operationId: updateCharacter
       tags: [characters]
-      summary: Confirm or adjust the canonical face-and-hair protected region
+      summary: Update identity protection or attach a verified real-person identity
       requestBody:
         required: true
         content:
@@ -2865,7 +2865,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Character"
-        "400": { description: Invalid protected region }
+        "400": { description: Invalid protected region or identity }
         "404": { description: Not found }
   /characters/{characterId}/outfits:
     parameters:
@@ -20766,7 +20766,7 @@ components:
     Character:
       type: object
       required:
-        [id, name, description, referenceImagePath, referenceSheetImagePath, referenceSheetStatus, referenceSheetError, outfits, createdAt, updatedAt]
+        [id, name, description, referenceImagePath, referenceSource, identityId, referenceSheetImagePath, referenceSheetStatus, referenceSheetError, outfits, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -20778,6 +20778,12 @@ components:
         referenceImagePath:
           type: string
           description: Canonical reference image; serve via /api/storage{path}.
+        referenceSource:
+          type: string
+          enum: [generated, uploaded]
+        identityId:
+          type: ["integer", "null"]
+          description: Tenant-owned BytePlus identity attached after successful liveness verification.
         referenceSheetImagePath:
           type: ["string", "null"]
           description: Separate generated multi-view sheet; serve via /api/storage{path}.
@@ -20923,11 +20929,15 @@ components:
         height: { type: number, exclusiveMinimum: 0, maximum: 1 }
     CharacterUpdateInput:
       type: object
+      minProperties: 1
       additionalProperties: false
-      required: [protectedRegion]
       properties:
         protectedRegion:
           $ref: "#/components/schemas/ProtectedImageRegion"
+        identityId:
+          type: integer
+          minimum: 1
+          description: Verified tenant-owned BytePlus identity to attach to an uploaded character.
     CharacterOutfitUpdateInput:
       type: object
       minProperties: 1

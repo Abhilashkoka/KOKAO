@@ -3460,6 +3460,8 @@ export const ListCharactersResponseItem = zod.union([zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
   "referenceSheetError": zod.string().nullable(),
@@ -3574,6 +3576,8 @@ export const CreateCharacterResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
   "referenceSheetError": zod.string().nullable(),
@@ -3888,6 +3892,8 @@ export const GenerateCharacterReferenceSheetResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
   "referenceSheetError": zod.string().nullable(),
@@ -3957,6 +3963,8 @@ export const ReviewCharacterReferenceSheetResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
   "referenceSheetError": zod.string().nullable(),
@@ -4350,7 +4358,7 @@ export const DeleteCharacterResponse = zod.void()
 
 
 /**
- * @summary Confirm or adjust the canonical face-and-hair protected region
+ * @summary Update identity protection or attach a verified real-person identity
  */
 export const UpdateCharacterParams = zod.object({
   "characterId": zod.coerce.number()
@@ -4370,13 +4378,15 @@ export const updateCharacterBodyProtectedRegionHeightMax = 1;
 
 
 
+
 export const UpdateCharacterBody = zod.object({
   "protectedRegion": zod.object({
   "x": zod.number().min(updateCharacterBodyProtectedRegionXMin).max(updateCharacterBodyProtectedRegionXMax),
   "y": zod.number().min(updateCharacterBodyProtectedRegionYMin).max(updateCharacterBodyProtectedRegionYMax),
   "width": zod.number().gt(updateCharacterBodyProtectedRegionWidthExclusiveMin).max(updateCharacterBodyProtectedRegionWidthMax),
   "height": zod.number().gt(updateCharacterBodyProtectedRegionHeightExclusiveMin).max(updateCharacterBodyProtectedRegionHeightMax)
-})
+}).optional(),
+  "identityId": zod.number().min(1).optional().describe('Verified tenant-owned BytePlus identity to attach to an uploaded character.')
 })
 
 export const updateCharacterResponseProtectedRegionOneXMin = 0;
@@ -4410,6 +4420,8 @@ export const UpdateCharacterResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
   "referenceSheetError": zod.string().nullable(),
@@ -4507,6 +4519,8 @@ export const CreateCharacterOutfitResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
   "referenceSheetError": zod.string().nullable(),

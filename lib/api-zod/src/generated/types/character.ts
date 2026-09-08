@@ -7,6 +7,7 @@
  */
 import type { CharacterOutfit } from './characterOutfit';
 import type { CharacterReferenceSheetStatus } from './characterReferenceSheetStatus';
+import type { CharacterReferenceSource } from './characterReferenceSource';
 import type { ProtectedImageRegion } from './protectedImageRegion';
 
 export interface Character {
@@ -16,6 +17,12 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  referenceSource: CharacterReferenceSource;
+  /**
+     * Tenant-owned BytePlus identity attached after successful liveness verification.
+     * @nullable
+     */
+  identityId: number | null;
   /**
      * Separate generated multi-view sheet; serve via /api/storage{path}.
      * @nullable

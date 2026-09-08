@@ -127,6 +127,8 @@ function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
     name: character.name,
     description: character.description,
     referenceImagePath: character.referenceImagePath,
+    referenceSource: character.referenceSource,
+    identityId: character.bytePlusIdentityId,
     referenceSheetImagePath: character.referenceSheetImagePath,
     referenceSheetStatus: character.referenceSheetStatus,
     referenceSheetError: character.referenceSheetError,
@@ -1150,7 +1152,7 @@ router.get("/characters/identities", async (req: Request, res: Response) => {
   res.json((await listBytePlusIdentities(req.tenantId)).map((identity) => ({
     id: identity.id,
     label: identity.label,
-    status: identity.status,
+    status: identity.status === "completing" ? "pending" : identity.status,
     assetGroupId: identity.assetGroupId,
     error: identity.error,
     verifiedAt: identity.verifiedAt?.toISOString() ?? null,
@@ -1199,7 +1201,11 @@ bytePlusIdentityCallbackRouter.get(
         : typeof req.query.bytedToken === "string" ? req.query.bytedToken : undefined,
       resultCode: typeof req.query.resultCode === "string" ? req.query.resultCode : undefined,
     });
-    res.redirect(`/studio?identity=${outcome.ok ? "verified" : "failed"}`);
+    const query = new URLSearchParams({
+      identity: outcome.ok ? "verified" : "failed",
+    });
+    if (outcome.identityId) query.set("identityId", String(outcome.identityId));
+    res.redirect(`/studio?${query.toString()}`);
   },
 );
 
@@ -1211,17 +1217,49 @@ router.patch("/characters/:characterId", async (req: Request, res: Response) => 
   }
   const parsed = UpdateCharacterBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Choose a valid face and hair region." });
+    res.status(400).json({ error: "Choose a valid identity update." });
     return;
   }
   const region = parsed.data.protectedRegion;
-  if (region.x + region.width > 1 || region.y + region.height > 1) {
+  if (
+    region &&
+    (region.x + region.width > 1 || region.y + region.height > 1)
+  ) {
     res.status(400).json({ error: "The protected region must stay inside the image." });
     return;
   }
+  const identityId = parsed.data.identityId;
+  if (identityId !== undefined) {
+    if (character.referenceSource !== "uploaded") {
+      res.status(400).json({
+        error: "Only a character created from an uploaded photo can be verified.",
+      });
+      return;
+    }
+    if (
+      character.bytePlusIdentityId !== null &&
+      character.bytePlusIdentityId !== identityId
+    ) {
+      res.status(409).json({
+        error: "This character is already attached to a different verified identity.",
+      });
+      return;
+    }
+    const identity = await getBytePlusIdentity(req.tenantId, identityId);
+    if (identity?.status !== "verified" || !identity.assetGroupId) {
+      res.status(400).json({
+        error: "Choose a verified BytePlus identity owned by this workspace.",
+      });
+      return;
+    }
+  }
   const [updated] = await db
     .update(charactersTable)
-    .set({ protectedRegion: region, updatedAt: new Date() })
+    .set({
+      ...(region ? { protectedRegion: region } : {}),
+      ...(identityId !== undefined ? { bytePlusIdentityId: identityId } : {}),
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(charactersTable.id, character.id),
@@ -1238,6 +1276,15 @@ router.patch("/characters/:characterId", async (req: Request, res: Response) => 
         eq(characterOutfitsTable.tenantId, req.tenantId),
       ),
     );
+  if (identityId !== undefined) {
+    for (const outfit of outfits) {
+      registerOutfitAssetInBackground({
+        tenantId: req.tenantId,
+        character: updated!,
+        outfit,
+      });
+    }
+  }
   res.json(serializeCharacter(updated!, outfits));
 });
 

@@ -7963,6 +7963,14 @@ export interface AnalyzeVideoStyleRequest {
   sourceVideoPath: string;
 }
 
+export type CharacterReferenceSource = typeof CharacterReferenceSource[keyof typeof CharacterReferenceSource];
+
+
+export const CharacterReferenceSource = {
+  generated: 'generated',
+  uploaded: 'uploaded',
+} as const;
+
 export type CharacterReferenceSheetStatus = typeof CharacterReferenceSheetStatus[keyof typeof CharacterReferenceSheetStatus];
 
 
@@ -8026,6 +8034,12 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  referenceSource: CharacterReferenceSource;
+  /**
+     * Tenant-owned BytePlus identity attached after successful liveness verification.
+     * @nullable
+     */
+  identityId: number | null;
   /**
      * Separate generated multi-view sheet; serve via /api/storage{path}.
      * @nullable
@@ -8160,7 +8174,12 @@ export type AdminPresetCharacter = AdminPresetCharacterInput & {
 };
 
 export interface CharacterUpdateInput {
-  protectedRegion: ProtectedImageRegion;
+  protectedRegion?: ProtectedImageRegion;
+  /**
+     * Verified tenant-owned BytePlus identity to attach to an uploaded character.
+     * @minimum 1
+     */
+  identityId?: number;
 }
 
 export type CharacterOutfitUpdateInputStatus = typeof CharacterOutfitUpdateInputStatus[keyof typeof CharacterOutfitUpdateInputStatus];

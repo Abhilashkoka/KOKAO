@@ -80,6 +80,9 @@ const mockState: {
   createdOutfitCharacter: any;
   reviewedReferenceSheets: any[];
   regeneratedReferenceSheets: number[];
+  identities: any[];
+  startedIdentityVerifications: any[];
+  createdCharacters: any[];
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -148,6 +151,9 @@ const mockState: {
   createdOutfitCharacter: null,
   reviewedReferenceSheets: [],
   regeneratedReferenceSheets: [],
+  identities: [],
+  startedIdentityVerifications: [],
+  createdCharacters: [],
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -603,6 +609,32 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useListCharacters: () => ({ data: mockState.characters }),
+    useListBytePlusIdentities: () => ({
+      data: mockState.identities,
+      refetch: vi.fn().mockResolvedValue({ data: mockState.identities }),
+    }),
+    useStartBytePlusIdentityVerification: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.startedIdentityVerifications.push(vars);
+        opts?.onSuccess?.({
+          id: 71,
+          label: vars.data.label,
+          status: "pending",
+          assetGroupId: null,
+          error: null,
+          verifiedAt: null,
+          verificationUrl: "https://verify.example.test/liveness",
+        });
+      },
+    }),
+    useCreateCharacter: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.createdCharacters.push(vars);
+        opts?.onSuccess?.({});
+      },
+    }),
     useReviewCharacterReferenceSheet: () => ({
       isPending: false,
       mutate: (vars: any, opts: any) => {
@@ -978,9 +1010,14 @@ beforeEach(() => {
   mockState.createdOutfitCharacter = null;
   mockState.reviewedReferenceSheets = [];
   mockState.regeneratedReferenceSheets = [];
+  mockState.identities = [];
+  mockState.startedIdentityVerifications = [];
+  mockState.createdCharacters = [];
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   localStorage.clear();
+  sessionStorage.clear();
+  window.history.replaceState({}, "", "/studio");
   cleanup();
 });
 
@@ -3474,6 +3511,148 @@ describe("Video Studio", () => {
     // The character manager opens from the empty state.
     await user.click(screen.getByTestId("button-manage-characters"));
     expect(screen.getByTestId("button-create-character")).toBeTruthy();
+  });
+
+  it("restores a verified real-person draft and attaches its identity", async () => {
+    mockState.identities = [
+      {
+        id: 71,
+        label: "Maya",
+        status: "verified",
+        assetGroupId: "group-maya",
+        error: null,
+        verifiedAt: "2026-09-08T10:00:00.000Z",
+      },
+    ];
+    sessionStorage.setItem(
+      "kokao-character-verification-draft",
+      JSON.stringify({
+        name: "Maya",
+        description: "Founder",
+        photoPath: "/objects/1/uploads/maya.png",
+        photoName: "maya.png",
+      }),
+    );
+    window.history.replaceState(
+      {},
+      "",
+      "/studio?identity=verified&identityId=71",
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByTestId("status-character-identity-verified"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId("button-create-character"));
+    await waitFor(() => expect(mockState.createdCharacters).toHaveLength(1));
+    expect(mockState.createdCharacters[0].data).toMatchObject({
+      name: "Maya",
+      description: "Founder",
+      sourceImagePath: "/objects/1/uploads/maya.png",
+      identityId: 71,
+    });
+    expect(window.location.search).toBe("");
+  });
+
+  it("shows a failed verification and lets the user retry it", async () => {
+    mockState.identities = [
+      {
+        id: 72,
+        label: "Maya",
+        status: "failed",
+        assetGroupId: null,
+        error: "Liveness check was not completed.",
+        verifiedAt: null,
+      },
+    ];
+    sessionStorage.setItem(
+      "kokao-character-verification-draft",
+      JSON.stringify({
+        name: "Maya",
+        photoPath: "/objects/1/uploads/maya.png",
+        photoName: "maya.png",
+      }),
+    );
+    window.history.replaceState(
+      {},
+      "",
+      "/studio?identity=failed&identityId=72",
+    );
+    renderPage();
+
+    expect(
+      await screen.findByText("Liveness check was not completed.", {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    const create = screen.getByTestId("button-create-character") as HTMLButtonElement;
+    expect(create.disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("button-verify-character-identity"));
+    expect(mockState.startedIdentityVerifications).toEqual([
+      { data: { label: "Maya" } },
+    ]);
+  });
+
+  it("attaches a verified identity to an existing uploaded character", async () => {
+    mockState.characters = [
+      {
+        id: 9,
+        name: "Maya",
+        description: "",
+        referenceImagePath: "/objects/1/uploads/maya.png",
+        referenceSource: "uploaded",
+        identityId: null,
+        referenceSheetImagePath: "/objects/1/uploads/maya-sheet.png",
+        referenceSheetStatus: "approved",
+        referenceSheetError: null,
+        protectedRegion: null,
+        outfits: [],
+        createdAt: "2026-09-08T09:00:00.000Z",
+        updatedAt: "2026-09-08T09:00:00.000Z",
+      },
+    ];
+    mockState.identities = [
+      {
+        id: 73,
+        label: "Maya",
+        status: "verified",
+        assetGroupId: "group-maya",
+        error: null,
+        verifiedAt: "2026-09-08T10:00:00.000Z",
+      },
+    ];
+    sessionStorage.setItem(
+      "kokao-character-verification-draft",
+      JSON.stringify({ identityId: 73, existingCharacterId: 9 }),
+    );
+    window.history.replaceState(
+      {},
+      "",
+      "/studio?identity=verified&identityId=73",
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPage();
+    fireEvent.click(
+      await screen.findByTestId("button-attach-character-identity-9"),
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/characters/9",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ identityId: 73 }),
+        }),
+      ),
+    );
+    expect(sessionStorage.getItem("kokao-character-verification-draft")).toBeNull();
   });
 
   it("opens an enlarged outfit image when the character preview is clicked", async () => {

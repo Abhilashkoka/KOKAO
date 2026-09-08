@@ -247,6 +247,7 @@ export * from './characterOutfitStatus';
 export * from './characterOutfitUpdateInput';
 export * from './characterOutfitUpdateInputStatus';
 export * from './characterReferenceSheetStatus';
+export * from './characterReferenceSource';
 export * from './characterUpdateInput';
 export * from './checkVoiceSampleRequest';
 export * from './cinematography';
