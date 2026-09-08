@@ -1311,7 +1311,12 @@ export function VideoStudioPage() {
     query: { queryKey: getListVideoJobsQueryKey() },
   });
   const { data: characters } = useListCharacters({
-    query: { queryKey: getListCharactersQueryKey() },
+    query: {
+      queryKey: getListCharactersQueryKey(),
+      staleTime: 0,
+      refetchOnMount: "always",
+      refetchInterval: engine === "guided_story" ? 3_000 : false,
+    },
   });
   const { data: brandKits } = useListBrandKits();
   // Saved lip-sync base videos live on the selected kit's active payload.

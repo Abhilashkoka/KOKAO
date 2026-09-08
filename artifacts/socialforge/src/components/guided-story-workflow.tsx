@@ -1291,6 +1291,8 @@ function CastApprovalStep(props: any) {
   const finalizeReference = useFinalizeGuidedStoryReference();
   const customizeGenerated = useCustomizeGuidedStoryGeneratedCastRole();
   const reviewReferenceSheet = useReviewCharacterReferenceSheet();
+  const retryGeneratedSheet = useRetryGuidedStoryGeneratedCastReferenceSheet();
+  const [sheetRefreshRoleId, setSheetRefreshRoleId] = useState<string | null>(null);
   const roles = props.draft.script?.roles ?? [];
   const manifest = props.draft.castApprovals;
   const manifestIsCurrent = manifest?.draftRevision === props.draft.revision;
@@ -1346,6 +1348,42 @@ function CastApprovalStep(props: any) {
           ),
       },
     );
+  };
+  const refreshSheet = async (roleId: string) => {
+    setSheetReviewError(null);
+    setSheetRefreshRoleId(roleId);
+    try {
+      await queryClient.refetchQueries({
+        queryKey: getListCharactersQueryKey(),
+      });
+    } catch (cause) {
+      setSheetReviewError(
+        apiErrorMessage(cause, "Could not refresh this reference sheet."),
+      );
+    } finally {
+      setSheetRefreshRoleId(null);
+    }
+  };
+  const retrySheet = async (roleId: string) => {
+    setSheetReviewError(null);
+    setSheetRefreshRoleId(roleId);
+    try {
+      const next = await retryGeneratedSheet.mutateAsync({
+        draftId: props.draft.id,
+        roleId,
+        data: { revision: props.draft.revision },
+      });
+      props.onDraftChanged(next);
+      await queryClient.refetchQueries({
+        queryKey: getListCharactersQueryKey(),
+      });
+    } catch (cause) {
+      setSheetReviewError(
+        apiErrorMessage(cause, "Could not retry this reference sheet."),
+      );
+    } finally {
+      setSheetRefreshRoleId(null);
+    }
   };
   const saveCustomization = async () => {
     if (!customizeRoleId) return;
@@ -1475,6 +1513,8 @@ function CastApprovalStep(props: any) {
           (libraryCharacter
             ? approvedSheetCharacterIds.has(libraryCharacter.id)
             : false);
+        const sheetImageAvailable = Boolean(libraryCharacter?.referenceSheetImagePath);
+        const sheetFailed = libraryCharacter?.referenceSheetStatus === "failed";
         return <Card key={role.id} className={approvalNeeded ? "border-amber-500 ring-2 ring-amber-300/60 dark:ring-amber-700/60" : "border-primary/20"} data-testid={`card-guided-cast-approval-${role.id}`}>
           <CardHeader className="pb-2"><CardTitle className="text-base">{role.name}</CardTitle><CardDescription data-testid={`status-guided-cast-approval-${role.id}`}>{approved ? "Approved for this draft revision" : manifest && !manifestIsCurrent ? "Approval is stale — review and reapprove" : "Approval needed"}</CardDescription></CardHeader>
           <CardContent className="space-y-3">
@@ -1497,11 +1537,30 @@ function CastApprovalStep(props: any) {
               <Button type="button" variant="outline" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-review-cast-${role.id}`}>Review references</Button>
               {cast?.source === "generated" && <Button type="button" variant="outline" onClick={() => openCustomization(role.id, cast)} data-testid={`button-guided-customize-character-${role.id}`}>Customize Character</Button>}
               <Button type="button" variant="outline" onClick={() => { setOutfitRoleId(role.id); setSelectedCharacterId(cast?.characterId ?? null); setSelectedOutfitId(cast?.outfitId ?? null); setOutfitCandidate(null); setOutfitError(null); }} data-testid={`button-guided-change-outfit-${role.id}`}>Replace character or outfit</Button>
-              {cast && approvalNeeded && !sheetApproved
-                ? <Button type="button" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-manage-sheet-${role.id}`}>Review &amp; approve reference sheet</Button>
+              {cast && approvalNeeded && !sheetApproved && sheetImageAvailable
+                ? <Button type="button" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-manage-sheet-${role.id}`}>View full sheet &amp; approve</Button>
+                : cast && approvalNeeded && !sheetApproved
+                  ? <Button
+                      type="button"
+                      disabled={sheetRefreshRoleId === role.id}
+                      onClick={() => void (sheetFailed ? retrySheet(role.id) : refreshSheet(role.id))}
+                      data-testid={`button-guided-refresh-sheet-${role.id}`}
+                    >
+                      {sheetRefreshRoleId === role.id
+                        ? sheetFailed ? "Retrying…" : "Refreshing…"
+                        : sheetFailed ? "Retry character sheet" : "Refresh character sheet"}
+                    </Button>
                 : <Button type="button" className={approvalNeeded && sheetApproved ? "ring-4 ring-amber-300/70 dark:ring-amber-700/70" : undefined} onClick={() => props.onApproveCastRole(role.id)} disabled={props.pending || !cast} aria-label={approvalNeeded ? `Approve ${role.name}` : `Reapprove ${role.name}`} data-testid={`button-guided-approve-cast-${role.id}`}>{props.approvingCastRoleId === role.id ? "Approving…" : approved ? "Reapprove" : `Approve ${role.name}`}</Button>}
             </div>
-            {approvalNeeded && !sheetApproved && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid={`status-guided-sheet-pending-${role.id}`}>Approve this character’s reference sheet first. Click either image or <b>Review &amp; approve reference sheet</b> to inspect and approve it here.</p>}
+            {approvalNeeded && !sheetApproved && (
+              <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid={`status-guided-sheet-pending-${role.id}`}>
+                {sheetImageAvailable
+                  ? <>Open <b>View full sheet &amp; approve</b> to inspect the complete multi-view image and approve it.</>
+                  : sheetFailed
+                    ? <>Character-sheet generation failed. Retry it here, then inspect the complete image before approval.</>
+                    : <>The character sheet is still preparing. This card refreshes automatically; use <b>Refresh character sheet</b> if it does not appear.</>}
+              </p>
+            )}
           </CardContent>
         </Card>;
       })}
@@ -1567,6 +1626,32 @@ function CastApprovalStep(props: any) {
                 Reference sheet approved. This cast role is being approved too.
               </p>
             ) : null}
+          </div>
+        )}
+        {selectedLibraryCharacter && !selectedLibraryCharacter.referenceSheetImagePath && reviewRoleId && (
+          <div className="space-y-3 rounded-md border border-amber-500/40 bg-amber-50 p-4 dark:bg-amber-950/20" data-testid="status-guided-reference-sheet-unavailable">
+            <div>
+              <p className="font-medium">The complete character sheet is not available yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {selectedLibraryCharacter.referenceSheetStatus === "failed"
+                  ? selectedLibraryCharacter.referenceSheetError ?? "Character-sheet generation failed."
+                  : "KOKAO is still preparing it or this page has not received the latest character update."}
+              </p>
+            </div>
+            <Button
+              type="button"
+              disabled={sheetRefreshRoleId === reviewRoleId}
+              onClick={() => void (
+                selectedLibraryCharacter.referenceSheetStatus === "failed"
+                  ? retrySheet(reviewRoleId)
+                  : refreshSheet(reviewRoleId)
+              )}
+              data-testid="button-guided-refresh-reference-sheet"
+            >
+              {sheetRefreshRoleId === reviewRoleId
+                ? selectedLibraryCharacter.referenceSheetStatus === "failed" ? "Retrying…" : "Refreshing…"
+                : selectedLibraryCharacter.referenceSheetStatus === "failed" ? "Retry character sheet" : "Refresh character sheet"}
+            </Button>
           </div>
         )}
         {selected?.source === "generated" && reviewRoleId && (
@@ -2460,7 +2545,19 @@ function ReferenceThumbnail({ label, asset, enlarged = false, onClick }: { label
       ? onClick
         ? <button type="button" className="block w-full rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" onClick={onClick} aria-label={`Enlarge ${label.toLowerCase()} reference`} data-testid={`button-enlarge-guided-${testIdLabel}-reference`}><img className="h-24 w-full rounded border object-cover transition-opacity hover:opacity-85" src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${testIdLabel}-reference`} /></button>
         : <img className={enlarged ? "h-64 w-full rounded-md border object-contain bg-muted" : "h-24 w-full rounded border object-cover"} src={`/api/storage${asset.referenceImagePath}`} alt={`${label} reference${asset.name ? ` for ${asset.name}` : ""}`} data-testid={`img-guided-${testIdLabel}-reference`} />
-      : <p className="rounded border border-dashed p-2 text-xs text-muted-foreground" role="status" data-testid={`status-guided-${testIdLabel}-reference-missing`}>No {label.toLowerCase()} reference image is available.</p>}
+      : onClick
+        ? <button
+            type="button"
+            className="block w-full rounded border border-dashed p-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            onClick={onClick}
+            aria-label={`Review missing ${label.toLowerCase()} reference`}
+            data-testid={`button-enlarge-guided-${testIdLabel}-reference`}
+          >
+            <span role="status" data-testid={`status-guided-${testIdLabel}-reference-missing`}>
+              No {label.toLowerCase()} reference image is available.
+            </span>
+          </button>
+        : <p className="rounded border border-dashed p-2 text-xs text-muted-foreground" role="status" data-testid={`status-guided-${testIdLabel}-reference-missing`}>No {label.toLowerCase()} reference image is available.</p>}
     {asset?.name && <p className="text-xs text-muted-foreground">{asset.name}</p>}
   </div>;
 }

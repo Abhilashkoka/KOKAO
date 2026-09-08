@@ -1203,6 +1203,16 @@ describe("GuidedStoryWorkflow", () => {
     expect(card.querySelector('[data-testid="img-guided-character-sheet-reference"]')).toBeNull();
     expect(card.querySelector('[data-testid="img-guided-character-reference"]')?.getAttribute("src"))
       .toContain("/objects/99/generated-r1.png");
+    expect(
+      screen.getByTestId("button-guided-refresh-sheet-r1").textContent,
+    ).toContain("Refresh character sheet");
+    await userEvent.click(
+      card.querySelector('[data-testid="button-enlarge-guided-character-sheet-reference"]')!,
+    );
+    expect(screen.getByTestId("status-guided-reference-sheet-unavailable").textContent).toContain(
+      "complete character sheet is not available",
+    );
+    expect(screen.getByTestId("button-guided-refresh-reference-sheet")).toBeTruthy();
   });
 
   it("opens and approves a pending generated sheet directly from the cast card", async () => {
@@ -1218,7 +1228,9 @@ describe("GuidedStoryWorkflow", () => {
       })),
     });
     expect(screen.queryByTestId("button-guided-approve-cast-r1")).toBeNull();
-    expect(screen.getByTestId("button-guided-manage-sheet-r1").textContent).toContain("Review & approve reference sheet");
+    expect(screen.getByTestId("button-guided-manage-sheet-r1").textContent).toContain(
+      "View full sheet & approve",
+    );
     await userEvent.click(
       screen.getAllByTestId("button-enlarge-guided-character-reference")[0],
     );
@@ -1571,7 +1583,9 @@ describe("GuidedStoryWorkflow", () => {
       "Approve Ari and Bo before starting final generation.",
     );
     expect(screen.queryByTestId("button-guided-approve-cast-r1")).toBeNull();
-    expect(screen.getByTestId("button-guided-manage-sheet-r1").textContent).toContain("Review & approve reference sheet");
+    expect(screen.getByTestId("button-guided-refresh-sheet-r1").textContent).toContain(
+      "Refresh character sheet",
+    );
     expect(screen.getByTestId("card-guided-cast-approval-r2").className).toContain("border-amber");
     await userEvent.click(screen.getByTestId("button-enlarge-guided-backdrop"));
     expect(screen.getByTestId("image-enlarged-guided-backdrop")).toBeTruthy();
