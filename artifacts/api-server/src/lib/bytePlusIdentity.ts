@@ -10,8 +10,12 @@ import {
   resolveLivenessAssetGroup,
 } from "./byteplus/assets";
 
-export function signBytePlusIdentityState(tenantId: number, identityId: number): string {
-  return signOAuthState(tenantId, String(identityId));
+export function signBytePlusIdentityState(
+  tenantId: number,
+  identityId: number,
+  returnTarget: "web" | "mobile" = "web",
+): string {
+  return signOAuthState(tenantId, `${identityId}:${returnTarget}`);
 }
 
 function tokenHash(token: string): string {
@@ -28,12 +32,14 @@ function hashesEqual(left: string | null, token: string | undefined): boolean {
 
 export function verifyBytePlusIdentityState(
   state: string,
-): { tenantId: number; identityId: number } | null {
+): { tenantId: number; identityId: number; returnTarget: "web" | "mobile" } | null {
   const verified = verifySignedOAuthState(state, BYTEPLUS_TOKEN_TTL_MS);
   if (!verified) return null;
-  const identityId = Number(verified.data);
+  const [rawIdentityId, rawReturnTarget = "web"] = verified.data.split(":");
+  const identityId = Number(rawIdentityId);
+  const returnTarget = rawReturnTarget === "mobile" ? "mobile" : "web";
   return Number.isInteger(identityId) && identityId > 0
-    ? { tenantId: verified.tenantId, identityId }
+    ? { tenantId: verified.tenantId, identityId, returnTarget }
     : null;
 }
 
@@ -41,6 +47,7 @@ export async function startBytePlusIdentityVerification(args: {
   tenantId: number;
   label: string;
   callbackBaseUrl: string;
+  returnTarget?: "web" | "mobile";
 }): Promise<{ identity: BytePlusIdentity; verificationUrl: string }> {
   const credentials = await resolveBytePlusAssetsCredentials();
   if (!credentials) throw new Error("BytePlus Asset Library is not configured.");
@@ -49,7 +56,11 @@ export async function startBytePlusIdentityVerification(args: {
     label: args.label,
   }).returning();
   try {
-    const state = signBytePlusIdentityState(args.tenantId, identity!.id);
+    const state = signBytePlusIdentityState(
+      args.tenantId,
+      identity!.id,
+      args.returnTarget ?? "web",
+    );
     const session = await createLivenessVerification(
       `${args.callbackBaseUrl}/${encodeURIComponent(state)}`,
       credentials,
@@ -71,19 +82,24 @@ export async function completeBytePlusIdentityVerification(args: {
   state: string;
   bytedToken?: string;
   resultCode?: string;
-}): Promise<{ ok: boolean; identityId: number | null; reason: string | null }> {
+}): Promise<{
+  ok: boolean;
+  identityId: number | null;
+  reason: string | null;
+  returnTarget?: "web" | "mobile";
+}> {
   const state = verifyBytePlusIdentityState(args.state);
   if (!state) return { ok: false, identityId: null, reason: "invalid_state" };
   const [identity] = await db.select().from(bytePlusIdentitiesTable).where(and(
     eq(bytePlusIdentitiesTable.id, state.identityId),
     eq(bytePlusIdentitiesTable.tenantId, state.tenantId),
   )).limit(1);
-  if (!identity) return { ok: false, identityId: null, reason: "unknown_identity" };
+  if (!identity) return { ok: false, identityId: null, reason: "unknown_identity", returnTarget: state.returnTarget };
   if (!hashesEqual(identity.verificationTokenHash, args.bytedToken)) {
-    return { ok: false, identityId: identity.id, reason: "token_mismatch" };
+    return { ok: false, identityId: identity.id, reason: "token_mismatch", returnTarget: state.returnTarget };
   }
   if (identity.status === "verified" && identity.assetGroupId) {
-    return { ok: true, identityId: identity.id, reason: null };
+    return { ok: true, identityId: identity.id, reason: null, returnTarget: state.returnTarget };
   }
   // Claim completion before trusting the result code or contacting BytePlus.
   // This makes a callback token single-use even when callbacks race.
@@ -93,12 +109,12 @@ export async function completeBytePlusIdentityVerification(args: {
     eq(bytePlusIdentitiesTable.status, "pending"),
     eq(bytePlusIdentitiesTable.verificationTokenHash, identity.verificationTokenHash!),
   )).returning({ id: bytePlusIdentitiesTable.id });
-  if (!claimed) return { ok: false, identityId: identity.id, reason: "already_completed" };
+  if (!claimed) return { ok: false, identityId: identity.id, reason: "already_completed", returnTarget: state.returnTarget };
   const fail = async (reason: string, error: string) => {
     await db.update(bytePlusIdentitiesTable).set({
       status: "failed", resultCode: args.resultCode ?? null, error,
     }).where(and(eq(bytePlusIdentitiesTable.id, identity.id), eq(bytePlusIdentitiesTable.status, "completing"))).catch(() => {});
-    return { ok: false, identityId: identity.id, reason };
+    return { ok: false, identityId: identity.id, reason, returnTarget: state.returnTarget };
   };
   if (args.resultCode !== BYTEPLUS_VERIFY_SUCCESS_CODE) {
     return fail("verification_failed", "BytePlus did not confirm this identity.");
@@ -118,7 +134,7 @@ export async function completeBytePlusIdentityVerification(args: {
       eq(bytePlusIdentitiesTable.id, identity.id),
       eq(bytePlusIdentitiesTable.status, "completing"),
     ));
-    return { ok: true, identityId: identity.id, reason: null };
+    return { ok: true, identityId: identity.id, reason: null, returnTarget: state.returnTarget };
   } catch (error) {
     return fail(
       "group_lookup_failed",

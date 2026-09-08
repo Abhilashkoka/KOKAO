@@ -8244,12 +8244,25 @@ export interface BytePlusIdentity {
   verifiedAt: string | null;
 }
 
+/**
+ * Signed callback destination for the verification round trip.
+ */
+export type BytePlusIdentityInputReturnTarget = typeof BytePlusIdentityInputReturnTarget[keyof typeof BytePlusIdentityInputReturnTarget];
+
+
+export const BytePlusIdentityInputReturnTarget = {
+  web: 'web',
+  mobile: 'mobile',
+} as const;
+
 export interface BytePlusIdentityInput {
   /**
      * @minLength 1
      * @maxLength 80
      */
   label: string;
+  /** Signed callback destination for the verification round trip. */
+  returnTarget?: BytePlusIdentityInputReturnTarget;
 }
 
 export type BytePlusIdentityStart = BytePlusIdentity & {

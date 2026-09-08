@@ -214,6 +214,7 @@ export * from './bytePlusAssetsAdminViewKeySource';
 export * from './bytePlusAssetsKeyInput';
 export * from './bytePlusIdentity';
 export * from './bytePlusIdentityInput';
+export * from './bytePlusIdentityInputReturnTarget';
 export * from './bytePlusIdentityStart';
 export * from './bytePlusIdentityStatus';
 export * from './campaignInput';

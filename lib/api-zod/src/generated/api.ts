@@ -3627,10 +3627,11 @@ export const ListBytePlusIdentitiesResponse = zod.array(ListBytePlusIdentitiesRe
  */
 export const startBytePlusIdentityVerificationBodyLabelMax = 80;
 
-
+export const startBytePlusIdentityVerificationBodyReturnTargetDefault = `web`;
 
 export const StartBytePlusIdentityVerificationBody = zod.object({
-  "label": zod.string().min(1).max(startBytePlusIdentityVerificationBodyLabelMax)
+  "label": zod.string().min(1).max(startBytePlusIdentityVerificationBodyLabelMax),
+  "returnTarget": zod.enum(['web', 'mobile']).default(startBytePlusIdentityVerificationBodyReturnTargetDefault).describe('Signed callback destination for the verification round trip.')
 })
 
 export const StartBytePlusIdentityVerificationResponse = zod.object({

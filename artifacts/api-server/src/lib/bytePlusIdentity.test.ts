@@ -4,10 +4,14 @@ const state = vi.hoisted(() => ({
   status: "pending",
   tokenHash: "",
   resolveCalls: 0,
+  signedData: "",
 }));
 
 vi.mock("./oauthState", () => ({
-  signOAuthState: () => "signed-state",
+  signOAuthState: (_tenantId: number, data: string) => {
+    state.signedData = data;
+    return "signed-state";
+  },
   verifySignedOAuthState: () => ({ tenantId: 7, data: "11" }),
 }));
 vi.mock("./byteplus/assets", () => ({
@@ -66,6 +70,17 @@ describe("BytePlus liveness token binding", () => {
     state.status = "pending";
     state.tokenHash = "";
     state.resolveCalls = 0;
+    state.signedData = "";
+  });
+
+  it("binds a mobile return destination into the signed state", async () => {
+    await startBytePlusIdentityVerification({
+      tenantId: 7,
+      label: "Person",
+      callbackBaseUrl: "https://app.example/cb",
+      returnTarget: "mobile",
+    });
+    expect(state.signedData).toBe("11:mobile");
   });
 
   it("rejects token substitution without resolving or rebinding", async () => {

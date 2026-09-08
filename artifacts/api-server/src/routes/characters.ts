@@ -1172,6 +1172,7 @@ router.post("/characters/identities", async (req: Request, res: Response) => {
       tenantId: req.tenantId,
       label,
       callbackBaseUrl: `${canonicalAppOrigin()}/api/characters/identities/callback`,
+      returnTarget: parsed.data.returnTarget ?? "web",
     });
   } catch (error) {
     req.log.warn({ err: error }, "BytePlus identity verification could not start");
@@ -1205,7 +1206,11 @@ bytePlusIdentityCallbackRouter.get(
       identity: outcome.ok ? "verified" : "failed",
     });
     if (outcome.identityId) query.set("identityId", String(outcome.identityId));
-    res.redirect(`/studio?${query.toString()}`);
+    res.redirect(
+      outcome.returnTarget === "mobile"
+        ? `mobile://characters?${query.toString()}`
+        : `/studio?${query.toString()}`,
+    );
   },
 );
 

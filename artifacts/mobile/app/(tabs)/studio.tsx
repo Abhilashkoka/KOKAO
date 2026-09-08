@@ -472,6 +472,22 @@ export default function StudioScreen() {
               <Pressable
                 onPress={() => {
                   haptic();
+                  router.push("/characters" as never);
+                }}
+                style={({ pressed }) => [
+                  styles.quotaPill,
+                  pressed && { opacity: 0.8 },
+                ]}
+                testID="open-characters"
+              >
+                <Feather name="user-check" size={12} color={c.primary} />
+                <Text style={styles.quotaPillText}>Characters</Text>
+              </Pressable>
+            ) : null}
+            {showVideos ? (
+              <Pressable
+                onPress={() => {
+                  haptic();
                   router.push("/videos");
                 }}
                 style={({ pressed }) => [

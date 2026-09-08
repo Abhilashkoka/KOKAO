@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BytePlusIdentityInputReturnTarget } from './bytePlusIdentityInputReturnTarget';
 
 export interface BytePlusIdentityInput {
   /**
@@ -12,4 +13,6 @@ export interface BytePlusIdentityInput {
      * @maxLength 80
      */
   label: string;
+  /** Signed callback destination for the verification round trip. */
+  returnTarget?: BytePlusIdentityInputReturnTarget;
 }

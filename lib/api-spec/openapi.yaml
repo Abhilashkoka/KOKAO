@@ -20987,6 +20987,11 @@ components:
       required: [label]
       properties:
         label: { type: string, minLength: 1, maxLength: 80 }
+        returnTarget:
+          type: string
+          enum: [web, mobile]
+          default: web
+          description: Signed callback destination for the verification round trip.
     BytePlusIdentityStart:
       allOf:
         - $ref: "#/components/schemas/BytePlusIdentity"
