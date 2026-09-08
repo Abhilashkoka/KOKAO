@@ -241,3 +241,17 @@ mtime_ms = 1788777304492
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/706ca7fc-40ae-4f12-83b4-b51f516b5c1d/ef3047e4-5516-4d8b-aae8-d9d5cd320d5a"
 storage_version_token = "1788777784540879"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "CKXuijI1b4VHpxH38jw6q"
+uri = "file://attached_assets/atlas-seedance-25-test.mp4"
+type = "video"
+title = "Atlas Seedance 2.5 paid test"
+description = "The completed 4-second, 480p Atlas Cloud text-to-video test."
+logical_id = "22818d08-b886-429b-abd1-691006ea5dcf"
+content_hash = "sha256:fc1fa2d7d3f80f9f104a8c1ae2430f8c03d935fbb97b27c60d4bf8c73b23d9ad"
+size = 1042950
+mtime_ms = 1788846044300
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/22818d08-b886-429b-abd1-691006ea5dcf/5c4b5fd2-06ee-494e-a282-12d7f42add70"
+storage_version_token = "1788846055219226"
+content_type = "video/mp4"
