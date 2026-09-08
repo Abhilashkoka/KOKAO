@@ -255,3 +255,31 @@ mtime_ms = 1788846044300
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/22818d08-b886-429b-abd1-691006ea5dcf/5c4b5fd2-06ee-494e-a282-12d7f42add70"
 storage_version_token = "1788846055219226"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "i3bHMF0HQahXibSi5-nd5"
+uri = "file://attached_assets/atlas-seedance-text-complete-test.mp4"
+type = "video"
+title = "Atlas Seedance 2.5 text-to-video test"
+description = "Completed 4-second 480p text-to-video test. Atlas reported cost: $0.5401253."
+logical_id = "f4c5e48b-69bd-4638-b9c2-3c6a4215abe6"
+content_hash = "sha256:95255cb514c77dc321b64fe81fb693f49b167f4872b927098f90c140fca539c9"
+size = 1764762
+mtime_ms = 1788855664710
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/f4c5e48b-69bd-4638-b9c2-3c6a4215abe6/995c4fc1-0bc9-402f-8a67-42d7b03cc27c"
+storage_version_token = "1788855679401895"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "JRpbacSOiAhWc5U8n3i1P"
+uri = "file://attached_assets/atlas-seedance-reference-complete-test.mp4"
+type = "video"
+title = "Atlas Seedance 2.5 reference-to-video test"
+description = "Completed 4-second 480p fictional-character reference test. Atlas reported cost: $0.5401253."
+logical_id = "5f704f22-e2ce-4600-8296-d87a0f22ec09"
+content_hash = "sha256:6654ff06355c97629981a3e6d88d72c5da4b78007e346df66dfc3f135d0088b0"
+size = 1218132
+mtime_ms = 1788855665506
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/5f704f22-e2ce-4600-8296-d87a0f22ec09/e47252f1-25c3-4239-9f26-937f28abbe06"
+storage_version_token = "1788855680919884"
+content_type = "video/mp4"
