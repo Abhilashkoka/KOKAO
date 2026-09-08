@@ -43,4 +43,4 @@ Provider-returned output URLs require address-pinned HTTPS transport: validate a
 
 **Why:** DNS validation followed by ordinary fetch permits DNS rebinding between lookup and connection.
 
-**How to apply:** Reject redirects and private/reserved addresses, cap output bytes, and enforce one deadline over headers and streamed body.
+**How to apply:** Reject redirects and private/reserved addresses, cap output bytes, and enforce one deadline over headers and streamed body. Rotate across validated public CDN addresses; after a download failure, GET-refresh the same completed prediction before retrying its output URL. Never repeat the paid POST.

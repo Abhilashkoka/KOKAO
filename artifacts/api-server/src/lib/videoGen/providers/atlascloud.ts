@@ -210,65 +210,94 @@ export async function pinnedDownload(
   dependencies: AtlasPinnedDownloadDependencies = atlasPinnedDownloadDependencies,
 ): Promise<Buffer> {
   const parsed = new URL(url);
-  const [address] = await dependencies.resolveHost(parsed.hostname).catch(() => {
+  const addresses = await dependencies.resolveHost(parsed.hostname).catch(() => {
     throw new VideoGenProviderError("Atlas Cloud video output points to a blocked or private host.", 502);
   });
-  if (!address) throw new VideoGenProviderError("Atlas Cloud video output has no public address.", 502);
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let timer: NodeJS.Timeout | undefined;
-    let req: ClientRequest | undefined;
-    const finish = (buffer: Buffer) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      resolve(buffer);
-    };
-    const fail = (message: string) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      reject(new VideoGenProviderError(message, 502));
-    };
+  const uniqueAddresses = addresses.filter(
+    (address, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          candidate.address === address.address && candidate.family === address.family,
+      ) === index,
+  );
+  if (uniqueAddresses.length === 0) {
+    throw new VideoGenProviderError("Atlas Cloud video output has no public address.", 502);
+  }
+  const overallDeadline = Date.now() + (dependencies.deadlineMs ?? 180_000);
+  let lastError: unknown;
+  for (const address of uniqueAddresses) {
+    const remainingMs = overallDeadline - Date.now();
+    if (remainingMs <= 0) break;
     try {
-      req = dependencies.request({
-        hostname: parsed.hostname, port: parsed.port || 443,
-        path: `${parsed.pathname}${parsed.search}`, method: "GET", servername: parsed.hostname,
-        lookup: (_host, _opts, callback) => callback(null, address.address, address.family),
-      }, (res) => {
-        const status = res.statusCode ?? 500;
-        if (status < 200 || status >= 300) {
-          res.destroy();
-          fail("Atlas Cloud video download redirect/error is not allowed.");
-          return;
-        }
-        const chunks: Buffer[] = []; let total = 0;
-        res.on("data", (chunk: Buffer) => {
+      return await new Promise((resolve, reject) => {
+        let settled = false;
+        let timer: NodeJS.Timeout | undefined;
+        let req: ClientRequest | undefined;
+        const finish = (buffer: Buffer) => {
           if (settled) return;
-          total += chunk.length;
-          if (total > (dependencies.maxBytes ?? MAX_VIDEO_BYTES)) {
-            fail("Atlas Cloud video exceeds the 250 MiB download limit.");
-            req?.destroy();
-            res.destroy();
-          } else {
-            chunks.push(chunk);
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolve(buffer);
+        };
+        const fail = (message: string) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          reject(new VideoGenProviderError(message, 502));
+        };
+        try {
+          req = dependencies.request({
+            hostname: parsed.hostname, port: parsed.port || 443,
+            path: `${parsed.pathname}${parsed.search}`, method: "GET", servername: parsed.hostname,
+            lookup: (_host, _opts, callback) => callback(null, address.address, address.family),
+          }, (res) => {
+            const status = res.statusCode ?? 500;
+            if (status < 200 || status >= 300) {
+              res.destroy();
+              fail("Atlas Cloud video download redirect/error is not allowed.");
+              return;
+            }
+            const chunks: Buffer[] = []; let total = 0;
+            res.on("data", (chunk: Buffer) => {
+              if (settled) return;
+              total += chunk.length;
+              if (total > (dependencies.maxBytes ?? MAX_VIDEO_BYTES)) {
+                fail("Atlas Cloud video exceeds the 250 MiB download limit.");
+                req?.destroy();
+                res.destroy();
+              } else {
+                chunks.push(chunk);
+              }
+            });
+            res.on("end", () => finish(Buffer.concat(chunks)));
+            res.on("error", () => fail("Atlas Cloud video download failed."));
+          });
+          req.on("error", () => fail("Atlas Cloud video download was blocked or timed out."));
+          req.end();
+          if (!settled) {
+            timer = setTimeout(() => {
+              fail("Atlas Cloud video download was blocked or timed out.");
+              req?.destroy(new Error("deadline"));
+            }, Math.min(remainingMs, dependencies.deadlineMs ?? 90_000));
           }
-        });
-        res.on("end", () => finish(Buffer.concat(chunks)));
-        res.on("error", () => fail("Atlas Cloud video download failed."));
-      });
-      req.on("error", () => fail("Atlas Cloud video download was blocked or timed out."));
-      req.end();
-      if (!settled) {
-        timer = setTimeout(() => {
+        } catch {
           fail("Atlas Cloud video download was blocked or timed out.");
-          req?.destroy(new Error("deadline"));
-        }, dependencies.deadlineMs ?? 60_000);
+        }
+      });
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : "";
+      if (
+        !message.includes("blocked or timed out") &&
+        !message.includes("download failed")
+      ) {
+        throw error;
       }
-    } catch {
-      fail("Atlas Cloud video download was blocked or timed out.");
     }
-  });
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new VideoGenProviderError("Atlas Cloud video download was blocked or timed out.", 502);
 }
 
 let pinnedDownloadImpl: AtlasPinnedDownload = pinnedDownload;
@@ -372,9 +401,42 @@ export async function generateWithAtlasCloud(
       undefined, taskId, requestId ?? undefined,
     );
   }
-  const outputs = Array.isArray(prediction.outputs) ? prediction.outputs : [];
-  const url = await safeOutputUrl(outputs[0]);
-  const buffer = await download(url);
+  let buffer: Buffer | null = null;
+  let downloadError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const outputs = Array.isArray(prediction.outputs) ? prediction.outputs : [];
+    const url = await safeOutputUrl(outputs[0]);
+    try {
+      buffer = await download(url);
+      break;
+    } catch (error) {
+      downloadError = error;
+      if (attempt === 2) break;
+      try {
+        const response = await videoGenFetch(
+          `${BASE_URL}/prediction/${encodeURIComponent(taskId)}`,
+          { method: "GET", headers },
+        );
+        requestId = responseRequestId(response) ?? requestId;
+        const refreshed = await parse(response, "completed prediction refresh");
+        if (String(refreshed.status).toLowerCase() === "completed") {
+          prediction = refreshed;
+        }
+      } catch {
+        // Keep the last completed receipt and retry its already-validated URL.
+      }
+    }
+  }
+  if (!buffer) {
+    throw new VideoGenProviderError(
+      downloadError instanceof Error
+        ? downloadError.message
+        : "Atlas Cloud video download was blocked or timed out.",
+      downloadError instanceof VideoGenProviderError ? downloadError.status : 502,
+      taskId,
+      requestId ?? undefined,
+    );
+  }
   if (!buffer.length) throw new VideoGenProviderError("Atlas Cloud returned an empty video.", 502, taskId);
   return {
     buffer, provider: "atlascloud", model: expected,

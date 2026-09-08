@@ -19,7 +19,7 @@ import {
   setAtlasPinnedDownloadForTest,
   type AtlasPinnedDownloadDependencies,
 } from "./atlascloud";
-import type { VideoGenInput } from "../types";
+import { VideoGenProviderError, type VideoGenInput } from "../types";
 
 const input: VideoGenInput = {
   prompt: "A presenter turns to camera",
@@ -207,6 +207,73 @@ describe("Atlas Cloud Seedance 2.5", () => {
     ) => void;
     lookup("ignored-by-pin.example", {}, lookupCallback);
     expect(lookupCallback).toHaveBeenCalledWith(null, "2001:db8::8", 6);
+  });
+
+  it("falls back to the next validated CDN address after a transport failure", async () => {
+    const firstRequest = Object.assign(new EventEmitter(), {
+      end: vi.fn(function (this: EventEmitter) {
+        queueMicrotask(() => this.emit("error", new Error("unreachable")));
+      }),
+      destroy: vi.fn(),
+    });
+    const second = fakeHttpsRequest(200, (response) => {
+      response.emit("data", Buffer.from("video"));
+      response.emit("end");
+    });
+    const request = vi.fn()
+      .mockReturnValueOnce(firstRequest)
+      .mockImplementation(second.factory);
+    const resolveHost = vi.fn(async () => [
+      { address: "2001:db8::8", family: 6 as const },
+      { address: "93.184.216.34", family: 4 as const },
+    ]);
+
+    await expect(pinnedDownload(
+      "https://media.example/video.mp4",
+      pinnedDependencies(request, { resolveHost }),
+    )).resolves.toEqual(Buffer.from("video"));
+
+    expect(request).toHaveBeenCalledTimes(2);
+    const secondOptions = request.mock.calls[1]![0];
+    const lookupCallback = vi.fn();
+    secondOptions.lookup("media.example", {}, lookupCallback);
+    expect(lookupCallback).toHaveBeenCalledWith(null, "93.184.216.34", 4);
+  });
+
+  it("refreshes a completed task output and retries download without another paid POST", async () => {
+    let downloadAttempt = 0;
+    setAtlasPinnedDownloadForTest(async (url) => {
+      downloadAttempt += 1;
+      if (downloadAttempt === 1) {
+        throw new VideoGenProviderError("Atlas Cloud video download was blocked or timed out.", 502);
+      }
+      expect(url).toBe("https://media.example/refreshed.mp4");
+      return Buffer.from("video");
+    });
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/generateVideo")) {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ code: 0, data: {
+          id: "prediction-refresh", status: "completed",
+          outputs: ["https://media.example/original.mp4"],
+        } }));
+      }
+      if (url.endsWith("/prediction/prediction-refresh")) {
+        expect(init?.method).toBe("GET");
+        return new Response(JSON.stringify({ code: 0, data: {
+          id: "prediction-refresh", status: "completed",
+          outputs: ["https://media.example/refreshed.mp4"],
+        } }));
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(generateWithAtlasCloud(input, "secret")).resolves.toMatchObject({
+      providerTaskId: "prediction-refresh",
+    });
+    expect(downloadAttempt).toBe(2);
+    expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 
   it("makes no HTTPS request when public-host resolution rejects", async () => {
