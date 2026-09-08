@@ -50,3 +50,9 @@ Node's HTTPS client can invoke a custom pinned `lookup` with `options.all=true`;
 **Why:** Returning the scalar callback shape in all-address mode fails locally with `ERR_INVALID_IP_ADDRESS` before connecting, which looks like a CDN timeout even though the Atlas output is healthy.
 
 **How to apply:** Every custom address-pinned HTTPS lookup must support both callback overloads, and tests must exercise the `all=true` branch.
+
+An Atlas outfit Asset Library entry does not implicitly carry its separately registered parent character sheet into generation.
+
+**Why:** Sending only the outfit asset to Seedance image-to-video gives the model no direct multi-view character-sheet reference, so identity can drift between independently generated scenes.
+
+**How to apply:** Character-consistent generation must explicitly send both the approved character-sheet reference and the approved outfit reference through a model/request mode that supports multiple references.
