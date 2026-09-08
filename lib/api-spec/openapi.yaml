@@ -21052,7 +21052,26 @@ components:
         eligible: { type: boolean }
         outfits:
           type: array
-          items: { $ref: "#/components/schemas/BytePlusAssetOutfit" }
+          items: { $ref: "#/components/schemas/AtlasCloudAssetOutfit" }
+    AtlasCloudAssetOutfit:
+      type: object
+      required: [id, name, assetId, libraryRecordId, generationReferenceId, status, error, syncedAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        assetId:
+          type: ["string", "null"]
+          deprecated: true
+          description: Compatibility alias for generationReferenceId.
+        libraryRecordId:
+          type: ["integer", "null"]
+          description: Numeric Asset Library record id used for status lookups.
+        generationReferenceId:
+          type: ["string", "null"]
+          description: ark_asset_id used in Seedance as asset://<generationReferenceId>.
+        status: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        syncedAt: { type: ["string", "null"], format: date-time }
     AtlasCloudAssetsAdminView:
       type: object
       required: [configured, characters]

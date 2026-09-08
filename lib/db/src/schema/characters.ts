@@ -39,6 +39,15 @@ export const charactersTable = pgTable("characters", {
    * BytePlus identifier namespace.
    */
   atlasAssetGroupId: text("atlas_asset_group_id"),
+  /** Numeric Atlas Asset Library record id. This is the only id accepted by GET. */
+  atlasAssetLibraryId: integer("atlas_asset_library_id"),
+  /** Seedance reference_images identity (the response's ark_asset_id). */
+  atlasAssetReferenceId: text("atlas_asset_reference_id"),
+  /**
+   * @deprecated Compatibility column for historical consumers. When populated
+   * by current code it mirrors atlasAssetReferenceId, never the library id.
+   */
+  atlasAssetId: text("atlas_asset_id"),
   /** Liveness-verified real person linked to this character. */
   bytePlusIdentityId: integer("byteplus_identity_id").references(() => bytePlusIdentitiesTable.id, {
     onDelete: "restrict",
@@ -83,6 +92,14 @@ export const characterOutfitsTable = pgTable("character_outfits", {
   bytePlusAssetSyncedAt: timestamp("byteplus_asset_synced_at", { withTimezone: true }),
   /** Short lease held while one worker registers this outfit upstream. */
   bytePlusAssetClaimedAt: timestamp("byteplus_asset_claimed_at", { withTimezone: true }),
+  /** Numeric Atlas Asset Library record id, used for status and deletion checks. */
+  atlasAssetLibraryId: integer("atlas_asset_library_id"),
+  /** Seedance generation identity (ark_asset_id), without the asset:// prefix. */
+  atlasAssetReferenceId: text("atlas_asset_reference_id"),
+  /**
+   * @deprecated Compatibility mirror of atlasAssetReferenceId. Legacy values
+   * are classified conservatively and are never guessed to be another id kind.
+   */
   atlasAssetId: text("atlas_asset_id"),
   atlasAssetStatus: text("atlas_asset_status")
     .$type<"Processing" | "Active" | "Failed">(),
@@ -90,6 +107,12 @@ export const characterOutfitsTable = pgTable("character_outfits", {
   atlasAssetSyncedAt: timestamp("atlas_asset_synced_at", { withTimezone: true }),
   /** Atomic ten-minute registration lease. */
   atlasAssetClaimedAt: timestamp("atlas_asset_claimed_at", { withTimezone: true }),
+  /**
+   * Durable provider-boundary fence. Set immediately before Atlas POST and
+   * never cleared automatically: a crash after POST must be reconciled, not
+   * submitted again.
+   */
+  atlasAssetSubmitFencedAt: timestamp("atlas_asset_submit_fenced_at", { withTimezone: true }),
   /** Non-default generated outfits stay previews until explicitly approved. */
   status: text("status")
     .$type<"preview" | "approved" | "rejected">()
@@ -110,6 +133,8 @@ export const characterOutfitsTable = pgTable("character_outfits", {
     .$onUpdate(() => new Date()),
 }, (table) => [
   uniqueIndex("character_outfits_byteplus_asset_uniq").on(table.bytePlusAssetId),
+  uniqueIndex("character_outfits_atlas_library_uniq").on(table.atlasAssetLibraryId),
+  uniqueIndex("character_outfits_atlas_reference_uniq").on(table.atlasAssetReferenceId),
   uniqueIndex("character_outfits_atlas_asset_uniq").on(table.atlasAssetId),
 ]);
 

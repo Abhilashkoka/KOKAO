@@ -17,6 +17,10 @@ import type { Cinematography } from "./cinematography";
 import type { ImageGenResult } from "../imageGen/types";
 import type { CharacterDetail } from "../characters";
 import { characterDetailFromSnapshot, type CharacterSnapshot } from "../characters";
+import {
+  isAtlasGenerationReferenceId,
+  selectAtlasGenerationReferenceId,
+} from "../atlascloud/assetId";
 
 /**
  * A single character-locked AI clip (Text to Video with a character picked):
@@ -53,6 +57,8 @@ export async function generateCharacterClip(params: {
     bytePlusAssetId?: string | null;
     bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
     requiresAtlasAsset?: boolean;
+    atlasAssetReferenceId?: string | null;
+    /** @deprecated Legacy snapshot alias. */
     atlasAssetId?: string | null;
     atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
   };
@@ -60,15 +66,31 @@ export async function generateCharacterClip(params: {
   wardrobeSnapshot?: CharacterSnapshot | null;
   operationKey?: string;
 }): Promise<{ buffer: Buffer; provider: string; model: string; effectiveDurationSec?: number }> {
+  if (
+    params.snapshot?.atlasAssetReferenceId != null &&
+    !isAtlasGenerationReferenceId(params.snapshot.atlasAssetReferenceId)
+  ) {
+    throw new VideoGenProviderError(
+      "This character snapshot contains a malformed Atlas generation reference.",
+      409,
+    );
+  }
   const detail = params.wardrobeSnapshot
     ? characterDetailFromSnapshot(params.tenantId, params.wardrobeSnapshot)
     : params.snapshot
     ? ({
         character: { id: params.characterId, tenantId: params.tenantId, name: params.snapshot.characterName,
-          description: params.snapshot.characterDescription, referenceImagePath: params.snapshot.referenceImagePath },
+          description: params.snapshot.characterDescription, referenceImagePath: params.snapshot.referenceImagePath,
+          referenceSource: params.snapshot.referenceSource,
+          requiresAtlasAsset: params.snapshot.requiresAtlasAsset },
         outfits: [{ id: params.outfitId, tenantId: params.tenantId, characterId: params.characterId,
           name: params.snapshot.outfitName, description: params.snapshot.outfitDescription,
-          referenceImagePath: params.snapshot.outfitReferenceImagePath, isDefault: true }],
+          referenceImagePath: params.snapshot.outfitReferenceImagePath, isDefault: true,
+          atlasAssetReferenceId: isAtlasGenerationReferenceId(params.snapshot.atlasAssetReferenceId)
+            ? params.snapshot.atlasAssetReferenceId
+            : null,
+          atlasAssetId: params.snapshot.atlasAssetId,
+          atlasAssetStatus: params.snapshot.atlasAssetStatus }],
       } as unknown as CharacterDetail)
       : await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) {
@@ -79,6 +101,16 @@ export async function generateCharacterClip(params: {
     throw new VideoGenProviderError("The selected outfit no longer exists.");
   }
   const frozenProvider = params.model?.resolvedVideoModel?.provider;
+  if (
+    (params.snapshot || params.wardrobeSnapshot) &&
+    outfit.atlasAssetReferenceId != null &&
+    !isAtlasGenerationReferenceId(outfit.atlasAssetReferenceId)
+  ) {
+    throw new VideoGenProviderError(
+      "This character snapshot contains a malformed Atlas generation reference.",
+      409,
+    );
+  }
   // Atlas Asset Library is exclusively for explicitly immutable fictional
   // references. Do this before any keyframe/image provider work: snapshots
   // without provenance intentionally fail closed rather than inheriting a
@@ -98,6 +130,18 @@ export async function generateCharacterClip(params: {
         409,
       );
     }
+    const frozenAtlasPolicy = params.wardrobeSnapshot?.character.requiresAtlasAsset
+      ?? params.snapshot?.requiresAtlasAsset;
+    const frozenReferenceId = selectAtlasGenerationReferenceId(
+      outfit.atlasAssetReferenceId,
+      outfit.atlasAssetId,
+    );
+    if (frozenAtlasPolicy === true && !frozenReferenceId) {
+      throw new VideoGenProviderError(
+        "This fictional character snapshot has no safe Atlas generation reference and cannot use an image fallback.",
+        409,
+      );
+    }
   }
   const scene = params.prompt.trim() || "a cinematic portrait moment";
   const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
@@ -112,7 +156,10 @@ export async function generateCharacterClip(params: {
           tenantId: params.tenantId,
           characterId: detail.character.id,
           outfitId: outfit.id,
-          expectedAssetId: outfit.atlasAssetId,
+          expectedAssetId: selectAtlasGenerationReferenceId(
+            outfit.atlasAssetReferenceId,
+            outfit.atlasAssetId,
+          ),
         })
       : [];
   const frozenPolicy = params.wardrobeSnapshot?.character.requiresBytePlusAsset

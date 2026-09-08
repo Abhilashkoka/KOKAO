@@ -22,6 +22,10 @@ import {
   resolveAtlasAssetsKey,
   waitForAtlasAsset,
 } from "./atlascloud/assets";
+import {
+  isAtlasGenerationReferenceId,
+  selectAtlasGenerationReferenceId,
+} from "./atlascloud/assetId";
 
 const storage = new ObjectStorageService();
 
@@ -303,7 +307,75 @@ export async function registerAtlasOutfitAsset(args: {
     return updated ?? args.outfit;
   };
   if (policyError) return failWithoutClaim(policyError);
-  if (args.outfit.atlasAssetStatus === "Active") return args.outfit;
+  const historicalRecordId =
+    args.outfit.atlasAssetId && /^\d+$/.test(args.outfit.atlasAssetId)
+      ? Number(args.outfit.atlasAssetId)
+      : null;
+  const libraryRecordId = args.outfit.atlasAssetLibraryId ?? historicalRecordId;
+  const malformedCanonicalReference =
+    args.outfit.atlasAssetReferenceId !== null &&
+    !isAtlasGenerationReferenceId(args.outfit.atlasAssetReferenceId);
+  const generationReferenceId = selectAtlasGenerationReferenceId(
+    args.outfit.atlasAssetReferenceId,
+    args.outfit.atlasAssetId,
+  );
+  if (malformedCanonicalReference && !libraryRecordId) {
+    return failWithoutClaim(
+      "Stored Atlas generation reference is malformed and has no numeric Asset Library record id. An admin must reconcile it; registration was not repeated.",
+    );
+  }
+  if (
+    args.outfit.atlasAssetStatus === "Active" &&
+    libraryRecordId &&
+    generationReferenceId &&
+    !malformedCanonicalReference
+  ) {
+    if (
+      args.outfit.atlasAssetLibraryId !== libraryRecordId ||
+      args.outfit.atlasAssetReferenceId !== generationReferenceId ||
+      args.outfit.atlasAssetId !== generationReferenceId
+    ) {
+      const [reconciled] = await db.update(characterOutfitsTable).set({
+        atlasAssetLibraryId: libraryRecordId,
+        atlasAssetReferenceId: generationReferenceId,
+        atlasAssetId: generationReferenceId,
+      }).where(and(
+        eq(characterOutfitsTable.id, args.outfit.id),
+        eq(characterOutfitsTable.characterId, args.character.id),
+        eq(characterOutfitsTable.tenantId, args.tenantId),
+      )).returning();
+      return reconciled ?? args.outfit;
+    }
+    return args.outfit;
+  }
+  if (args.outfit.atlasAssetId && !libraryRecordId) {
+    return failWithoutClaim(
+      "Legacy Atlas mapping has no numeric Asset Library record id. An admin must reconcile it in Atlas before retrying; registration was not repeated.",
+    );
+  }
+  if (
+    args.outfit.atlasAssetStatus === "Active" &&
+    libraryRecordId &&
+    (!generationReferenceId || malformedCanonicalReference)
+  ) {
+    // A numeric historical id can be reconciled safely with GET; make it
+    // claimable without issuing another billable/create POST.
+    await db.update(characterOutfitsTable).set({
+      atlasAssetLibraryId: libraryRecordId,
+      atlasAssetStatus: "Processing",
+      atlasAssetClaimedAt: null,
+    }).where(and(
+      eq(characterOutfitsTable.id, args.outfit.id),
+      eq(characterOutfitsTable.characterId, args.character.id),
+      eq(characterOutfitsTable.tenantId, args.tenantId),
+    ));
+    args.outfit = {
+      ...args.outfit,
+      atlasAssetLibraryId: libraryRecordId,
+      atlasAssetStatus: "Processing",
+      atlasAssetClaimedAt: null,
+    };
+  }
 
   const stale = new Date(Date.now() - 10 * 60_000);
   const [claimed] = await db.update(characterOutfitsTable).set({
@@ -349,15 +421,50 @@ export async function registerAtlasOutfitAsset(args: {
         isNull(charactersTable.atlasAssetGroupId),
       ));
     }
-    const assetId =
-      args.outfit.atlasAssetStatus === "Processing" && claimed.atlasAssetId
-        ? claimed.atlasAssetId
-        : await createAtlasAsset(
-            await storage.getSignedDownloadURL(claimed.referenceImagePath, args.tenantId, 15 * 60),
-            apiKey,
-          );
+    const existingRecordId = claimed.atlasAssetLibraryId ??
+      (claimed.atlasAssetId && /^\d+$/.test(claimed.atlasAssetId)
+        ? Number(claimed.atlasAssetId)
+        : null);
+    if (!existingRecordId && claimed.atlasAssetSubmitFencedAt) {
+      return fail(
+        "Atlas submission was previously started but its asset ids were not durably saved. Automatic retry is blocked; an admin must reconcile the Atlas console before retrying.",
+      );
+    }
+    let asset: Awaited<ReturnType<typeof createAtlasAsset>> | null = null;
+    if (!existingRecordId) {
+      // Acquiring a signed URL is safely retryable. The durable fence is
+      // intentionally written only after that work succeeds, immediately
+      // before crossing the paid/provider boundary.
+      const url = await storage.getSignedDownloadURL(
+        claimed.referenceImagePath,
+        args.tenantId,
+        15 * 60,
+      );
+      const [fenced] = await db.update(characterOutfitsTable).set({
+        atlasAssetSubmitFencedAt: new Date(),
+      }).where(and(
+        eq(characterOutfitsTable.id, claimed.id),
+        eq(characterOutfitsTable.tenantId, args.tenantId),
+        eq(characterOutfitsTable.atlasAssetClaimedAt, claimed.atlasAssetClaimedAt!),
+        isNull(characterOutfitsTable.atlasAssetLibraryId),
+        isNull(characterOutfitsTable.atlasAssetSubmitFencedAt),
+      )).returning();
+      if (!fenced) {
+        const [current] = await db.select().from(characterOutfitsTable).where(and(
+          eq(characterOutfitsTable.id, claimed.id),
+          eq(characterOutfitsTable.tenantId, args.tenantId),
+        )).limit(1);
+        return current ?? claimed;
+      }
+      asset = await createAtlasAsset(url, apiKey);
+    }
+    const recordId = existingRecordId ?? asset!.libraryRecordId;
     await db.update(characterOutfitsTable).set({
-      atlasAssetId: assetId,
+      atlasAssetLibraryId: recordId,
+      atlasAssetReferenceId: asset?.generationReferenceId ??
+        selectAtlasGenerationReferenceId(claimed.atlasAssetReferenceId, claimed.atlasAssetId),
+      atlasAssetId: asset?.generationReferenceId ??
+        selectAtlasGenerationReferenceId(claimed.atlasAssetReferenceId, claimed.atlasAssetId),
       atlasAssetStatus: "Processing",
       atlasAssetError: null,
       atlasAssetSyncedAt: new Date(),
@@ -366,8 +473,11 @@ export async function registerAtlasOutfitAsset(args: {
       eq(characterOutfitsTable.id, claimed.id),
       eq(characterOutfitsTable.tenantId, args.tenantId),
     ));
-    const result = await waitForAtlasAsset(assetId, apiKey);
+    const result = await waitForAtlasAsset(recordId, apiKey);
     const [updated] = await db.update(characterOutfitsTable).set({
+      atlasAssetLibraryId: result.libraryRecordId,
+      atlasAssetReferenceId: result.generationReferenceId,
+      atlasAssetId: result.generationReferenceId,
       atlasAssetStatus: result.status,
       atlasAssetError: result.error,
       atlasAssetSyncedAt: new Date(),
@@ -423,19 +533,24 @@ export async function atlasAssetRefsForOutfit(args: {
   expectedAssetId?: string | null;
 }): Promise<string[]> {
   const [outfit] = await db.select({
-    assetId: characterOutfitsTable.atlasAssetId,
+    assetId: characterOutfitsTable.atlasAssetReferenceId,
+    compatibilityAssetId: characterOutfitsTable.atlasAssetId,
     status: characterOutfitsTable.atlasAssetStatus,
   }).from(characterOutfitsTable).where(and(
     eq(characterOutfitsTable.id, args.outfitId),
     eq(characterOutfitsTable.characterId, args.characterId),
     eq(characterOutfitsTable.tenantId, args.tenantId),
   )).limit(1);
+  const referenceId = selectAtlasGenerationReferenceId(
+    outfit?.assetId,
+    outfit?.compatibilityAssetId,
+  );
   if (
     outfit?.status !== "Active" ||
-    !outfit.assetId ||
-    (args.expectedAssetId !== undefined && outfit.assetId !== args.expectedAssetId)
+    !referenceId ||
+    (args.expectedAssetId !== undefined && referenceId !== args.expectedAssetId)
   ) return [];
-  return [outfit.assetId];
+  return [referenceId];
 }
 
 /**
@@ -443,14 +558,33 @@ export async function atlasAssetRefsForOutfit(args: {
  * remote asset is already absent before deleting the local ownership record.
  * Network/auth ambiguity deliberately blocks deletion rather than orphaning.
  */
-export async function assertAtlasAssetsDeleted(ids: Array<string | null>): Promise<void> {
-  const assetIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+export async function assertAtlasAssetsDeleted(
+  assets: Array<{
+    libraryRecordId: number | null;
+    historicalId?: string | null;
+    submitFencedAt?: Date | null;
+  }>,
+): Promise<void> {
+  if (assets.some((asset) => asset.submitFencedAt && !asset.libraryRecordId)) {
+    throw new Error(
+      "An Atlas submission was fenced but has no numeric Asset Library record id. Reconcile the Atlas console before deletion; deletion is blocked to prevent an upstream orphan.",
+    );
+  }
+  const unresolved = assets.filter((asset) => asset.historicalId && !asset.libraryRecordId);
+  if (unresolved.length) {
+    throw new Error(
+      "A legacy Atlas mapping has no numeric Asset Library record id. An admin must reconcile or remove it in the Atlas console before deletion.",
+    );
+  }
+  const assetIds = [...new Set(assets
+    .map((asset) => asset.libraryRecordId)
+    .filter((id): id is number => id !== null))];
   if (!assetIds.length) return;
   const apiKey = await resolveAtlasAssetsKey();
   if (!apiKey) {
     throw new Error("Atlas Cloud credentials are required to verify asset deletion; remove the assets in the Atlas console first.");
   }
-  const existing: Array<{ id: string; status: string }> = [];
+  const existing: Array<{ id: number; status: string }> = [];
   await Promise.all(assetIds.map(async (id) => {
     try {
       const asset = await getAtlasAsset(id, apiKey);

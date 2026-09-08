@@ -151,6 +151,7 @@ import {
 } from "../lib/videoGen/providers/openrouter";
 import { availableVideoModels } from "../lib/videoGen";
 import { registerAtlasOutfitAssetInBackground } from "../lib/characterAssets";
+import { selectAtlasGenerationReferenceId } from "../lib/atlascloud/assetId";
 import {
   CAMERAS,
   LENSES,
@@ -4346,7 +4347,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           bytePlusAssetId: outfit.bytePlusAssetId,
           bytePlusAssetStatus: outfit.bytePlusAssetStatus,
           requiresAtlasAsset: detail.character.referenceSource === "generated",
-          atlasAssetId: outfit.atlasAssetId,
+          atlasAssetReferenceId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
           atlasAssetStatus: outfit.atlasAssetStatus,
           brandKitId: voice.brandKitId,
           voiceId: voice.id,
@@ -5868,7 +5869,7 @@ router.put(
         bytePlusAssetId: lockedOutfit.bytePlusAssetId,
         bytePlusAssetStatus: lockedOutfit.bytePlusAssetStatus,
         requiresAtlasAsset: lockedCharacter.referenceSource === "generated",
-        atlasAssetId: lockedOutfit.atlasAssetId,
+        atlasAssetReferenceId: selectAtlasGenerationReferenceId(lockedOutfit.atlasAssetReferenceId, lockedOutfit.atlasAssetId),
         atlasAssetStatus: lockedOutfit.atlasAssetStatus,
         character: {
           name: lockedCharacter.name,
@@ -6301,7 +6302,7 @@ router.post(
             bytePlusAssetId: outfit.bytePlusAssetId,
             bytePlusAssetStatus: outfit.bytePlusAssetStatus,
             requiresAtlasAsset: detail.character.referenceSource === "generated",
-            atlasAssetId: outfit.atlasAssetId,
+            atlasAssetReferenceId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
             atlasAssetStatus: outfit.atlasAssetStatus,
             character: {
               name: detail.character.name,
@@ -6326,7 +6327,7 @@ router.post(
             bytePlusAssetId: outfit.bytePlusAssetId,
             bytePlusAssetStatus: outfit.bytePlusAssetStatus,
             requiresAtlasAsset: detail.character.referenceSource === "generated",
-            atlasAssetId: outfit.atlasAssetId,
+            atlasAssetReferenceId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
             atlasAssetStatus: outfit.atlasAssetStatus,
             outfit: {
               name: outfit.name,
@@ -8386,7 +8387,7 @@ async function generateVideoHandler(
           protectedRegion: savedOutfit.protectedRegion,
           bytePlusAssetId: savedOutfit.bytePlusAssetId,
           bytePlusAssetStatus: savedOutfit.bytePlusAssetStatus,
-          atlasAssetId: savedOutfit.atlasAssetId,
+          atlasAssetReferenceId: selectAtlasGenerationReferenceId(savedOutfit.atlasAssetReferenceId, savedOutfit.atlasAssetId),
           atlasAssetStatus: savedOutfit.atlasAssetStatus,
         })),
       };
@@ -8403,7 +8404,7 @@ async function generateVideoHandler(
           bytePlusAssetId: outfit.bytePlusAssetId,
           bytePlusAssetStatus: outfit.bytePlusAssetStatus,
           requiresAtlasAsset: detail.character.referenceSource === "generated",
-          atlasAssetId: outfit.atlasAssetId,
+          atlasAssetReferenceId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
           atlasAssetStatus: outfit.atlasAssetStatus,
         };
       }

@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AtlasCloudAssetCharacterReferenceSource } from './atlasCloudAssetCharacterReferenceSource';
-import type { BytePlusAssetOutfit } from './bytePlusAssetOutfit';
+import type { AtlasCloudAssetOutfit } from './atlasCloudAssetOutfit';
 
 export interface AtlasCloudAssetCharacter {
   id: number;
@@ -17,5 +17,5 @@ export interface AtlasCloudAssetCharacter {
   /** @nullable */
   referenceSource: AtlasCloudAssetCharacterReferenceSource;
   eligible: boolean;
-  outfits: BytePlusAssetOutfit[];
+  outfits: AtlasCloudAssetOutfit[];
 }

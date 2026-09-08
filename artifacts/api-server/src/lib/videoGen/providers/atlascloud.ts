@@ -12,6 +12,7 @@ import { isTransientStatus } from "../retry";
 import https from "node:https";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { assertPublicHost, resolvePublicHost } from "../../webFetch";
+import { isAtlasGenerationReferenceId } from "../../atlascloud/assetId";
 
 /** Atlas Cloud's documented, directly callable Seedance 2.5 endpoints. */
 export const ATLASCLOUD_SEEDANCE_25_T2V_MODEL = "bytedance/seedance-2.5/text-to-video";
@@ -85,8 +86,13 @@ async function parse(response: Response, operation: string): Promise<Prediction>
 /** Documented Atlas input shape; image inputs are base64, not Asset Library uploads. */
 export function atlasCloudRequestBody(input: VideoGenInput): Record<string, unknown> {
   const imageMode = Boolean(input.image);
-  const assetIds = (input.assetIds ?? []).filter((id) =>
-    /^[A-Za-z0-9][A-Za-z0-9._-]{3,127}$/.test(id));
+  const assetIds = input.assetIds ?? [];
+  if (assetIds.some((id) => !isAtlasGenerationReferenceId(id))) {
+    throw new VideoGenProviderError(
+      "Atlas Cloud generation received an invalid Asset Library generation reference.",
+      400,
+    );
+  }
   const referenceMode = input.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL;
   const model = referenceMode
     ? ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL

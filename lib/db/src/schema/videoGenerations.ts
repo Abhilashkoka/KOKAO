@@ -472,6 +472,8 @@ export interface VideoJobOptions {
       } | null;
       bytePlusAssetId?: string | null;
       bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
+      atlasAssetReferenceId?: string | null;
+      /** @deprecated Legacy snapshot alias. */
       atlasAssetId?: string | null;
       atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
     }>;
@@ -506,6 +508,8 @@ export interface VideoJobOptions {
       requiresAtlasAsset?: boolean;
       bytePlusAssetId?: string | null;
       bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
+      atlasAssetReferenceId?: string | null;
+      /** @deprecated Legacy snapshot alias. */
       atlasAssetId?: string | null;
       atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
     };
@@ -1090,6 +1094,8 @@ export interface VideoStoryboardScene {
         bytePlusAssetId?: string | null;
         bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
         requiresAtlasAsset?: boolean;
+        atlasAssetReferenceId?: string | null;
+        /** @deprecated Legacy snapshot alias. */
         atlasAssetId?: string | null;
         atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
     }>;

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   keyframe: vi.fn(),
   loadReference: vi.fn(),
   video: vi.fn(),
+  atlasRefs: vi.fn(async () => [] as string[]),
   currentExists: true,
   identityId: 3 as number | null,
 }));
@@ -21,7 +22,7 @@ vi.mock("../characters", () => ({
 }));
 vi.mock("../characterAssets", () => ({
   assetRefsForOutfit: async () => [],
-  atlasAssetRefsForOutfit: async () => [],
+  atlasAssetRefsForOutfit: mocks.atlasRefs,
   currentBytePlusAssetPolicy: async () => ({
     exists: mocks.currentExists,
     requiresBytePlusAsset: mocks.currentExists && mocks.identityId !== null,
@@ -131,4 +132,90 @@ describe("verified character fail-closed rendering", () => {
       mocks.identityId = 3;
     },
   );
+
+  it("preserves the compact hybrid snapshot Atlas reference and requires the active tenant mapping", async () => {
+    mocks.identityId = null;
+    mocks.atlasRefs.mockResolvedValue(["asset-2026-frozen"]);
+    mocks.video.mockResolvedValue({ buffer: Buffer.from("video"), provider: "atlascloud", model: "seedance" });
+    await generateCharacterClip({
+      tenantId: 1, characterId: 7, outfitId: 9, prompt: "scene", aspectRatio: "9:16", durationSec: 5,
+      snapshot: {
+        referenceImagePath: "/portrait.png", characterName: "Fictional", characterDescription: "fictional",
+        outfitReferenceImagePath: "/outfit.png", outfitName: "Default", outfitDescription: "red",
+        referenceSource: "generated", requiresAtlasAsset: true,
+        atlasAssetReferenceId: "asset-2026-frozen",
+      },
+      model: { resolvedVideoModel: {
+        version: 1, provider: "atlascloud", model: "seedance-v2.5", resolvedAt: "now",
+      } } as never,
+    });
+    expect(mocks.atlasRefs).toHaveBeenLastCalledWith(expect.objectContaining({
+      expectedAssetId: "asset-2026-frozen",
+    }));
+    expect(mocks.video).toHaveBeenCalled();
+  });
+
+  it.each(["atlas-asset-not-a-reference", "asset-💥", " asset-2026-valid", "asset-2026 bad"])(
+    "fails compact hybrid Atlas recovery before provider work for unsafe reference %s",
+    async (unsafeAssetId) => {
+    mocks.identityId = null;
+    mocks.keyframe.mockClear();
+    mocks.video.mockClear();
+    await expect(generateCharacterClip({
+      tenantId: 1, characterId: 7, outfitId: 9, prompt: "scene", aspectRatio: "9:16", durationSec: 5,
+      snapshot: {
+        referenceImagePath: "/portrait.png", characterName: "Fictional", characterDescription: "fictional",
+        outfitReferenceImagePath: "/outfit.png", outfitName: "Default", outfitDescription: "red",
+        referenceSource: "generated", requiresAtlasAsset: true, atlasAssetId: unsafeAssetId,
+      },
+      model: { resolvedVideoModel: {
+        version: 1, provider: "atlascloud", model: "seedance-v2.5", resolvedAt: "now",
+      } } as never,
+    })).rejects.toThrow(/no safe Atlas generation reference/);
+    expect(mocks.keyframe).not.toHaveBeenCalled();
+    expect(mocks.video).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["asset-💥", " asset-2026-valid", "asset-2026 bad"])(
+    "rejects malformed canonical compact snapshot reference before all provider work (%s)",
+    async (atlasAssetReferenceId) => {
+      mocks.keyframe.mockClear();
+      mocks.video.mockClear();
+      mocks.loadReference.mockClear();
+      await expect(generateCharacterClip({
+        tenantId: 1, characterId: 7, outfitId: 9, prompt: "scene", aspectRatio: "9:16", durationSec: 5,
+        snapshot: {
+          referenceImagePath: "/portrait.png", characterName: "Fictional", characterDescription: "",
+          outfitReferenceImagePath: "/outfit.png", outfitName: "Default", outfitDescription: "",
+          referenceSource: "generated", atlasAssetReferenceId,
+        },
+      })).rejects.toThrow(/malformed Atlas generation reference/);
+      expect(mocks.loadReference).not.toHaveBeenCalled();
+      expect(mocks.keyframe).not.toHaveBeenCalled();
+      expect(mocks.video).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a malformed canonical wardrobe snapshot even with a valid compatibility alias", async () => {
+    mocks.keyframe.mockClear();
+    mocks.video.mockClear();
+    mocks.loadReference.mockClear();
+    await expect(generateCharacterClip({
+      tenantId: 1, characterId: 7, outfitId: 9, prompt: "scene", aspectRatio: "9:16", durationSec: 5,
+      wardrobeSnapshot: {
+        character: {
+          id: 7, name: "Fictional", description: "", referenceImagePath: "/portrait.png",
+          referenceSource: "generated",
+        },
+        outfits: [{
+          id: 9, name: "Default", description: "", referenceImagePath: "/outfit.png",
+          isDefault: true, atlasAssetReferenceId: "asset-💥", atlasAssetId: "asset-2026-valid",
+        }],
+      },
+    })).rejects.toThrow(/malformed Atlas generation reference/);
+    expect(mocks.loadReference).not.toHaveBeenCalled();
+    expect(mocks.keyframe).not.toHaveBeenCalled();
+    expect(mocks.video).not.toHaveBeenCalled();
+  });
 });

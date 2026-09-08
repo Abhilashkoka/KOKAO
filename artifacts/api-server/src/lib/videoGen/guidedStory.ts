@@ -21,6 +21,7 @@ import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
 import { guidedSceneVisualPrompt, type GuidedBackdropLabel } from "./guidedScenePrompt";
 import { getTextGenClient } from "../textGen";
 import { VideoGenProviderError } from "./types";
+import { isAtlasGenerationReferenceId } from "../atlascloud/assetId";
 
 export const GUIDED_STORY_GENRES: readonly GuidedStoryGenre[] = [
   "action_adventure",
@@ -1083,7 +1084,11 @@ export function guidedStoryStoryboard(
       bytePlusAssetId: member.bytePlusAssetId ?? null,
       bytePlusAssetStatus: member.bytePlusAssetStatus ?? null,
       requiresAtlasAsset: member.requiresAtlasAsset === true,
-      atlasAssetId: member.atlasAssetId ?? null,
+      atlasAssetReferenceId: isAtlasGenerationReferenceId(member.atlasAssetReferenceId)
+        ? member.atlasAssetReferenceId
+        : isAtlasGenerationReferenceId(member.atlasAssetId)
+          ? member.atlasAssetId
+          : null,
       atlasAssetStatus: member.atlasAssetStatus ?? null,
       referenceImagePath: member.character.referenceImagePath,
       outfitReferenceImagePath: member.outfit?.referenceImagePath ?? null,

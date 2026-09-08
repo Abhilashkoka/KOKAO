@@ -88,6 +88,8 @@ export interface GuidedStoryCastSnapshot {
   bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
   /** Atlas mapping frozen with the approved fictional cast role. */
   requiresAtlasAsset?: boolean;
+  atlasAssetReferenceId?: string | null;
+  /** @deprecated Legacy snapshot alias; only asset-* values are generation ids. */
   atlasAssetId?: string | null;
   atlasAssetStatus?: "Processing" | "Active" | "Failed" | null;
   /** Durable receipt for fictional cast reference generation. */

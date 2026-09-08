@@ -341,6 +341,7 @@ import {
   registerCharacterAssets,
 } from "../lib/characterAssets";
 import { resolveAtlasAssetsKey } from "../lib/atlascloud/assets";
+import { selectAtlasGenerationReferenceId } from "../lib/atlascloud/assetId";
 
 const router: IRouter = Router();
 
@@ -405,7 +406,13 @@ async function serializeAtlasCloudAssets() {
       outfits: outfits.filter((outfit) => outfit.characterId === character.id).map((outfit) => ({
         id: outfit.id,
         name: outfit.name,
-        assetId: outfit.atlasAssetId,
+        /** @deprecated generationReferenceId is the unambiguous field. */
+        assetId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
+        libraryRecordId: outfit.atlasAssetLibraryId,
+        generationReferenceId: selectAtlasGenerationReferenceId(
+          outfit.atlasAssetReferenceId,
+          outfit.atlasAssetId,
+        ),
         status: outfit.atlasAssetStatus,
         error: outfit.atlasAssetError,
         syncedAt: outfit.atlasAssetSyncedAt?.toISOString() ?? null,

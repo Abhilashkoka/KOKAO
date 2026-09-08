@@ -96,16 +96,30 @@ describe("Atlas Cloud Seedance 2.5", () => {
     const body = atlasCloudRequestBody({
       ...input,
       model: ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
-      assetIds: ["fictional-one", "fictional-two"],
+      assetIds: ["asset-fictional-one", "asset-fictional-two"],
     });
     expect(body).toMatchObject({
       model: ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
-      reference_images: ["asset://fictional-one", "asset://fictional-two"],
+      reference_images: ["asset://asset-fictional-one", "asset://asset-fictional-two"],
     });
     expect(body).not.toHaveProperty("image");
     expect(body).not.toHaveProperty("ratio");
     expect(body.prompt).toContain("@Image1 and @Image2");
   });
+
+  it.each(["asset-💥", " asset-2026-valid", "asset-2026 bad", "atlas-asset-2026"])(
+    "rejects malformed Atlas generation references before provider submission (%s)",
+    async (assetId) => {
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      expect(() => atlasCloudRequestBody({
+        ...input,
+        model: ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
+        assetIds: [assetId],
+      })).toThrow(/invalid Asset Library generation reference/);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("checkpoints an accepted prediction and downloads only completed output", async () => {
     const accepted = vi.fn(async () => {});

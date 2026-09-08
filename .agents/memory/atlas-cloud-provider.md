@@ -9,6 +9,18 @@ Atlas Cloud is a distinct paid video provider; never reuse BytePlus model contra
 
 **How to apply:** Fence every paid submit durably before POST, save accepted prediction IDs immediately, resume polling instead of resubmitting, and send unknown-cost events as NULL. Activation requires an authoritative price.
 
+Atlas Asset Library records have three distinct identifiers: the numeric library record ID is for status/deletion GETs, `ark_asset_id` is the strict ASCII `asset-*` generation reference used as `asset://...`, and `atlas_asset_id` is informational. Successful responses may use a nested `data` envelope and a string application code.
+
+**Why:** Live funded-account testing showed that string IDs fail status GETs, while Seedance ignores the numeric record ID for generation. Treating them as interchangeable makes active assets fail at dispatch.
+
+**How to apply:** Persist the numeric and generation IDs separately, validate canonical and compatibility values with one strict grammar, reconcile known numeric records through GET, and never repeat Asset POSTs for ambiguous or already-fenced submissions.
+
+Asset registration, outfit insertion, and character/outfit deletion must share parent-before-child locking and revalidate the exact asset snapshot before deletion.
+
+**Why:** A provider-success/database-failure retry can duplicate an account-wide asset, while deletion racing a fenced registration or new outfit insert can orphan remote or stored assets.
+
+**How to apply:** Persist a durable fence immediately before Asset POST; unresolved fences block retries and deletion. Serialize existing-character outfit insertion and deletion on the tenant-owned parent, then compare locked child state before deleting.
+
 Only AI-generated fictional characters may enter the Atlas Asset Library. Uploaded, unknown-provenance, or BytePlus-verified identities must never reach Atlas through raw-image or asset paths.
 
 **Why:** Atlas documents that real-human references require authorized assets, but its public API does not expose a KOKAO-compatible liveness/right-verification flow.

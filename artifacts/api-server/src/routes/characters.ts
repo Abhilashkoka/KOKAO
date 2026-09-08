@@ -32,6 +32,7 @@ import {
 } from "../lib/wallet";
 import { recordUsage } from "../lib/usage";
 import { uploadBufferToStorage } from "../lib/storageUpload";
+import { ObjectStorageService } from "../lib/objectStorage";
 import {
   CharacterInputError,
   loadReferenceImage,
@@ -67,6 +68,26 @@ import {
 } from "../lib/bytePlusIdentity";
 
 const router: IRouter = Router();
+const objectStorage = new ObjectStorageService();
+
+class AtlasDeletionRaceError extends Error {}
+
+function atlasDeletionSnapshot(outfits: Array<Pick<CharacterOutfit,
+  "id" | "atlasAssetLibraryId" | "atlasAssetReferenceId" | "atlasAssetId" |
+  "atlasAssetStatus" | "atlasAssetClaimedAt" | "atlasAssetSubmitFencedAt"
+>>): string {
+  return JSON.stringify([...outfits]
+    .sort((a, b) => a.id - b.id)
+    .map((outfit) => ({
+      id: outfit.id,
+      libraryRecordId: outfit.atlasAssetLibraryId,
+      referenceId: outfit.atlasAssetReferenceId,
+      compatibilityId: outfit.atlasAssetId,
+      status: outfit.atlasAssetStatus,
+      claimedAt: outfit.atlasAssetClaimedAt?.toISOString() ?? null,
+      submitFencedAt: outfit.atlasAssetSubmitFencedAt?.toISOString() ?? null,
+    })));
+}
 
 /** Bundled fictional references; browser path is /api + stored asset path. */
 router.get("/preset-assets/:presetId/:asset", (req, res) => {
@@ -493,6 +514,9 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       bytePlusAssetGroupId: null,
       bytePlusAssetGroupClaimedAt: null,
       atlasAssetGroupId: null,
+      atlasAssetLibraryId: null,
+      atlasAssetReferenceId: null,
+      atlasAssetId: null,
       bytePlusIdentityId: null,
       referenceSource: "generated" as const,
       referenceSheetImagePath: null,
@@ -1119,31 +1143,56 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
     res.status(404).json({ error: "Not found" });
     return;
   }
-  const atlasOutfits = await db.select({ assetId: characterOutfitsTable.atlasAssetId })
+  const atlasOutfits = await db.select()
     .from(characterOutfitsTable).where(and(
       eq(characterOutfitsTable.characterId, character.id),
       eq(characterOutfitsTable.tenantId, req.tenantId),
     ));
   try {
-    await assertAtlasAssetsDeleted(atlasOutfits.map((outfit) => outfit.assetId));
+    await assertAtlasAssetsDeleted(atlasOutfits.map((outfit) => ({
+      libraryRecordId: outfit.atlasAssetLibraryId,
+      historicalId: outfit.atlasAssetId,
+      submitFencedAt: outfit.atlasAssetSubmitFencedAt,
+    })));
   } catch (error) {
     res.status(409).json({ error: error instanceof Error ? error.message : "Atlas asset deletion could not be verified." });
     return;
   }
-  const deletedOutfits = await db
-    .delete(characterOutfitsTable)
-    .where(
-      and(
+  let deletedOutfits: Array<{ assetId: string | null }>;
+  try {
+    deletedOutfits = await db.transaction(async (tx) => {
+      const [lockedCharacter] = await tx.select({ id: charactersTable.id })
+        .from(charactersTable)
+        .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)))
+        .for("update")
+        .limit(1);
+      if (!lockedCharacter) throw new AtlasDeletionRaceError("Character changed during Atlas deletion validation.");
+      const lockedOutfits = await tx.select().from(characterOutfitsTable).where(and(
         eq(characterOutfitsTable.characterId, character.id),
         eq(characterOutfitsTable.tenantId, req.tenantId),
-      ),
-    ).returning({
-      assetId: characterOutfitsTable.bytePlusAssetId,
-      atlasAssetId: characterOutfitsTable.atlasAssetId,
+      )).orderBy(asc(characterOutfitsTable.id)).for("update");
+      if (atlasDeletionSnapshot(lockedOutfits) !== atlasDeletionSnapshot(atlasOutfits)) {
+        throw new AtlasDeletionRaceError(
+          "Atlas registration or outfit state changed during deletion validation. Retry after registration is reconciled.",
+        );
+      }
+      const deleted = await tx.delete(characterOutfitsTable).where(and(
+        eq(characterOutfitsTable.characterId, character.id),
+        eq(characterOutfitsTable.tenantId, req.tenantId),
+      )).returning({ assetId: characterOutfitsTable.bytePlusAssetId });
+      await tx.delete(charactersTable).where(and(
+        eq(charactersTable.id, character.id),
+        eq(charactersTable.tenantId, req.tenantId),
+      ));
+      return deleted;
     });
-  await db
-    .delete(charactersTable)
-    .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)));
+  } catch (error) {
+    if (error instanceof AtlasDeletionRaceError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
   res.status(204).end();
   deleteBytePlusAssetsInBackground(deletedOutfits.map((row) => row.assetId));
 });
@@ -1403,25 +1452,50 @@ router.post(
         "image/png",
       );
 
-      const [createdOutfit] = await db
-        .insert(characterOutfitsTable)
-        .values({
-          tenantId: req.tenantId,
-          characterId: character.id,
-          name,
-          description,
-          referenceImagePath,
-          isDefault: false,
-          status: "preview",
-          identityVerified: true,
-          canonicalReferenceImagePath: character.referenceImagePath,
-          protectedRegion,
-        })
-        .returning();
+      // Match character deletion's parent-then-children lock order. If
+      // deletion already owns/removed the parent, this insert waits and then
+      // observes no tenant-owned character; it must never create an orphan.
+      const createdOutfit = await db.transaction(async (tx) => {
+        const [lockedCharacter] = await tx.select({ id: charactersTable.id })
+          .from(charactersTable)
+          .where(and(
+            eq(charactersTable.id, character.id),
+            eq(charactersTable.tenantId, req.tenantId),
+          ))
+          .for("update")
+          .limit(1);
+        if (!lockedCharacter) return null;
+        const [inserted] = await tx
+          .insert(characterOutfitsTable)
+          .values({
+            tenantId: req.tenantId,
+            characterId: lockedCharacter.id,
+            name,
+            description,
+            referenceImagePath,
+            isDefault: false,
+            status: "preview",
+            identityVerified: true,
+            canonicalReferenceImagePath: character.referenceImagePath,
+            protectedRegion,
+          })
+          .returning();
+        return inserted!;
+      });
+      if (!createdOutfit) {
+        // This path was uploaded specifically for the outfit above and never
+        // became referenced by a row. Delete it before reporting the race so
+        // a deletion-winning parent cannot leave storage ownership orphaned.
+        await objectStorage.deleteObjectEntity(referenceImagePath, req.tenantId);
+        res.status(409).json({
+          error: "The character was deleted while this outfit was being generated; no outfit was saved.",
+        });
+        return;
+      }
       registerOutfitAssetInBackground({
         tenantId: req.tenantId,
         character,
-        outfit: createdOutfit!,
+        outfit: createdOutfit,
       });
       const outfits = await db
         .select()
@@ -1554,15 +1628,54 @@ router.delete(
       return;
     }
     try {
-      await assertAtlasAssetsDeleted([outfit.atlasAssetId]);
+      await assertAtlasAssetsDeleted([{
+        libraryRecordId: outfit.atlasAssetLibraryId,
+        historicalId: outfit.atlasAssetId,
+        submitFencedAt: outfit.atlasAssetSubmitFencedAt,
+      }]);
     } catch (error) {
       res.status(409).json({ error: error instanceof Error ? error.message : "Atlas asset deletion could not be verified." });
       return;
     }
-    const [deleted] = await db
-      .delete(characterOutfitsTable)
-      .where(eq(characterOutfitsTable.id, outfit.id))
-      .returning({ assetId: characterOutfitsTable.bytePlusAssetId });
+    let deleted: { assetId: string | null } | undefined;
+    try {
+      deleted = await db.transaction(async (tx) => {
+        const [lockedCharacter] = await tx.select({ id: charactersTable.id })
+          .from(charactersTable)
+          .where(and(
+            eq(charactersTable.id, character.id),
+            eq(charactersTable.tenantId, req.tenantId),
+          ))
+          .for("update")
+          .limit(1);
+        if (!lockedCharacter) throw new AtlasDeletionRaceError("Character changed during Atlas deletion validation.");
+        const [lockedOutfit] = await tx.select().from(characterOutfitsTable).where(and(
+          eq(characterOutfitsTable.id, outfit.id),
+          eq(characterOutfitsTable.characterId, character.id),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (
+          !lockedOutfit ||
+          atlasDeletionSnapshot([lockedOutfit]) !== atlasDeletionSnapshot([outfit])
+        ) {
+          throw new AtlasDeletionRaceError(
+            "Atlas registration state changed during deletion validation. Retry after registration is reconciled.",
+          );
+        }
+        const [row] = await tx.delete(characterOutfitsTable).where(and(
+          eq(characterOutfitsTable.id, outfit.id),
+          eq(characterOutfitsTable.characterId, character.id),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        )).returning({ assetId: characterOutfitsTable.bytePlusAssetId });
+        return row;
+      });
+    } catch (error) {
+      if (error instanceof AtlasDeletionRaceError) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
     deleteBytePlusAssetsInBackground([deleted?.assetId ?? null]);
     res.status(204).end();
   },

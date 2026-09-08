@@ -3815,7 +3815,9 @@ export const GetAdminAtlasCloudAssetsResponse = zod.object({
   "outfits": zod.array(zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "assetId": zod.string().nullable(),
+  "assetId": zod.string().nullable().describe('Compatibility alias for generationReferenceId.'),
+  "libraryRecordId": zod.number().nullable().describe('Numeric Asset Library record id used for status lookups.'),
+  "generationReferenceId": zod.string().nullable().describe('ark_asset_id used in Seedance as asset:\/\/<generationReferenceId>.'),
   "status": zod.string().nullable(),
   "error": zod.string().nullable(),
   "syncedAt": zod.coerce.date().nullable()
@@ -3846,7 +3848,9 @@ export const RegisterAdminAtlasCloudCharacterAssetsResponse = zod.object({
   "outfits": zod.array(zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "assetId": zod.string().nullable(),
+  "assetId": zod.string().nullable().describe('Compatibility alias for generationReferenceId.'),
+  "libraryRecordId": zod.number().nullable().describe('Numeric Asset Library record id used for status lookups.'),
+  "generationReferenceId": zod.string().nullable().describe('ark_asset_id used in Seedance as asset:\/\/<generationReferenceId>.'),
   "status": zod.string().nullable(),
   "error": zod.string().nullable(),
   "syncedAt": zod.coerce.date().nullable()

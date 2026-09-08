@@ -130,6 +130,7 @@ export * from './asrProviderInfoKeySource';
 export * from './asrSettingsView';
 export * from './atlasCloudAssetCharacter';
 export * from './atlasCloudAssetCharacterReferenceSource';
+export * from './atlasCloudAssetOutfit';
 export * from './atlasCloudAssetsAdminView';
 export * from './audienceAnalytics';
 export * from './audienceAnalyticsRetention';

@@ -8342,6 +8342,33 @@ export const AtlasCloudAssetCharacterReferenceSource = {
   uploaded: 'uploaded',
 } as const;
 
+export interface AtlasCloudAssetOutfit {
+  id: number;
+  name: string;
+  /**
+     * Compatibility alias for generationReferenceId.
+     * @deprecated
+     * @nullable
+     */
+  assetId: string | null;
+  /**
+     * Numeric Asset Library record id used for status lookups.
+     * @nullable
+     */
+  libraryRecordId: number | null;
+  /**
+     * ark_asset_id used in Seedance as asset://<generationReferenceId>.
+     * @nullable
+     */
+  generationReferenceId: string | null;
+  /** @nullable */
+  status: string | null;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  syncedAt: string | null;
+}
+
 export interface AtlasCloudAssetCharacter {
   id: number;
   tenantId: number;
@@ -8351,7 +8378,7 @@ export interface AtlasCloudAssetCharacter {
   /** @nullable */
   referenceSource: AtlasCloudAssetCharacterReferenceSource;
   eligible: boolean;
-  outfits: BytePlusAssetOutfit[];
+  outfits: AtlasCloudAssetOutfit[];
 }
 
 export interface AtlasCloudAssetsAdminView {

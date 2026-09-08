@@ -12,6 +12,7 @@ import { getTextGenClient } from "../textGen";
 import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../promptKit";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
+import { isAtlasGenerationReferenceId } from "../atlascloud/assetId";
 import { generateVideo } from "./index";
 import { getMotionInstruction, motionPresetClause } from "./motionPrompt";
 import { resolveModelOptions } from "./modelCatalog";
@@ -620,7 +621,11 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
             tenantId: params.job.tenantId,
             characterId: member.characterId,
             outfitId: member.outfitId,
-            expectedAssetId: member.atlasAssetId,
+            expectedAssetId: isAtlasGenerationReferenceId(member.atlasAssetReferenceId)
+              ? member.atlasAssetReferenceId
+              : isAtlasGenerationReferenceId(member.atlasAssetId)
+                ? member.atlasAssetId
+                : null,
           });
           if (!refs.length) {
             throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a participating cast member without an active Atlas Cloud asset mapping.`);
