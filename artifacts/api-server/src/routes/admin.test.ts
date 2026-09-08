@@ -76,6 +76,30 @@ const OWNER_EMAIL = "abhilash.koka1@gmail.com";
 
 const app = createAdminTestApp();
 
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      cells.push(cell);
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  cells.push(cell);
+  return cells;
+}
+
 afterAll(async () => {
   await pool.end();
 });
@@ -1073,8 +1097,8 @@ describe("Audit trail — privileged actions are recorded", () => {
       expect(res.headers["content-disposition"]).toContain(".csv");
 
       const lines = res.text.trim().split(/\r\n/);
-      expect(lines[0]).toBe(
-        "id,createdAt,action,actorTenantId,actorEmail,targetTenantId,targetEmail,oldValue,newValue",
+      expect(lines[0]).toMatch(
+        /^id,createdAt,action,actorTenantId,actorEmail,targetTenantId,targetEmail,oldValue,newValue,/,
       );
       // Both plan changes are exported (not just one page), newest first.
       expect(lines).toHaveLength(3);
@@ -1098,6 +1122,104 @@ describe("Audit trail — privileged actions are recorded", () => {
     } finally {
       await deleteTenant(actor.tenantId);
       await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("exports Seedance refresh snapshots in dedicated spreadsheet columns", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `seedance-export-${randomUUID()}@example.com`,
+    });
+    const before = {
+      provider: "byteplus",
+      model: "dreamina-seedance-2-5-260628",
+      sourceUrl: "https://old.example/pricing",
+      sourceCheckedAt: "2026-09-06T10:00:00.000Z",
+      rates: {
+        "480p": {
+          listUsdPerSecond: 0.01,
+          promotionUsdPerSecond: 0.008,
+          promotionExpiresAt: "2026-10-01T00:00:00.000Z",
+        },
+        "720p": {
+          listUsdPerSecond: 0.02,
+          promotionUsdPerSecond: null,
+          promotionExpiresAt: null,
+        },
+        "1080p": {
+          listUsdPerSecond: 0.03,
+          promotionUsdPerSecond: 0.025,
+          promotionExpiresAt: "2026-09-30T23:59:59.000Z",
+        },
+      },
+    };
+    const after = {
+      ...before,
+      sourceUrl: "https://provider.example/seedance-pricing",
+      sourceCheckedAt: "2026-09-07T11:22:33.456Z",
+      rates: {
+        "480p": {
+          listUsdPerSecond: 0.011,
+          promotionUsdPerSecond: 0.009,
+          promotionExpiresAt: "2026-10-15T12:30:00.000Z",
+        },
+        "720p": {
+          listUsdPerSecond: 0.022,
+          promotionUsdPerSecond: 0.018,
+          promotionExpiresAt: "2026-10-15T12:30:00.000Z",
+        },
+        "1080p": {
+          listUsdPerSecond: 0.033,
+          promotionUsdPerSecond: null,
+          promotionExpiresAt: null,
+        },
+      },
+      outcome: "changed",
+    };
+
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      await db.insert(adminAuditLogsTable).values({
+        action: "seedance_rate_refresh",
+        actorTenantId: actor.tenantId,
+        actorEmail: actor.email,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: JSON.stringify(before),
+        newValue: JSON.stringify(after),
+      });
+
+      const res = await request(app).get(
+        "/api/admin/audit-logs/export?action=seedance_rate_refresh",
+      );
+      expect(res.status).toBe(200);
+      const [headerLine, rowLine] = res.text.trim().split(/\r\n/);
+      const headers = parseCsvLine(headerLine!);
+      const values = parseCsvLine(rowLine!);
+      const row = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+
+      expect(row).toMatchObject({
+        old480pUsdPerSecond: "0.01",
+        new480pUsdPerSecond: "0.011",
+        old480pPromotionUsdPerSecond: "0.008",
+        new480pPromotionUsdPerSecond: "0.009",
+        old480pPromotionExpiresAt: "2026-10-01T00:00:00.000Z",
+        new480pPromotionExpiresAt: "2026-10-15T12:30:00.000Z",
+        old720pUsdPerSecond: "0.02",
+        new720pUsdPerSecond: "0.022",
+        old720pPromotionUsdPerSecond: "",
+        new720pPromotionUsdPerSecond: "0.018",
+        old1080pUsdPerSecond: "0.03",
+        new1080pUsdPerSecond: "0.033",
+        old1080pPromotionUsdPerSecond: "0.025",
+        new1080pPromotionUsdPerSecond: "",
+        provider: "byteplus",
+        sourceUrl: "https://provider.example/seedance-pricing",
+        sourceCheckedAt: "2026-09-07T11:22:33.456Z",
+        outcome: "changed",
+      });
+    } finally {
+      await deleteTenant(actor.tenantId);
     }
   });
 

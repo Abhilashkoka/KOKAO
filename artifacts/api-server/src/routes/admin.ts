@@ -5126,6 +5126,82 @@ function csvCell(value: string | number | null): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+const SEEDANCE_EXPORT_HEADERS = [
+  "old480pUsdPerSecond",
+  "new480pUsdPerSecond",
+  "old480pPromotionUsdPerSecond",
+  "new480pPromotionUsdPerSecond",
+  "old480pPromotionExpiresAt",
+  "new480pPromotionExpiresAt",
+  "old720pUsdPerSecond",
+  "new720pUsdPerSecond",
+  "old720pPromotionUsdPerSecond",
+  "new720pPromotionUsdPerSecond",
+  "old720pPromotionExpiresAt",
+  "new720pPromotionExpiresAt",
+  "old1080pUsdPerSecond",
+  "new1080pUsdPerSecond",
+  "old1080pPromotionUsdPerSecond",
+  "new1080pPromotionUsdPerSecond",
+  "old1080pPromotionExpiresAt",
+  "new1080pPromotionExpiresAt",
+  "provider",
+  "sourceUrl",
+  "sourceCheckedAt",
+  "outcome",
+] as const;
+
+type SeedanceExportSnapshot = Partial<SeedanceRateSnapshot> & {
+  outcome?: unknown;
+};
+
+function parseSeedanceExportSnapshot(value: string | null): SeedanceExportSnapshot | null {
+  if (value === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object"
+      ? (parsed as SeedanceExportSnapshot)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function seedanceExportCells(
+  action: string,
+  oldValue: string | null,
+  newValue: string | null,
+): Array<string | number | null> {
+  if (action !== "seedance_rate_refresh") {
+    return SEEDANCE_EXPORT_HEADERS.map(() => null);
+  }
+
+  const before = parseSeedanceExportSnapshot(oldValue);
+  const after = parseSeedanceExportSnapshot(newValue);
+  const cells: Array<string | number | null> = [];
+  for (const resolution of ["480p", "720p", "1080p"] as const) {
+    const oldRate = before?.rates?.[resolution];
+    const newRate = after?.rates?.[resolution];
+    cells.push(
+      oldRate?.listUsdPerSecond ?? null,
+      newRate?.listUsdPerSecond ?? null,
+      oldRate?.promotionUsdPerSecond ?? null,
+      newRate?.promotionUsdPerSecond ?? null,
+      oldRate?.promotionExpiresAt ?? null,
+      newRate?.promotionExpiresAt ?? null,
+    );
+  }
+  cells.push(
+    typeof after?.provider === "string" ? after.provider : null,
+    typeof after?.sourceUrl === "string" ? after.sourceUrl : null,
+    typeof after?.sourceCheckedAt === "string" ? after.sourceCheckedAt : null,
+    after?.outcome === "changed" || after?.outcome === "no_change"
+      ? after.outcome
+      : null,
+  );
+  return cells;
+}
+
 const AUDIT_EXPORT_BATCH = 500;
 
 /**
@@ -5171,7 +5247,18 @@ router.get(
     );
 
     res.write(
-      "id,createdAt,action,actorTenantId,actorEmail,targetTenantId,targetEmail,oldValue,newValue\r\n",
+      [
+        "id",
+        "createdAt",
+        "action",
+        "actorTenantId",
+        "actorEmail",
+        "targetTenantId",
+        "targetEmail",
+        "oldValue",
+        "newValue",
+        ...SEEDANCE_EXPORT_HEADERS,
+      ].join(",") + "\r\n",
     );
 
     let offset = 0;
@@ -5199,6 +5286,11 @@ router.get(
             csvCell(r.targetEmail ?? null),
             csvCell(r.oldValue ?? null),
             csvCell(r.newValue ?? null),
+            ...seedanceExportCells(
+              r.action,
+              r.oldValue ?? null,
+              r.newValue ?? null,
+            ).map(csvCell),
           ].join(",") + "\r\n",
         );
       }
