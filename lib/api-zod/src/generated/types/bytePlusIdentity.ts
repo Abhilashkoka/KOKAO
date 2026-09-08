@@ -11,6 +11,8 @@ export interface BytePlusIdentity {
   id: number;
   label: string;
   status: BytePlusIdentityStatus;
+  /** True only when starting the same label will safely reuse this failed record. */
+  retryable: boolean;
   /** @nullable */
   assetGroupId: string | null;
   /** @nullable */

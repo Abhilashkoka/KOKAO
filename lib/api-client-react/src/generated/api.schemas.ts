@@ -8236,6 +8236,8 @@ export interface BytePlusIdentity {
   id: number;
   label: string;
   status: BytePlusIdentityStatus;
+  /** True only when starting the same label will safely reuse this failed record. */
+  retryable: boolean;
   /** @nullable */
   assetGroupId: string | null;
   /** @nullable */
@@ -8267,7 +8269,23 @@ export interface BytePlusIdentityInput {
 
 export type BytePlusIdentityStart = BytePlusIdentity & {
   verificationUrl: string;
+  /** True when this start reused the existing failed record. */
+  retried: boolean;
 };
+
+export type BytePlusIdentityConflictStatus = typeof BytePlusIdentityConflictStatus[keyof typeof BytePlusIdentityConflictStatus];
+
+
+export const BytePlusIdentityConflictStatus = {
+  pending: 'pending',
+  verified: 'verified',
+} as const;
+
+export interface BytePlusIdentityConflict {
+  error: string;
+  status: BytePlusIdentityConflictStatus;
+  retryable: false;
+}
 
 export interface BytePlusAssetsKeyInput {
   /** @minLength 1 */

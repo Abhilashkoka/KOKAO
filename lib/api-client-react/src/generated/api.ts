@@ -124,6 +124,7 @@ import type {
   BytePlusAssetsAdminView,
   BytePlusAssetsKeyInput,
   BytePlusIdentity,
+  BytePlusIdentityConflict,
   BytePlusIdentityInput,
   BytePlusIdentityStart,
   CampaignInput,
@@ -7420,7 +7421,7 @@ export const startBytePlusIdentityVerification = async (bytePlusIdentityInput: B
 
 
 
-export const getStartBytePlusIdentityVerificationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+export const getStartBytePlusIdentityVerificationMutationOptions = <TError = ErrorType<ErrorEnvelope | BytePlusIdentityConflict>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>, TError,{data: BodyType<BytePlusIdentityInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>, TError,{data: BodyType<BytePlusIdentityInput>}, TContext> => {
 
@@ -7449,12 +7450,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type StartBytePlusIdentityVerificationMutationResult = NonNullable<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>>
     export type StartBytePlusIdentityVerificationMutationBody = BodyType<BytePlusIdentityInput>
-    export type StartBytePlusIdentityVerificationMutationError = ErrorType<ErrorEnvelope>
+    export type StartBytePlusIdentityVerificationMutationError = ErrorType<ErrorEnvelope | BytePlusIdentityConflict>
 
     /**
  * @summary Start BytePlus liveness verification for a real person
  */
-export const useStartBytePlusIdentityVerification = <TError = ErrorType<ErrorEnvelope>,
+export const useStartBytePlusIdentityVerification = <TError = ErrorType<ErrorEnvelope | BytePlusIdentityConflict>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startBytePlusIdentityVerification>>, TError,{data: BodyType<BytePlusIdentityInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof startBytePlusIdentityVerification>>,

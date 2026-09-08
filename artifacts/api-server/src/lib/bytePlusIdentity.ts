@@ -4,7 +4,7 @@ import {
   charactersTable,
   type BytePlusIdentity,
 } from "@workspace/db";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { signOAuthState, verifySignedOAuthState } from "./oauthState";
 import {
@@ -50,18 +50,60 @@ export function verifyBytePlusIdentityState(
     : null;
 }
 
+export class BytePlusIdentityConflictError extends Error {
+  constructor(
+    public readonly status: "pending" | "verified",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function startBytePlusIdentityVerification(args: {
   tenantId: number;
   label: string;
   callbackBaseUrl: string;
   returnTarget?: "web" | "mobile";
-}): Promise<{ identity: BytePlusIdentity; verificationUrl: string }> {
+}): Promise<{ identity: BytePlusIdentity; verificationUrl: string; retried: boolean }> {
   const credentials = await resolveBytePlusAssetsCredentials();
   if (!credentials) throw new Error("BytePlus Asset Library is not configured.");
-  const [identity] = await db.insert(bytePlusIdentitiesTable).values({
-    tenantId: args.tenantId,
-    label: args.label,
-  }).returning();
+  const { identity, retried } = await db.transaction(async (tx) => {
+    // A row lock cannot serialize the first two inserts because no row exists yet.
+    // Lock this tenant/label pair before reading so repeated clicks have one winner.
+    await tx.execute(sql`select pg_advisory_xact_lock(${args.tenantId}, hashtext(${args.label}))`);
+    const [existing] = await tx.select().from(bytePlusIdentitiesTable).where(and(
+      eq(bytePlusIdentitiesTable.tenantId, args.tenantId),
+      eq(bytePlusIdentitiesTable.label, args.label),
+    )).for("update").limit(1);
+    if (!existing) {
+      const [created] = await tx.insert(bytePlusIdentitiesTable).values({
+        tenantId: args.tenantId,
+        label: args.label,
+      }).returning();
+      return { identity: created!, retried: false };
+    }
+    if (existing.status !== "failed") {
+      const activeStatus = existing.status === "verified" ? "verified" : "pending";
+      throw new BytePlusIdentityConflictError(
+        activeStatus,
+        activeStatus === "verified"
+          ? "This person is already verified."
+          : "Verification is already active for this person. Finish the current check before starting another.",
+      );
+    }
+    const [reclaimed] = await tx.update(bytePlusIdentitiesTable).set({
+      status: "pending",
+      verificationTokenHash: null,
+      assetGroupId: null,
+      resultCode: null,
+      error: null,
+      verifiedAt: null,
+    }).where(and(
+      eq(bytePlusIdentitiesTable.id, existing.id),
+      eq(bytePlusIdentitiesTable.status, "failed"),
+    )).returning();
+    return { identity: reclaimed!, retried: true };
+  });
   try {
     const state = signBytePlusIdentityState(
       args.tenantId,
@@ -75,7 +117,11 @@ export async function startBytePlusIdentityVerification(args: {
     await db.update(bytePlusIdentitiesTable).set({
       verificationTokenHash: tokenHash(session.bytedToken),
     }).where(and(eq(bytePlusIdentitiesTable.id, identity!.id), eq(bytePlusIdentitiesTable.status, "pending")));
-    return { identity: identity!, verificationUrl: session.verificationUrl };
+    return {
+      identity: { ...identity, verificationTokenHash: tokenHash(session.bytedToken) },
+      verificationUrl: session.verificationUrl,
+      retried,
+    };
   } catch (error) {
     await db.update(bytePlusIdentitiesTable).set({
       status: "failed",

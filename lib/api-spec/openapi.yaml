@@ -2553,6 +2553,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: A pending or verified record already owns this workspace label
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BytePlusIdentityConflict" }
         "503":
           description: BytePlus Asset Library is not configured
           content:
@@ -21001,11 +21006,14 @@ components:
             generated portraits cannot be filed as a verified real person.
     BytePlusIdentity:
       type: object
-      required: [id, label, status, assetGroupId, error, verifiedAt]
+      required: [id, label, status, retryable, assetGroupId, error, verifiedAt]
       properties:
         id: { type: integer }
         label: { type: string }
         status: { type: string, enum: [pending, verified, failed] }
+        retryable:
+          type: boolean
+          description: True only when starting the same label will safely reuse this failed record.
         assetGroupId: { type: ["string", "null"] }
         error: { type: ["string", "null"] }
         verifiedAt: { type: ["string", "null"], format: date-time }
@@ -21024,9 +21032,20 @@ components:
       allOf:
         - $ref: "#/components/schemas/BytePlusIdentity"
         - type: object
-          required: [verificationUrl]
+          required: [verificationUrl, retried]
           properties:
             verificationUrl: { type: string }
+            retried:
+              type: boolean
+              description: True when this start reused the existing failed record.
+    BytePlusIdentityConflict:
+      type: object
+      additionalProperties: false
+      required: [error, status, retryable]
+      properties:
+        error: { type: string }
+        status: { type: string, enum: [pending, verified] }
+        retryable: { type: boolean, enum: [false] }
     BytePlusAssetsKeyInput:
       type: object
       additionalProperties: false

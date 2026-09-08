@@ -216,6 +216,22 @@ vi.mock("../lib/storageUpload", () => ({
   ),
 }));
 
+vi.mock("../lib/byteplus/assets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/byteplus/assets")>();
+  return {
+    ...actual,
+    resolveBytePlusAssetsCredentials: vi.fn(async () => ({
+      accessKeyId: "test-access",
+      secretAccessKey: "test-secret",
+    })),
+    createLivenessVerification: vi.fn(async () => ({
+      verificationUrl: "https://verify.example/liveness",
+      bytedToken: "test-byted-token",
+    })),
+    deleteAssetGroup: vi.fn(async () => undefined),
+  };
+});
+
 import {
   db,
   charactersTable,
@@ -227,7 +243,7 @@ import {
   presetCharactersTable,
   presetOutfitDerivativesTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import charactersRouter from "./characters";
 import { actAs, resetAuthState } from "../test/authState";
@@ -453,6 +469,49 @@ describe("POST /api/characters", () => {
       "Verified",
     ]);
     expect(listed.body[0].status).toBe("pending");
+    expect(listed.body[0].retryable).toBe(false);
+  });
+
+  it("reuses one failed identity across retries and protects active records", async () => {
+    const tenant = await newTenant();
+    const [failed] = await db.insert(bytePlusIdentitiesTable).values({
+      tenantId: tenant.tenantId,
+      label: "Retry Maya",
+      status: "failed",
+      error: "Liveness was not confirmed.",
+      resultCode: "failed",
+    }).returning();
+
+    const retried = await request(app)
+      .post("/api/characters/identities")
+      .send({ label: "Retry Maya" });
+    expect(retried.status).toBe(201);
+    expect(retried.body).toMatchObject({
+      id: failed!.id,
+      status: "pending",
+      retryable: false,
+      retried: true,
+    });
+
+    const repeated = await request(app)
+      .post("/api/characters/identities")
+      .send({ label: "Retry Maya" });
+    expect(repeated.status).toBe(409);
+    expect(repeated.body).toMatchObject({ status: "pending", retryable: false });
+    expect(await db.select().from(bytePlusIdentitiesTable).where(and(
+      eq(bytePlusIdentitiesTable.tenantId, tenant.tenantId),
+      eq(bytePlusIdentitiesTable.label, "Retry Maya"),
+    ))).toHaveLength(1);
+
+    await db.update(bytePlusIdentitiesTable).set({
+      status: "verified",
+      assetGroupId: "verified-group",
+    }).where(eq(bytePlusIdentitiesTable.id, failed!.id));
+    const verified = await request(app)
+      .post("/api/characters/identities")
+      .send({ label: "Retry Maya" });
+    expect(verified.status).toBe(409);
+    expect(verified.body).toMatchObject({ status: "verified", retryable: false });
   });
 
   it("rejects an uploaded reference outside the caller's workspace", async () => {

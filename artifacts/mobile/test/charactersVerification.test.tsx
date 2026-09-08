@@ -81,6 +81,7 @@ vi.mock("@workspace/api-client-react", async () => {
       mutateAsync: state.start.mockResolvedValue({
         ...state.identities[0],
         verificationUrl: "https://verify.example",
+        retried: false,
       }),
     }),
     useRequestUploadUrl: () => ({
@@ -110,6 +111,7 @@ describe("mobile character liveness return", () => {
     state.start.mockClear();
     state.identities = [{
       id: 41, label: "Asha", status: "verified",
+      retryable: false,
       assetGroupId: "group", error: null, verifiedAt: "2026-09-08T00:00:00.000Z",
     }];
   });
@@ -134,6 +136,7 @@ describe("mobile character liveness return", () => {
   it("does not offer attachment when verification failed", async () => {
     state.identities = [{
       id: 41, label: "Asha", status: "failed",
+      retryable: true,
       assetGroupId: null, error: "Not confirmed", verifiedAt: null,
     }];
     renderScreen();

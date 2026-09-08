@@ -3615,6 +3615,7 @@ export const ListBytePlusIdentitiesResponseItem = zod.object({
   "id": zod.number(),
   "label": zod.string(),
   "status": zod.enum(['pending', 'verified', 'failed']),
+  "retryable": zod.boolean().describe('True only when starting the same label will safely reuse this failed record.'),
   "assetGroupId": zod.string().nullable(),
   "error": zod.string().nullable(),
   "verifiedAt": zod.coerce.date().nullable()
@@ -3638,11 +3639,13 @@ export const StartBytePlusIdentityVerificationResponse = zod.object({
   "id": zod.number(),
   "label": zod.string(),
   "status": zod.enum(['pending', 'verified', 'failed']),
+  "retryable": zod.boolean().describe('True only when starting the same label will safely reuse this failed record.'),
   "assetGroupId": zod.string().nullable(),
   "error": zod.string().nullable(),
   "verifiedAt": zod.coerce.date().nullable()
 }).and(zod.object({
-  "verificationUrl": zod.string()
+  "verificationUrl": zod.string(),
+  "retried": zod.boolean().describe('True when this start reused the existing failed record.')
 }))
 
 
@@ -3675,6 +3678,7 @@ export const GetAdminBytePlusAssetsResponse = zod.object({
   "id": zod.number(),
   "label": zod.string(),
   "status": zod.enum(['pending', 'verified', 'failed']),
+  "retryable": zod.boolean().describe('True only when starting the same label will safely reuse this failed record.'),
   "assetGroupId": zod.string().nullable(),
   "error": zod.string().nullable(),
   "verifiedAt": zod.coerce.date().nullable()
@@ -3716,6 +3720,7 @@ export const SetAdminBytePlusAssetsKeyResponse = zod.object({
   "id": zod.number(),
   "label": zod.string(),
   "status": zod.enum(['pending', 'verified', 'failed']),
+  "retryable": zod.boolean().describe('True only when starting the same label will safely reuse this failed record.'),
   "assetGroupId": zod.string().nullable(),
   "error": zod.string().nullable(),
   "verifiedAt": zod.coerce.date().nullable()
@@ -3748,6 +3753,7 @@ export const ClearAdminBytePlusAssetsKeyResponse = zod.object({
   "id": zod.number(),
   "label": zod.string(),
   "status": zod.enum(['pending', 'verified', 'failed']),
+  "retryable": zod.boolean().describe('True only when starting the same label will safely reuse this failed record.'),
   "assetGroupId": zod.string().nullable(),
   "error": zod.string().nullable(),
   "verifiedAt": zod.coerce.date().nullable()
@@ -3787,6 +3793,7 @@ export const RegisterAdminBytePlusCharacterAssetsResponse = zod.object({
   "id": zod.number(),
   "label": zod.string(),
   "status": zod.enum(['pending', 'verified', 'failed']),
+  "retryable": zod.boolean().describe('True only when starting the same label will safely reuse this failed record.'),
   "assetGroupId": zod.string().nullable(),
   "error": zod.string().nullable(),
   "verifiedAt": zod.coerce.date().nullable()

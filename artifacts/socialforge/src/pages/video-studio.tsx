@@ -11614,7 +11614,7 @@ function CharacterManagerDialog({
                     {startIdentityVerification.isPending ? (
                       <RippleSpinner className="mr-2 h-4 w-4" />
                     ) : null}
-                    {selectedIdentity?.status === "failed" ? "Retry verification" : "Verify person"}
+                    {selectedIdentity?.retryable ? "Retry verification" : "Verify person"}
                   </Button>
                 </div>
                 {selectedIdentity && (
@@ -11634,7 +11634,8 @@ function CharacterManagerDialog({
                     )}
                     {selectedIdentity.status === "failed" && (
                       <span className="text-destructive">
-                        Verification failed. {selectedIdentity.error || "Please try again."}
+                        Verification failed and can be retried.{" "}
+                        {selectedIdentity.error || "Please try again."}
                       </span>
                     )}
                   </div>
@@ -11649,8 +11650,9 @@ function CharacterManagerDialog({
                 <div>
                   <p className="text-sm font-medium">Verification attempts</p>
                   <p className="text-xs text-muted-foreground">
-                    Remove abandoned attempts here. Verified identities can only be removed
-                    after deleting every character that uses them.
+                    Failed attempts can be retried with the same person name. Active attempts
+                    cannot be replaced. Verified identities can only be removed after deleting
+                    every character that uses them.
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -11663,7 +11665,11 @@ function CharacterManagerDialog({
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{identity.label}</p>
                         <p className="text-xs capitalize text-muted-foreground">
-                          {identity.status}
+                          {identity.status === "failed" && identity.retryable
+                            ? "failed — retry available"
+                            : identity.status === "pending"
+                              ? "pending — verification active"
+                              : identity.status}
                         </p>
                       </div>
                       <Button

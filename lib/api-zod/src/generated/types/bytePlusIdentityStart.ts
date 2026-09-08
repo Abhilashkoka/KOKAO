@@ -9,4 +9,6 @@ import type { BytePlusIdentity } from './bytePlusIdentity';
 
 export type BytePlusIdentityStart = BytePlusIdentity & {
   verificationUrl: string;
+  /** True when this start reused the existing failed record. */
+  retried: boolean;
 };

@@ -61,6 +61,7 @@ import {
   registerOutfitAssetInBackground,
 } from "../lib/characterAssets";
 import {
+  BytePlusIdentityConflictError,
   completeBytePlusIdentityVerification,
   deleteBytePlusIdentity,
   deleteBytePlusIdentityAssetsInBackground,
@@ -1309,6 +1310,7 @@ router.get("/characters/identities", async (req: Request, res: Response) => {
     id: identity.id,
     label: identity.label,
     status: identity.status === "completing" ? "pending" : identity.status,
+    retryable: identity.status === "failed",
     assetGroupId: identity.assetGroupId,
     error: identity.error,
     verifiedAt: identity.verifiedAt?.toISOString() ?? null,
@@ -1331,6 +1333,14 @@ router.post("/characters/identities", async (req: Request, res: Response) => {
       returnTarget: parsed.data.returnTarget ?? "web",
     });
   } catch (error) {
+    if (error instanceof BytePlusIdentityConflictError) {
+      res.status(409).json({
+        error: error.message,
+        status: error.status,
+        retryable: false,
+      });
+      return;
+    }
     req.log.warn({ err: error }, "BytePlus identity verification could not start");
     res.status(503).json({ error: "BytePlus identity verification is unavailable." });
     return;
@@ -1339,10 +1349,12 @@ router.post("/characters/identities", async (req: Request, res: Response) => {
     id: started.identity.id,
     label: started.identity.label,
     status: started.identity.status,
+    retryable: false,
     assetGroupId: null,
     error: null,
     verifiedAt: null,
     verificationUrl: started.verificationUrl,
+    retried: started.retried,
   });
 });
 

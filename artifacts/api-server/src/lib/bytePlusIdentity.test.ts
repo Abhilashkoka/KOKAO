@@ -59,6 +59,18 @@ vi.mock("@workspace/db", async (original) => {
   return {
     ...actual,
     db: {
+      transaction: async (callback: (tx: any) => Promise<unknown>) => callback({
+        execute: async () => undefined,
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              for: () => ({ limit: async () => [] }),
+            }),
+          }),
+        }),
+        insert: () => ({ values: () => ({ returning: async () => [row()] }) }),
+        update,
+      }),
       insert: () => ({ values: () => ({ returning: async () => [row()] }) }),
       select: () => ({ from: () => ({ where: () => ({ limit: async () => [row()] }) }) }),
       update,

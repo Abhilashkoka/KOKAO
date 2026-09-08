@@ -625,10 +625,12 @@ vi.mock("@workspace/api-client-react", async () => {
           id: 71,
           label: vars.data.label,
           status: "pending",
+          retryable: false,
           assetGroupId: null,
           error: null,
           verifiedAt: null,
           verificationUrl: "https://verify.example.test/liveness",
+          retried: false,
         });
       },
     }),
@@ -3539,6 +3541,7 @@ describe("Video Studio", () => {
         id: 71,
         label: "Maya",
         status: "verified",
+        retryable: false,
         assetGroupId: "group-maya",
         error: null,
         verifiedAt: "2026-09-08T10:00:00.000Z",
@@ -3581,6 +3584,7 @@ describe("Video Studio", () => {
         id: 72,
         label: "Maya",
         status: "failed",
+        retryable: true,
         assetGroupId: null,
         error: "Liveness check was not completed.",
         verifiedAt: null,
@@ -3606,6 +3610,8 @@ describe("Video Studio", () => {
         exact: false,
       }),
     ).toBeTruthy();
+    expect(screen.getByText("Retry verification")).toBeTruthy();
+    expect(screen.getByText("failed — retry available")).toBeTruthy();
     const create = screen.getByTestId("button-create-character") as HTMLButtonElement;
     expect(create.disabled).toBe(true);
     fireEvent.click(screen.getByTestId("button-verify-character-identity"));
