@@ -207,6 +207,12 @@ describe("Atlas Cloud Seedance 2.5", () => {
     ) => void;
     lookup("ignored-by-pin.example", {}, lookupCallback);
     expect(lookupCallback).toHaveBeenCalledWith(null, "2001:db8::8", 6);
+
+    const allLookupCallback = vi.fn();
+    lookup("ignored-by-pin.example", { all: true }, allLookupCallback);
+    expect(allLookupCallback).toHaveBeenCalledWith(null, [
+      { address: "2001:db8::8", family: 6 },
+    ]);
   });
 
   it("falls back to the next validated CDN address after a transport failure", async () => {

@@ -249,7 +249,16 @@ export async function pinnedDownload(
           req = dependencies.request({
             hostname: parsed.hostname, port: parsed.port || 443,
             path: `${parsed.pathname}${parsed.search}`, method: "GET", servername: parsed.hostname,
-            lookup: (_host, _opts, callback) => callback(null, address.address, address.family),
+            lookup: (_host, lookupOptions, callback) => {
+              if (lookupOptions.all) {
+                callback(null, [{
+                  address: address.address,
+                  family: address.family,
+                }]);
+                return;
+              }
+              callback(null, address.address, address.family);
+            },
           }, (res) => {
             const status = res.statusCode ?? 500;
             if (status < 200 || status >= 300) {

@@ -44,3 +44,9 @@ Provider-returned output URLs require address-pinned HTTPS transport: validate a
 **Why:** DNS validation followed by ordinary fetch permits DNS rebinding between lookup and connection.
 
 **How to apply:** Reject redirects and private/reserved addresses, cap output bytes, and enforce one deadline over headers and streamed body. Rotate across validated public CDN addresses; after a download failure, GET-refresh the same completed prediction before retrying its output URL. Never repeat the paid POST.
+
+Node's HTTPS client can invoke a custom pinned `lookup` with `options.all=true`; in that mode the callback must receive an address array rather than scalar address/family arguments.
+
+**Why:** Returning the scalar callback shape in all-address mode fails locally with `ERR_INVALID_IP_ADDRESS` before connecting, which looks like a CDN timeout even though the Atlas output is healthy.
+
+**How to apply:** Every custom address-pinned HTTPS lookup must support both callback overloads, and tests must exercise the `all=true` branch.
