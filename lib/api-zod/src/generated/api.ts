@@ -3647,6 +3647,16 @@ export const StartBytePlusIdentityVerificationResponse = zod.object({
 
 
 /**
+ * @summary Remove a real-person verification record owned by this workspace
+ */
+export const DeleteBytePlusIdentityParams = zod.object({
+  "identityId": zod.coerce.number()
+})
+
+export const DeleteBytePlusIdentityResponse = zod.void()
+
+
+/**
  * @summary Complete BytePlus liveness verification (public, HMAC-authenticated)
  */
 export const CompleteBytePlusIdentityVerificationParams = zod.object({

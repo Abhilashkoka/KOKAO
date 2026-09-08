@@ -37,6 +37,7 @@ import {
   useCreateCharacter,
   useListBytePlusIdentities,
   useStartBytePlusIdentityVerification,
+  useDeleteBytePlusIdentity,
   getListBytePlusIdentitiesQueryKey,
   useGenerateCharacterReferenceSheet,
   useReviewCharacterReferenceSheet,
@@ -10921,6 +10922,7 @@ function CharacterManagerDialog({
     },
   });
   const startIdentityVerification = useStartBytePlusIdentityVerification();
+  const deleteIdentity = useDeleteBytePlusIdentity();
   const { data: characters, isLoading: charactersLoading } = useListCharacters({
     query: { queryKey: getListCharactersQueryKey(), enabled: open },
   });
@@ -10981,6 +10983,9 @@ function CharacterManagerDialog({
     alt: string;
   } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [confirmDeleteIdentityId, setConfirmDeleteIdentityId] = useState<number | null>(
+    null,
+  );
   const [previewName, setPreviewName] = useState("");
   const [renamingPreview, setRenamingPreview] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
@@ -11187,6 +11192,50 @@ function CharacterManagerDialog({
         },
         onError: (error: any) =>
           onApiError(error, "Could not start identity verification"),
+      },
+    );
+  };
+
+  const removeIdentity = (identityId: number) => {
+    if (confirmDeleteIdentityId !== identityId) {
+      setConfirmDeleteIdentityId(identityId);
+      return;
+    }
+    deleteIdentity.mutate(
+      { identityId },
+      {
+        onSuccess: () => {
+          setConfirmDeleteIdentityId(null);
+          if (selectedIdentityId === identityId) {
+            setSelectedIdentityId(null);
+            const saved = sessionStorage.getItem("kokao-character-verification-draft");
+            if (saved) {
+              try {
+                const draft = JSON.parse(saved) as Record<string, unknown>;
+                if (draft.identityId === identityId) {
+                  delete draft.identityId;
+                  sessionStorage.setItem(
+                    "kokao-character-verification-draft",
+                    JSON.stringify(draft),
+                  );
+                }
+              } catch {
+                sessionStorage.removeItem("kokao-character-verification-draft");
+              }
+            }
+          }
+          void queryClient.invalidateQueries({
+            queryKey: getListBytePlusIdentitiesQueryKey(),
+          });
+          toast({
+            title: "Verification removed",
+            description: "The unused real-person verification record was deleted.",
+          });
+        },
+        onError: (error: any) => {
+          setConfirmDeleteIdentityId(null);
+          onApiError(error, "Could not remove the verification");
+        },
       },
     );
   };
@@ -11590,6 +11639,61 @@ function CharacterManagerDialog({
                     )}
                   </div>
                 )}
+              </div>
+            )}
+            {identityQuery.data && identityQuery.data.length > 0 && (
+              <div
+                className="space-y-2 rounded-md border border-border p-3"
+                data-testid="list-character-identity-verifications"
+              >
+                <div>
+                  <p className="text-sm font-medium">Verification attempts</p>
+                  <p className="text-xs text-muted-foreground">
+                    Remove abandoned attempts here. Verified identities can only be removed
+                    after deleting every character that uses them.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {identityQuery.data.map((identity) => (
+                    <div
+                      key={identity.id}
+                      className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2"
+                      data-testid={`identity-verification-${identity.id}`}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{identity.label}</p>
+                        <p className="text-xs capitalize text-muted-foreground">
+                          {identity.status}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant={
+                          confirmDeleteIdentityId === identity.id
+                            ? "destructive"
+                            : "ghost"
+                        }
+                        size="sm"
+                        disabled={
+                          deleteIdentity.isPending &&
+                          confirmDeleteIdentityId === identity.id
+                        }
+                        onClick={() => removeIdentity(identity.id)}
+                        data-testid={`button-delete-identity-${identity.id}`}
+                      >
+                        {deleteIdentity.isPending &&
+                        confirmDeleteIdentityId === identity.id ? (
+                          <RippleSpinner className="mr-1.5 h-4 w-4" />
+                        ) : (
+                          <Trash2 className="mr-1.5 h-4 w-4" />
+                        )}
+                        {confirmDeleteIdentityId === identity.id
+                          ? "Confirm remove"
+                          : "Remove"}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div className="space-y-2">

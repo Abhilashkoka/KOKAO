@@ -4,6 +4,8 @@ const state = vi.hoisted(() => ({
   status: "pending",
   tokenHash: "",
   resolveCalls: 0,
+  deleteGroupCalls: [] as string[],
+  finalizeMissing: false,
   signedData: "",
 }));
 
@@ -23,6 +25,9 @@ vi.mock("./byteplus/assets", () => ({
     state.resolveCalls++;
     return "group-1";
   },
+  deleteAssetGroup: async (id: string) => {
+    state.deleteGroupCalls.push(id);
+  },
 }));
 vi.mock("@workspace/db", async (original) => {
   const actual = await original<typeof import("@workspace/db")>();
@@ -35,7 +40,9 @@ vi.mock("@workspace/db", async (original) => {
     set(values: Record<string, unknown>) {
       return {
         where() {
-          const canClaim = values.status !== "completing" || state.status === "pending";
+          const canClaim =
+            (values.status !== "completing" || state.status === "pending") &&
+            !(values.status === "verified" && state.finalizeMissing);
           if (canClaim) {
             if (typeof values.verificationTokenHash === "string") state.tokenHash = values.verificationTokenHash;
             if (typeof values.status === "string") state.status = values.status;
@@ -70,6 +77,8 @@ describe("BytePlus liveness token binding", () => {
     state.status = "pending";
     state.tokenHash = "";
     state.resolveCalls = 0;
+    state.deleteGroupCalls = [];
+    state.finalizeMissing = false;
     state.signedData = "";
   });
 
@@ -116,5 +125,23 @@ describe("BytePlus liveness token binding", () => {
     expect(results.filter((result) => result.ok)).toHaveLength(1);
     expect(state.resolveCalls).toBe(1);
     expect(state.tokenHash).not.toBe("");
+  });
+
+  it("cleans up the resolved asset group when the attempt is deleted mid-callback", async () => {
+    await startBytePlusIdentityVerification({
+      tenantId: 7,
+      label: "Person",
+      callbackBaseUrl: "https://app.example/cb",
+    });
+    state.finalizeMissing = true;
+
+    const result = await completeBytePlusIdentityVerification({
+      state: "signed-state",
+      bytedToken: "exact-token",
+      resultCode: "10000",
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: "identity_deleted" });
+    expect(state.deleteGroupCalls).toEqual(["group-1"]);
   });
 });

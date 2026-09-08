@@ -2558,6 +2558,34 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /characters/identities/{identityId}:
+    delete:
+      operationId: deleteBytePlusIdentity
+      tags: [characters]
+      summary: Remove a real-person verification record owned by this workspace
+      parameters:
+        - name: identityId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Identity record removed
+        "400":
+          description: Invalid identity id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Identity record not found in this workspace
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: Verified identity is attached to one or more characters
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /characters/identities/callback/{state}:
     get:
       operationId: completeBytePlusIdentityVerification

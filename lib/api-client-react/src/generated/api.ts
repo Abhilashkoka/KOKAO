@@ -7465,6 +7465,76 @@ export const useStartBytePlusIdentityVerification = <TError = ErrorType<ErrorEnv
       return useMutation(getStartBytePlusIdentityVerificationMutationOptions(options));
     }
 
+export const getDeleteBytePlusIdentityUrl = (identityId: number,) => {
+
+
+
+
+  return `/api/characters/identities/${identityId}`
+}
+
+/**
+ * @summary Remove a real-person verification record owned by this workspace
+ */
+export const deleteBytePlusIdentity = async (identityId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteBytePlusIdentityUrl(identityId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteBytePlusIdentityMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBytePlusIdentity>>, TError,{identityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBytePlusIdentity>>, TError,{identityId: number}, TContext> => {
+
+const mutationKey = ['deleteBytePlusIdentity'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBytePlusIdentity>>, {identityId: number}> = (props) => {
+          const {identityId} = props ?? {};
+
+          return  deleteBytePlusIdentity(identityId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBytePlusIdentityMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBytePlusIdentity>>>
+
+    export type DeleteBytePlusIdentityMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a real-person verification record owned by this workspace
+ */
+export const useDeleteBytePlusIdentity = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBytePlusIdentity>>, TError,{identityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBytePlusIdentity>>,
+        TError,
+        {identityId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteBytePlusIdentityMutationOptions(options));
+    }
+
 export const getCompleteBytePlusIdentityVerificationUrl = (state: string,) => {
 
 

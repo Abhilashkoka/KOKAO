@@ -62,6 +62,8 @@ import {
 } from "../lib/characterAssets";
 import {
   completeBytePlusIdentityVerification,
+  deleteBytePlusIdentity,
+  deleteBytePlusIdentityAssetsInBackground,
   getBytePlusIdentity,
   listBytePlusIdentities,
   startBytePlusIdentityVerification,
@@ -1238,6 +1240,50 @@ router.post("/characters/identities", async (req: Request, res: Response) => {
     verificationUrl: started.verificationUrl,
   });
 });
+
+router.delete("/characters/identities/:identityId", async (req: Request, res: Response) => {
+  const identityId = Number(req.params.identityId);
+  if (!Number.isInteger(identityId) || identityId <= 0) {
+    res.status(400).json({ error: "Invalid identity id." });
+    return;
+  }
+  try {
+    const result = await deleteBytePlusIdentity(req.tenantId, identityId);
+    if (result.outcome === "not_found") {
+      res.status(404).json({ error: "Identity verification not found." });
+      return;
+    }
+    if (result.outcome === "attached") {
+      const names = result.characterNames.slice(0, 3).join(", ");
+      res.status(409).json({
+        error: `This verified identity is still used by ${names}. Delete ${
+          result.characterNames.length === 1 ? "that character" : "those characters"
+        } before removing the identity.`,
+      });
+      return;
+    }
+    res.status(204).end();
+    deleteBytePlusIdentityAssetsInBackground(result.assetGroupId);
+  } catch (error) {
+    if (hasDatabaseErrorCode(error, "23503")) {
+      res.status(409).json({
+        error: "This verified identity was attached to a character and cannot be removed.",
+      });
+      return;
+    }
+    throw error;
+  }
+});
+
+function hasDatabaseErrorCode(error: unknown, code: string): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const candidate = current as { code?: string; cause?: unknown };
+    if (candidate.code === code) return true;
+    current = candidate.cause;
+  }
+  return false;
+}
 
 /** Public callback: authorization is the short-lived HMAC state, not a session cookie. */
 export const bytePlusIdentityCallbackRouter: IRouter = Router();

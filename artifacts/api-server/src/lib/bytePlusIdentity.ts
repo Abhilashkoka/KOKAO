@@ -1,4 +1,9 @@
-import { db, bytePlusIdentitiesTable, type BytePlusIdentity } from "@workspace/db";
+import {
+  db,
+  bytePlusIdentitiesTable,
+  charactersTable,
+  type BytePlusIdentity,
+} from "@workspace/db";
 import { and, asc, eq } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { signOAuthState, verifySignedOAuthState } from "./oauthState";
@@ -6,9 +11,11 @@ import {
   BYTEPLUS_TOKEN_TTL_MS,
   BYTEPLUS_VERIFY_SUCCESS_CODE,
   createLivenessVerification,
+  deleteAssetGroup,
   resolveBytePlusAssetsCredentials,
   resolveLivenessAssetGroup,
 } from "./byteplus/assets";
+import { logger } from "./logger";
 
 export function signBytePlusIdentityState(
   tenantId: number,
@@ -124,16 +131,37 @@ export async function completeBytePlusIdentityVerification(args: {
   if (!credentials) return fail("not_configured", "BytePlus Asset Library is not configured.");
   try {
     const assetGroupId = await resolveLivenessAssetGroup(args.bytedToken, credentials);
-    await db.update(bytePlusIdentitiesTable).set({
-      assetGroupId,
-      status: "verified",
-      resultCode: args.resultCode,
-      error: null,
-      verifiedAt: new Date(),
-    }).where(and(
-      eq(bytePlusIdentitiesTable.id, identity.id),
-      eq(bytePlusIdentitiesTable.status, "completing"),
-    ));
+    const [finalized] = await db
+      .update(bytePlusIdentitiesTable)
+      .set({
+        assetGroupId,
+        status: "verified",
+        resultCode: args.resultCode,
+        error: null,
+        verifiedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bytePlusIdentitiesTable.id, identity.id),
+          eq(bytePlusIdentitiesTable.tenantId, state.tenantId),
+          eq(bytePlusIdentitiesTable.status, "completing"),
+        ),
+      )
+      .returning({ id: bytePlusIdentitiesTable.id });
+    if (!finalized) {
+      await deleteAssetGroup(assetGroupId, credentials).catch((error) =>
+        logger.warn(
+          { err: error, assetGroupId },
+          "BytePlus identity was removed during verification; compensating asset cleanup failed",
+        ),
+      );
+      return {
+        ok: false,
+        identityId: identity.id,
+        reason: "identity_deleted",
+        returnTarget: state.returnTarget,
+      };
+    }
     return { ok: true, identityId: identity.id, reason: null, returnTarget: state.returnTarget };
   } catch (error) {
     return fail(
@@ -158,4 +186,71 @@ export async function getBytePlusIdentity(
     eq(bytePlusIdentitiesTable.tenantId, tenantId),
   )).limit(1);
   return identity;
+}
+
+export type DeleteBytePlusIdentityResult =
+  | { outcome: "deleted"; assetGroupId: string | null }
+  | { outcome: "not_found" }
+  | { outcome: "attached"; characterNames: string[] };
+
+export async function deleteBytePlusIdentity(
+  tenantId: number,
+  id: number,
+): Promise<DeleteBytePlusIdentityResult> {
+  return db.transaction(async (tx) => {
+    const [identity] = await tx
+      .select()
+      .from(bytePlusIdentitiesTable)
+      .where(
+        and(
+          eq(bytePlusIdentitiesTable.id, id),
+          eq(bytePlusIdentitiesTable.tenantId, tenantId),
+        ),
+      )
+      .for("update")
+      .limit(1);
+    if (!identity) return { outcome: "not_found" };
+
+    const attached = await tx
+      .select({ name: charactersTable.name })
+      .from(charactersTable)
+      .where(
+        and(
+          eq(charactersTable.tenantId, tenantId),
+          eq(charactersTable.bytePlusIdentityId, id),
+        ),
+      );
+    if (attached.length) {
+      return {
+        outcome: "attached",
+        characterNames: attached.map((character) => character.name),
+      };
+    }
+
+    await tx
+      .delete(bytePlusIdentitiesTable)
+      .where(
+        and(
+          eq(bytePlusIdentitiesTable.id, id),
+          eq(bytePlusIdentitiesTable.tenantId, tenantId),
+        ),
+      );
+    return { outcome: "deleted", assetGroupId: identity.assetGroupId };
+  });
+}
+
+export function deleteBytePlusIdentityAssetsInBackground(assetGroupId: string | null): void {
+  if (!assetGroupId) return;
+  void (async () => {
+    try {
+      const credentials = await resolveBytePlusAssetsCredentials();
+      if (!credentials) return;
+      await deleteAssetGroup(assetGroupId, credentials);
+    } catch (error) {
+      logger.warn(
+        { err: error, assetGroupId },
+        "BytePlus identity asset-group cleanup failed",
+      );
+    }
+  })();
 }

@@ -82,6 +82,8 @@ const mockState: {
   regeneratedReferenceSheets: number[];
   identities: any[];
   startedIdentityVerifications: any[];
+  deletedIdentityVerifications: number[];
+  deleteIdentityError: unknown;
   createdCharacters: any[];
 } = {
   lastGenerateVars: null,
@@ -153,6 +155,8 @@ const mockState: {
   regeneratedReferenceSheets: [],
   identities: [],
   startedIdentityVerifications: [],
+  deletedIdentityVerifications: [],
+  deleteIdentityError: null,
   createdCharacters: [],
 };
 
@@ -628,6 +632,20 @@ vi.mock("@workspace/api-client-react", async () => {
         });
       },
     }),
+    useDeleteBytePlusIdentity: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.deletedIdentityVerifications.push(vars.identityId);
+        if (mockState.deleteIdentityError) {
+          opts?.onError?.(mockState.deleteIdentityError);
+          return;
+        }
+        mockState.identities = mockState.identities.filter(
+          (identity) => identity.id !== vars.identityId,
+        );
+        opts?.onSuccess?.();
+      },
+    }),
     useCreateCharacter: () => ({
       isPending: false,
       mutate: (vars: any, opts: any) => {
@@ -1012,6 +1030,8 @@ beforeEach(() => {
   mockState.regeneratedReferenceSheets = [];
   mockState.identities = [];
   mockState.startedIdentityVerifications = [];
+  mockState.deletedIdentityVerifications = [];
+  mockState.deleteIdentityError = null;
   mockState.createdCharacters = [];
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
@@ -3592,6 +3612,72 @@ describe("Video Studio", () => {
     expect(mockState.startedIdentityVerifications).toEqual([
       { data: { label: "Maya" } },
     ]);
+  });
+
+  it("requires confirmation before removing an abandoned verification attempt", async () => {
+    mockState.identities = [
+      {
+        id: 74,
+        label: "Abandoned attempt",
+        status: "pending",
+        assetGroupId: null,
+        error: null,
+        verifiedAt: null,
+      },
+    ];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    await user.click(screen.getByTestId("button-manage-characters"));
+
+    const remove = await screen.findByTestId("button-delete-identity-74");
+    fireEvent.click(remove);
+    expect(remove.textContent).toContain("Confirm remove");
+    expect(mockState.deletedIdentityVerifications).toEqual([]);
+
+    fireEvent.click(remove);
+    expect(mockState.deletedIdentityVerifications).toEqual([74]);
+  });
+
+  it("explains why an attached verified identity cannot be removed", async () => {
+    mockState.identities = [
+      {
+        id: 75,
+        label: "Maya",
+        status: "verified",
+        assetGroupId: "maya-group",
+        error: null,
+        verifiedAt: "2026-09-08T10:00:00.000Z",
+      },
+    ];
+    mockState.deleteIdentityError = {
+      status: 409,
+      data: {
+        error:
+          "This verified identity is still used by Maya. Delete that character before removing the identity.",
+      },
+    };
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    await user.click(screen.getByTestId("button-manage-characters"));
+
+    const remove = await screen.findByTestId("button-delete-identity-75");
+    fireEvent.click(remove);
+    fireEvent.click(remove);
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Could not remove the verification",
+          description:
+            "This verified identity is still used by Maya. Delete that character before removing the identity.",
+          variant: "destructive",
+        }),
+      ),
+    );
   });
 
   it("attaches a verified identity to an existing uploaded character", async () => {

@@ -130,6 +130,13 @@ export async function createAssetGroup(
   return result.Id;
 }
 
+export async function deleteAssetGroup(
+  id: string,
+  credentials: BytePlusSigningCredentials,
+): Promise<void> {
+  await call("DeleteAssetGroup", { Id: id, ProjectName: "default" }, credentials);
+}
+
 export async function createAsset(
   args: { groupId: string; url: string; name: string },
   credentials: BytePlusSigningCredentials,

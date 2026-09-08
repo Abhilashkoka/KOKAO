@@ -696,6 +696,92 @@ describe("PATCH /api/characters/:characterId identity attachment", () => {
   });
 });
 
+describe("DELETE /api/characters/identities/:identityId", () => {
+  it("removes pending and failed attempts only from the caller's workspace", async () => {
+    const owner = await newTenant();
+    const [pending, failed] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values([
+        { tenantId: owner.tenantId, label: "Pending removal" },
+        { tenantId: owner.tenantId, label: "Failed removal", status: "failed" },
+      ])
+      .returning();
+    const other = await newTenant();
+    const [foreign] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values({ tenantId: other.tenantId, label: "Other tenant attempt" })
+      .returning();
+    actAs(owner.clerkUserId);
+
+    expect(
+      (await request(app).delete(`/api/characters/identities/${pending!.id}`)).status,
+    ).toBe(204);
+    expect(
+      (await request(app).delete(`/api/characters/identities/${failed!.id}`)).status,
+    ).toBe(204);
+    expect(
+      (await request(app).delete(`/api/characters/identities/${foreign!.id}`)).status,
+    ).toBe(404);
+  });
+
+  it("does not orphan a character attached to a verified identity", async () => {
+    const tenant = await newTenant();
+    const [identity] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values({
+        tenantId: tenant.tenantId,
+        label: "Attached Maya",
+        status: "verified",
+        assetGroupId: "attached-maya-group",
+        verifiedAt: new Date(),
+      })
+      .returning();
+    const created = await request(app).post("/api/characters").send({
+      name: "Maya",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+      identityId: identity!.id,
+    });
+
+    const removed = await request(app).delete(
+      `/api/characters/identities/${identity!.id}`,
+    );
+
+    expect(removed.status).toBe(409);
+    expect(removed.body.error).toMatch(/Maya/);
+    const [stillAttached] = await db
+      .select({ identityId: charactersTable.bytePlusIdentityId })
+      .from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id));
+    expect(stillAttached?.identityId).toBe(identity!.id);
+    expect(await db.select().from(bytePlusIdentitiesTable).where(
+      eq(bytePlusIdentitiesTable.id, identity!.id),
+    )).toHaveLength(1);
+  });
+
+  it("removes an unattached verified identity", async () => {
+    const tenant = await newTenant();
+    const [identity] = await db
+      .insert(bytePlusIdentitiesTable)
+      .values({
+        tenantId: tenant.tenantId,
+        label: "Unused verified person",
+        status: "verified",
+        assetGroupId: "unused-verified-group",
+        verifiedAt: new Date(),
+      })
+      .returning();
+
+    const removed = await request(app).delete(
+      `/api/characters/identities/${identity!.id}`,
+    );
+
+    expect(removed.status).toBe(204);
+    expect(await db.select().from(bytePlusIdentitiesTable).where(
+      eq(bytePlusIdentitiesTable.id, identity!.id),
+    )).toHaveLength(0);
+  });
+});
+
 describe("outfits", () => {
   it("rejects outfit generation without a stored reviewed protected region", async () => {
     const tenant = await newTenant();
