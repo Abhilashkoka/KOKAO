@@ -48,12 +48,47 @@ export const charactersTable = pgTable("characters", {
    * by current code it mirrors atlasAssetReferenceId, never the library id.
    */
   atlasAssetId: text("atlas_asset_id"),
+  atlasAssetStatus: text("atlas_asset_status")
+    .$type<"Processing" | "Active" | "Failed">(),
+  atlasAssetError: text("atlas_asset_error"),
+  atlasAssetSyncedAt: timestamp("atlas_asset_synced_at", { withTimezone: true }),
+  /** Atomic ten-minute registration lease for the approved reference sheet. */
+  atlasAssetClaimedAt: timestamp("atlas_asset_claimed_at", { withTimezone: true }),
+  /** Unforgeable owner token; timestamps alone are not sufficient fencing. */
+  atlasAssetLeaseOwner: text("atlas_asset_lease_owner"),
+  /** Fail-closed provider boundary; never cleared automatically. */
+  atlasAssetSubmitFencedAt: timestamp("atlas_asset_submit_fenced_at", { withTimezone: true }),
+  /** Ambiguous submissions remain outcome_unknown until an operator reconciles them. */
+  atlasAssetFenceState: text("atlas_asset_fence_state")
+    .$type<"submitting" | "outcome_unknown" | "resolved" | "compensated">(),
+  atlasAssetCompensationError: text("atlas_asset_compensation_error"),
+  /** Exact approved sheet bytes represented by the Atlas ids. */
+  atlasAssetSourcePath: text("atlas_asset_source_path"),
+  atlasAssetSourceSha256: text("atlas_asset_source_sha256"),
   /** Liveness-verified real person linked to this character. */
   bytePlusIdentityId: integer("byteplus_identity_id").references(() => bytePlusIdentitiesTable.id, {
     onDelete: "restrict",
   }),
   /** Governs privacy-safe registration: generated, uploaded, or null for legacy rows. */
   referenceSource: text("reference_source").$type<"generated" | "uploaded">(),
+  /**
+   * Server-authored proof for generated provenance. Labels and object paths are
+   * never evidence; every field binds the bytes to the exact Guided operation.
+   */
+  creationEvidence: jsonb("creation_evidence").$type<{
+    version: 1;
+    kind: "guided_story";
+    draftId: number;
+    draftRevision: number;
+    roleId: string;
+    operationKey: string;
+    provider: string;
+    model: string;
+    providerOperationId: number | null;
+    sourcePath: string;
+    sourceSha256: string;
+    recordedAt: string;
+  } | null>().default(null),
   /** Separate multi-view review asset. Never replaces the canonical portrait. */
   referenceSheetImagePath: text("reference_sheet_image_path"),
   /** A sheet is never usable until a person explicitly approves it. */
@@ -61,6 +96,11 @@ export const charactersTable = pgTable("characters", {
     .$type<"pending" | "approved" | "rejected" | "failed">()
     .notNull()
     .default("pending"),
+  /**
+   * Digest captured when the sheet was approved.  Atlas registration must
+   * match this value; it must never infer approval from mutable object bytes.
+   */
+  referenceSheetApprovedSha256: text("reference_sheet_approved_sha256"),
   /** Actionable provider/persistence failure surfaced by the character manager. */
   referenceSheetError: text("reference_sheet_error"),
   /** Normalized face-and-hair rectangle protected during outfit edits. */
@@ -107,12 +147,19 @@ export const characterOutfitsTable = pgTable("character_outfits", {
   atlasAssetSyncedAt: timestamp("atlas_asset_synced_at", { withTimezone: true }),
   /** Atomic ten-minute registration lease. */
   atlasAssetClaimedAt: timestamp("atlas_asset_claimed_at", { withTimezone: true }),
+  atlasAssetLeaseOwner: text("atlas_asset_lease_owner"),
   /**
    * Durable provider-boundary fence. Set immediately before Atlas POST and
    * never cleared automatically: a crash after POST must be reconciled, not
    * submitted again.
    */
   atlasAssetSubmitFencedAt: timestamp("atlas_asset_submit_fenced_at", { withTimezone: true }),
+  atlasAssetFenceState: text("atlas_asset_fence_state")
+    .$type<"submitting" | "outcome_unknown" | "resolved" | "compensated">(),
+  atlasAssetCompensationError: text("atlas_asset_compensation_error"),
+  /** Exact approved outfit bytes represented by the Atlas ids. */
+  atlasAssetSourcePath: text("atlas_asset_source_path"),
+  atlasAssetSourceSha256: text("atlas_asset_source_sha256"),
   /** Non-default generated outfits stay previews until explicitly approved. */
   status: text("status")
     .$type<"preview" | "approved" | "rejected">()
@@ -120,6 +167,8 @@ export const characterOutfitsTable = pgTable("character_outfits", {
     .default("approved"),
   /** True only after deterministic protected-pixel verification. */
   identityVerified: boolean("identity_verified").notNull().default(true),
+  /** Digest captured with the explicit outfit approval. */
+  atlasApprovedSourceSha256: text("atlas_approved_source_sha256"),
   /** Canonical source retained for audit/recovery even if the character changes later. */
   canonicalReferenceImagePath: text("canonical_reference_image_path"),
   /** Exact normalized region used for this edit. */

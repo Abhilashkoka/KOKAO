@@ -22,7 +22,7 @@ import {
   type GuidedStoryCastSnapshot,
   type GuidedStoryImageModelSnapshot,
 } from "@workspace/db";
-import { and, eq, desc, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, eq, desc, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import {
   GenerateVideoBody,
   GenerateVideoCoverCandidatesBody,
@@ -150,7 +150,7 @@ import {
   parsePersistedOpenRouterInputImagePrivacyError,
 } from "../lib/videoGen/providers/openrouter";
 import { availableVideoModels } from "../lib/videoGen";
-import { registerAtlasOutfitAssetInBackground } from "../lib/characterAssets";
+import { registerAtlasCharacterAssets } from "../lib/characterAssets";
 import { selectAtlasGenerationReferenceId } from "../lib/atlascloud/assetId";
 import {
   CAMERAS,
@@ -2591,6 +2591,7 @@ async function ensureGuidedGeneratedCharacter(params: {
   description: string;
   wardrobeDescription: string;
   referenceImagePath: string;
+  sourceSha256: string;
 }): Promise<{
   row: GuidedStoryDraft;
   characterId: number;
@@ -2649,6 +2650,20 @@ async function ensureGuidedGeneratedCharacter(params: {
         description: params.description,
         referenceImagePath: params.referenceImagePath,
         referenceSource: "generated",
+        creationEvidence: {
+          version: 1,
+          kind: "guided_story",
+          draftId: fresh.id,
+          draftRevision: fresh.revision,
+          roleId: params.roleId,
+          operationKey: operation.operationKey,
+          provider: operation.provider!,
+          model: operation.model!,
+          providerOperationId: operation.operationId ?? null,
+          sourcePath: params.referenceImagePath,
+          sourceSha256: params.sourceSha256,
+          recordedAt: new Date().toISOString(),
+        },
         referenceSheetImagePath: null,
         referenceSheetStatus: "pending",
         referenceSheetError: null,
@@ -2659,6 +2674,10 @@ async function ensureGuidedGeneratedCharacter(params: {
         description: params.wardrobeDescription,
         referenceImagePath: params.referenceImagePath,
         canonicalReferenceImagePath: params.referenceImagePath,
+        // This default outfit is approved by construction. Bind that approval
+        // to the exact provider output bytes in the same transaction that
+        // replaces the canonical path.
+        atlasApprovedSourceSha256: params.sourceSha256,
         updatedAt: new Date(),
       }).where(and(eq(characterOutfitsTable.id, outfit.id), eq(characterOutfitsTable.characterId, character.id), eq(characterOutfitsTable.tenantId, fresh.tenantId)));
       return { row: fresh, characterId: character.id, outfitId: outfit.id };
@@ -2673,6 +2692,20 @@ async function ensureGuidedGeneratedCharacter(params: {
         referenceImagePath: params.referenceImagePath,
         referenceSheetStatus: "pending",
         referenceSource: "generated",
+        creationEvidence: {
+          version: 1,
+          kind: "guided_story",
+          draftId: fresh.id,
+          draftRevision: fresh.revision,
+          roleId: params.roleId,
+          operationKey: operation.operationKey,
+          provider: operation.provider!,
+          model: operation.model!,
+          providerOperationId: operation.operationId ?? null,
+          sourcePath: params.referenceImagePath,
+          sourceSha256: params.sourceSha256,
+          recordedAt: new Date().toISOString(),
+        },
       })
       .returning();
     const [outfit] = await tx
@@ -2684,6 +2717,8 @@ async function ensureGuidedGeneratedCharacter(params: {
         description: params.wardrobeDescription,
         referenceImagePath: params.referenceImagePath,
         isDefault: true,
+        canonicalReferenceImagePath: params.referenceImagePath,
+        atlasApprovedSourceSha256: params.sourceSha256,
       })
       .returning();
     const state: GuidedStoryDraftState = {
@@ -2715,6 +2750,65 @@ async function ensureGuidedGeneratedCharacter(params: {
           outfitId: outfit!.id,
         }
       : null;
+  });
+}
+
+async function upgradeExactLegacyGeneratedCharacter(args: {
+  tenantId: number;
+  characterId: number;
+  approvedPath: string;
+  approvedSha256: string;
+}): Promise<typeof charactersTable.$inferSelect | null> {
+  const current = await loadReferenceImage(args.approvedPath, args.tenantId);
+  const sha256 = createHash("sha256").update(current.buffer).digest("hex");
+  if (sha256 !== args.approvedSha256) return null;
+  return db.transaction(async (tx) => {
+    const [character] = await tx.select().from(charactersTable).where(and(
+      eq(charactersTable.id, args.characterId),
+      eq(charactersTable.tenantId, args.tenantId),
+    )).for("update").limit(1);
+    const evidence = character?.creationEvidence;
+    let valid =
+      character?.referenceSource === null &&
+      character.bytePlusIdentityId === null &&
+      character.referenceImagePath === args.approvedPath &&
+      evidence?.version === 1 &&
+      evidence.kind === "guided_story" &&
+      Number.isSafeInteger(evidence.draftId) &&
+      evidence.draftId > 0 &&
+      Number.isSafeInteger(evidence.draftRevision) &&
+      evidence.draftRevision > 0 &&
+      evidence.roleId.trim().length > 0 &&
+      evidence.operationKey.trim().length > 0 &&
+      evidence.provider.trim().length > 0 &&
+      evidence.model.trim().length > 0 &&
+      Number.isFinite(Date.parse(evidence.recordedAt)) &&
+      evidence.sourcePath === args.approvedPath &&
+      evidence.sourceSha256 === sha256;
+    if (valid && evidence!.providerOperationId !== null) {
+      const [receipt] = await tx.select().from(walletProviderOperationsTable)
+        .where(and(
+          eq(walletProviderOperationsTable.id, evidence!.providerOperationId!),
+          eq(walletProviderOperationsTable.tenantId, args.tenantId),
+        )).limit(1);
+      valid =
+        receipt?.operationKind === "character_reference" &&
+        receipt.operationKey === evidence!.operationKey &&
+        receipt.provider === evidence!.provider &&
+        receipt.model === evidence!.model &&
+        ["succeeded", "settlement_queued", "settled"].includes(receipt.status);
+    }
+    if (!valid) return null;
+    const [upgraded] = await tx.update(charactersTable).set({
+      referenceSource: "generated",
+      updatedAt: new Date(),
+    }).where(and(
+      eq(charactersTable.id, character!.id),
+      eq(charactersTable.tenantId, args.tenantId),
+      isNull(charactersTable.referenceSource),
+      eq(charactersTable.referenceImagePath, args.approvedPath),
+    )).returning();
+    return upgraded ?? null;
   });
 }
 
@@ -3846,6 +3940,10 @@ router.post(
         referenceSheetImagePath: null,
         referenceSheetError: null,
         protectedRegion: character.protectedRegion,
+        // Copy only explicit provenance. The later provider-success handoff
+        // changes this to generated; unknown and uploaded source bytes never
+        // become fictional merely because a Guided customization was started.
+        referenceSource: member?.referenceSource ?? character.referenceSource,
       }).returning();
       const [cloneOutfit] = await tx.insert(characterOutfitsTable).values({
         tenantId: req.tenantId,
@@ -4340,10 +4438,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           referenceSource: detail.character.referenceSource,
           characterId: detail.character.id,
           outfitId: outfit.id,
-          requiresBytePlusAsset:
-            detail.character.referenceSource === "generated" ||
-            detail.character.bytePlusIdentityId !== null ||
-            outfit.bytePlusAssetId !== null,
+          requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
           bytePlusAssetId: outfit.bytePlusAssetId,
           bytePlusAssetStatus: outfit.bytePlusAssetStatus,
           requiresAtlasAsset: detail.character.referenceSource === "generated",
@@ -4814,6 +4909,10 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         const wardrobeDescription = operation.customization?.wardrobeDescription ??
           `Original fictional wardrobe suited to ${row.state.setup!.genre.replaceAll("_", " ")}. ` +
           `Preserve all wardrobe details specified by the approved role description: ${role.description}`;
+        const generatedPortrait = await loadReferenceImage(referenceImagePath, req.tenantId);
+        const sourceSha256 = createHash("sha256")
+          .update(generatedPortrait.buffer)
+          .digest("hex");
         const owned = await ensureGuidedGeneratedCharacter({
           row,
           roleId: role.id,
@@ -4822,6 +4921,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           description: characterDescription,
           wardrobeDescription,
           referenceImagePath,
+          sourceSha256,
         });
         if (!owned) {
           res.status(409).json({
@@ -4843,18 +4943,6 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             ),
           )
           .limit(1);
-        const [ownedOutfitForAtlas] = await db.select().from(characterOutfitsTable).where(and(
-          eq(characterOutfitsTable.id, owned.outfitId),
-          eq(characterOutfitsTable.characterId, owned.characterId),
-          eq(characterOutfitsTable.tenantId, req.tenantId),
-        )).limit(1);
-        if (ownedCharacter && ownedOutfitForAtlas) {
-          registerAtlasOutfitAssetInBackground({
-            tenantId: req.tenantId,
-            character: ownedCharacter,
-            outfit: ownedOutfitForAtlas,
-          });
-        }
         if (ownedCharacter && !ownedCharacter.referenceSheetImagePath) {
           const sheetOperationKey =
             `guided-story-sheet:${row.id}:${row.revision}:${role.id}`;
@@ -5104,6 +5192,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         cast.push({
           roleId: role.id,
           source: "generated",
+          referenceSource: "generated",
           characterId: owned.characterId,
           outfitId: owned.outfitId,
           brandKitId: voice.brandKitId,
@@ -5126,6 +5215,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           },
           isUserRole: false,
           consentGranted: false,
+          requiresAtlasAsset: true,
           generatedAsset: {
             path: referenceImagePath,
             provider,
@@ -5519,6 +5609,19 @@ router.post(
         },
       };
       const state: GuidedStoryDraftState = { ...fresh.state, castApprovals };
+      if (freshMember.outfitId == null) return null;
+      const [approvedOutfit] = await tx.update(characterOutfitsTable).set({
+        atlasApprovedSourceSha256: outfitSha256,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(characterOutfitsTable.id, freshMember.outfitId),
+        eq(characterOutfitsTable.characterId, member.characterId!),
+        eq(characterOutfitsTable.tenantId, req.tenantId),
+        eq(characterOutfitsTable.referenceImagePath, outfitPath),
+        eq(characterOutfitsTable.status, "approved"),
+        eq(characterOutfitsTable.identityVerified, true),
+      )).returning({ id: characterOutfitsTable.id });
+      if (!approvedOutfit) return null;
       const [savedDraft] = await tx.update(guidedStoryDraftsTable).set({
         state,
         updatedAt: new Date(),
@@ -5862,10 +5965,7 @@ router.put(
         source: "saved",
         characterId: lockedCharacter.id,
         outfitId: lockedOutfit.id,
-        requiresBytePlusAsset:
-          lockedCharacter.referenceSource === "generated" ||
-          lockedCharacter.bytePlusIdentityId !== null ||
-          lockedOutfit.bytePlusAssetId !== null,
+        requiresBytePlusAsset: lockedCharacter.bytePlusIdentityId !== null,
         bytePlusAssetId: lockedOutfit.bytePlusAssetId,
         bytePlusAssetStatus: lockedOutfit.bytePlusAssetStatus,
         requiresAtlasAsset: lockedCharacter.referenceSource === "generated",
@@ -6295,10 +6395,7 @@ router.post(
             source: "saved",
             characterId: detail.character.id,
             outfitId: outfit.id,
-            requiresBytePlusAsset:
-              detail.character.referenceSource === "generated" ||
-              detail.character.bytePlusIdentityId !== null ||
-              outfit.bytePlusAssetId !== null,
+            requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
             bytePlusAssetId: outfit.bytePlusAssetId,
             bytePlusAssetStatus: outfit.bytePlusAssetStatus,
             requiresAtlasAsset: detail.character.referenceSource === "generated",
@@ -6320,10 +6417,7 @@ router.post(
         : {
             ...member,
             outfitId: outfit.id,
-            requiresBytePlusAsset:
-              detail.character.referenceSource === "generated" ||
-              detail.character.bytePlusIdentityId !== null ||
-              outfit.bytePlusAssetId !== null,
+            requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
             bytePlusAssetId: outfit.bytePlusAssetId,
             bytePlusAssetStatus: outfit.bytePlusAssetStatus,
             requiresAtlasAsset: detail.character.referenceSource === "generated",
@@ -6354,6 +6448,14 @@ router.post(
       candidate = {
         ...member,
         source: "generated",
+        referenceSource: "uploaded",
+        requiresAtlasAsset: false,
+        atlasCharacterLibraryId: null,
+        atlasCharacterReferenceId: null,
+        atlasOutfitLibraryId: null,
+        atlasAssetReferenceId: null,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
         characterId: null,
         outfitId: null,
         character: {
@@ -6588,6 +6690,8 @@ router.post(
           ? {
               ...member,
               source: "generated",
+              referenceSource: "generated",
+              requiresAtlasAsset: true,
               characterId: null,
               outfitId: null,
               character: {
@@ -9289,6 +9393,392 @@ async function generateVideoHandler(
     options.resolvedVideoModel = null;
   }
 
+  let provisionalGuidedJob: VideoGeneration | null = null;
+  let guidedStorageEvidenceValid = true;
+  const guidedCreatingLeaseOwner = randomUUID();
+  const refreshGuidedCreatingLease = async (): Promise<void> => {
+    if (!provisionalGuidedJob) return;
+    const now = new Date();
+    const lease = {
+      version: 1 as const,
+      owner: guidedCreatingLeaseOwner,
+      heartbeatAt: now.toISOString(),
+      // Atlas may poll both the parent and outfit for many minutes. The sweep
+      // must not infer abandonment from the route's old ten-minute threshold.
+      expiresAt: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    };
+    const [refreshed] = await db.update(videoGenerationsTable).set({
+      options: sql`jsonb_set(coalesce(${videoGenerationsTable.options}, '{}'::jsonb), '{guidedCreatingLease}', ${JSON.stringify(lease)}::jsonb)`,
+      updatedAt: now,
+    }).where(and(
+      eq(videoGenerationsTable.id, provisionalGuidedJob.id),
+      eq(videoGenerationsTable.status, "creating"),
+      sql`(${videoGenerationsTable.options}->'guidedCreatingLease'->>'owner') = ${guidedCreatingLeaseOwner}`,
+    )).returning({ id: videoGenerationsTable.id });
+    if (!refreshed) {
+      throw new Error("The Guided Story registration lease was lost.");
+    }
+    options.guidedCreatingLease = lease;
+  };
+  const failProvisionalGuidedJob = async (
+    detail: string,
+  ): Promise<VideoGeneration | null> => {
+    if (!provisionalGuidedJob) return null;
+    const message = detail.startsWith(`Job #${provisionalGuidedJob.id}`)
+      ? detail
+      : `Job #${provisionalGuidedJob.id} ${detail}`;
+    return db.transaction(async (tx) => {
+      const [failed] = await tx.update(videoGenerationsTable).set({
+        status: "failed",
+        funding: null,
+        error: message,
+        stage: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(videoGenerationsTable.id, provisionalGuidedJob!.id),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+        eq(videoGenerationsTable.status, "creating"),
+        isNull(videoGenerationsTable.funding),
+      )).returning();
+      if (!failed || !options.guidedStory) return failed ?? null;
+      const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, options.guidedStory.draftId),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (draft?.state.storyboardJobId === failed.id) {
+        await tx.update(guidedStoryDraftsTable).set({
+          state: {
+            ...draft.state,
+            cast: draft.state.cast.map((member) => ({
+              ...member,
+              consentGranted: false,
+            })),
+            storyboardJobId: null,
+          },
+          updatedAt: new Date(),
+        }).where(and(
+          eq(guidedStoryDraftsTable.id, draft.id),
+          eq(guidedStoryDraftsTable.revision, draft.revision),
+          sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = ${String(failed.id)}`,
+        ));
+      }
+      return failed;
+    });
+  };
+  try {
+  if (
+    options.guidedStory &&
+    options.resolvedVideoModel?.provider === "atlascloud"
+  ) {
+    const leaseNow = new Date();
+    options.guidedCreatingLease = {
+      version: 1,
+      owner: guidedCreatingLeaseOwner,
+      heartbeatAt: leaseNow.toISOString(),
+      expiresAt: new Date(leaseNow.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    };
+    // Atlas registration is a live, externally-visible operation. Give the
+    // attempt its durable number first and bind the draft to it in the same
+    // transaction. Duplicate requests can now only observe/reuse this row;
+    // they can never reach a second Asset Library POST.
+    provisionalGuidedJob = await db.transaction(async (tx) => {
+      const [currentDraft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, options.guidedStory!.draftId),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (
+        !currentDraft ||
+        currentDraft.revision !== options.guidedStory!.draftRevision ||
+        currentDraft.state.storyboardJobId !== -1 ||
+        currentDraft.state.scriptApprovedAt !== options.guidedStory!.scriptApprovedAt ||
+        !guidedCastApprovalsMatch({
+          draftRevision: currentDraft.revision,
+          cast: currentDraft.state.cast,
+          approvals: currentDraft.state.castApprovals,
+        })
+      ) return null;
+      const [created] = await tx.insert(videoGenerationsTable).values({
+        tenantId: req.tenantId,
+        engine: body.engine,
+        status: "creating",
+        prompt: body.prompt?.trim() || null,
+        sourceImagePaths,
+        options,
+        provider: options.resolvedVideoModel?.provider ?? null,
+        model: options.resolvedVideoModel?.model ?? null,
+      }).returning();
+      if (!created) throw new Error("Failed to create the Guided Story attempt record.");
+      const [bound] = await tx.update(guidedStoryDraftsTable).set({
+        state: { ...currentDraft.state, storyboardJobId: created.id },
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, currentDraft.id),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        eq(guidedStoryDraftsTable.revision, currentDraft.revision),
+        sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = '-1'`,
+      )).returning({ id: guidedStoryDraftsTable.id });
+      if (!bound) throw new Error("The Guided Story enqueue claim changed before its job could be numbered.");
+      return created;
+    });
+    if (!provisionalGuidedJob) {
+      res.status(409).json({ error: "This Guided Story changed before its Atlas attempt could be created. Reload and try again." });
+      return;
+    }
+    try {
+      const participating = new Set(
+        options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+      );
+      const registeredCast: GuidedStoryCastSnapshot[] = [];
+      for (const member of options.guidedStory.cast) {
+        if (!participating.has(member.roleId)) {
+          registeredCast.push(member);
+          continue;
+        }
+        if (member.characterId == null || member.outfitId == null) {
+          throw new Error(
+            `Role ${member.roleId} has no durable tenant character/outfit linkage. Save and approve the fictional character, then enqueue again.`,
+          );
+        }
+        let [character] = await db.select().from(charactersTable).where(and(
+          eq(charactersTable.id, member.characterId),
+          eq(charactersTable.tenantId, req.tenantId),
+        )).limit(1);
+        const [outfit] = await db.select().from(characterOutfitsTable).where(and(
+          eq(characterOutfitsTable.id, member.outfitId),
+          eq(characterOutfitsTable.characterId, member.characterId),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        )).limit(1);
+        if (!character || !outfit) {
+          throw new Error(`Role ${member.roleId}'s approved character or outfit was deleted.`);
+        }
+        const approval = options.guidedStory.castApprovals?.roles[member.roleId];
+        if (
+          !approval ||
+          character.referenceImagePath !== member.character.referenceImagePath ||
+          outfit.referenceImagePath !== member.outfit?.referenceImagePath ||
+          approval.character.referenceImagePath !== character.referenceImagePath ||
+          approval.outfit.referenceImagePath !== outfit.referenceImagePath
+        ) {
+          throw new Error(
+            `Role ${member.roleId}'s approved character or outfit snapshot changed. Review and approve the exact references again.`,
+          );
+        }
+        if (character.referenceSource === null) {
+          const currentBytes = await loadReferenceImage(
+            character.referenceImagePath,
+            req.tenantId,
+          );
+          const currentSha256 = createHash("sha256")
+            .update(currentBytes.buffer)
+            .digest("hex");
+          const classified = await db.transaction(async (tx) => {
+            const [locked] = await tx.select().from(charactersTable).where(and(
+              eq(charactersTable.id, character.id),
+              eq(charactersTable.tenantId, req.tenantId),
+            )).for("update").limit(1);
+            const evidence = locked?.creationEvidence;
+            let exact =
+              locked?.referenceSource === null &&
+              locked.bytePlusIdentityId === null &&
+              locked.referenceImagePath === approval.character.referenceImagePath &&
+              currentSha256 === approval.character.sha256 &&
+              evidence?.version === 1 &&
+              evidence.kind === "guided_story" &&
+              Number.isSafeInteger(evidence.draftId) &&
+              evidence.draftId > 0 &&
+              Number.isSafeInteger(evidence.draftRevision) &&
+              evidence.draftRevision > 0 &&
+              evidence.roleId.trim().length > 0 &&
+              evidence.operationKey.trim().length > 0 &&
+              evidence.provider.trim().length > 0 &&
+              evidence.model.trim().length > 0 &&
+              Number.isFinite(Date.parse(evidence.recordedAt)) &&
+              evidence.sourcePath === locked.referenceImagePath &&
+              evidence.sourceSha256 === currentSha256;
+            if (exact && evidence!.providerOperationId !== null) {
+              const [receipt] = await tx.select().from(walletProviderOperationsTable)
+                .where(and(
+                  eq(walletProviderOperationsTable.id, evidence!.providerOperationId!),
+                  eq(walletProviderOperationsTable.tenantId, req.tenantId),
+                )).limit(1);
+              exact =
+                receipt?.operationKind === "character_reference" &&
+                receipt.operationKey === evidence!.operationKey &&
+                receipt.provider === evidence!.provider &&
+                receipt.model === evidence!.model &&
+                ["succeeded", "settlement_queued", "settled"].includes(receipt.status);
+            }
+            if (!exact) return null;
+            const [upgraded] = await tx.update(charactersTable).set({
+              referenceSource: "generated",
+              updatedAt: new Date(),
+            }).where(and(
+              eq(charactersTable.id, locked!.id),
+              eq(charactersTable.tenantId, req.tenantId),
+              isNull(charactersTable.referenceSource),
+              eq(charactersTable.referenceImagePath, evidence!.sourcePath),
+            )).returning();
+            return upgraded ?? null;
+          });
+          if (!classified) {
+            throw new Error(
+              `Role ${member.roleId} has unknown provenance without exact immutable generated-fictional evidence.`,
+            );
+          }
+          character = classified;
+          member.referenceSource = "generated";
+          member.requiresAtlasAsset = true;
+        }
+        if (
+          character.referenceSource !== "generated" ||
+          member.referenceSource !== "generated" ||
+          character.bytePlusIdentityId !== null ||
+          outfit.status !== "approved" ||
+          !outfit.identityVerified
+        ) {
+          throw new Error(
+            `Role ${member.roleId} is not an explicitly generated, approved fictional character. Uploaded, liveness-verified, unknown, preview, and rejected references cannot use Atlas.`,
+          );
+        }
+        const creationEvidence = character.creationEvidence;
+        let creationReceiptValid =
+          creationEvidence?.version === 1 &&
+          creationEvidence.kind === "guided_story" &&
+          Number.isSafeInteger(creationEvidence.draftId) &&
+          creationEvidence.draftId > 0 &&
+          Number.isSafeInteger(creationEvidence.draftRevision) &&
+          creationEvidence.draftRevision > 0 &&
+          creationEvidence.roleId.trim().length > 0 &&
+          creationEvidence.operationKey.trim().length > 0 &&
+          creationEvidence.provider.trim().length > 0 &&
+          creationEvidence.model.trim().length > 0 &&
+          Number.isFinite(Date.parse(creationEvidence.recordedAt)) &&
+          creationEvidence.sourcePath === character.referenceImagePath &&
+          creationEvidence.sourceSha256 === approval.character.sha256;
+        if (creationReceiptValid && creationEvidence!.providerOperationId !== null) {
+          const [providerReceipt] = await db.select({
+            tenantId: walletProviderOperationsTable.tenantId,
+            operationKey: walletProviderOperationsTable.operationKey,
+            operationKind: walletProviderOperationsTable.operationKind,
+            status: walletProviderOperationsTable.status,
+            provider: walletProviderOperationsTable.provider,
+            model: walletProviderOperationsTable.model,
+          }).from(walletProviderOperationsTable).where(
+            eq(walletProviderOperationsTable.id, creationEvidence!.providerOperationId!),
+          ).limit(1);
+          creationReceiptValid =
+            providerReceipt?.tenantId === req.tenantId &&
+            providerReceipt.operationKey === creationEvidence!.operationKey &&
+            providerReceipt.operationKind === "character_reference" &&
+            ["succeeded", "settlement_queued", "settled"].includes(providerReceipt.status) &&
+            providerReceipt.provider === creationEvidence!.provider &&
+            providerReceipt.model === creationEvidence!.model;
+        }
+        if (!creationReceiptValid) {
+          throw new Error(
+            `Role ${member.roleId}'s character does not have immutable generated-fictional creation evidence matching its approved bytes.`,
+          );
+        }
+        const approvedSheetPath = character.referenceSheetImagePath;
+        if (!approvedSheetPath) {
+          throw new Error(`Role ${member.roleId} has no approved character reference sheet.`);
+        }
+        const approvedSheet = await loadReferenceImage(approvedSheetPath, req.tenantId);
+        const approvedSheetSha256 = createHash("sha256")
+          .update(approvedSheet.buffer)
+          .digest("hex");
+        if (character.referenceSheetApprovedSha256 !== approvedSheetSha256) {
+          throw new Error(
+            `Role ${member.roleId}'s current reference-sheet bytes do not match its durable approval digest. Review and approve the sheet again.`,
+          );
+        }
+        await refreshGuidedCreatingLease();
+        const registered = await registerAtlasCharacterAssets({
+          tenantId: req.tenantId,
+          characterId: character.id,
+          outfitId: outfit.id,
+          expectedReferenceSheetPath: character.referenceSheetImagePath ?? undefined,
+          expectedReferenceSheetSha256: approvedSheetSha256,
+          expectedOutfitPath: outfit.referenceImagePath,
+          expectedOutfitSha256: approval.outfit.sha256,
+        });
+        await refreshGuidedCreatingLease();
+        registeredCast.push({
+          ...member,
+          referenceSource: "generated" as const,
+          requiresAtlasAsset: true,
+          atlasCharacterLibraryId: registered.character.atlasAssetLibraryId,
+          atlasCharacterReferenceId: selectAtlasGenerationReferenceId(
+            registered.character.atlasAssetReferenceId,
+            registered.character.atlasAssetId,
+          ),
+          atlasOutfitLibraryId: registered.outfit.atlasAssetLibraryId,
+          atlasApprovedReferenceSheetPath: approvedSheetPath,
+          atlasApprovedReferenceSheetSha256: approvedSheetSha256,
+          atlasAssetReferenceId: selectAtlasGenerationReferenceId(
+            registered.outfit.atlasAssetReferenceId,
+            registered.outfit.atlasAssetId,
+          ),
+          atlasAssetId: selectAtlasGenerationReferenceId(
+            registered.outfit.atlasAssetReferenceId,
+            registered.outfit.atlasAssetId,
+          ),
+          atlasAssetStatus: registered.outfit.atlasAssetStatus,
+        });
+      }
+      options.guidedStory = { ...options.guidedStory, cast: registeredCast };
+    } catch (error) {
+      const message =
+        `Job #${provisionalGuidedJob.id} stopped before funding because Atlas Asset Library registration failed: ` +
+        `${error instanceof Error ? error.message : "unknown registration error"} Retry after resolving the stated asset issue; any successful registrations will be reused.`;
+      const failed = await failProvisionalGuidedJob(message);
+      res.status(409).json({
+        error: message,
+        ...(failed ? { job: serializeVideoJob(failed) } : {}),
+      });
+      return;
+    }
+    // Freeze the exact successful Atlas mappings and their approved source
+    // evidence before any wallet/quota/credit operation. The draft lock and
+    // rowcount checks make a concurrent edit a numbered, unfunded failure.
+    const participatingForFreeze = new Set(
+      options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+    );
+    guidedStorageEvidenceValid = true;
+    for (const member of options.guidedStory.cast) {
+      if (!participatingForFreeze.has(member.roleId)) continue;
+      const approval = options.guidedStory.castApprovals?.roles[member.roleId];
+      if (
+        !approval ||
+        !member.atlasApprovedReferenceSheetPath ||
+        !member.atlasApprovedReferenceSheetSha256 ||
+        !member.outfit?.referenceImagePath
+      ) {
+        guidedStorageEvidenceValid = false;
+        break;
+      }
+      const [characterReference, sheet, outfitReference] = await Promise.all([
+        loadReferenceImage(approval.character.referenceImagePath, req.tenantId),
+        loadReferenceImage(member.atlasApprovedReferenceSheetPath, req.tenantId),
+        loadReferenceImage(member.outfit.referenceImagePath, req.tenantId),
+      ]);
+      guidedStorageEvidenceValid =
+        createHash("sha256").update(characterReference.buffer).digest("hex") ===
+          approval.character.sha256 &&
+        createHash("sha256").update(sheet.buffer).digest("hex") ===
+          member.atlasApprovedReferenceSheetSha256 &&
+        createHash("sha256").update(outfitReference.buffer).digest("hex") ===
+          approval.outfit.sha256;
+      if (!guidedStorageEvidenceValid) break;
+    }
+    if (!guidedStorageEvidenceValid) {
+      const message = `Job #${provisionalGuidedJob.id} was not funded because its Guided Story revision or approval changed during Atlas registration. Reload, review, and approve the exact references again.`;
+      await failProvisionalGuidedJob(message);
+      res.status(409).json({ error: message });
+      return;
+    }
+  }
+
   if (
     options.guidedStory &&
     options.resolvedVideoModel?.generateAudio === true &&
@@ -9346,8 +9836,12 @@ async function generateVideoHandler(
         variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
       });
       if (!estimatedAnimationPaise || !estimatedLipSyncPaise) {
+        const message = provisionalGuidedJob
+          ? `Job #${provisionalGuidedJob.id} stopped before funding because automatic Guided Story dialogue animation has no authoritative provider price.`
+          : "Automatic Guided Story dialogue animation has no authoritative provider price.";
+        await failProvisionalGuidedJob(message);
         res.status(400).json({
-          error: "Automatic Guided Story dialogue animation has no authoritative provider price.",
+          error: message,
         });
         return;
       }
@@ -9391,7 +9885,11 @@ async function generateVideoHandler(
   if (preflightEnabled) {
     const preflight = await preflightVideoJob(body.engine, options);
     if (preflight) {
-      res.status(preflight.status).json({ error: preflight.message });
+      const message = provisionalGuidedJob
+        ? `Job #${provisionalGuidedJob.id} stopped before funding: ${preflight.message}`
+        : preflight.message;
+      await failProvisionalGuidedJob(message);
+      res.status(preflight.status).json({ error: message });
       return;
     }
   }
@@ -9428,51 +9926,175 @@ async function generateVideoHandler(
   // Wallet workspaces reserve one estimate per unit in a single
   // all-or-nothing debit, persisted on the job row so the runner can settle
   // it to the real cost minutes later.
-  let funding: "quota" | "credit" | "wallet";
-  let reservation: WalletReservation | null = null;
-  if (walletFunded) {
-    const exactReservation = await directVideoReservationPrice(
-      body.engine,
-      options,
-      units,
-    ).catch(() => null);
-    reservation = await reserveWallet(
-      req.tenantId,
-      "video",
-      exactReservation
-        ? { provider: exactReservation.provider, model: exactReservation.model }
-        : {},
-      units,
-      exactReservation?.totalCostPaise,
-    );
-    if (!reservation) {
-      res.status(402).json({
-        error:
-          units > 1
-            ? `This video needs ${units} generations (one per scene) and your wallet balance can't cover it. Recharge to continue.`
-            : "Your wallet balance can't cover this video. Recharge to continue.",
-      });
-      return;
-    }
-    funding = "wallet";
-  } else if (limits.videos === -1 || usage.videos + units <= limits.videos) {
-    funding = "quota";
-  } else if (await spendCredit(req.tenantId, "video", units)) {
-    funding = "credit";
-  } else {
-    res.status(402).json({
-      error:
-        units > 1
-          ? `This video needs ${units} video units (one per generated scene) and your plan does not have enough left. Upgrade your plan or buy a credit pack.`
-          : "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.",
-    });
-    return;
-  }
+  const funding: "quota" | "credit" | "wallet" = walletFunded
+    ? "wallet"
+    : limits.videos === -1 || usage.videos + units <= limits.videos
+      ? "quota"
+      : "credit";
+  const exactReservation = funding === "wallet"
+    ? await directVideoReservationPrice(body.engine, options, units).catch(() => null)
+    : null;
+  const chargedRatePaise = (await getAiSpendRates()).videoPaise;
+  // The debit and its durable refund owner are one commit. A throw, zero-row
+  // CAS, or process failure before commit rolls both back; after commit the
+  // queued/failed-job sweep can discover and resolve the job-linked reserve.
+  const fundedResult = await db.transaction(async (tx) => {
+    let lockedDraft: GuidedStoryDraft | null = null;
+    if (provisionalGuidedJob && options.guidedStory) {
+      if (!guidedStorageEvidenceValid) return { kind: "validation" as const };
+      [lockedDraft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+        eq(guidedStoryDraftsTable.id, options.guidedStory.draftId),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (
+        !lockedDraft ||
+        lockedDraft.revision !== options.guidedStory.draftRevision ||
+        lockedDraft.state.storyboardJobId !== provisionalGuidedJob.id ||
+        lockedDraft.state.scriptApprovedAt !== options.guidedStory.scriptApprovedAt ||
+        !guidedCastApprovalsMatch({
+          draftRevision: lockedDraft.revision,
+          cast: lockedDraft.state.cast,
+          approvals: lockedDraft.state.castApprovals,
+        })
+      ) return { kind: "validation" as const };
 
-  const job = (
-    await db
-      .insert(videoGenerationsTable)
-      .values({
+      const participating = new Set(
+        options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+      );
+      const members = options.guidedStory.cast
+        .filter((member) => participating.has(member.roleId))
+        .sort((a, b) =>
+          (a.characterId ?? 0) - (b.characterId ?? 0) ||
+          (a.outfitId ?? 0) - (b.outfitId ?? 0)
+        );
+      const characters = new Map<number, typeof charactersTable.$inferSelect>();
+      for (const characterId of [...new Set(members.map((member) => member.characterId!))].sort((a, b) => a - b)) {
+        const [character] = await tx.select().from(charactersTable).where(and(
+          eq(charactersTable.id, characterId),
+          eq(charactersTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (!character) return { kind: "validation" as const };
+        characters.set(characterId, character);
+      }
+      const outfits = new Map<number, typeof characterOutfitsTable.$inferSelect>();
+      for (const outfitId of [...new Set(members.map((member) => member.outfitId!))].sort((a, b) => a - b)) {
+        const [outfit] = await tx.select().from(characterOutfitsTable).where(and(
+          eq(characterOutfitsTable.id, outfitId),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (!outfit) return { kind: "validation" as const };
+        outfits.set(outfitId, outfit);
+      }
+      for (const member of members) {
+        const approval = options.guidedStory.castApprovals?.roles[member.roleId];
+        const currentApproval =
+          lockedDraft.state.castApprovals?.roles[member.roleId];
+        const currentMember = lockedDraft.state.cast.find(
+          (candidate) => candidate.roleId === member.roleId,
+        );
+        const character = member.characterId == null ? null : characters.get(member.characterId);
+        const outfit = member.outfitId == null ? null : outfits.get(member.outfitId);
+        const characterReferenceId = character && selectAtlasGenerationReferenceId(
+          character.atlasAssetReferenceId,
+          character.atlasAssetId,
+        );
+        const outfitReferenceId = outfit && selectAtlasGenerationReferenceId(
+          outfit.atlasAssetReferenceId,
+          outfit.atlasAssetId,
+        );
+        const evidence = character?.creationEvidence;
+        let immutableCreationReceiptValid =
+          evidence?.version === 1 &&
+          evidence.kind === "guided_story" &&
+          Number.isSafeInteger(evidence.draftId) &&
+          evidence.draftId > 0 &&
+          Number.isSafeInteger(evidence.draftRevision) &&
+          evidence.draftRevision > 0 &&
+          evidence.roleId.trim().length > 0 &&
+          evidence.operationKey.trim().length > 0 &&
+          evidence.provider.trim().length > 0 &&
+          evidence.model.trim().length > 0 &&
+          Number.isFinite(Date.parse(evidence.recordedAt)) &&
+          evidence.sourcePath === approval?.character.referenceImagePath &&
+          evidence.sourceSha256 === approval?.character.sha256;
+        if (immutableCreationReceiptValid && evidence!.providerOperationId !== null) {
+          const [providerReceipt] = await tx.select({
+            tenantId: walletProviderOperationsTable.tenantId,
+            operationKey: walletProviderOperationsTable.operationKey,
+            operationKind: walletProviderOperationsTable.operationKind,
+            status: walletProviderOperationsTable.status,
+            provider: walletProviderOperationsTable.provider,
+            model: walletProviderOperationsTable.model,
+          }).from(walletProviderOperationsTable).where(
+            eq(walletProviderOperationsTable.id, evidence!.providerOperationId!),
+          ).limit(1);
+          immutableCreationReceiptValid =
+            providerReceipt?.tenantId === req.tenantId &&
+            providerReceipt.operationKey === evidence!.operationKey &&
+            providerReceipt.operationKind === "character_reference" &&
+            ["succeeded", "settlement_queued", "settled"].includes(providerReceipt.status) &&
+            providerReceipt.provider === evidence!.provider &&
+            providerReceipt.model === evidence!.model;
+        }
+        if (
+          !approval ||
+          !currentApproval ||
+          currentApproval.character.referenceImagePath !== approval.character.referenceImagePath ||
+          currentApproval.character.sha256 !== approval.character.sha256 ||
+          currentApproval.outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
+          currentApproval.outfit.sha256 !== approval.outfit.sha256 ||
+          !currentMember ||
+          !character ||
+          !outfit ||
+          currentMember.characterId !== member.characterId ||
+          currentMember.outfitId !== member.outfitId ||
+          currentMember.character.referenceImagePath !== approval.character.referenceImagePath ||
+          currentMember.outfit?.referenceImagePath !== approval.outfit.referenceImagePath ||
+          character.referenceSource !== "generated" ||
+          character.bytePlusIdentityId !== null ||
+          character.referenceImagePath !== approval.character.referenceImagePath ||
+          !immutableCreationReceiptValid ||
+          character.referenceSheetStatus !== "approved" ||
+          character.referenceSheetImagePath !== member.atlasApprovedReferenceSheetPath ||
+          character.referenceSheetApprovedSha256 !== member.atlasApprovedReferenceSheetSha256 ||
+          character.atlasAssetSourcePath !== member.atlasApprovedReferenceSheetPath ||
+          character.atlasAssetSourceSha256 !== member.atlasApprovedReferenceSheetSha256 ||
+          character.atlasAssetStatus !== "Active" ||
+          character.atlasAssetLibraryId !== member.atlasCharacterLibraryId ||
+          characterReferenceId !== member.atlasCharacterReferenceId ||
+          outfit.characterId !== character.id ||
+          outfit.status !== "approved" ||
+          !outfit.identityVerified ||
+          outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
+          outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
+          outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
+          outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
+          outfit.atlasAssetStatus !== "Active" ||
+          outfit.atlasAssetLibraryId !== member.atlasOutfitLibraryId ||
+          outfitReferenceId !== member.atlasAssetReferenceId
+        ) return { kind: "validation" as const };
+      }
+    }
+    let reservation: WalletReservation | null = null;
+    if (funding === "wallet") {
+      reservation = await reserveWallet(
+        req.tenantId,
+        "video",
+        exactReservation
+          ? { provider: exactReservation.provider, model: exactReservation.model }
+          : {},
+        units,
+        exactReservation?.totalCostPaise,
+        tx,
+      );
+      if (!reservation) return { kind: "insufficient" as const };
+    } else if (
+      funding === "credit" &&
+      !(await spendCredit(req.tenantId, "video", units, tx))
+    ) {
+      return { kind: "insufficient" as const };
+    }
+    const jobValues = {
         tenantId: req.tenantId,
         engine: body.engine,
         status: "queued",
@@ -9489,22 +10111,62 @@ async function generateVideoHandler(
         // "AI amount spent" line keeps showing what was really charged even
         // after a superadmin edits the rates. (The kill switch only gates
         // display, so the snapshot is written unconditionally.)
-        chargedRatePaise: (await getAiSpendRates()).videoPaise,
+        chargedRatePaise,
         walletReservationId: reservation?.id ?? null,
         walletReservedPaise: reservation?.amountPaise ?? null,
         walletReservedUnits: reservation?.units ?? null,
-      })
-      .returning()
-  )[0]!;
+      } as const;
+    const [job] = provisionalGuidedJob
+      ? await tx.update(videoGenerationsTable).set(jobValues).where(and(
+        eq(videoGenerationsTable.id, provisionalGuidedJob.id),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+        eq(videoGenerationsTable.status, "creating"),
+        isNull(videoGenerationsTable.funding),
+      )).returning()
+      : await tx.insert(videoGenerationsTable).values(jobValues).returning();
+    if (!job) throw new Error("Video funding attachment CAS changed");
+    if (lockedDraft && provisionalGuidedJob) {
+      const [keptBinding] = await tx.update(guidedStoryDraftsTable).set({
+        updatedAt: new Date(),
+      }).where(and(
+        eq(guidedStoryDraftsTable.id, lockedDraft.id),
+        eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        eq(guidedStoryDraftsTable.revision, lockedDraft.revision),
+        sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = ${String(provisionalGuidedJob.id)}`,
+      )).returning({ id: guidedStoryDraftsTable.id });
+      if (!keptBinding) throw new Error("Guided Story final draft binding CAS changed");
+    }
+    return { kind: "funded" as const, job, reservation };
+  });
+  if (fundedResult.kind === "validation") {
+    const message = `Job #${provisionalGuidedJob!.id} was not funded because its final draft, character, outfit, approval, or Atlas source evidence changed. Reload and approve the exact current references before retrying.`;
+    await failProvisionalGuidedJob(message);
+    res.status(409).json({ error: message });
+    return;
+  }
+  if (fundedResult.kind === "insufficient") {
+    const message = provisionalGuidedJob
+      ? `Job #${provisionalGuidedJob.id} was not funded because ${units} video unit${units === 1 ? " is" : "s are"} unavailable. Recharge or add credits, then create a new approved attempt.`
+      : funding === "wallet"
+        ? "Your wallet balance can't cover this video. Recharge to continue."
+        : "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.";
+    await failProvisionalGuidedJob(message);
+    res.status(402).json({ error: message });
+    return;
+  }
+  const { job, reservation } = fundedResult;
 
   const accepted = enqueueBackgroundJob(() =>
     runVideoGenerationJob(job.id, funding),
   );
   if (!accepted) {
     // Shutdown in progress: undo everything and ask the client to retry.
+    const restartMessage = provisionalGuidedJob
+      ? `Job #${job.id} could not be queued because the server is restarting. Its funding is being returned; retry in a moment.`
+      : "Server restarting; please retry.";
     await db
       .update(videoGenerationsTable)
-      .set({ status: "failed", error: "Server restarting; please retry." })
+      .set({ status: "failed", error: restartMessage })
       .where(eq(videoGenerationsTable.id, job.id));
     if (reservation) {
       await refundFailedVideoJobWallet(job.id, "video enqueue rejected");
@@ -9518,11 +10180,11 @@ async function generateVideoHandler(
     }
     res
       .status(503)
-      .json({ error: "Server is restarting. Please retry in a moment." });
+      .json({ error: restartMessage });
     return;
   }
 
-  if (guidedDraft) {
+  if (guidedDraft && !provisionalGuidedJob) {
     await db
       .update(guidedStoryDraftsTable)
       .set({
@@ -9573,6 +10235,28 @@ async function generateVideoHandler(
     }
   }
   res.status(201).json(serializeVideoJob(job));
+  } catch (error) {
+    if (!provisionalGuidedJob || provisionalGuidedJob.status !== "creating") {
+      throw error;
+    }
+    const detail = error instanceof Error ? error.message : "unknown enqueue error";
+    const message =
+      `Job #${provisionalGuidedJob.id} stopped before funding because its enqueue preflight failed: ${detail}`;
+    const failed = await failProvisionalGuidedJob(message).catch((terminalError) => {
+      req.log.error(
+        { err: terminalError, jobId: provisionalGuidedJob!.id },
+        "Failed to terminalize numbered Guided Story attempt",
+      );
+      return null;
+    });
+    if (!failed) throw error;
+    if (!res.headersSent) {
+      res.status(409).json({
+        error: message,
+        ...(failed ? { job: serializeVideoJob(failed) } : {}),
+      });
+    }
+  }
 }
 
 router.post("/ai/generate-video", generateVideoHandler);
@@ -10911,21 +11595,10 @@ router.post(
       });
       return;
     }
-    if (
-      initial.options?.guidedStory &&
-      !guidedCastApprovalsMatch({
-        draftRevision: initial.options.guidedStory.draftRevision,
-        cast: initial.options.guidedStory.cast,
-        approvals: initial.options.guidedStory.castApprovals,
-      })
-    ) {
-      res.status(409).json({
-        error: GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
-        code: "guided_cast_approval_required",
-      });
-      return;
-    }
-    if (await rejectDisabledVideoMode(initial.engine, res)) return;
+    const atlasGuidedRetry =
+      initial.options?.guidedStory != null &&
+      initial.options.resolvedVideoModel?.provider === "atlascloud";
+    if (!atlasGuidedRetry && await rejectDisabledVideoMode(initial.engine, res)) return;
     const requiredFeatures: Array<
       readonly [Parameters<typeof isFeatureEnabled>[0], string]
     > = [
@@ -10938,12 +11611,6 @@ router.post(
         ? [["brandVoiceClone", "Brand Voice is currently turned off."] as const]
         : []),
     ];
-    for (const [feature, message] of requiredFeatures) {
-      if (!(await isFeatureEnabled(feature))) {
-        res.status(403).json({ error: message, code: "feature_disabled" });
-        return;
-      }
-    }
     // Guided Story jobs created before enqueue-time model freezing may still
     // have a fully approved storyboard but no immutable image-to-video model.
     // Resolve the current configured selection before taking recovery funding,
@@ -10984,13 +11651,22 @@ router.post(
     let historicalPrivacyRecovery = false;
     let recoveryError: Awaited<ReturnType<typeof validateRecoveryObjects>> =
       null;
+    const canonicalRecoveryId =
+      initial.options?.recovery?.chainId ??
+      initial.options?.characterDialogue?.retry?.sourceJobId ??
+      initial.id;
     await db.transaction(async (tx) => {
       await tx.execute(
-        sql`select pg_advisory_xact_lock(${VIDEO_STORYBOARD_RECOVERY_LOCK_NS}, ${sourceId})`,
+        sql`select pg_advisory_xact_lock(${VIDEO_STORYBOARD_RECOVERY_LOCK_NS}, ${canonicalRecoveryId})`,
       );
       await tx.execute(
-        sql`select id from ${videoGenerationsTable} where id = ${sourceId} for update`,
+        sql`select id from ${videoGenerationsTable} where id = ${canonicalRecoveryId} for update`,
       );
+      if (sourceId !== canonicalRecoveryId) {
+        await tx.execute(
+          sql`select id from ${videoGenerationsTable} where id = ${sourceId} for update`,
+        );
+      }
       source =
         (
           await tx
@@ -11010,6 +11686,56 @@ router.post(
         !RECOVERABLE_VIDEO_ENGINES.has(source.engine)
       )
         return;
+      if (canonicalRecoveryId !== source.id) {
+        // Historical Character Dialogue retry children predate generic
+        // recovery metadata. Their retry.sourceJobId is the durable chain/root
+        // identity (and therefore their only persisted parent edge).
+        const sourceChainId =
+          source.options?.recovery?.chainId ??
+          source.options?.characterDialogue?.retry?.sourceJobId;
+        const parentId =
+          source.options?.recovery?.sourceJobId ??
+          source.options?.characterDialogue?.retry?.sourceJobId;
+        const [root] = await tx.select({
+          id: videoGenerationsTable.id,
+          tenantId: videoGenerationsTable.tenantId,
+        }).from(videoGenerationsTable).where(and(
+          eq(videoGenerationsTable.id, canonicalRecoveryId),
+          eq(videoGenerationsTable.tenantId, req.tenantId),
+        )).limit(1);
+        const [parent] = parentId == null
+          ? []
+          : await tx.select({
+              id: videoGenerationsTable.id,
+              options: videoGenerationsTable.options,
+            }).from(videoGenerationsTable).where(and(
+              eq(videoGenerationsTable.id, parentId),
+              eq(videoGenerationsTable.tenantId, req.tenantId),
+            )).limit(1);
+        const genericLineage = source.options?.recovery != null;
+        const atlasLineage =
+          source.options?.guidedStory != null &&
+          source.options.resolvedVideoModel?.provider === "atlascloud";
+        const strictPersistedParentRequired = !genericLineage || atlasLineage;
+        if (
+          sourceChainId !== canonicalRecoveryId ||
+          (
+            strictPersistedParentRequired &&
+            (
+              !root ||
+              !parent ||
+              (
+                parent.options?.recovery?.chainId ??
+                parent.options?.characterDialogue?.retry?.sourceJobId ??
+                parent.id
+              ) !== canonicalRecoveryId
+            )
+          )
+        ) {
+          source = null;
+          return;
+        }
+      }
       const lockedInventory = videoRecoveryInventory(source);
       const privacyCapability = historicalPrivacyRecoveryCapability(source);
       if (privacyCapability?.eligible) {
@@ -11020,8 +11746,13 @@ router.post(
           ...lockedInventory.regenerated,
         ];
       }
-      recoveryError = await validateRecoveryObjects(source, lockedInventory);
-      if (recoveryError) return;
+      const atlasGuidedRecovery =
+        source.options?.guidedStory != null &&
+        source.options.resolvedVideoModel?.provider === "atlascloud";
+      if (!atlasGuidedRecovery) {
+        recoveryError = await validateRecoveryObjects(source, lockedInventory);
+        if (recoveryError) return;
+      }
       const tenantJobs = await tx
         .select()
         .from(videoGenerationsTable)
@@ -11033,6 +11764,8 @@ router.post(
       const existingChild = tenantJobs
         .filter((job) =>
           job.id !== sourceId &&
+          job.status !== "failed" &&
+          job.status !== "cancelled" &&
           (
             isChildOfVideoSource(job.options, sourceId) ||
             job.options?.recovery?.chainId === recoveryChainId
@@ -11048,6 +11781,7 @@ router.post(
       const childOptions: VideoJobOptions = structuredClone(
         source.options ?? { aspectRatio: "9:16" as const },
       );
+      delete childOptions.guidedCreatingLease;
       markInheritedProviderReceiptsAccounted(childOptions);
       childOptions.resolvedVideoModel = recoveryResolvedVideoModel;
       const chainId =
@@ -11061,6 +11795,12 @@ router.post(
         fundedUnits: lockedInventory.units,
         mode: lockedInventory.mode,
         state: "creating",
+        creatingLease: {
+          version: 1,
+          owner: randomUUID(),
+          heartbeatAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        },
         reusable: lockedInventory.reusable,
         regenerated: lockedInventory.regenerated,
         privacyRecovery: privacyCapability?.eligible
@@ -11122,7 +11862,7 @@ router.post(
           .values({
             tenantId: source.tenantId,
             engine: source.engine,
-            status: "queued",
+            status: "creating",
             prompt: source.prompt,
             sourceImagePaths: structuredClone(source.sourceImagePaths),
             storyboard: childStoryboard,
@@ -11178,12 +11918,378 @@ router.post(
       return;
     }
     const childJob = child as VideoGeneration;
-    const rollbackChild = async () => {
-      await db
-        .delete(videoGenerationsTable)
-        .where(eq(videoGenerationsTable.id, childJob.id));
+    const failChild = async (detail: string): Promise<string> => {
+      const message = detail.startsWith(`Job #${childJob.id}`)
+        ? detail
+        : `Job #${childJob.id} ${detail}`;
+      await db.transaction(async (tx) => {
+        const [failed] = await tx.update(videoGenerationsTable).set({
+          status: "failed",
+          funding: null,
+          error: message,
+          stage: null,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(videoGenerationsTable.id, childJob.id),
+          eq(videoGenerationsTable.status, "creating"),
+          isNull(videoGenerationsTable.funding),
+        )).returning({ id: videoGenerationsTable.id });
+        const draftId = childJob.options?.guidedStory?.draftId;
+        if (!failed || draftId == null) return;
+        const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+          eq(guidedStoryDraftsTable.id, draftId),
+          eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (draft?.state.storyboardJobId !== childJob.id) return;
+        await tx.update(guidedStoryDraftsTable).set({
+          state: { ...draft.state, storyboardJobId: null },
+          updatedAt: new Date(),
+        }).where(and(
+          eq(guidedStoryDraftsTable.id, draft.id),
+          eq(guidedStoryDraftsTable.revision, draft.revision),
+          sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = ${String(childJob.id)}`,
+        ));
+      });
+      return message;
     };
+    const releaseChildDraftBinding = async (): Promise<void> => {
+      const draftId = childJob.options?.guidedStory?.draftId;
+      if (draftId == null) return;
+      await db.transaction(async (tx) => {
+        const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+          eq(guidedStoryDraftsTable.id, draftId),
+          eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (draft?.state.storyboardJobId !== childJob.id) return;
+        await tx.update(guidedStoryDraftsTable).set({
+          state: { ...draft.state, storyboardJobId: null },
+          updatedAt: new Date(),
+        }).where(and(
+          eq(guidedStoryDraftsTable.id, draft.id),
+          eq(guidedStoryDraftsTable.revision, draft.revision),
+          sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = ${String(childJob.id)}`,
+        ));
+      });
+    };
+    try {
     const options = childJob.options!;
+    const recoveryLeaseOwner = options.recovery?.creatingLease?.owner;
+    const refreshRecoveryCreatingLease = async (): Promise<void> => {
+      if (!recoveryLeaseOwner) throw new Error("Retry creating lease is missing.");
+      const now = new Date();
+      const lease = {
+        version: 1 as const,
+        owner: recoveryLeaseOwner,
+        heartbeatAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+      };
+      const [refreshed] = await db.update(videoGenerationsTable).set({
+        options: sql`jsonb_set(${videoGenerationsTable.options}, '{recovery,creatingLease}', ${JSON.stringify(lease)}::jsonb)`,
+        updatedAt: now,
+      }).where(and(
+        eq(videoGenerationsTable.id, childJob.id),
+        eq(videoGenerationsTable.status, "creating"),
+        sql`(${videoGenerationsTable.options}->'recovery'->'creatingLease'->>'owner') = ${recoveryLeaseOwner}`,
+      )).returning({ id: videoGenerationsTable.id });
+      if (!refreshed) throw new Error("Retry creating lease was lost.");
+      options.recovery!.creatingLease = lease;
+    };
+    await refreshRecoveryCreatingLease();
+    const guidedLineageJobId =
+      (source as VideoGeneration).options?.recovery?.chainId ?? sourceId;
+    if (atlasGuidedRetry && await rejectDisabledVideoMode(initial.engine, res)) {
+      await failChild("stopped before funding because this video mode is disabled.");
+      return;
+    }
+    if (
+      options.guidedStory &&
+      !guidedCastApprovalsMatch({
+        draftRevision: options.guidedStory.draftRevision,
+        cast: options.guidedStory.cast,
+        approvals: options.guidedStory.castApprovals,
+      })
+    ) {
+      const message = await failChild(
+        `stopped before funding: ${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE}`,
+      );
+      res.status(409).json({
+        error: message,
+        code: "guided_cast_approval_required",
+      });
+      return;
+    }
+    for (const [feature, featureMessage] of requiredFeatures) {
+      if (!(await isFeatureEnabled(feature))) {
+        const message = await failChild(
+          `stopped before funding because ${featureMessage}`,
+        );
+        res.status(403).json({ error: message, code: "feature_disabled" });
+        return;
+      }
+    }
+    if (
+      options.guidedStory &&
+      options.resolvedVideoModel?.provider === "atlascloud"
+    ) {
+      const inventory = videoRecoveryInventory(source as VideoGeneration);
+      const atlasRecoveryError = await validateRecoveryObjects(
+        source as VideoGeneration,
+        inventory,
+      );
+      if (atlasRecoveryError) {
+        const message = await failChild(
+          `stopped before funding: ${atlasRecoveryError.message}`,
+        );
+        res.status(410).json({
+          error: message,
+          code: atlasRecoveryError.code,
+        });
+        return;
+      }
+      const currentDraft = await db.transaction(async (tx) => {
+        const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+          eq(guidedStoryDraftsTable.id, options.guidedStory!.draftId),
+          eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (
+          !draft ||
+          draft.revision !== options.guidedStory!.draftRevision ||
+          !guidedCastApprovalsMatch({
+            draftRevision: draft.revision,
+            cast: draft.state.cast,
+            approvals: draft.state.castApprovals,
+          })
+        ) return null;
+        if (draft.state.storyboardJobId === childJob.id) return draft;
+        const sourceAttempt = source as VideoGeneration;
+        const sourceIsTerminalInChain =
+          sourceAttempt.status === "failed" &&
+          (
+            sourceAttempt.id === guidedLineageJobId ||
+            sourceAttempt.options?.recovery?.chainId === guidedLineageJobId
+          );
+        const sourceFundingReleased =
+          sourceAttempt.funding === null ||
+          sourceAttempt.options?.recovery?.fundingReleasedAt != null;
+        const mayRebindReleasedSource =
+          draft.state.storyboardJobId === null &&
+          sourceIsTerminalInChain &&
+          sourceFundingReleased;
+        const mayAdvanceBoundTerminalSource =
+          draft.state.storyboardJobId === sourceAttempt.id &&
+          sourceIsTerminalInChain;
+        if (!mayRebindReleasedSource && !mayAdvanceBoundTerminalSource) return null;
+        const [bound] = await tx.update(guidedStoryDraftsTable).set({
+          state: { ...draft.state, storyboardJobId: childJob.id },
+          updatedAt: new Date(),
+        }).where(and(
+          eq(guidedStoryDraftsTable.id, draft.id),
+          eq(guidedStoryDraftsTable.revision, draft.revision),
+          mayRebindReleasedSource
+            ? sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' is null`
+            : sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = ${String(sourceAttempt.id)}`,
+        )).returning();
+        return bound ?? null;
+      });
+      if (
+        !currentDraft ||
+        currentDraft.revision !== options.guidedStory.draftRevision ||
+        currentDraft.state.storyboardJobId !== childJob.id ||
+        !guidedCastApprovalsMatch({
+          draftRevision: currentDraft.revision,
+          cast: currentDraft.state.cast,
+          approvals: currentDraft.state.castApprovals,
+        })
+      ) {
+        const message = await failChild(
+          "was not funded because its current Guided draft lineage or approvals changed.",
+        );
+        res.status(409).json({ error: message, code: "guided_retry_stale" });
+        return;
+      }
+      const participating = new Set(
+        options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+      );
+      const reconciledCast: GuidedStoryCastSnapshot[] = [];
+      for (const member of options.guidedStory.cast) {
+        if (!participating.has(member.roleId)) {
+          reconciledCast.push(member);
+          continue;
+        }
+        const currentMember = currentDraft.state.cast.find(
+          (candidate) => candidate.roleId === member.roleId,
+        );
+        const approval = currentDraft.state.castApprovals?.roles[member.roleId];
+        const sourceApproval = options.guidedStory.castApprovals?.roles[member.roleId];
+        if (
+          !currentMember ||
+          !approval ||
+          !sourceApproval ||
+          sourceApproval.character.referenceImagePath !== approval.character.referenceImagePath ||
+          sourceApproval.character.sha256 !== approval.character.sha256 ||
+          sourceApproval.outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
+          sourceApproval.outfit.sha256 !== approval.outfit.sha256 ||
+          currentMember.characterId !== member.characterId ||
+          currentMember.outfitId !== member.outfitId ||
+          currentMember.character.referenceImagePath !== approval.character.referenceImagePath ||
+          currentMember.outfit?.referenceImagePath !== approval.outfit.referenceImagePath ||
+          member.characterId == null ||
+          member.outfitId == null
+        ) {
+          const message = await failChild(
+            `was not funded because role ${member.roleId}'s current membership or approval changed.`,
+          );
+          res.status(409).json({ error: message, code: "guided_retry_stale" });
+          return;
+        }
+        let [character] = await db.select().from(charactersTable).where(and(
+          eq(charactersTable.id, member.characterId),
+          eq(charactersTable.tenantId, req.tenantId),
+        )).limit(1);
+        const [outfit] = await db.select().from(characterOutfitsTable).where(and(
+          eq(characterOutfitsTable.id, member.outfitId),
+          eq(characterOutfitsTable.characterId, member.characterId),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        )).limit(1);
+        if (character?.referenceSource === null) {
+          const upgraded = await upgradeExactLegacyGeneratedCharacter({
+            tenantId: req.tenantId,
+            characterId: character.id,
+            approvedPath: approval.character.referenceImagePath,
+            approvedSha256: approval.character.sha256,
+          });
+          if (!upgraded) {
+            const message = await failChild(
+              `was not funded because role ${member.roleId} has unknown provenance without exact immutable generated-fictional evidence.`,
+            );
+            res.status(409).json({ error: message, code: "guided_retry_asset_changed" });
+            return;
+          }
+          character = upgraded;
+        }
+        const evidence = character?.creationEvidence;
+        let provenanceValid =
+          evidence?.version === 1 &&
+          evidence.kind === "guided_story" &&
+          evidence.operationKey.trim().length > 0 &&
+          evidence.provider.trim().length > 0 &&
+          evidence.model.trim().length > 0 &&
+          evidence.sourcePath === approval.character.referenceImagePath &&
+          evidence.sourceSha256 === approval.character.sha256;
+        if (provenanceValid && evidence!.providerOperationId !== null) {
+          const [receipt] = await db.select().from(walletProviderOperationsTable)
+            .where(and(
+              eq(walletProviderOperationsTable.id, evidence!.providerOperationId!),
+              eq(walletProviderOperationsTable.tenantId, req.tenantId),
+            )).limit(1);
+          provenanceValid =
+            receipt?.operationKind === "character_reference" &&
+            receipt.operationKey === evidence!.operationKey &&
+            receipt.provider === evidence!.provider &&
+            receipt.model === evidence!.model &&
+            ["succeeded", "settlement_queued", "settled"].includes(receipt.status);
+        }
+        if (
+          !character ||
+          !outfit ||
+          !provenanceValid ||
+          character.referenceSource !== "generated" ||
+          character.bytePlusIdentityId !== null ||
+          outfit.status !== "approved" ||
+          !outfit.identityVerified ||
+          outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
+          character.referenceSheetStatus !== "approved" ||
+          !character.referenceSheetImagePath ||
+          !character.referenceSheetApprovedSha256
+        ) {
+          const message = await failChild(
+            `was not funded because role ${member.roleId}'s approved generated assets were replaced or rejected.`,
+          );
+          res.status(409).json({ error: message, code: "guided_retry_asset_changed" });
+          return;
+        }
+        const [portrait, sheet, outfitImage] = await Promise.all([
+          loadReferenceImage(character.referenceImagePath, req.tenantId),
+          loadReferenceImage(character.referenceSheetImagePath, req.tenantId),
+          loadReferenceImage(outfit.referenceImagePath, req.tenantId),
+        ]);
+        if (
+          createHash("sha256").update(portrait.buffer).digest("hex") !== approval.character.sha256 ||
+          createHash("sha256").update(sheet.buffer).digest("hex") !== character.referenceSheetApprovedSha256 ||
+          createHash("sha256").update(outfitImage.buffer).digest("hex") !== approval.outfit.sha256
+        ) {
+          const message = await failChild(
+            `was not funded because role ${member.roleId}'s current bytes no longer match approval.`,
+          );
+          res.status(409).json({ error: message, code: "guided_retry_asset_changed" });
+          return;
+        }
+        await refreshRecoveryCreatingLease();
+        const registered = await registerAtlasCharacterAssets({
+          tenantId: req.tenantId,
+          characterId: character.id,
+          outfitId: outfit.id,
+          expectedReferenceSheetPath: character.referenceSheetImagePath,
+          expectedReferenceSheetSha256: character.referenceSheetApprovedSha256,
+          expectedOutfitPath: outfit.referenceImagePath,
+          expectedOutfitSha256: approval.outfit.sha256,
+        });
+        await refreshRecoveryCreatingLease();
+        const registeredCharacterReferenceId = selectAtlasGenerationReferenceId(
+          registered.character.atlasAssetReferenceId,
+          registered.character.atlasAssetId,
+        );
+        const registeredOutfitReferenceId = selectAtlasGenerationReferenceId(
+          registered.outfit.atlasAssetReferenceId,
+          registered.outfit.atlasAssetId,
+        );
+        const sourceHadFrozenMappings =
+          member.atlasCharacterLibraryId != null &&
+          member.atlasCharacterReferenceId != null &&
+          member.atlasOutfitLibraryId != null &&
+          member.atlasAssetReferenceId != null;
+        if (
+          sourceHadFrozenMappings &&
+          (
+            registered.character.atlasAssetLibraryId !== member.atlasCharacterLibraryId ||
+            registeredCharacterReferenceId !== member.atlasCharacterReferenceId ||
+            registered.outfit.atlasAssetLibraryId !== member.atlasOutfitLibraryId ||
+            registeredOutfitReferenceId !== member.atlasAssetReferenceId
+          )
+        ) {
+          const message = await failChild(
+            `was not funded because role ${member.roleId}'s frozen Atlas mapping was replaced.`,
+          );
+          res.status(409).json({ error: message, code: "guided_retry_asset_changed" });
+          return;
+        }
+        reconciledCast.push({
+          ...member,
+          referenceSource: "generated",
+          requiresAtlasAsset: true,
+          atlasCharacterLibraryId: registered.character.atlasAssetLibraryId,
+          atlasCharacterReferenceId: registeredCharacterReferenceId,
+          atlasOutfitLibraryId: registered.outfit.atlasAssetLibraryId,
+          atlasAssetReferenceId: registeredOutfitReferenceId,
+          atlasAssetId: registeredOutfitReferenceId,
+          atlasAssetStatus: registered.outfit.atlasAssetStatus,
+          atlasApprovedReferenceSheetPath: character.referenceSheetImagePath,
+          atlasApprovedReferenceSheetSha256: character.referenceSheetApprovedSha256,
+        });
+      }
+      options.guidedStory = { ...options.guidedStory, cast: reconciledCast };
+      const [savedReconciliation] = await db.update(videoGenerationsTable).set({
+        options,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(videoGenerationsTable.id, childJob.id),
+        eq(videoGenerationsTable.status, "creating"),
+        isNull(videoGenerationsTable.funding),
+      )).returning({ id: videoGenerationsTable.id });
+      if (!savedReconciliation) {
+        throw new Error("Retry registration reconciliation CAS changed");
+      }
+    }
     const units = videoJobUnits(childJob.engine, options);
     if (
       units > 0 &&
@@ -11193,10 +12299,13 @@ router.post(
       )
     ) {
       const preflight = await preflightVideoJob(childJob.engine, options);
+      await refreshRecoveryCreatingLease();
       if (preflight) {
-        await rollbackChild();
+        const message = await failChild(
+          `stopped before funding because provider preflight failed: ${preflight.message}`,
+        );
         res.status(preflight.status).json({
-          error: preflight.message,
+          error: message,
           code: "recovery_provider_unavailable",
         });
         return;
@@ -11210,31 +12319,18 @@ router.post(
         .limit(1)
     )[0];
     if (!tenant) {
-      await rollbackChild();
-      res.status(401).json({ error: "Unauthorized" });
+      const message = await failChild("stopped before funding because the workspace no longer exists.");
+      res.status(401).json({ error: message });
       return;
     }
-    let funding: "quota" | "credit" | "wallet" = "quota";
-    let reservation: WalletReservation | null = null;
     const originalRail = historicalPrivacyRecovery
       ? (source as VideoGeneration).funding
       : null;
-    if (
-      units > 0 &&
+    const walletRetry = units > 0 &&
       (originalRail === "wallet" ||
-        (originalRail == null && (await isWalletFunded(req.tenantId))))
-    ) {
-      reservation = await reserveWallet(req.tenantId, "video", {}, units);
-      if (!reservation) {
-        await rollbackChild();
-        res.status(402).json({
-          error: `Resume needs ${units} missing provider operation${units === 1 ? "" : "s"}, but the wallet cannot cover them.`,
-          code: "recovery_insufficient_funds",
-        });
-        return;
-      }
-      funding = "wallet";
-    } else if (units > 0) {
+        (originalRail == null && (await isWalletFunded(req.tenantId))));
+    let funding: "quota" | "credit" | "wallet" = walletRetry ? "wallet" : "quota";
+    if (units > 0 && !walletRetry) {
       const [limits, usage] = await Promise.all([
         getPlanLimits(tenant.plan),
         getUsage(req.tenantId),
@@ -11244,53 +12340,194 @@ router.post(
         (limits.videos === -1 || usage.videos + units <= limits.videos)
       )
         funding = "quota";
-      else if (
-        originalRail !== "quota" &&
-        (await spendCredit(req.tenantId, "video", units))
-      )
-        funding = "credit";
-      else {
-        await rollbackChild();
-        res.status(402).json({
-          error: `Resume needs ${units} missing provider operation${units === 1 ? "" : "s"}. Add credits or upgrade to continue.`,
-          code: "recovery_insufficient_funds",
-        });
-        return;
-      }
+      else funding = "credit";
     }
     const childOptions = structuredClone(options);
     childOptions.recovery!.state = "queued";
     if (childOptions.characterDialogue?.retry) {
       childOptions.characterDialogue.retry.state = "queued";
     }
-    const [fundedChild] = await db
-      .update(videoGenerationsTable)
-      .set({
+    const fundedResult = await db.transaction(async (tx) => {
+      if (
+        options.guidedStory &&
+        options.resolvedVideoModel?.provider === "atlascloud"
+      ) {
+        const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+          eq(guidedStoryDraftsTable.id, options.guidedStory.draftId),
+          eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        )).for("update").limit(1);
+        if (
+          !draft ||
+          draft.revision !== options.guidedStory.draftRevision ||
+          draft.state.storyboardJobId !== childJob.id ||
+          !guidedCastApprovalsMatch({
+            draftRevision: draft.revision,
+            cast: draft.state.cast,
+            approvals: draft.state.castApprovals,
+          })
+        ) return { kind: "validation" as const };
+        const participating = new Set(
+          options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+        );
+        const members = options.guidedStory.cast
+          .filter((member) => participating.has(member.roleId))
+          .sort((a, b) =>
+            (a.characterId ?? 0) - (b.characterId ?? 0) ||
+            (a.outfitId ?? 0) - (b.outfitId ?? 0)
+          );
+        const parents = new Map<number, typeof charactersTable.$inferSelect>();
+        for (const id of [...new Set(members.map((member) => member.characterId!))].sort((a, b) => a - b)) {
+          const [row] = await tx.select().from(charactersTable).where(and(
+            eq(charactersTable.id, id),
+            eq(charactersTable.tenantId, req.tenantId),
+          )).for("update").limit(1);
+          if (!row) return { kind: "validation" as const };
+          parents.set(id, row);
+        }
+        const outfits = new Map<number, typeof characterOutfitsTable.$inferSelect>();
+        for (const id of [...new Set(members.map((member) => member.outfitId!))].sort((a, b) => a - b)) {
+          const [row] = await tx.select().from(characterOutfitsTable).where(and(
+            eq(characterOutfitsTable.id, id),
+            eq(characterOutfitsTable.tenantId, req.tenantId),
+          )).for("update").limit(1);
+          if (!row) return { kind: "validation" as const };
+          outfits.set(id, row);
+        }
+        for (const member of members) {
+          const current = draft.state.cast.find((item) => item.roleId === member.roleId);
+          const approval = draft.state.castApprovals?.roles[member.roleId];
+          const sourceApproval = options.guidedStory.castApprovals?.roles[member.roleId];
+          const parent = member.characterId == null ? null : parents.get(member.characterId);
+          const outfit = member.outfitId == null ? null : outfits.get(member.outfitId);
+          if (
+            !current ||
+            !approval ||
+            !sourceApproval ||
+            sourceApproval.character.referenceImagePath !== approval.character.referenceImagePath ||
+            sourceApproval.character.sha256 !== approval.character.sha256 ||
+            sourceApproval.outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
+            sourceApproval.outfit.sha256 !== approval.outfit.sha256 ||
+            !parent ||
+            !outfit ||
+            current.characterId !== member.characterId ||
+            current.outfitId !== member.outfitId ||
+            parent.referenceSource !== "generated" ||
+            parent.bytePlusIdentityId !== null ||
+            parent.referenceImagePath !== approval.character.referenceImagePath ||
+            parent.creationEvidence?.sourcePath !== approval.character.referenceImagePath ||
+            parent.creationEvidence.sourceSha256 !== approval.character.sha256 ||
+            parent.referenceSheetStatus !== "approved" ||
+            parent.referenceSheetImagePath !== member.atlasApprovedReferenceSheetPath ||
+            parent.referenceSheetApprovedSha256 !== member.atlasApprovedReferenceSheetSha256 ||
+            parent.atlasAssetSourcePath !== member.atlasApprovedReferenceSheetPath ||
+            parent.atlasAssetSourceSha256 !== member.atlasApprovedReferenceSheetSha256 ||
+            parent.atlasAssetStatus !== "Active" ||
+            parent.atlasAssetLibraryId !== member.atlasCharacterLibraryId ||
+            selectAtlasGenerationReferenceId(parent.atlasAssetReferenceId, parent.atlasAssetId) !==
+              member.atlasCharacterReferenceId ||
+            outfit.characterId !== parent.id ||
+            outfit.status !== "approved" ||
+            !outfit.identityVerified ||
+            outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
+            outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
+            outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
+            outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
+            outfit.atlasAssetStatus !== "Active" ||
+            outfit.atlasAssetLibraryId !== member.atlasOutfitLibraryId ||
+            selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId) !==
+              member.atlasAssetReferenceId
+          ) return { kind: "validation" as const };
+        }
+      }
+      let reservation: WalletReservation | null = null;
+      if (units > 0 && funding === "wallet") {
+        reservation = await reserveWallet(req.tenantId, "video", {}, units, undefined, tx);
+        if (!reservation) return { kind: "insufficient" as const };
+      } else if (
+        units > 0 &&
+        funding === "credit" &&
+        (originalRail === "quota" ||
+          !(await spendCredit(req.tenantId, "video", units, tx)))
+      ) {
+        return { kind: "insufficient" as const };
+      }
+      const [fundedChild] = await tx.update(videoGenerationsTable).set({
         options: childOptions,
         funding,
+        status: "queued",
         walletReservationId: reservation?.id ?? null,
         walletReservedPaise: reservation?.amountPaise ?? null,
         walletReservedUnits: reservation?.units ?? null,
-      })
-      .where(eq(videoGenerationsTable.id, childJob.id))
-      .returning();
+      }).where(and(
+        eq(videoGenerationsTable.id, childJob.id),
+        eq(videoGenerationsTable.status, "creating"),
+        isNull(videoGenerationsTable.funding),
+      )).returning();
+      if (!fundedChild) throw new Error("Retry funding attachment CAS changed");
+      return { kind: "funded" as const, child: fundedChild, reservation };
+    });
+    if (fundedResult.kind === "validation") {
+      const message = await failChild(
+        "was not funded because its current Guided draft, approval, source fingerprint, or Atlas mapping changed.",
+      );
+      res.status(409).json({ error: message, code: "guided_retry_stale" });
+      return;
+    }
+    if (fundedResult.kind === "insufficient") {
+      const message = await failChild(
+        `was not funded for ${units} missing provider operation${units === 1 ? "" : "s"}. Add credits or recharge before trying again.`,
+      );
+      res.status(402).json({ error: message, code: "recovery_insufficient_funds" });
+      return;
+    }
+    const { child: fundedChild, reservation } = fundedResult;
     const accepted = enqueueBackgroundJob(() =>
       runVideoGenerationJob(childJob.id, funding),
     );
     if (!accepted) {
-      if (reservation)
-        await refundWallet(req.tenantId, reservation, "retry enqueue rejected");
-      else if (funding === "credit")
-        await refundCredits(
-          req.tenantId,
-          "video",
-          units,
-          "retry enqueue rejected",
-        );
-      await rollbackChild();
+      const message =
+        `Job #${childJob.id} could not be queued because the server is restarting. Its funding is being returned; retry with a new attempt.`;
+      if (funding === "credit") {
+        await db.transaction(async (tx) => {
+          const [failed] = await tx.update(videoGenerationsTable).set({
+            status: "failed",
+            error: message,
+            stage: null,
+            updatedAt: new Date(),
+          }).where(and(
+            eq(videoGenerationsTable.id, childJob.id),
+            eq(videoGenerationsTable.status, "queued"),
+            eq(videoGenerationsTable.funding, "credit"),
+          )).returning({ id: videoGenerationsTable.id });
+          if (failed) {
+            await refundCredits(req.tenantId, "video", units, "retry enqueue rejected", tx);
+          }
+        });
+      } else {
+        await db.update(videoGenerationsTable).set({
+          status: "failed",
+          error: message,
+          stage: null,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(videoGenerationsTable.id, childJob.id),
+          eq(videoGenerationsTable.status, "queued"),
+        ));
+        if (reservation) {
+          await refundFailedVideoJobWallet(childJob.id, "retry enqueue rejected");
+        }
+      }
+      await db.update(videoGenerationsTable).set({
+        options: sql`jsonb_set(${videoGenerationsTable.options}, '{recovery,fundingReleasedAt}', ${JSON.stringify(new Date().toISOString())}::jsonb)`,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(videoGenerationsTable.id, childJob.id),
+        eq(videoGenerationsTable.status, "failed"),
+      ));
+      await releaseChildDraftBinding();
       res
         .status(503)
-        .json({ error: "Server is restarting. Please retry in a moment." });
+        .json({ error: message });
       return;
     }
     if (childOptions.guidedStoryDialogueReplay) {
@@ -11304,6 +12541,62 @@ router.post(
       });
     }
     res.status(201).json(serializeVideoJob(fundedChild!));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown retry error";
+      const fallback = `Job #${childJob.id} retry failed: ${detail}`;
+      let message = fallback;
+      const [current] = await db.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, childJob.id),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).limit(1).catch(() => []);
+      if (current?.status === "creating") {
+        message = await failChild(`stopped before funding: ${detail}`).catch(
+          () => fallback,
+        );
+      } else if (current?.status === "queued") {
+        if (current.funding === "credit") {
+          await db.transaction(async (tx) => {
+            const [failed] = await tx.update(videoGenerationsTable).set({
+              status: "failed",
+              error: fallback,
+              stage: null,
+              updatedAt: new Date(),
+            }).where(and(
+              eq(videoGenerationsTable.id, current.id),
+              eq(videoGenerationsTable.status, "queued"),
+              eq(videoGenerationsTable.funding, "credit"),
+            )).returning({ id: videoGenerationsTable.id });
+            if (failed) {
+              await refundCredits(req.tenantId, "video", videoJobUnits(current.engine, current.options), fallback, tx);
+            }
+          }).catch(() => undefined);
+        } else {
+          await db.update(videoGenerationsTable).set({
+            status: "failed",
+            error: fallback,
+            stage: null,
+            updatedAt: new Date(),
+          }).where(and(
+            eq(videoGenerationsTable.id, current.id),
+            eq(videoGenerationsTable.status, "queued"),
+          )).catch(() => undefined);
+          if (current.funding === "wallet") {
+            await refundFailedVideoJobWallet(current.id, fallback).catch(() => undefined);
+          }
+        }
+        await db.update(videoGenerationsTable).set({
+          options: sql`jsonb_set(${videoGenerationsTable.options}, '{recovery,fundingReleasedAt}', ${JSON.stringify(new Date().toISOString())}::jsonb)`,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(videoGenerationsTable.id, current.id),
+          eq(videoGenerationsTable.status, "failed"),
+        )).catch(() => undefined);
+        await releaseChildDraftBinding().catch(() => undefined);
+      }
+      if (!res.headersSent) {
+        res.status(409).json({ error: message, code: "recovery_attempt_failed" });
+      }
+    }
   },
 );
 

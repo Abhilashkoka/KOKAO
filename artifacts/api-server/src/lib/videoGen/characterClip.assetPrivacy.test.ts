@@ -133,11 +133,11 @@ describe("verified character fail-closed rendering", () => {
     },
   );
 
-  it("preserves the compact hybrid snapshot Atlas reference and requires the active tenant mapping", async () => {
+  it("fails a compact legacy Atlas snapshot without the newly required frozen fingerprints", async () => {
     mocks.identityId = null;
     mocks.atlasRefs.mockResolvedValue(["asset-2026-frozen"]);
     mocks.video.mockResolvedValue({ buffer: Buffer.from("video"), provider: "atlascloud", model: "seedance" });
-    await generateCharacterClip({
+    await expect(generateCharacterClip({
       tenantId: 1, characterId: 7, outfitId: 9, prompt: "scene", aspectRatio: "9:16", durationSec: 5,
       snapshot: {
         referenceImagePath: "/portrait.png", characterName: "Fictional", characterDescription: "fictional",
@@ -148,11 +148,9 @@ describe("verified character fail-closed rendering", () => {
       model: { resolvedVideoModel: {
         version: 1, provider: "atlascloud", model: "seedance-v2.5", resolvedAt: "now",
       } } as never,
-    });
-    expect(mocks.atlasRefs).toHaveBeenLastCalledWith(expect.objectContaining({
-      expectedAssetId: "asset-2026-frozen",
-    }));
-    expect(mocks.video).toHaveBeenCalled();
+    })).rejects.toThrow(/no safe Atlas generation reference/);
+    expect(mocks.atlasRefs).not.toHaveBeenCalled();
+    expect(mocks.video).not.toHaveBeenCalled();
   });
 
   it.each(["atlas-asset-not-a-reference", "asset-💥", " asset-2026-valid", "asset-2026 bad"])(

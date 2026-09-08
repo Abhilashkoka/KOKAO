@@ -427,6 +427,8 @@ export async function animateBrollStills(params: {
    * silent clip, and undefined preserves the caller's existing model setting.
    */
   nativeAudio?: boolean;
+  /** Resolved immediately before the paid scene call; Atlas must not fall back to raw bytes. */
+  resolveAssetIds?: (sceneIndex: number) => Promise<string[]>;
   onCheckpoint?: (args: VideoGenReceipt & { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
   /**
    * Generated-storyboard-only hook. Identity-backed callers omit it and fail
@@ -454,6 +456,7 @@ export async function animateBrollStills(params: {
     const visual = params.visuals[i]?.trim() || scene.text.slice(0, 240);
     const durationSec = clipDurationForScene(scene.durationSec);
     const attempt = async (): Promise<Buffer> => {
+      const assetIds = await params.resolveAssetIds?.(i) ?? [];
       const clip = await generateVideo({
         mode: "image",
         prompt:
@@ -464,7 +467,7 @@ export async function animateBrollStills(params: {
             : `${visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
         seed: params.seed ?? null,
-        image: { buffer: image, mimeType: "image/png" },
+        ...(assetIds.length ? { assetIds } : { image: { buffer: image, mimeType: "image/png" } }),
         ...(params.modelOptions ?? {}),
         generateAudio:
           params.nativeAudio === undefined

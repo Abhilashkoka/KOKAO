@@ -25,7 +25,19 @@ Only AI-generated fictional characters may enter the Atlas Asset Library. Upload
 
 **Why:** Atlas documents that real-human references require authorized assets, but its public API does not expose a KOKAO-compatible liveness/right-verification flow.
 
-**How to apply:** Freeze provenance and provider-specific asset requirements in job snapshots, then re-check active tenant ownership at dispatch. Missing/deleted mappings fail closed. Since Atlas does not document Asset DELETE, block local deletion until documented GET returns 404 after console removal.
+**How to apply:** Freeze provenance and provider-specific asset requirements in job snapshots, then re-check active tenant ownership at dispatch. Missing/deleted mappings fail closed. Routine local deletion requires an affirmative Atlas GET 404; compensation may attempt numeric-ID DELETE, but unsupported/ambiguous cleanup remains fenced.
+
+Guided-created fictional cast uses immutable creation evidence, while each consuming draft independently proves current membership and approvals. Create a numbered attempt before registration, but register before funding; lock final evidence validation and funding in one transaction.
+
+**Why:** Creation revision/role is provenance, not a lifetime binding. Equating it with a later draft breaks safe reuse, while separating validation from funding lets approval changes charge a job that cannot render.
+
+**How to apply:** Hash approved sheet/outfit bytes, lock parent before outfit, freeze numeric and `asset-*` IDs separately, and revalidate immediately before every paid call. Initial and retry attempts serialize on the canonical recovery chain and use fresh creating leases.
+
+Known-ID compensation and ambiguous submission are different states. A confirmed compensated record may become retryable only after GET 404; a submission with unknown provider identity never auto-replays.
+
+**Why:** Database acknowledgement can fail after a mapping commit, and Atlas GET can fail temporarily after successful cleanup. Collapsing either case into a generic failure creates duplicates or permanent deadlocks.
+
+**How to apply:** Preserve numeric cleanup receipts and compensation intent across transient GET failures, clear stale generation IDs after successful compensation, and keep original unknown-ID submissions permanently fenced.
 
 Provider-returned output URLs require address-pinned HTTPS transport: validate and connect to the same public IP while preserving TLS hostname/SNI.
 

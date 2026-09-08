@@ -242,6 +242,13 @@ export class ObjectStorageService {
     return objectFile;
   }
 
+  /** Read the tenant-owned object bytes for an immutable approval digest. */
+  async getObjectEntityBytes(objectPath: string, tenantId: number): Promise<Buffer> {
+    const file = await this.getObjectEntityFile(objectPath, tenantId);
+    const [bytes] = await file.download();
+    return bytes;
+  }
+
   /**
    * Produce a short-lived, publicly reachable signed GET URL for a private
    * object. Used when an external service (e.g. the Instagram Graph API) must

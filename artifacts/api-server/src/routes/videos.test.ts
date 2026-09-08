@@ -447,7 +447,7 @@ import {
   settleWalletProviderOperationDurably,
   setWalletConfig,
 } from "../lib/wallet";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter, {
   guidedCastSweepAllocation,
@@ -2848,6 +2848,12 @@ describe("guided story route fail-closed regressions", () => {
     const savedCharacter = await seedCharacter(tenant.tenantId);
     const characterPath = `/objects/${tenant.tenantId}/uploads/maya.png`;
     const outfitPath = `/objects/${tenant.tenantId}/uploads/maya.png`;
+    const distinctCanonicalPath =
+      `/objects/${tenant.tenantId}/uploads/maya-outfit-canonical.png`;
+    await db.update(characterOutfitsTable).set({
+      isDefault: false,
+      canonicalReferenceImagePath: distinctCanonicalPath,
+    }).where(eq(characterOutfitsTable.id, savedCharacter.outfitId));
     const cast: GuidedStoryCastSnapshot[] = [{
       roleId: role.id,
       source: "saved",
@@ -2902,6 +2908,12 @@ describe("guided story route fail-closed regressions", () => {
         sha256: createHash("sha256").update(Buffer.from([0x89, 0x50, 0x4e, 0x47])).digest("hex"),
       },
     });
+    const [approvedOutfit] = await db.select().from(characterOutfitsTable)
+      .where(eq(characterOutfitsTable.id, savedCharacter.outfitId));
+    expect(approvedOutfit!.atlasApprovedSourceSha256).toBe(
+      createHash("sha256").update(Buffer.from([0x89, 0x50, 0x4e, 0x47])).digest("hex"),
+    );
+    expect(approvedOutfit!.canonicalReferenceImagePath).toBe(distinctCanonicalPath);
   });
 
   async function insertEditableGuidedDraft(
@@ -8135,6 +8147,85 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       .where(eq(videoGenerationsTable.id, created.body.id));
     expect(child?.options?.characterDialogue?.retry).toMatchObject({
       sourceJobId: source.id, fundedUnits: 2, state: "queued",
+    });
+  });
+
+  it("serializes concurrent retries to a recovery root and its failed descendant", async () => {
+    const tenant = await newTenant("pro");
+    const root = await seedFailed(tenant, 1);
+    const descendantOptions = structuredClone(root.options!);
+    descendantOptions.recovery = {
+      version: 1,
+      chainId: root.id,
+      sourceJobId: root.id,
+      fundedUnits: 2,
+      mode: "saved_inputs",
+      state: "queued",
+      reusable: [],
+      regenerated: ["scene"],
+    };
+    descendantOptions.characterDialogue!.retry = {
+      sourceJobId: root.id,
+      fundedUnits: 2,
+      state: "queued",
+    };
+    const [descendant] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: root.engine,
+      status: "failed",
+      prompt: root.prompt,
+      options: descendantOptions,
+      funding: "credit",
+      error: "Descendant failed",
+    }).returning();
+    const replies = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${root.id}/retry`),
+      request(app).post(`/api/ai/video-jobs/${descendant!.id}/retry`),
+    ]);
+    expect(replies.map((reply) => reply.status).sort()).toEqual([200, 201]);
+    expect(replies[0]!.body.id).toBe(replies[1]!.body.id);
+    const live = await db.select().from(videoGenerationsTable).where(and(
+      eq(videoGenerationsTable.tenantId, tenant.tenantId),
+      ne(videoGenerationsTable.status, "failed"),
+      sql`${videoGenerationsTable.options}->'recovery'->>'chainId' = ${String(root.id)}`,
+    ));
+    expect(live).toHaveLength(1);
+  });
+
+  it("normalizes a historical Character Dialogue child without generic recovery metadata", async () => {
+    const tenant = await newTenant("pro");
+    const root = await seedFailed(tenant, 1);
+    const legacyOptions = structuredClone(root.options!);
+    delete legacyOptions.recovery;
+    legacyOptions.characterDialogue!.retry = {
+      sourceJobId: root.id,
+      fundedUnits: 2,
+      state: "queued",
+    };
+    const [legacyChild] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: root.engine,
+      status: "failed",
+      prompt: root.prompt,
+      options: legacyOptions,
+      funding: "credit",
+      error: "Historical child failed",
+    }).returning();
+
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${legacyChild!.id}/retry`);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    const [child] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, response.body.id));
+    expect(child?.options?.recovery).toMatchObject({
+      chainId: root.id,
+      sourceJobId: legacyChild!.id,
+      state: "queued",
+    });
+    expect(child?.options?.characterDialogue?.retry).toMatchObject({
+      sourceJobId: root.id,
+      state: "queued",
     });
   });
 

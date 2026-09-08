@@ -4,6 +4,11 @@ import { eq } from "drizzle-orm";
 import {
   sweepExpiredStoryboards,
   sweepStuckVideoJobs,
+  sweepStrandedGuidedStoryCreations,
+  sweepStrandedRetryCreations,
+  retryCreatingInterruptedError,
+  guidedStoryCreatingInterruptedError,
+  GUIDED_STORY_CREATING_TIMEOUT_MS,
   STORYBOARD_EXPIRED_ERROR,
   VIDEO_JOB_INTERRUPTED_ERROR,
   VIDEO_JOB_STUCK_TIMEOUT_MS,
@@ -184,5 +189,104 @@ describe("sweepStuckVideoJobs", () => {
 
     await sweepStuckVideoJobs();
     expect((await getJob(paused)).status).toBe("awaiting_review");
+  });
+});
+
+describe("sweepStrandedGuidedStoryCreations", () => {
+  it("does not kill an active lease after ten minutes, then expires its exact owner", async () => {
+    const owner = "active-registration-owner";
+    const [created] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "topic_to_video",
+      status: "creating",
+      provider: "atlascloud",
+      options: {
+        aspectRatio: "9:16",
+        guidedStory: { draftId: 987653 },
+        guidedCreatingLease: {
+          version: 1,
+          owner,
+          heartbeatAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      } as typeof videoGenerationsTable.$inferInsert.options,
+    }).returning();
+    await db.update(videoGenerationsTable).set({
+      updatedAt: new Date(Date.now() - 11 * 60_000),
+    }).where(eq(videoGenerationsTable.id, created!.id));
+
+    await sweepStrandedGuidedStoryCreations();
+    expect((await getJob(created!.id)).status).toBe("creating");
+
+    const options = (await getJob(created!.id)).options!;
+    await db.update(videoGenerationsTable).set({
+      options: {
+        ...options,
+        guidedCreatingLease: {
+          ...options.guidedCreatingLease!,
+          expiresAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+    }).where(eq(videoGenerationsTable.id, created!.id));
+    expect(await sweepStrandedGuidedStoryCreations()).toBeGreaterThanOrEqual(1);
+    expect((await getJob(created!.id)).status).toBe("failed");
+  });
+
+  it("terminalizes a stale numbered Atlas Guided attempt exactly once", async () => {
+    const [created] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "topic_to_video",
+      status: "creating",
+      provider: "atlascloud",
+      options: {
+        aspectRatio: "9:16",
+        guidedStory: { draftId: 987654 },
+      } as typeof videoGenerationsTable.$inferInsert.options,
+    }).returning();
+    await db.update(videoGenerationsTable).set({
+      updatedAt: new Date(Date.now() - GUIDED_STORY_CREATING_TIMEOUT_MS - 1_000),
+    }).where(eq(videoGenerationsTable.id, created!.id));
+
+    expect(await sweepStrandedGuidedStoryCreations()).toBeGreaterThanOrEqual(1);
+    const failed = await getJob(created!.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.funding).toBeNull();
+    expect(failed.error).toBe(guidedStoryCreatingInterruptedError(created!.id));
+    expect(await sweepStrandedGuidedStoryCreations()).toBe(0);
+  });
+});
+
+describe("sweepStrandedRetryCreations", () => {
+  it("terminalizes an expired non-Atlas retry lease and retains its numbered row", async () => {
+    const [created] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "text_to_video",
+      status: "creating",
+      provider: "replicate",
+      options: {
+        aspectRatio: "9:16",
+        recovery: {
+          version: 1,
+          chainId: 999001,
+          sourceJobId: 999001,
+          fundedUnits: 1,
+          mode: "saved_inputs",
+          state: "creating",
+          reusable: [],
+          regenerated: ["video"],
+          creatingLease: {
+            version: 1,
+            owner: "expired-non-atlas-retry",
+            heartbeatAt: new Date(Date.now() - 60_000).toISOString(),
+            expiresAt: new Date(Date.now() - 1_000).toISOString(),
+          },
+        },
+      },
+    }).returning();
+    expect(await sweepStrandedRetryCreations()).toBeGreaterThanOrEqual(1);
+    const failed = await getJob(created!.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toBe(retryCreatingInterruptedError(created!.id));
+    expect(await sweepStrandedRetryCreations()).toBe(0);
   });
 });

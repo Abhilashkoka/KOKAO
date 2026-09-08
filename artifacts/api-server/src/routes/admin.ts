@@ -337,6 +337,7 @@ import {
   setStoredBytePlusAssetsKey,
 } from "../lib/byteplus/assets";
 import {
+  atlasSourceSha256,
   registerAtlasCharacterAssets,
   registerCharacterAssets,
 } from "../lib/characterAssets";
@@ -399,6 +400,16 @@ async function serializeAtlasCloudAssets() {
       tenantId: character.tenantId,
       name: character.name,
       assetGroupId: character.atlasAssetGroupId,
+      libraryRecordId: character.atlasAssetLibraryId,
+      generationReferenceId: selectAtlasGenerationReferenceId(
+        character.atlasAssetReferenceId,
+        character.atlasAssetId,
+      ),
+      status: character.atlasAssetStatus,
+      error: character.atlasAssetError,
+      syncedAt: character.atlasAssetSyncedAt?.toISOString() ?? null,
+      sourcePath: character.atlasAssetSourcePath,
+      sourceSha256: character.atlasAssetSourceSha256,
       referenceSource: character.referenceSource,
       eligible:
         character.referenceSource === "generated" &&
@@ -416,6 +427,8 @@ async function serializeAtlasCloudAssets() {
         status: outfit.atlasAssetStatus,
         error: outfit.atlasAssetError,
         syncedAt: outfit.atlasAssetSyncedAt?.toISOString() ?? null,
+        sourcePath: outfit.atlasAssetSourcePath,
+        sourceSha256: outfit.atlasAssetSourceSha256,
       })),
     })),
   };
@@ -499,7 +512,32 @@ router.post("/admin/atlascloud-assets/characters/:characterId/register", async (
     res.status(404).json({ error: "Character not found." });
     return;
   }
-  await registerAtlasCharacterAssets({ tenantId: character.tenantId, characterId });
+  const [current] = await db.select({
+    referenceSheetImagePath: charactersTable.referenceSheetImagePath,
+  }).from(charactersTable).where(and(
+    eq(charactersTable.id, characterId),
+    eq(charactersTable.tenantId, character.tenantId),
+  )).limit(1);
+  if (!current?.referenceSheetImagePath) {
+    res.status(409).json({ error: "Character has no reference sheet to register." });
+    return;
+  }
+  let expectedReferenceSheetSha256: string;
+  try {
+    expectedReferenceSheetSha256 = await atlasSourceSha256(
+      current.referenceSheetImagePath,
+      character.tenantId,
+    );
+  } catch {
+    res.status(409).json({ error: "Could not load the current reference sheet bytes." });
+    return;
+  }
+  await registerAtlasCharacterAssets({
+    tenantId: character.tenantId,
+    characterId,
+    expectedReferenceSheetPath: current.referenceSheetImagePath,
+    expectedReferenceSheetSha256,
+  });
   res.json(await serializeAtlasCloudAssets());
 });
 

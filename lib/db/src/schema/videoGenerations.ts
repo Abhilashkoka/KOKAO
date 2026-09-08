@@ -190,6 +190,13 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Lease fencing a numbered Atlas Guided attempt while assets are registered. */
+  guidedCreatingLease?: {
+    version: 1;
+    owner: string;
+    heartbeatAt: string;
+    expiresAt: string;
+  } | null;
   /** Accepted async provider tasks, keyed by immutable paid-operation identity. */
   providerTasks?: Record<string, {
     provider: string;
@@ -598,6 +605,13 @@ export interface VideoJobOptions {
     fundedUnits: number;
     mode: "resume" | "saved_inputs";
     state: "creating" | "queued";
+    creatingLease?: {
+      version: 1;
+      owner: string;
+      heartbeatAt: string;
+      expiresAt: string;
+    } | null;
+    fundingReleasedAt?: string | null;
     reusable: string[];
     regenerated: string[];
     /** One-shot recovery of a legacy OpenRouter privacy rejection. */
@@ -1098,6 +1112,11 @@ export interface VideoStoryboardScene {
         bytePlusAssetId?: string | null;
         bytePlusAssetStatus?: "Processing" | "Active" | "Failed" | null;
         requiresAtlasAsset?: boolean;
+        atlasCharacterLibraryId?: number | null;
+        atlasCharacterReferenceId?: string | null;
+        atlasOutfitLibraryId?: number | null;
+        atlasApprovedReferenceSheetPath?: string | null;
+        atlasApprovedReferenceSheetSha256?: string | null;
         atlasAssetReferenceId?: string | null;
         /** @deprecated Legacy snapshot alias. */
         atlasAssetId?: string | null;

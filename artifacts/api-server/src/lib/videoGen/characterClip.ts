@@ -141,7 +141,22 @@ export async function generateCharacterClip(params: {
       outfit.atlasAssetReferenceId,
       outfit.atlasAssetId,
     );
-    if (frozenAtlasPolicy === true && !frozenReferenceId) {
+    const frozenCharacterReferenceId = selectAtlasGenerationReferenceId(
+      detail.character.atlasAssetReferenceId,
+      detail.character.atlasAssetId,
+    );
+    if (
+      (
+        frozenAtlasPolicy !== true ||
+        !frozenReferenceId ||
+        !frozenCharacterReferenceId ||
+        !detail.character.atlasAssetLibraryId ||
+        !outfit.atlasAssetLibraryId ||
+        !detail.character.referenceSheetImagePath ||
+        !detail.character.referenceSheetApprovedSha256 ||
+        !outfit.atlasApprovedSourceSha256
+      )
+    ) {
       throw new VideoGenProviderError(
         "This fictional character snapshot has no safe Atlas generation reference and cannot use an image fallback.",
         409,
@@ -161,10 +176,20 @@ export async function generateCharacterClip(params: {
           tenantId: params.tenantId,
           characterId: detail.character.id,
           outfitId: outfit.id,
-          expectedAssetId: selectAtlasGenerationReferenceId(
+           expectedCharacterLibraryId: detail.character.atlasAssetLibraryId!,
+           expectedCharacterReferenceId: selectAtlasGenerationReferenceId(
+             detail.character.atlasAssetReferenceId,
+             detail.character.atlasAssetId,
+           )!,
+           expectedReferenceSheetPath: detail.character.referenceSheetImagePath!,
+           expectedReferenceSheetSha256: detail.character.referenceSheetApprovedSha256!,
+           expectedOutfitLibraryId: outfit.atlasAssetLibraryId!,
+           expectedOutfitAssetId: selectAtlasGenerationReferenceId(
             outfit.atlasAssetReferenceId,
             outfit.atlasAssetId,
-          ),
+           )!,
+           expectedOutfitPath: outfit.referenceImagePath,
+           expectedOutfitSha256: outfit.atlasApprovedSourceSha256!,
         })
       : [];
   const frozenPolicy = params.wardrobeSnapshot?.character.requiresBytePlusAsset

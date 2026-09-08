@@ -1084,6 +1084,13 @@ export function guidedStoryStoryboard(
       bytePlusAssetId: member.bytePlusAssetId ?? null,
       bytePlusAssetStatus: member.bytePlusAssetStatus ?? null,
       requiresAtlasAsset: member.requiresAtlasAsset === true,
+      atlasCharacterLibraryId: member.atlasCharacterLibraryId ?? null,
+      atlasCharacterReferenceId: isAtlasGenerationReferenceId(member.atlasCharacterReferenceId)
+        ? member.atlasCharacterReferenceId
+        : null,
+      atlasOutfitLibraryId: member.atlasOutfitLibraryId ?? null,
+      atlasApprovedReferenceSheetPath: member.atlasApprovedReferenceSheetPath ?? null,
+      atlasApprovedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256 ?? null,
       atlasAssetReferenceId: isAtlasGenerationReferenceId(member.atlasAssetReferenceId)
         ? member.atlasAssetReferenceId
         : isAtlasGenerationReferenceId(member.atlasAssetId)

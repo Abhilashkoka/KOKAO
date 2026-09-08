@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { createHash } from "node:crypto";
 import {
   db,
   tenantsTable,
@@ -57,7 +58,6 @@ import {
 import {
   assertAtlasAssetsDeleted,
   deleteBytePlusAssetsInBackground,
-  registerAtlasOutfitAssetInBackground,
   registerOutfitAssetInBackground,
 } from "../lib/characterAssets";
 import {
@@ -74,9 +74,26 @@ const objectStorage = new ObjectStorageService();
 
 class AtlasDeletionRaceError extends Error {}
 
+function hasBlockingAtlasWork(row: {
+  atlasAssetClaimedAt: Date | null;
+  atlasAssetLeaseOwner: string | null;
+  atlasAssetSubmitFencedAt: Date | null;
+  atlasAssetFenceState: "submitting" | "outcome_unknown" | "resolved" | "compensated" | null;
+}): boolean {
+  return Boolean(
+    row.atlasAssetClaimedAt ||
+    row.atlasAssetLeaseOwner ||
+    (row.atlasAssetSubmitFencedAt &&
+      row.atlasAssetFenceState !== "resolved" &&
+      row.atlasAssetFenceState !== "compensated"),
+  );
+}
+
 function atlasDeletionSnapshot(outfits: Array<Pick<CharacterOutfit,
   "id" | "atlasAssetLibraryId" | "atlasAssetReferenceId" | "atlasAssetId" |
-  "atlasAssetStatus" | "atlasAssetClaimedAt" | "atlasAssetSubmitFencedAt"
+  "atlasAssetStatus" | "atlasAssetClaimedAt" | "atlasAssetLeaseOwner" |
+  "atlasAssetSubmitFencedAt" | "atlasAssetFenceState" | "atlasAssetSourcePath" |
+  "atlasAssetSourceSha256" | "atlasAssetCompensationError" | "atlasAssetSyncedAt"
 >>): string {
   return JSON.stringify([...outfits]
     .sort((a, b) => a.id - b.id)
@@ -87,7 +104,13 @@ function atlasDeletionSnapshot(outfits: Array<Pick<CharacterOutfit,
       compatibilityId: outfit.atlasAssetId,
       status: outfit.atlasAssetStatus,
       claimedAt: outfit.atlasAssetClaimedAt?.toISOString() ?? null,
+      leaseOwner: outfit.atlasAssetLeaseOwner,
       submitFencedAt: outfit.atlasAssetSubmitFencedAt?.toISOString() ?? null,
+      fenceState: outfit.atlasAssetFenceState,
+      sourcePath: outfit.atlasAssetSourcePath,
+      sourceSha256: outfit.atlasAssetSourceSha256,
+      compensationError: outfit.atlasAssetCompensationError,
+      syncedAt: outfit.atlasAssetSyncedAt?.toISOString() ?? null,
     })));
 }
 
@@ -253,20 +276,35 @@ async function generateAndPersistReferenceSheet(
   req: Request,
   character: Character,
 ): Promise<Character> {
-  await db
-    .update(charactersTable)
-    .set({
+  const cleared = await db.transaction(async (tx) => {
+    const [lockedCharacter] = await tx.select().from(charactersTable).where(and(
+      eq(charactersTable.id, character.id),
+      eq(charactersTable.tenantId, req.tenantId),
+    )).for("update").limit(1);
+    if (!lockedCharacter) return false;
+    const lockedOutfits = await tx.select().from(characterOutfitsTable).where(and(
+      eq(characterOutfitsTable.characterId, character.id),
+      eq(characterOutfitsTable.tenantId, req.tenantId),
+    )).orderBy(asc(characterOutfitsTable.id)).for("update");
+    if (
+      hasBlockingAtlasWork(lockedCharacter) ||
+      lockedOutfits.some(hasBlockingAtlasWork)
+    ) return false;
+    await tx.update(charactersTable).set({
       referenceSheetImagePath: null,
       referenceSheetStatus: "pending",
+      referenceSheetApprovedSha256: null,
       referenceSheetError: null,
       updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(charactersTable.id, character.id),
-        eq(charactersTable.tenantId, req.tenantId),
-      ),
-    );
+    }).where(and(
+      eq(charactersTable.id, character.id),
+      eq(charactersTable.tenantId, req.tenantId),
+    ));
+    return true;
+  });
+  if (!cleared) {
+    throw new CharacterInputError("Atlas registration is active; reference-sheet edits are temporarily locked.");
+  }
 
   let funding: Funding | null = null;
   let successfulAiWork = false;
@@ -327,6 +365,7 @@ async function generateAndPersistReferenceSheet(
       .set({
         referenceSheetImagePath,
         referenceSheetStatus: "pending",
+        referenceSheetApprovedSha256: null,
         referenceSheetError: null,
         updatedAt: new Date(),
       })
@@ -519,10 +558,22 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       atlasAssetLibraryId: null,
       atlasAssetReferenceId: null,
       atlasAssetId: null,
+      atlasAssetStatus: null,
+      atlasAssetError: null,
+      atlasAssetSyncedAt: null,
+      atlasAssetClaimedAt: null,
+      atlasAssetLeaseOwner: null,
+      atlasAssetSubmitFencedAt: null,
+      atlasAssetFenceState: null,
+      atlasAssetCompensationError: null,
+      atlasAssetSourcePath: null,
+      atlasAssetSourceSha256: null,
       bytePlusIdentityId: null,
       referenceSource: "generated" as const,
+      creationEvidence: null,
       referenceSheetImagePath: null,
       referenceSheetStatus: "approved" as const,
+      referenceSheetApprovedSha256: null,
       referenceSheetError: null,
       protectedRegion,
       createdAt: resolved.preset.createdAt,
@@ -968,6 +1019,12 @@ router.post("/characters", async (req: Request, res: Response) => {
     return;
   }
 
+  const defaultOutfitApprovalSha256 = sourceImagePath
+    ? null
+    : createHash("sha256")
+        .update((await loadReferenceImage(referenceImagePath, req.tenantId)).buffer)
+        .digest("hex");
+
   // Re-check the cap atomically: lock the tenant row so parallel creates
   // serialize and cannot slip past the count check together.
   const created = await db.transaction(async (tx) => {
@@ -1004,6 +1061,7 @@ router.post("/characters", async (req: Request, res: Response) => {
           description: description || "as shown in the reference image",
           referenceImagePath,
           isDefault: true,
+          atlasApprovedSourceSha256: defaultOutfitApprovalSha256,
         })
         .returning()
     )[0]!;
@@ -1021,11 +1079,6 @@ router.post("/characters", async (req: Request, res: Response) => {
     created.character,
   );
   registerOutfitAssetInBackground({
-    tenantId: req.tenantId,
-    character: characterWithSheet,
-    outfit: created.defaultOutfit,
-  });
-  registerAtlasOutfitAssetInBackground({
     tenantId: req.tenantId,
     character: characterWithSheet,
     outfit: created.defaultOutfit,
@@ -1112,10 +1165,34 @@ router.post(
       res.status(409).json({ error: "Only a pending reference sheet can be approved." });
       return;
     }
-    const [updated] = await db
-      .update(charactersTable)
-      .set({
+    let approvedSha256: string | null = null;
+    if (decision === "approve") {
+      try {
+        approvedSha256 = createHash("sha256")
+          .update((await loadReferenceImage(character.referenceSheetImagePath, req.tenantId)).buffer)
+          .digest("hex");
+      } catch {
+        res.status(409).json({ error: "The reference sheet bytes could not be read for approval." });
+        return;
+      }
+    }
+    const updated = await db.transaction(async (tx) => {
+      const [lockedCharacter] = await tx.select().from(charactersTable).where(and(
+        eq(charactersTable.id, character.id),
+        eq(charactersTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!lockedCharacter) return undefined;
+      const lockedOutfits = await tx.select().from(characterOutfitsTable).where(and(
+        eq(characterOutfitsTable.characterId, character.id),
+        eq(characterOutfitsTable.tenantId, req.tenantId),
+      )).orderBy(asc(characterOutfitsTable.id)).for("update");
+      if (
+        hasBlockingAtlasWork(lockedCharacter) ||
+        lockedOutfits.some(hasBlockingAtlasWork)
+      ) return undefined;
+      const [row] = await tx.update(charactersTable).set({
         referenceSheetStatus: decision === "approve" ? "approved" : "rejected",
+        referenceSheetApprovedSha256: approvedSha256,
         referenceSheetError: null,
         updatedAt: new Date(),
       })
@@ -1123,9 +1200,19 @@ router.post(
         and(
           eq(charactersTable.id, character.id),
           eq(charactersTable.tenantId, req.tenantId),
+          eq(charactersTable.referenceSheetImagePath, character.referenceSheetImagePath!),
+          ...(decision === "approve"
+            ? [eq(charactersTable.referenceSheetStatus, "pending")]
+            : []),
         ),
       )
       .returning();
+      return row;
+    });
+    if (!updated) {
+      res.status(409).json({ error: "The reference sheet changed while it was being approved." });
+      return;
+    }
     const outfits = await db
       .select()
       .from(characterOutfitsTable)
@@ -1151,11 +1238,18 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
       eq(characterOutfitsTable.tenantId, req.tenantId),
     ));
   try {
-    await assertAtlasAssetsDeleted(atlasOutfits.map((outfit) => ({
-      libraryRecordId: outfit.atlasAssetLibraryId,
-      historicalId: outfit.atlasAssetId,
-      submitFencedAt: outfit.atlasAssetSubmitFencedAt,
-    })));
+    await assertAtlasAssetsDeleted([
+      {
+        libraryRecordId: character.atlasAssetLibraryId,
+        historicalId: character.atlasAssetId,
+        submitFencedAt: character.atlasAssetSubmitFencedAt,
+      },
+      ...atlasOutfits.map((outfit) => ({
+        libraryRecordId: outfit.atlasAssetLibraryId,
+        historicalId: outfit.atlasAssetId,
+        submitFencedAt: outfit.atlasAssetSubmitFencedAt,
+      })),
+    ]);
   } catch (error) {
     res.status(409).json({ error: error instanceof Error ? error.message : "Atlas asset deletion could not be verified." });
     return;
@@ -1163,7 +1257,7 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
   let deletedOutfits: Array<{ assetId: string | null }>;
   try {
     deletedOutfits = await db.transaction(async (tx) => {
-      const [lockedCharacter] = await tx.select({ id: charactersTable.id })
+      const [lockedCharacter] = await tx.select()
         .from(charactersTable)
         .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)))
         .for("update")
@@ -1173,9 +1267,20 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
         eq(characterOutfitsTable.characterId, character.id),
         eq(characterOutfitsTable.tenantId, req.tenantId),
       )).orderBy(asc(characterOutfitsTable.id)).for("update");
-      if (atlasDeletionSnapshot(lockedOutfits) !== atlasDeletionSnapshot(atlasOutfits)) {
+      if (
+        hasBlockingAtlasWork(lockedCharacter) ||
+        lockedOutfits.some(hasBlockingAtlasWork)
+      ) {
         throw new AtlasDeletionRaceError(
-          "Atlas registration or outfit state changed during deletion validation. Retry after registration is reconciled.",
+          "Atlas registration or an outcome-unknown submission is active; deletion is blocked.",
+        );
+      }
+       if (
+         atlasDeletionSnapshot([lockedCharacter]) !== atlasDeletionSnapshot([character]) ||
+         atlasDeletionSnapshot(lockedOutfits) !== atlasDeletionSnapshot(atlasOutfits)
+       ) {
+        throw new AtlasDeletionRaceError(
+           "Atlas parent registration or outfit state changed during deletion validation. Retry after registration is reconciled.",
         );
       }
       const deleted = await tx.delete(characterOutfitsTable).where(and(
@@ -1353,20 +1458,34 @@ router.patch("/characters/:characterId", async (req: Request, res: Response) => 
       return;
     }
   }
-  const [updated] = await db
-    .update(charactersTable)
-    .set({
+  const updated = await db.transaction(async (tx) => {
+    const [lockedCharacter] = await tx.select().from(charactersTable).where(and(
+      eq(charactersTable.id, character.id),
+      eq(charactersTable.tenantId, req.tenantId),
+    )).for("update").limit(1);
+    if (!lockedCharacter) return undefined;
+    const lockedOutfits = await tx.select().from(characterOutfitsTable).where(and(
+      eq(characterOutfitsTable.characterId, character.id),
+      eq(characterOutfitsTable.tenantId, req.tenantId),
+    )).orderBy(asc(characterOutfitsTable.id)).for("update");
+    if (
+      hasBlockingAtlasWork(lockedCharacter) ||
+      lockedOutfits.some(hasBlockingAtlasWork)
+    ) return undefined;
+    const [row] = await tx.update(charactersTable).set({
       ...(region ? { protectedRegion: region } : {}),
       ...(identityId !== undefined ? { bytePlusIdentityId: identityId } : {}),
       updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(charactersTable.id, character.id),
-        eq(charactersTable.tenantId, req.tenantId),
-      ),
-    )
-    .returning();
+    }).where(and(
+      eq(charactersTable.id, character.id),
+      eq(charactersTable.tenantId, req.tenantId),
+    )).returning();
+    return row;
+  });
+  if (!updated) {
+    res.status(409).json({ error: "Atlas registration is active; character edits are temporarily locked." });
+    return;
+  }
   const outfits = await db
     .select()
     .from(characterOutfitsTable)
@@ -1385,7 +1504,7 @@ router.patch("/characters/:characterId", async (req: Request, res: Response) => 
       });
     }
   }
-  res.json(serializeCharacter(updated!, outfits));
+  res.json(serializeCharacter(updated, outfits));
 });
 
 /** Add a costume: an identity-preserving edit of the character's reference. */
@@ -1502,7 +1621,7 @@ router.post(
       // deletion already owns/removed the parent, this insert waits and then
       // observes no tenant-owned character; it must never create an orphan.
       const createdOutfit = await db.transaction(async (tx) => {
-        const [lockedCharacter] = await tx.select({ id: charactersTable.id })
+        const [lockedCharacter] = await tx.select()
           .from(charactersTable)
           .where(and(
             eq(charactersTable.id, character.id),
@@ -1619,23 +1738,52 @@ router.patch(
       res.status(400).json({ error: "A rejected preview cannot be approved." });
       return;
     }
-    const [updated] = await db
-      .update(characterOutfitsTable)
-      .set({
+    let approvedSha256: string | null | undefined;
+    if (parsed.data.status === "approved") {
+      try {
+        approvedSha256 = createHash("sha256")
+          .update((await loadReferenceImage(outfit.referenceImagePath, req.tenantId)).buffer)
+          .digest("hex");
+      } catch {
+        res.status(409).json({ error: "The outfit bytes could not be read for approval." });
+        return;
+      }
+    } else if (parsed.data.status) {
+      approvedSha256 = null;
+    }
+    const updated = await db.transaction(async (tx) => {
+      const [lockedCharacter] = await tx.select().from(charactersTable).where(and(
+        eq(charactersTable.id, character.id),
+        eq(charactersTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!lockedCharacter || hasBlockingAtlasWork(lockedCharacter)) return undefined;
+      const [lockedOutfit] = await tx.select().from(characterOutfitsTable).where(and(
+        eq(characterOutfitsTable.id, outfit.id),
+        eq(characterOutfitsTable.characterId, character.id),
+        eq(characterOutfitsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!lockedOutfit || hasBlockingAtlasWork(lockedOutfit)) return undefined;
+      const [row] = await tx.update(characterOutfitsTable).set({
         ...(parsed.data.name ? { name: parsed.data.name.trim() } : {}),
         ...(parsed.data.status ? { status: parsed.data.status } : {}),
+        ...(approvedSha256 !== undefined ? { atlasApprovedSourceSha256: approvedSha256 } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(characterOutfitsTable.id, outfit.id))
+      .where(and(
+        eq(characterOutfitsTable.id, outfit.id),
+        eq(characterOutfitsTable.tenantId, req.tenantId),
+        eq(characterOutfitsTable.characterId, character.id),
+        eq(characterOutfitsTable.referenceImagePath, outfit.referenceImagePath),
+        ...(parsed.data.status ? [eq(characterOutfitsTable.status, outfit.status)] : []),
+      ))
       .returning();
-    if (updated?.status === "approved") {
-      registerAtlasOutfitAssetInBackground({
-        tenantId: req.tenantId,
-        character,
-        outfit: updated,
-      });
+      return row;
+    });
+    if (!updated) {
+      res.status(409).json({ error: "The outfit changed while it was being approved." });
+      return;
     }
-    res.json(serializeOutfit(updated!));
+    res.json(serializeOutfit(updated));
   },
 );
 
@@ -1686,7 +1834,7 @@ router.delete(
     let deleted: { assetId: string | null } | undefined;
     try {
       deleted = await db.transaction(async (tx) => {
-        const [lockedCharacter] = await tx.select({ id: charactersTable.id })
+        const [lockedCharacter] = await tx.select()
           .from(charactersTable)
           .where(and(
             eq(charactersTable.id, character.id),
@@ -1700,6 +1848,14 @@ router.delete(
           eq(characterOutfitsTable.characterId, character.id),
           eq(characterOutfitsTable.tenantId, req.tenantId),
         )).for("update").limit(1);
+        if (
+          hasBlockingAtlasWork(lockedCharacter) ||
+          (lockedOutfit && hasBlockingAtlasWork(lockedOutfit))
+        ) {
+          throw new AtlasDeletionRaceError(
+            "Atlas registration or an outcome-unknown submission is active; deletion is blocked.",
+          );
+        }
         if (
           !lockedOutfit ||
           atlasDeletionSnapshot([lockedOutfit]) !== atlasDeletionSnapshot([outfit])

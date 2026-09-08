@@ -94,6 +94,7 @@ async function call(path: string, init: RequestInit, apiKey: string): Promise<un
       response.status,
     );
   }
+  if (response.status === 204 && !text) return {};
   let envelope: AtlasEnvelope;
   try {
     envelope = JSON.parse(text) as AtlasEnvelope;
@@ -161,6 +162,17 @@ export async function getAtlasAsset(
     };
   }
   return { ...ids, status: "Processing", error: null };
+}
+
+/** Delete a known numeric Asset Library record (used only for race compensation). */
+export async function deleteAtlasAsset(
+  libraryRecordId: number,
+  apiKey: string,
+): Promise<void> {
+  if (!safeRecordId(libraryRecordId)) {
+    throw new AtlasAssetsError("Atlas Cloud asset deletion requires a numeric record id.", 400);
+  }
+  await call(`/${libraryRecordId}`, { method: "DELETE" }, apiKey);
 }
 
 export async function waitForAtlasAsset(

@@ -620,18 +620,37 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
           if (member.referenceSource !== "generated" || !requiresAtlas) {
             throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a non-fictional, uploaded, or legacy cast reference and cannot use Atlas Cloud.`);
           }
-          if (!member.characterId || !member.outfitId) {
+          const frozenOutfitReferenceId = isAtlasGenerationReferenceId(member.atlasAssetReferenceId)
+            ? member.atlasAssetReferenceId
+            : isAtlasGenerationReferenceId(member.atlasAssetId)
+              ? member.atlasAssetId
+              : null;
+          if (
+            !member.characterId ||
+            !member.outfitId ||
+            !member.atlasCharacterLibraryId ||
+            !member.atlasCharacterReferenceId ||
+            !member.atlasOutfitLibraryId ||
+            !member.atlasApprovedReferenceSheetPath ||
+            !member.atlasApprovedReferenceSheetSha256 ||
+            !member.outfitReferenceImagePath ||
+            !member.outfitReferenceSha256 ||
+            !frozenOutfitReferenceId
+          ) {
             throw new VideoGenProviderError(`Guided Story scene ${i + 1} has no tenant-owned Atlas Cloud mapping for an approved cast member.`);
           }
           const refs = await atlasAssetRefsForOutfit({
             tenantId: params.job.tenantId,
             characterId: member.characterId,
             outfitId: member.outfitId,
-            expectedAssetId: isAtlasGenerationReferenceId(member.atlasAssetReferenceId)
-              ? member.atlasAssetReferenceId
-              : isAtlasGenerationReferenceId(member.atlasAssetId)
-                ? member.atlasAssetId
-                : null,
+            expectedCharacterLibraryId: member.atlasCharacterLibraryId,
+            expectedCharacterReferenceId: member.atlasCharacterReferenceId,
+            expectedReferenceSheetPath: member.atlasApprovedReferenceSheetPath,
+            expectedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256,
+            expectedOutfitLibraryId: member.atlasOutfitLibraryId,
+            expectedOutfitAssetId: frozenOutfitReferenceId,
+            expectedOutfitPath: member.outfitReferenceImagePath,
+            expectedOutfitSha256: member.outfitReferenceSha256,
           });
           if (!refs.length) {
             throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a participating cast member without an active Atlas Cloud asset mapping.`);

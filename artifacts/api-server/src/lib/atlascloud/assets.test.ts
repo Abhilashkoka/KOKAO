@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAtlasAsset, getAtlasAsset, listAtlasAssets } from "./assets";
+import { createAtlasAsset, deleteAtlasAsset, getAtlasAsset, listAtlasAssets } from "./assets";
 import { atlasRegistrationSourceError } from "../characterAssets";
 
 describe("Atlas Cloud fictional-character assets", () => {
@@ -71,6 +71,21 @@ describe("Atlas Cloud fictional-character assets", () => {
       generationReferenceId: "asset-2026-fictional-1",
       status: "Active",
     }]);
+  });
+
+  it("compensates only by numeric library id and never sends an ambiguous id", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      code: 200,
+      data: {},
+    })));
+    vi.stubGlobal("fetch", fetch);
+    await expect(deleteAtlasAsset(2094547, "secret")).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith(
+      "https://console.atlascloud.ai/api/v1/sd/assets/2094547",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    await expect(deleteAtlasAsset(Number.NaN, "secret")).rejects.toThrow(/numeric record id/);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("preserves application-code errors instead of relabeling them as JSON errors", async () => {

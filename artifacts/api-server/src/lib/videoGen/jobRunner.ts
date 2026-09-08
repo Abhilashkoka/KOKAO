@@ -182,6 +182,7 @@ import {
 } from "./presenterBroll";
 import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBrief";
 import { videoPriceCriteria } from "./pricing";
+import { atlasAssetRefsForOutfit } from "../characterAssets";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -3905,6 +3906,65 @@ async function produceVideo(
         seed: options.seed ?? null,
         modelOptions: model,
         guidedStory: options.guidedStory ?? null,
+        resolveGuidedAtlasAssetIds:
+          options.resolvedVideoModel?.provider === "atlascloud" && options.guidedStory
+            ? async (sceneIndex) => {
+                const scene = board.scenes[sceneIndex];
+                const guidedScene = scene?.guidedStory;
+                const scriptScene = guidedScene
+                  ? options.guidedStory!.script.scenes.find(
+                    (candidate) => candidate.id === guidedScene.scriptSceneId,
+                  )
+                  : null;
+                const roleId = scriptScene?.lines.find(
+                  (line) => line.kind === "dialogue" && line.ownerRoleId,
+                )?.ownerRoleId ?? scriptScene?.roleIds[0] ?? null;
+                const member = roleId
+                  ? options.guidedStory!.cast.find((candidate) => candidate.roleId === roleId)
+                  : null;
+                const approval = roleId
+                  ? options.guidedStory!.castApprovals?.roles[roleId]
+                  : null;
+                if (
+                  !member ||
+                  !approval ||
+                  member.characterId == null ||
+                  member.outfitId == null ||
+                  member.referenceSource !== "generated" ||
+                  member.requiresAtlasAsset !== true ||
+                  !member.atlasCharacterLibraryId ||
+                  !member.atlasCharacterReferenceId ||
+                  !member.atlasOutfitLibraryId ||
+                  !member.atlasApprovedReferenceSheetPath ||
+                  !member.atlasApprovedReferenceSheetSha256 ||
+                  !member.atlasAssetReferenceId ||
+                  !member.outfit?.referenceImagePath
+                ) {
+                  throw new VideoJobInputError(
+                    `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas outfit asset.`,
+                  );
+                }
+                const refs = await atlasAssetRefsForOutfit({
+                  tenantId: job.tenantId,
+                  characterId: member.characterId,
+                  outfitId: member.outfitId,
+                  expectedCharacterLibraryId: member.atlasCharacterLibraryId,
+                  expectedCharacterReferenceId: member.atlasCharacterReferenceId,
+                  expectedReferenceSheetPath: member.atlasApprovedReferenceSheetPath,
+                  expectedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256,
+                  expectedOutfitLibraryId: member.atlasOutfitLibraryId,
+                  expectedOutfitAssetId: member.atlasAssetReferenceId,
+                  expectedOutfitPath: member.outfit.referenceImagePath,
+                  expectedOutfitSha256: approval.outfit.sha256,
+                });
+                if (refs.length !== 1) {
+                  throw new VideoJobInputError(
+                    `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s frozen Atlas asset is no longer active or was replaced. No video provider call was made.`,
+                  );
+                }
+                return refs;
+              }
+            : undefined,
         directNativeAudio: directGuidedNativeAudio,
         load: async (objectPath) =>
           (

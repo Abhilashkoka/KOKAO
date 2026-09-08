@@ -522,6 +522,8 @@ export async function animateSceneKeyframes(params: {
   scenePrompts?: readonly string[];
   /** Seedance generates the dialogue audio in the same provider call. */
   nativeAudio?: boolean;
+  /** Resolved immediately before the paid scene call. */
+  resolveAssetIds?: (sceneIndex: number) => Promise<string[]>;
 }): Promise<CharacterSceneClips> {
   let provider = "";
   let model = "";
@@ -549,6 +551,7 @@ export async function animateSceneKeyframes(params: {
     const scene = params.scenes[i]!;
     const durationSec = clipDurationForScene(scene.durationSec);
     const attempt = async (): Promise<Buffer> => {
+      const assetIds = await params.resolveAssetIds?.(i) ?? [];
       const clip = await generateVideo({
         mode: "image",
         prompt:
@@ -560,7 +563,7 @@ export async function animateSceneKeyframes(params: {
           }),
         aspectRatio: params.aspectRatio,
         seed: params.seed ?? null,
-        image: { buffer: keyframe, mimeType: "image/png" },
+        ...(assetIds.length ? { assetIds } : { image: { buffer: keyframe, mimeType: "image/png" } }),
         ...(params.modelOptions ?? {}),
         ...(params.nativeAudio ? { generateAudio: true } : {}),
         // Scene lengths come from the narration timing; the audio is already
@@ -659,5 +662,6 @@ export async function generateCharacterSceneClips(params: {
     lipSync: params.lipSync ?? null,
     scenePrompts: params.scenePrompts,
     nativeAudio: params.nativeAudio,
+    resolveAssetIds: undefined,
   });
 }

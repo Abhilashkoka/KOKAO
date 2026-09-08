@@ -1,4 +1,4 @@
-import { db, videoGenerationsTable } from "@workspace/db";
+import { db, guidedStoryDraftsTable, videoGenerationsTable } from "@workspace/db";
 import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { refundCredits } from "../credits";
 import {
@@ -39,6 +39,8 @@ export const VIDEO_JOB_SWEEP_INITIAL_DELAY_MS = 30 * 1000;
  */
 export const VIDEO_JOB_STUCK_TIMEOUT_MS = 40 * 60 * 1000;
 export const FRESH_RESTART_CREATING_TIMEOUT_MS = 10 * 60 * 1000;
+/** Legacy rows without a lease get the same conservative registration window. */
+export const GUIDED_STORY_CREATING_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 /** Error stamped on video jobs orphaned by a restart. */
 export const VIDEO_JOB_INTERRUPTED_ERROR =
@@ -47,6 +49,14 @@ export const VIDEO_JOB_INTERRUPTED_ERROR =
 /** Error stamped on storyboards that were never approved. */
 export const STORYBOARD_EXPIRED_ERROR =
   "This storyboard expired before it was approved. Nothing was charged — start a new video when you are ready.";
+
+export function guidedStoryCreatingInterruptedError(jobId: number): string {
+  return `Job #${jobId} was interrupted before funding could be queued. Nothing was charged; give fresh consent and create a new approved attempt.`;
+}
+
+export function retryCreatingInterruptedError(jobId: number): string {
+  return `Job #${jobId} retry was interrupted before it could be queued. Any attached funding is being returned; create a new retry attempt.`;
+}
 
 async function refundRow(
   row: {
@@ -209,9 +219,172 @@ export async function sweepStrandedFreshRestartCreations(): Promise<number> {
   return removed;
 }
 
+/**
+ * Terminalize numbered Atlas Guided attempts abandoned before their atomic
+ * funding transition. The same transaction releases the draft binding, while
+ * the job row remains as the immutable audit record and registration fence.
+ */
+export async function sweepStrandedGuidedStoryCreations(): Promise<number> {
+  try {
+    const cutoff = new Date(Date.now() - GUIDED_STORY_CREATING_TIMEOUT_MS);
+    const candidates = await db.select().from(videoGenerationsTable).where(and(
+      eq(videoGenerationsTable.status, "creating"),
+      eq(videoGenerationsTable.provider, "atlascloud"),
+      sql`${videoGenerationsTable.options}->'guidedStory' IS NOT NULL`,
+      sql`(
+        (
+          ${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt' is not null
+          and (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt')::timestamptz < now()
+        )
+        or (
+          ${videoGenerationsTable.options}->'guidedCreatingLease' is null
+          and ${videoGenerationsTable.updatedAt} < ${cutoff}
+        )
+      )`,
+    ));
+    let settled = 0;
+    for (const candidate of candidates) {
+      const failed = await db.transaction(async (tx) => {
+        const lease = candidate.options?.guidedCreatingLease;
+        const [row] = await tx.update(videoGenerationsTable).set({
+          status: "failed",
+          error: guidedStoryCreatingInterruptedError(candidate.id),
+          stage: null,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(videoGenerationsTable.id, candidate.id),
+          eq(videoGenerationsTable.status, "creating"),
+          lease
+            ? sql`
+                (${videoGenerationsTable.options}->'guidedCreatingLease'->>'owner') = ${lease.owner}
+                and (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt') = ${lease.expiresAt}
+                and (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt')::timestamptz < now()
+              `
+            : and(
+                sql`${videoGenerationsTable.options}->'guidedCreatingLease' is null`,
+                lt(videoGenerationsTable.updatedAt, cutoff),
+              ),
+        )).returning(SETTLE_COLUMNS);
+        const draftId = candidate.options?.guidedStory?.draftId;
+        if (!row || draftId == null) return row ?? null;
+        const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+          eq(guidedStoryDraftsTable.id, draftId),
+          eq(guidedStoryDraftsTable.tenantId, candidate.tenantId),
+        )).for("update").limit(1);
+        if (draft?.state.storyboardJobId === candidate.id) {
+          await tx.update(guidedStoryDraftsTable).set({
+            state: {
+              ...draft.state,
+              cast: draft.state.cast.map((member) => ({
+                ...member,
+                consentGranted: false,
+              })),
+              storyboardJobId: null,
+            },
+            updatedAt: new Date(),
+          }).where(and(
+            eq(guidedStoryDraftsTable.id, draft.id),
+            eq(guidedStoryDraftsTable.revision, draft.revision),
+            sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = ${String(candidate.id)}`,
+          ));
+        }
+        return row;
+      });
+      if (!failed) continue;
+      // Current code cannot commit funding while retaining creating. This also
+      // safely resolves any historical partially-funded row exactly once.
+      await refundRow(failed, "guided story creation interrupted");
+      settled += 1;
+    }
+    return settled;
+  } catch (err) {
+    logger.error({ err }, "Guided Story creation sweep failed");
+    return 0;
+  }
+}
+
+/** Recover every retry child abandoned in creating, including non-Atlas work. */
+export async function sweepStrandedRetryCreations(): Promise<number> {
+  try {
+    const cutoff = new Date(Date.now() - GUIDED_STORY_CREATING_TIMEOUT_MS);
+    const candidates = await db.select().from(videoGenerationsTable).where(and(
+      eq(videoGenerationsTable.status, "creating"),
+      sql`${videoGenerationsTable.options}->'recovery' IS NOT NULL`,
+      sql`(
+        (
+          ${videoGenerationsTable.options}->'recovery'->'creatingLease'->>'expiresAt' is not null
+          and (${videoGenerationsTable.options}->'recovery'->'creatingLease'->>'expiresAt')::timestamptz < now()
+        )
+        or (
+          ${videoGenerationsTable.options}->'recovery'->'creatingLease' is null
+          and ${videoGenerationsTable.updatedAt} < ${cutoff}
+        )
+      )`,
+    ));
+    let settled = 0;
+    for (const candidate of candidates) {
+      const lease = candidate.options?.recovery?.creatingLease;
+      const failed = await db.transaction(async (tx) => {
+        const [row] = await tx.update(videoGenerationsTable).set({
+          status: "failed",
+          error: retryCreatingInterruptedError(candidate.id),
+          stage: null,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(videoGenerationsTable.id, candidate.id),
+          eq(videoGenerationsTable.status, "creating"),
+          lease
+            ? sql`
+                (${videoGenerationsTable.options}->'recovery'->'creatingLease'->>'owner') = ${lease.owner}
+                and (${videoGenerationsTable.options}->'recovery'->'creatingLease'->>'expiresAt') = ${lease.expiresAt}
+                and (${videoGenerationsTable.options}->'recovery'->'creatingLease'->>'expiresAt')::timestamptz < now()
+              `
+            : and(
+                sql`${videoGenerationsTable.options}->'recovery'->'creatingLease' is null`,
+                lt(videoGenerationsTable.updatedAt, cutoff),
+              ),
+        )).returning(SETTLE_COLUMNS);
+        const draftId = candidate.options?.guidedStory?.draftId;
+        if (!row || draftId == null) return row ?? null;
+        const [draft] = await tx.select().from(guidedStoryDraftsTable).where(and(
+          eq(guidedStoryDraftsTable.id, draftId),
+          eq(guidedStoryDraftsTable.tenantId, candidate.tenantId),
+        )).for("update").limit(1);
+        if (draft?.state.storyboardJobId === candidate.id) {
+          await tx.update(guidedStoryDraftsTable).set({
+            state: { ...draft.state, storyboardJobId: null },
+            updatedAt: new Date(),
+          }).where(and(
+            eq(guidedStoryDraftsTable.id, draft.id),
+            eq(guidedStoryDraftsTable.revision, draft.revision),
+            sql`${guidedStoryDraftsTable.state}->>'storyboardJobId' = ${String(candidate.id)}`,
+          ));
+        }
+        return row;
+      });
+      if (!failed) continue;
+      await refundRow(failed, "retry creation interrupted");
+      await db.update(videoGenerationsTable).set({
+        options: sql`jsonb_set(${videoGenerationsTable.options}, '{recovery,fundingReleasedAt}', ${JSON.stringify(new Date().toISOString())}::jsonb)`,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(videoGenerationsTable.id, failed.id),
+        eq(videoGenerationsTable.status, "failed"),
+      ));
+      settled += 1;
+    }
+    return settled;
+  } catch (err) {
+    logger.error({ err }, "Retry creation sweep failed");
+    return 0;
+  }
+}
+
 async function sweepOnce(): Promise<void> {
   await resumeQueuedFreshRestartJobs();
   await sweepStrandedFreshRestartCreations();
+  await sweepStrandedRetryCreations();
+  await sweepStrandedGuidedStoryCreations();
   await sweepExpiredStoryboards();
   await sweepStuckVideoJobs();
 }

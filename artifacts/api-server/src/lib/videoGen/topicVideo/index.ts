@@ -1618,6 +1618,8 @@ export async function renderTopicStoryboard(params: {
     sceneIndex: number;
     error: OpenRouterInputImagePrivacyError;
   }) => Promise<Buffer>;
+  /** Fail-closed Atlas asset resolver, called directly before each scene POST. */
+  resolveGuidedAtlasAssetIds?: (sceneIndex: number) => Promise<string[]>;
 }): Promise<TopicVideoResult> {
   const startedAt = Date.now();
   const board = params.storyboard;
@@ -1635,6 +1637,15 @@ export async function renderTopicStoryboard(params: {
   const narration = board.narration;
   if (!narration && !params.directNativeAudio) {
     throw new VideoGenProviderError("This storyboard has no narration to cut against.");
+  }
+  if (
+    params.guidedStory &&
+    params.modelOptions?.resolvedVideoModel?.provider === "atlascloud" &&
+    !params.resolveGuidedAtlasAssetIds
+  ) {
+    throw new VideoGenProviderError(
+      "Atlas Guided Story rendering requires a frozen, revalidated asset resolver; raw reference images are not submitted.",
+    );
   }
 
   params.onStage?.("Loading your storyboard");
@@ -1746,6 +1757,7 @@ export async function renderTopicStoryboard(params: {
       modelOptions: params.modelOptions,
       scenePrompts: seedancePrompts?.map((prompt, index) => prompt ?? board.scenes[index]!.visual),
       nativeAudio: params.guidedStory ? nativeAudio : undefined,
+      resolveAssetIds: params.resolveGuidedAtlasAssetIds,
       savedClips,
       onCheckpoint: params.onCheckpoint,
       lipSync: nativeAudio || !params.characterLipSync ? null : { wav: narrationWav },
@@ -1774,6 +1786,7 @@ export async function renderTopicStoryboard(params: {
       ),
       onCheckpoint: params.onCheckpoint,
       onPrivacyImageRejected: params.onPrivacyImageRejected,
+      resolveAssetIds: params.resolveGuidedAtlasAssetIds,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;

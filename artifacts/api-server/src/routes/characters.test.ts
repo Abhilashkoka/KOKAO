@@ -1353,6 +1353,73 @@ describe("list + delete", () => {
       .where(eq(characterOutfitsTable.characterId, created.body.id))).toHaveLength(0);
   });
 
+  it("deletes locally after affirmative absence of a successfully compensated Atlas record", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Compensated deletion",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/compensated.png`,
+    });
+    const outfit = created.body.outfits[0];
+    const recordId = 2_250_000 + outfit.id;
+    await db.update(characterOutfitsTable).set({
+      atlasAssetLibraryId: recordId,
+      atlasAssetStatus: "Failed",
+      atlasAssetFenceState: "compensated",
+      atlasAssetSubmitFencedAt: new Date(),
+      atlasAssetSourcePath: outfit.referenceImagePath,
+      atlasAssetSourceSha256: "approved-compensated-source",
+    }).where(eq(characterOutfitsTable.id, outfit.id));
+    atlasState.outcomes.set(
+      recordId,
+      Object.assign(new Error("not found"), { status: 404 }),
+    );
+    const response = await request(app).delete(`/api/characters/${created.body.id}`);
+    expect(response.status).toBe(204);
+    expect(atlasState.getCalls).toContain(recordId);
+    expect(await db.select().from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id))).toHaveLength(0);
+  });
+
+  it("keeps compensated parent and outfit cleanup recoverable across GET ambiguity, then deletes after 404", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Compensated ambiguity deletion",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/compensated-ambiguous.png`,
+    });
+    const outfit = created.body.outfits[0];
+    const parentRecordId = 2_270_000 + created.body.id;
+    const outfitRecordId = 2_280_000 + outfit.id;
+    await db.update(charactersTable).set({
+      atlasAssetLibraryId: parentRecordId,
+      atlasAssetStatus: "Failed",
+      atlasAssetFenceState: "compensated",
+      atlasAssetSubmitFencedAt: new Date(),
+      atlasAssetSourcePath: `/objects/${tenant.tenantId}/uploads/parent-sheet`,
+      atlasAssetSourceSha256: "parent-compensated-source",
+    }).where(eq(charactersTable.id, created.body.id));
+    await db.update(characterOutfitsTable).set({
+      atlasAssetLibraryId: outfitRecordId,
+      atlasAssetStatus: "Failed",
+      atlasAssetFenceState: "compensated",
+      atlasAssetSubmitFencedAt: new Date(),
+      atlasAssetSourcePath: outfit.referenceImagePath,
+      atlasAssetSourceSha256: "outfit-compensated-source",
+    }).where(eq(characterOutfitsTable.id, outfit.id));
+    atlasState.outcomes.set(parentRecordId, Object.assign(new Error("temporary"), { status: 503 }));
+    atlasState.outcomes.set(outfitRecordId, Object.assign(new Error("temporary"), { status: 503 }));
+    const ambiguous = await request(app).delete(`/api/characters/${created.body.id}`);
+    expect(ambiguous.status).toBe(409);
+    expect(await db.select().from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id))).toHaveLength(1);
+    atlasState.outcomes.set(parentRecordId, Object.assign(new Error("not found"), { status: 404 }));
+    atlasState.outcomes.set(outfitRecordId, Object.assign(new Error("not found"), { status: 404 }));
+    const absent = await request(app).delete(`/api/characters/${created.body.id}`);
+    expect(absent.status).toBe(204);
+    expect(new Set(atlasState.getCalls)).toEqual(new Set([parentRecordId, outfitRecordId]));
+    expect(await db.select().from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id))).toHaveLength(0);
+  });
+
   it("blocks deletion of a fenced Atlas submission without a durable numeric record id", async () => {
     const tenant = await newTenant();
     const created = await request(app).post("/api/characters").send({
@@ -1400,6 +1467,42 @@ describe("list + delete", () => {
     release(Object.assign(new Error("not found"), { status: 404 }));
     const response = await deleting;
     expect(response.status).toBe(409);
+    expect(await db.select().from(charactersTable)
+      .where(eq(charactersTable.id, created.body.id))).toHaveLength(1);
+  });
+
+  it("aborts local deletion when the parent registration completes during upstream absence checks", async () => {
+    const tenant = await newTenant();
+    const created = await request(app).post("/api/characters").send({
+      name: "Parent completion race",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/parent-race.png`,
+    });
+    const outfit = created.body.outfits[0];
+    const outfitRecordId = 2_350_000 + outfit.id;
+    await db.update(characterOutfitsTable).set({
+      atlasAssetLibraryId: outfitRecordId,
+      atlasAssetReferenceId: "asset-parent-race-outfit",
+      atlasAssetId: "asset-parent-race-outfit",
+      atlasAssetStatus: "Active",
+    }).where(eq(characterOutfitsTable.id, outfit.id));
+    let release!: (value: Error) => void;
+    atlasState.outcomes.set(outfitRecordId, new Promise((resolve) => { release = resolve; }));
+    const deleting = request(app).delete(`/api/characters/${created.body.id}`)
+      .then((response) => response);
+    while (!atlasState.getCalls.includes(outfitRecordId)) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await db.update(charactersTable).set({
+      atlasAssetLibraryId: 2_360_000 + created.body.id,
+      atlasAssetReferenceId: "asset-parent-completed",
+      atlasAssetId: "asset-parent-completed",
+      atlasAssetStatus: "Active",
+      atlasAssetFenceState: "resolved",
+    }).where(eq(charactersTable.id, created.body.id));
+    release(Object.assign(new Error("not found"), { status: 404 }));
+    const response = await deleting;
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/parent registration/i);
     expect(await db.select().from(charactersTable)
       .where(eq(charactersTable.id, created.body.id))).toHaveLength(1);
   });
