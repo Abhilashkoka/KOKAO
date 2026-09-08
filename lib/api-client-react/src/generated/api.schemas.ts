@@ -10106,6 +10106,13 @@ export interface AiCostConfigView {
      * @nullable
      */
   rateAutoUpdatedAt: string | null;
+  /** Normal interval in hours between automatic BytePlus Seedance pricing checks. */
+  seedancePricingRefreshIntervalHours: number;
+  /**
+     * Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.
+     * @nullable
+     */
+  seedancePricingNextCheckAt: string | null;
   /**
      * Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.
      * @nullable

@@ -3745,8 +3745,9 @@ export function AiCostCard() {
                     data-testid="text-byteplus-price-source"
                   >
                     <p>
-                      BytePlus Seedance: {rows.length}/3 resolution rates loaded. Last successful
-                      source check{" "}
+                      BytePlus Seedance pricing refreshes automatically every{" "}
+                      {config.seedancePricingRefreshIntervalHours} hours. {rows.length}/3 resolution
+                      rates loaded. Last successful source check{" "}
                       {sourceRow.sourceCheckedAt
                         ? new Date(sourceRow.sourceCheckedAt).toLocaleString()
                         : "not recorded"}
@@ -3764,6 +3765,13 @@ export function AiCostCard() {
                           </a>
                         </>
                       )}
+                    </p>
+                    <p className="mt-1" data-testid="text-byteplus-next-price-check">
+                      {config.seedancePricingNextCheckAt
+                        ? `Next automatic check expected around ${new Date(
+                            config.seedancePricingNextCheckAt,
+                          ).toLocaleString()}.`
+                        : "The first automatic check will run shortly after the API service starts."}
                     </p>
                     {promotionRow?.promotionExpiresAt && (
                       <p className="mt-1 font-medium" data-testid="text-byteplus-promotion-expiry">

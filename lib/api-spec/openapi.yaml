@@ -23418,7 +23418,7 @@ components:
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.
-      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, elevenLabsInrPerCredit, duplicateGroups, prices]
+      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, elevenLabsInrPerCredit, seedancePricingRefreshIntervalHours, seedancePricingNextCheckAt, duplicateGroups, prices]
       properties:
         usdToInrPaise:
           type: integer
@@ -23433,6 +23433,13 @@ components:
           type: ["string", "null"]
           format: date-time
           description: When the rate was last auto-refreshed successfully; null = never.
+        seedancePricingRefreshIntervalHours:
+          type: number
+          description: Normal interval in hours between automatic BytePlus Seedance pricing checks.
+        seedancePricingNextCheckAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.
         elevenLabsInrPerCredit:
           type: ["string", "null"]
           description: Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.

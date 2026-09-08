@@ -67,6 +67,8 @@ function baseConfig(prices: AiModelPriceView[]): AiCostConfigView {
     marketRatePaise: null,
     rateAutoUpdatedAt: null,
     elevenLabsInrPerCredit: null,
+    seedancePricingRefreshIntervalHours: 24,
+    seedancePricingNextCheckAt: null,
     duplicateGroups: 0,
     prices,
   };
@@ -152,6 +154,33 @@ beforeEach(() => {
   mockState.imageGenSettings = undefined;
   mockState.videoGenSettings = undefined;
   mockRoute.search = "";
+});
+
+it("shows the automatic Seedance refresh interval and next expected check", () => {
+  mockState.config = {
+    ...baseConfig([
+      price({
+        id: 101,
+        kind: "video",
+        provider: "byteplus",
+        model: "dreamina-seedance-2-5-260628",
+        variantKey: "resolution=480p",
+        variant: { resolution: "480p" },
+        usdPerSecond: 0.1,
+        sourceCheckedAt: "2026-09-08T04:00:00.000Z",
+      }),
+    ]),
+    seedancePricingNextCheckAt: "2026-09-09T04:00:00.000Z",
+  };
+
+  renderCard();
+
+  expect(screen.getByTestId("text-byteplus-price-source").textContent).toContain(
+    "BytePlus Seedance pricing refreshes automatically every 24 hours",
+  );
+  expect(screen.getByTestId("text-byteplus-next-price-check").textContent).toContain(
+    "Next automatic check expected around",
+  );
 });
 
 /**

@@ -6166,6 +6166,8 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6207,6 +6209,8 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6248,6 +6252,8 @@ export const AdminUpdateAiCostMarkupResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6280,6 +6286,8 @@ export const AdminRefreshAiCostRateResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6312,6 +6320,8 @@ export const AdminRefreshBytePlusSeedancePricingResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6372,6 +6382,8 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6479,6 +6491,8 @@ export const AdminConfirmAiModelPriceImportResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6513,6 +6527,8 @@ export const AdminDedupeAiModelPricesResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6550,6 +6566,8 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
@@ -6687,6 +6705,8 @@ export const AdminUpdateElevenLabsCreditRateResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "seedancePricingRefreshIntervalHours": zod.number().describe('Normal interval in hours between automatic BytePlus Seedance pricing checks.'),
+  "seedancePricingNextCheckAt": zod.coerce.date().nullable().describe('Approximate next automatic BytePlus Seedance pricing check, based on the last successful source check and normal interval.'),
   "elevenLabsInrPerCredit": zod.string().nullable().describe('Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.'),
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({

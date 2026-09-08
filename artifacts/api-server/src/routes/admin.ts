@@ -48,6 +48,7 @@ import {
   BYTEPLUS_SEEDANCE_25_PRICING_URL,
   type BytePlusSeedancePricing,
 } from "../lib/byteplusPricing";
+import { SEEDANCE_PRICING_SWEEP_INTERVAL_MS } from "../lib/seedancePricingSweep";
 import {
   recordAdminAction,
   sweepAbandonedEmailTestSends,
@@ -2101,12 +2102,30 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
 async function serializeAiCostConfig() {
   const [config, prices] = await Promise.all([getAiCostConfig(), listModelPrices()]);
   const duplicateKeys = duplicateModelPriceKeys(prices);
+  const seedanceSourceCheckedAt = prices.reduce<Date | null>((latest, price) => {
+    if (
+      price.kind !== "video" ||
+      price.provider.trim().toLowerCase() !== "byteplus" ||
+      price.model.trim().toLowerCase() !== BYTEPLUS_SEEDANCE_25_MODEL ||
+      !price.sourceCheckedAt
+    ) {
+      return latest;
+    }
+    return !latest || price.sourceCheckedAt > latest ? price.sourceCheckedAt : latest;
+  }, null);
   return {
     usdToInrPaise: config.usdToInrPaise,
     rateMarkupPaise: config.rateMarkupPaise,
     marketRatePaise: config.marketRatePaise,
     rateAutoUpdatedAt: config.rateAutoUpdatedAt?.toISOString() ?? null,
     elevenLabsInrPerCredit: config.elevenLabsInrPerCredit,
+    seedancePricingRefreshIntervalHours:
+      SEEDANCE_PRICING_SWEEP_INTERVAL_MS / (60 * 60 * 1000),
+    seedancePricingNextCheckAt: seedanceSourceCheckedAt
+      ? new Date(
+          seedanceSourceCheckedAt.getTime() + SEEDANCE_PRICING_SWEEP_INTERVAL_MS,
+        ).toISOString()
+      : null,
     // Case/whitespace duplicate groups lurking in the catalog (the exact
     // groups the Deduplicate action would merge). Lets the UI surface a
     // proactive hint instead of relying on the admin to click and check.
