@@ -142,6 +142,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "seedance_pricing_changed",
+    label: "Seedance pricing changes (platform admins)",
+    description:
+      "BytePlus Seedance list rates, promotion rates, or promotion expiry dates changed. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "wallet_trueup_failing",
     label: "Wallet true-up keeps failing (platform admins)",
     description:

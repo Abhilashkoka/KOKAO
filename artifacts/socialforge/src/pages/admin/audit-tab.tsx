@@ -229,7 +229,10 @@ const AUDIT_PAGE_SIZE = 50;
 
 export function AuditLogCard() {
   const { toast } = useToast();
-  const [actionFilter, setActionFilter] = useState("all");
+  const linkedAction = new URLSearchParams(window.location.search).get("action");
+  const initialAction =
+    linkedAction && linkedAction in AUDIT_ACTION_LABELS ? linkedAction : "all";
+  const [actionFilter, setActionFilter] = useState(initialAction);
   const [actorInput, setActorInput] = useState("");
   const [targetInput, setTargetInput] = useState("");
   const [fromInput, setFromInput] = useState("");
@@ -240,7 +243,7 @@ export function AuditLogCard() {
     target?: string;
     from?: string;
     to?: string;
-  }>({});
+  }>(initialAction === "all" ? {} : { action: initialAction });
   const [offset, setOffset] = useState(0);
 
   const params = {

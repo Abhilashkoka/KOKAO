@@ -47,6 +47,11 @@ export const notificationsTable = pgTable(
     sweepStalledUnreadUnique: uniqueIndex("notifications_sweep_stalled_unread_uq")
       .on(t.tenantId)
       .where(sql`${t.type} = 'sweep_stalled' AND ${t.readAt} IS NULL`),
+    seedancePricingSnapshotUnique: uniqueIndex(
+      "notifications_seedance_pricing_snapshot_uq",
+    )
+      .on(t.tenantId, t.platform)
+      .where(sql`${t.type} = 'seedance_pricing_changed'`),
   }),
 );
 

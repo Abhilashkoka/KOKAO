@@ -39,7 +39,10 @@ import {
   crossSourcePricingWarning,
   refreshBytePlusSeedancePricing,
 } from "../lib/modelPricingSync";
-import { resolveSeedancePricingStaleNotifications } from "../lib/notifications";
+import {
+  notifySeedancePricingChanged,
+  resolveSeedancePricingStaleNotifications,
+} from "../lib/notifications";
 import {
   BYTEPLUS_SEEDANCE_25_MODEL,
   BYTEPLUS_SEEDANCE_25_PRICING_URL,
@@ -2379,6 +2382,7 @@ router.post(
       const pricing = await refreshBytePlusSeedancePricing();
       await resolveSeedancePricingStaleNotifications();
       const after = refreshedSeedanceRateSnapshot(pricing);
+      const changed = seedanceRatesChanged(before, after);
       try {
         await recordAdminAction({
           action: "seedance_rate_refresh",
@@ -2389,11 +2393,14 @@ router.post(
           oldValue: JSON.stringify(before),
           newValue: JSON.stringify({
             ...after,
-            outcome: seedanceRatesChanged(before, after) ? "changed" : "no_change",
+            outcome: changed ? "changed" : "no_change",
           }),
         });
       } catch (error) {
         req.log.error({ err: error }, "Failed to audit BytePlus Seedance rate refresh");
+      }
+      if (changed) {
+        await notifySeedancePricingChanged(before, after);
       }
       res.json(await serializeAiCostConfig());
     } catch (error) {

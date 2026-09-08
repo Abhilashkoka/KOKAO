@@ -51,10 +51,16 @@ vi.mock("../lib/modelPricingSync", async (importOriginal) => {
 });
 
 import { and, desc, eq } from "drizzle-orm";
-import { adminAuditLogsTable, db, pool } from "@workspace/db";
+import {
+  adminAuditLogsTable,
+  db,
+  notificationsTable,
+  pool,
+} from "@workspace/db";
 import { createAdminTestApp } from "../test/testApp";
 import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
+import { notifySeedancePricingChanged } from "../lib/notifications";
 
 const app = createAdminTestApp();
 const model = "dreamina-seedance-2-5-260628";
@@ -124,6 +130,9 @@ beforeEach(async () => {
         eq(adminAuditLogsTable.action, "seedance_rate_refresh"),
       ),
     );
+  await db
+    .delete(notificationsTable)
+    .where(eq(notificationsTable.tenantId, admin.tenantId));
 });
 
 afterAll(async () => {
@@ -171,5 +180,96 @@ describe("POST /admin/ai-cost/prices/byteplus-seedance/refresh audit", () => {
     expect(after.sourceUrl).toBe(sourceUrl);
     expect(after.sourceCheckedAt).toBe("2026-09-07T12:00:00.000Z");
     expect(after.outcome).toBe(outcome);
+  });
+
+  it("notifies only for changed snapshots and dedupes the same snapshot", async () => {
+    mocks.refreshBytePlusSeedancePricing.mockResolvedValue(refreshedPricing(0.55));
+
+    await request(app).post(
+      "/api/admin/ai-cost/prices/byteplus-seedance/refresh",
+    );
+    await request(app).post(
+      "/api/admin/ai-cost/prices/byteplus-seedance/refresh",
+    );
+
+    const changed = await db
+      .select()
+      .from(notificationsTable)
+      .where(
+        and(
+          eq(notificationsTable.tenantId, admin.tenantId),
+          eq(notificationsTable.type, "seedance_pricing_changed"),
+        ),
+      );
+    expect(changed).toHaveLength(1);
+    expect(changed[0]).toMatchObject({
+      title: "BytePlus Seedance pricing changed (1080p)",
+      linkUrl: "/admin?tab=audit&action=seedance_rate_refresh",
+    });
+    expect(changed[0]?.message).toContain("1080p: list $0.5/s → $0.55/s");
+
+    await db
+      .delete(notificationsTable)
+      .where(eq(notificationsTable.tenantId, admin.tenantId));
+    mocks.refreshBytePlusSeedancePricing.mockResolvedValue(refreshedPricing(0.5));
+    await request(app).post(
+      "/api/admin/ai-cost/prices/byteplus-seedance/refresh",
+    );
+    const noChange = await db
+      .select()
+      .from(notificationsTable)
+      .where(eq(notificationsTable.tenantId, admin.tenantId));
+    expect(noChange).toHaveLength(0);
+  });
+
+  it("alerts again when a rate returns to a previously seen snapshot", async () => {
+    const ratesA = {
+      "480p": {
+        listUsdPerSecond: 0.1,
+        promotionUsdPerSecond: null,
+        promotionExpiresAt: null,
+      },
+      "720p": {
+        listUsdPerSecond: 0.2,
+        promotionUsdPerSecond: null,
+        promotionExpiresAt: null,
+      },
+      "1080p": {
+        listUsdPerSecond: 0.5,
+        promotionUsdPerSecond: 0.4,
+        promotionExpiresAt: "2026-09-10T06:00:00.000Z",
+      },
+    };
+    const ratesB = {
+      ...ratesA,
+      "1080p": {
+        ...ratesA["1080p"],
+        listUsdPerSecond: 0.55,
+      },
+    };
+
+    await notifySeedancePricingChanged(
+      { sourceCheckedAt: "2026-09-01T00:00:00.000Z", rates: ratesA },
+      { sourceCheckedAt: "2026-09-02T00:00:00.000Z", rates: ratesB },
+    );
+    await notifySeedancePricingChanged(
+      { sourceCheckedAt: "2026-09-02T00:00:00.000Z", rates: ratesB },
+      { sourceCheckedAt: "2026-09-03T00:00:00.000Z", rates: ratesA },
+    );
+    await notifySeedancePricingChanged(
+      { sourceCheckedAt: "2026-09-03T00:00:00.000Z", rates: ratesA },
+      { sourceCheckedAt: "2026-09-04T00:00:00.000Z", rates: ratesB },
+    );
+
+    const notifications = await db
+      .select()
+      .from(notificationsTable)
+      .where(
+        and(
+          eq(notificationsTable.tenantId, admin.tenantId),
+          eq(notificationsTable.type, "seedance_pricing_changed"),
+        ),
+      );
+    expect(notifications).toHaveLength(3);
   });
 });

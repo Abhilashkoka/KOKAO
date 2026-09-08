@@ -22,6 +22,7 @@ import type { EmailPolicy } from "./notificationCatalog";
 import { isSuperadminEmail } from "./superadmins";
 import { sendTenantPush } from "./push";
 import type { SweepFailure } from "@workspace/db";
+import { createHash } from "node:crypto";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
@@ -1876,6 +1877,158 @@ export async function resolveFxRateStaleNotifications(): Promise<void> {
 }
 
 export const SEEDANCE_PRICING_STALE = "seedance_pricing_stale";
+export const SEEDANCE_PRICING_CHANGED = "seedance_pricing_changed";
+
+type SeedanceRateValue = {
+  listUsdPerSecond: number | null;
+  promotionUsdPerSecond: number | null;
+  promotionExpiresAt: string | null;
+};
+
+type SeedanceRateChangeSnapshot = {
+  sourceCheckedAt: string | null;
+  rates: Record<"480p" | "720p" | "1080p", SeedanceRateValue>;
+};
+
+function displaySeedanceRate(value: number | null): string {
+  return value == null ? "none" : `$${value}/s`;
+}
+
+function displaySeedanceExpiry(value: string | null): string {
+  return value == null ? "none" : new Date(value).toISOString();
+}
+
+/**
+ * Notify every superadmin when an official Seedance rate snapshot changes.
+ * The stable change-event hash is stored in `platform`, so concurrent/repeated
+ * delivery of one transition is suppressed while a later A→B transition after
+ * B→A still alerts because its prior snapshot timestamp is different.
+ * Never throws.
+ */
+export async function notifySeedancePricingChanged(
+  before: SeedanceRateChangeSnapshot,
+  after: SeedanceRateChangeSnapshot,
+): Promise<void> {
+  try {
+    const resolutions = ["480p", "720p", "1080p"] as const;
+    const changed = resolutions.filter(
+      (resolution) =>
+        JSON.stringify(before.rates[resolution]) !==
+        JSON.stringify(after.rates[resolution]),
+    );
+    if (changed.length === 0) return;
+
+    const snapshotKey = `change:${createHash("sha256")
+      .update(
+        JSON.stringify({
+          priorSourceCheckedAt: before.sourceCheckedAt,
+          before: before.rates,
+          after: after.rates,
+        }),
+      )
+      .digest("hex")}`;
+    const summaries = changed.map((resolution) => {
+      const oldRate = before.rates[resolution];
+      const newRate = after.rates[resolution];
+      const fields: string[] = [];
+      if (oldRate.listUsdPerSecond !== newRate.listUsdPerSecond) {
+        fields.push(
+          `list ${displaySeedanceRate(oldRate.listUsdPerSecond)} → ${displaySeedanceRate(newRate.listUsdPerSecond)}`,
+        );
+      }
+      if (oldRate.promotionUsdPerSecond !== newRate.promotionUsdPerSecond) {
+        fields.push(
+          `promo ${displaySeedanceRate(oldRate.promotionUsdPerSecond)} → ${displaySeedanceRate(newRate.promotionUsdPerSecond)}`,
+        );
+      }
+      if (oldRate.promotionExpiresAt !== newRate.promotionExpiresAt) {
+        fields.push(
+          `promo expiry ${displaySeedanceExpiry(oldRate.promotionExpiresAt)} → ${displaySeedanceExpiry(newRate.promotionExpiresAt)}`,
+        );
+      }
+      return `${resolution}: ${fields.join(", ")}`;
+    });
+    const title = `BytePlus Seedance pricing changed (${changed.join(", ")})`;
+    const message = `${summaries.join("; ")}. Review the complete before-and-after snapshot in the admin audit trail.`;
+    const linkUrl = "/admin?tab=audit&action=seedance_rate_refresh";
+
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)));
+    const recipients = candidates.filter(
+      (tenant) => tenant.isSuperadmin || isSuperadminEmail(tenant.email),
+    );
+
+    for (const recipient of recipients) {
+      try {
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, SEEDANCE_PRICING_CHANGED),
+              eq(notificationsTable.platform, snapshotKey),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) continue;
+
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          SEEDANCE_PRICING_CHANGED,
+        );
+        if (!effective.enabled) continue;
+        const inserted = await db
+          .insert(notificationsTable)
+          .values({
+            tenantId: recipient.id,
+            type: SEEDANCE_PRICING_CHANGED,
+            platform: snapshotKey,
+            title,
+            message,
+            linkUrl,
+            inApp: effective.inApp,
+          })
+          .onConflictDoNothing()
+          .returning({ id: notificationsTable.id });
+        // A concurrent refresh may have inserted this exact recipient/snapshot
+        // after our read. The partial unique index is the final dedupe barrier;
+        // only the insert winner may fan out push or email.
+        if (inserted.length === 0) continue;
+        await sendTenantPush(recipient.id, SEEDANCE_PRICING_CHANGED, {
+          title,
+          message,
+          linkUrl,
+        });
+        if (effective.email) {
+          const email = await fetchVerifiedEmail(recipient.clerkUserId);
+          if (email) {
+            await sendEmail({
+              to: email,
+              subject: title,
+              text: message,
+              html: `<p>${escapeHtml(message)}</p>`,
+            });
+          }
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about changed Seedance pricing",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to record changed Seedance pricing notifications");
+  }
+}
 
 export async function notifySeedancePricingStale(
   lastRefreshedAt: Date,

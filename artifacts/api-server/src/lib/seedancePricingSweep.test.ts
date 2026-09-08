@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listModelPrices: vi.fn(),
   refresh: vi.fn(),
-  notify: vi.fn(),
+  notifyStale: vi.fn(),
+  notifyChanged: vi.fn(),
   resolve: vi.fn(),
+  audit: vi.fn(),
 }));
 
 vi.mock("./aiCost", () => ({ listModelPrices: mocks.listModelPrices }));
@@ -12,8 +14,12 @@ vi.mock("./modelPricingSync", () => ({
   refreshBytePlusSeedancePricing: mocks.refresh,
 }));
 vi.mock("./notifications", () => ({
-  notifySeedancePricingStale: mocks.notify,
+  notifySeedancePricingStale: mocks.notifyStale,
+  notifySeedancePricingChanged: mocks.notifyChanged,
   resolveSeedancePricingStaleNotifications: mocks.resolve,
+}));
+vi.mock("./adminAudit", () => ({
+  recordAdminAction: mocks.audit,
 }));
 
 import {
@@ -33,16 +39,28 @@ const row = (sourceCheckedAt: Date | null) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.notify.mockResolvedValue(undefined);
+  mocks.listModelPrices.mockResolvedValue([]);
+  mocks.notifyStale.mockResolvedValue(undefined);
+  mocks.notifyChanged.mockResolvedValue(undefined);
   mocks.resolve.mockResolvedValue(undefined);
+  mocks.audit.mockResolvedValue(undefined);
 });
 
 describe("Seedance pricing sweep", () => {
   it("resolves the stale alert after a successful refresh", async () => {
-    mocks.refresh.mockResolvedValue({ sourceCheckedAt: new Date() });
+    mocks.refresh.mockResolvedValue({
+      sourceCheckedAt: new Date(),
+      prices: [],
+    });
     await runSeedancePricingRefreshOnce();
     expect(mocks.resolve).toHaveBeenCalledOnce();
-    expect(mocks.notify).not.toHaveBeenCalled();
+    expect(mocks.notifyStale).not.toHaveBeenCalled();
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "seedance_rate_refresh",
+        actorTenantId: 0,
+      }),
+    );
   });
 
   it("keeps one bounded refresh in flight", async () => {
@@ -50,8 +68,8 @@ describe("Seedance pricing sweep", () => {
     mocks.refresh.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     const first = runSeedancePricingRefreshOnce();
     const second = runSeedancePricingRefreshOnce();
-    expect(mocks.refresh).toHaveBeenCalledOnce();
-    finish({ sourceCheckedAt: new Date() });
+    await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    finish({ sourceCheckedAt: new Date(), prices: [] });
     await Promise.all([first, second]);
   });
 
@@ -63,7 +81,7 @@ describe("Seedance pricing sweep", () => {
       row(new Date(old.getTime() - DAY_MS)),
     ]);
     await runSeedancePricingRefreshOnce();
-    expect(mocks.notify).toHaveBeenCalledWith(
+    expect(mocks.notifyStale).toHaveBeenCalledWith(
       old,
       SEEDANCE_PRICING_STALE_ALERT_DAYS,
     );
@@ -74,6 +92,47 @@ describe("Seedance pricing sweep", () => {
     await checkSeedancePricingStaleness();
     mocks.listModelPrices.mockResolvedValue([row(null)]);
     await checkSeedancePricingStaleness();
-    expect(mocks.notify).not.toHaveBeenCalled();
+    expect(mocks.notifyStale).not.toHaveBeenCalled();
+  });
+
+  it("compares scheduled refreshes against the stored rate snapshot", async () => {
+    const expiry = new Date("2026-09-30T00:00:00.000Z");
+    mocks.listModelPrices.mockResolvedValue([
+      {
+        ...row(new Date()),
+        variantCriteria: { resolution: "1080p" },
+        usdPerSecond: 0.5,
+        promotionalUsdPerSecond: 0.4,
+        promotionExpiresAt: expiry,
+      },
+    ]);
+    mocks.refresh.mockResolvedValue({
+      sourceCheckedAt: new Date(),
+      prices: [
+        {
+          resolution: "1080p",
+          usdPerSecond: 0.55,
+          promotionalUsdPerSecond: 0.4,
+          promotionExpiresAt: expiry,
+        },
+      ],
+    });
+
+    await runSeedancePricingRefreshOnce();
+
+    expect(mocks.notifyChanged).toHaveBeenCalledOnce();
+    expect(mocks.notifyChanged.mock.calls[0]?.[0].rates["1080p"]).toMatchObject({
+      listUsdPerSecond: 0.5,
+      promotionUsdPerSecond: 0.4,
+    });
+    expect(mocks.notifyChanged.mock.calls[0]?.[1].rates["1080p"]).toMatchObject({
+      listUsdPerSecond: 0.55,
+      promotionUsdPerSecond: 0.4,
+    });
+    const auditAfter = JSON.parse(mocks.audit.mock.calls[0]?.[0].newValue);
+    expect(auditAfter).toMatchObject({
+      outcome: "changed",
+      provider: "byteplus",
+    });
   });
 });
