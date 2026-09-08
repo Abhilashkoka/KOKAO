@@ -569,6 +569,8 @@ export interface VideoJobOptions {
       unitWeight?: number;
       providerTaskId?: string;
       providerRequestId?: string;
+      providerReportedActualUsd?: number;
+      videoTokens?: number;
     }>;
   } | null;
   musicCheckpoint?: {
@@ -626,6 +628,8 @@ export interface VideoJobOptions {
         unitWeight?: number;
         providerTaskId?: string;
         providerRequestId?: string;
+        providerReportedActualUsd?: number;
+        videoTokens?: number;
       }>;
     } | null;
   } | null;

@@ -85,10 +85,12 @@ describe("credentials guard orphan recovery", () => {
       query: vi
         .fn()
         .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce(undefined)
         .mockRejectedValueOnce(restoreError)
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce(undefined),
@@ -102,15 +104,17 @@ describe("credentials guard orphan recovery", () => {
 
     expect(client.query.mock.calls.map(([sql]) => sql)).toEqual([
       "BEGIN",
+      expect.stringContaining("information_schema.columns"),
       "DELETE FROM app_credentials",
       'INSERT INTO app_credentials ("id", "credentials") VALUES ($1, $2)',
       "ROLLBACK",
       "BEGIN",
+      expect.stringContaining("information_schema.columns"),
       "DELETE FROM video_gen_settings",
       'INSERT INTO video_gen_settings ("id", "provider") VALUES ($1, $2)',
       "COMMIT",
     ]);
-    expect(client.query.mock.calls[6]?.[1]).toEqual([2, "replicate"]);
+    expect(client.query.mock.calls[8]?.[1]).toEqual([2, "replicate"]);
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("app_credentials"),
     );

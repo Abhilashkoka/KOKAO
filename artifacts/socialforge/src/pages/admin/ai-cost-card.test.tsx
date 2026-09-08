@@ -50,6 +50,7 @@ function price(overrides: Partial<AiModelPriceView>): AiModelPriceView {
     usdPerImage: null,
     usdPerSecond: null,
     usdPerVideo: null,
+    usdPerMillionVideoTokens: null,
     effectiveUsdPerSecond: null,
     sourceUrl: null,
     sourceCheckedAt: null,
@@ -428,5 +429,27 @@ describe("price URL import entry point", () => {
       screen.getByRole("heading", { name: "Import model price from URL" }),
     ).toBeTruthy();
     expect(screen.getByTestId("input-import-price-url")).toBeTruthy();
+  });
+});
+
+it("saves and clearly labels the dedicated video-token rate", async () => {
+  renderCard();
+  const user = userEvent.setup();
+  await user.click(screen.getByTestId("select-price-kind"));
+  await user.click(screen.getByRole("option", { name: "Video" }));
+  await user.type(screen.getByTestId("input-price-provider"), "atlascloud");
+  await user.type(
+    screen.getByTestId("input-price-model"),
+    "bytedance/seedance-2.5/text-to-video",
+  );
+  const tokenInput = screen.getByTestId("input-price-video-token-usd");
+  expect(tokenInput.previousElementSibling?.textContent).toContain("1M video tokens");
+  await user.type(tokenInput, "17.3875");
+  await user.click(screen.getByTestId("button-save-model-price"));
+  await waitFor(() => expect(upsertMutate).toHaveBeenCalledTimes(1));
+  expect(upsertMutate.mock.calls[0][0].data).toMatchObject({
+    usdPerMillionVideoTokens: 17.3875,
+    usdPerSecond: null,
+    usdPerVideo: null,
   });
 });

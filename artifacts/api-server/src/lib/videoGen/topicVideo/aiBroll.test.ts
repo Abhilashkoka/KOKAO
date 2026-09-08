@@ -23,6 +23,7 @@ const animateState = vi.hoisted(() => ({
   failFirst: false,
   alwaysFail: false,
   queuedErrors: [] as Error[],
+  receipts: [] as Array<{ providerReportedActualUsd?: number; videoTokens?: number }>,
 }));
 
 const imageGenState = vi.hoisted(() => ({
@@ -57,7 +58,12 @@ vi.mock("../index", () => ({
         throw new Error("transient");
       }
       animateState.calls.push({ ...input, image: input.image.buffer });
-      return { buffer: Buffer.from(`clip-${input.prompt}`), provider: "replicate", model: "wan-i2v" };
+      return {
+        buffer: Buffer.from(`clip-${input.prompt}`),
+        provider: "replicate",
+        model: "wan-i2v",
+        ...(animateState.receipts.shift() ?? {}),
+      };
     },
   ),
 }));
@@ -146,6 +152,7 @@ beforeEach(() => {
   animateState.failFirst = false;
   animateState.alwaysFail = false;
   animateState.queuedErrors.length = 0;
+  animateState.receipts.length = 0;
   imageGenState.results.length = 0;
   imageGenState.prompts.length = 0;
 });
@@ -518,6 +525,33 @@ describe("animateBrollStills", () => {
     { firstCue: 0, lastCue: 0, durationSec: 4, text: "Flour on a table." },
     { firstCue: 1, lastCue: 1, durationSec: 9.5, text: "Kneading the dough." },
   ];
+
+  it("emits one independently keyed provider receipt per animated scene", async () => {
+    animateState.receipts.push(
+      { providerReportedActualUsd: 1.25, videoTokens: 100 },
+      { videoTokens: 200 },
+    );
+    const checkpoints: Array<{
+      sceneIndex: number;
+      providerReportedActualUsd?: number;
+      videoTokens?: number;
+    }> = [];
+    await animateBrollStills({
+      images: [Buffer.from("still-a"), Buffer.from("still-b")],
+      visuals: ["first scene", "second scene"],
+      scenes,
+      aspectRatio: "9:16",
+      onCheckpoint: async (checkpoint) => {
+        checkpoints.push(checkpoint);
+      },
+    });
+    expect(checkpoints.sort((a, b) => a.sceneIndex - b.sceneIndex)).toMatchObject([
+      { sceneIndex: 0, providerReportedActualUsd: 1.25, videoTokens: 100 },
+      { sceneIndex: 1, videoTokens: 200 },
+    ]);
+    expect(new Set(checkpoints.map(({ sceneIndex }) => `hybrid_animation:scene-${sceneIndex}`)).size)
+      .toBe(2);
+  });
 
   it("routes every still through image-to-video with the governed motion suffix", async () => {
     const result = await animateBrollStills({

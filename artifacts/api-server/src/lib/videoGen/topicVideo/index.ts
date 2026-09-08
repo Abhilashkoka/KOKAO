@@ -7,7 +7,7 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../../logger";
-import { VideoGenProviderError, type VideoAspect } from "../types";
+import { VideoGenProviderError, type VideoAspect, type VideoGenReceipt } from "../types";
 import type { PromptVariantKey } from "@workspace/db";
 import { generateTopicScript, narrationSentenceWordBounds } from "./script";
 import {
@@ -169,7 +169,7 @@ export interface TopicVideoParams {
   modelOptions?: ResolvedModelOptions;
   /** Live progress reporting ("Writing the script", ...); optional. */
   onStage?: (stage: string) => void;
-  onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
+  onCheckpoint?: (args: VideoGenReceipt & { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
 }
 
 export interface TopicVideoResult {
@@ -1607,7 +1607,7 @@ export async function renderTopicStoryboard(params: {
   /** Reads narration audio and preview stills back from tenant storage. */
   load: (objectPath: string) => Promise<Buffer>;
   onStage?: (stage: string) => void;
-  onCheckpoint?: (args: {
+  onCheckpoint?: (args: VideoGenReceipt & {
     sceneIndex: number;
     buffer: Buffer;
     provider: string;

@@ -254,6 +254,8 @@ interface VideoProviderEvent {
   /** Sanitized async provider diagnostics; never output URLs or credentials. */
   providerTaskId?: string;
   providerRequestId?: string;
+  providerReportedActualUsd?: number;
+  videoTokens?: number;
 }
 
 function jobVideoPriceCriteria(job: VideoGeneration, hasReferenceVideo = false): VideoPriceCriteria {
@@ -1328,6 +1330,8 @@ async function checkpointProviderRender(
     model: string;
     providerTaskId?: string;
     providerRequestId?: string;
+    providerReportedActualUsd?: number;
+    videoTokens?: number;
   },
   label: string,
   durationSec: number,
@@ -1349,9 +1353,15 @@ async function checkpointProviderRender(
       model: result.model,
       durationSec,
       variantCriteria: criteria,
+      providerReportedActualUsd: result.providerReportedActualUsd,
+      videoTokens: result.videoTokens,
     }).catch(() => null),
     ...(result.providerTaskId ? { providerTaskId: result.providerTaskId } : {}),
     ...(result.providerRequestId ? { providerRequestId: result.providerRequestId } : {}),
+    ...(result.providerReportedActualUsd !== undefined
+      ? { providerReportedActualUsd: result.providerReportedActualUsd }
+      : {}),
+    ...(result.videoTokens !== undefined ? { videoTokens: result.videoTokens } : {}),
   };
   const latest = (
     await db.select({ options: videoGenerationsTable.options })
@@ -1436,7 +1446,9 @@ async function renderApprovedClipStoryboard(
     // validation as a freshly uploaded source image.
     load: (objectPath) => loadSourceImage(objectPath, job.tenantId),
     onStage,
-    onCheckpoint: async ({ sceneIndex, buffer, provider, model, durationSec }) => {
+    onCheckpoint: async ({
+      sceneIndex, buffer, provider, model, durationSec, providerReportedActualUsd, videoTokens,
+    }) => {
       const scene = storyboard.scenes[sceneIndex]!;
       const event: VideoProviderEvent = {
         eventId: videoProviderEventId(job, `storyboard_scene:${scene.id}`),
@@ -1451,7 +1463,11 @@ async function renderApprovedClipStoryboard(
           model,
           durationSec,
           variantCriteria: jobVideoPriceCriteria(job),
+          providerReportedActualUsd,
+          videoTokens,
         }).catch(() => null),
+        ...(providerReportedActualUsd !== undefined ? { providerReportedActualUsd } : {}),
+        ...(videoTokens !== undefined ? { videoTokens } : {}),
       };
       const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
       scene.providerCheckpoint = { path, provider, model, durationSec, event };
@@ -1939,7 +1955,12 @@ async function produceVideo(
               criteria: jobVideoPriceCriteria(job), costPaise: await computeVideoCostPaise({
                 provider: animated.provider, model: animated.model, durationSec: animatedDurationSec,
                 variantCriteria: jobVideoPriceCriteria(job),
+                providerReportedActualUsd: animated.providerReportedActualUsd,
+                videoTokens: animated.videoTokens,
               }).catch(() => null),
+              ...(animated.providerReportedActualUsd !== undefined
+                ? { providerReportedActualUsd: animated.providerReportedActualUsd } : {}),
+              ...(animated.videoTokens !== undefined ? { videoTokens: animated.videoTokens } : {}),
             };
             receipt.animationEvent = animationEvent;
             await save("composing", line.lineId);
@@ -2157,7 +2178,12 @@ async function produceVideo(
               provider: visual.provider, model: visual.model,
               durationSec: visual.effectiveDurationSec ?? null,
               variantCriteria: jobVideoPriceCriteria(job),
+              providerReportedActualUsd: visual.providerReportedActualUsd,
+              videoTokens: visual.videoTokens,
             }).catch(() => null),
+            ...(visual.providerReportedActualUsd !== undefined
+              ? { providerReportedActualUsd: visual.providerReportedActualUsd } : {}),
+            ...(visual.videoTokens !== undefined ? { videoTokens: visual.videoTokens } : {}),
           };
           // Persist the paid event before storage I/O. If App Storage itself
           // fails, accounting still retains the provider work instead of
@@ -2178,6 +2204,8 @@ async function produceVideo(
           visualEvent.costPaise = await computeVideoCostPaise({
             provider: visualEvent.provider, model: visualEvent.model, durationSec: rawDurationSec,
             variantCriteria: visualEvent.criteria,
+            providerReportedActualUsd: visualEvent.providerReportedActualUsd,
+            videoTokens: visualEvent.videoTokens,
           }).catch(() => null);
           scene.checkpoint = { ...scene.checkpoint, visualEvent };
           await checkpointJob();
@@ -2484,7 +2512,12 @@ async function produceVideo(
         model: visual.model,
         durationSec: null,
         variantCriteria: jobVideoPriceCriteria(job),
+        providerReportedActualUsd: visual.providerReportedActualUsd,
+        videoTokens: visual.videoTokens,
       }).catch(() => null),
+      ...(visual.providerReportedActualUsd !== undefined
+        ? { providerReportedActualUsd: visual.providerReportedActualUsd } : {}),
+      ...(visual.videoTokens !== undefined ? { videoTokens: visual.videoTokens } : {}),
     };
     let result;
     try {
@@ -2501,6 +2534,8 @@ async function produceVideo(
         model: visual.model,
         durationSec: rawVisualDurationSec,
         variantCriteria: visualEvent.criteria,
+        providerReportedActualUsd: visual.providerReportedActualUsd,
+        videoTokens: visual.videoTokens,
       }).catch(() => null);
       const extendedVisual = await loopVideoPlateToDuration(visual.buffer, plateDurationSec);
       const replicateDef = getVideoGenProviderDef("replicate");
@@ -3334,11 +3369,19 @@ async function produceVideo(
               events.push(imageEvent);
             }
             sceneOperation = "image_to_video_animation";
+            const animationReceipts: Array<{
+              sceneIndex: number;
+              providerReportedActualUsd?: number;
+              videoTokens?: number;
+            }> = [];
             const animated = await animateBrollStills({
               images: [still], visuals: [scene.visual],
               scenes: [{ firstCue: 0, lastCue: 0, durationSec: targetSec, text: scene.text }],
               aspectRatio, motionPreset: options.motionPreset ?? null,
               cinematography: options.cinematography ?? null, seed: options.seed ?? null, modelOptions: model,
+              onCheckpoint: async (receipt) => {
+                animationReceipts.push(receipt);
+              },
               onPrivacyImageRejected: async ({ error }) => {
                 const recovered = await recoverGeneratedStoryboardKeyframe({
                   job,
@@ -3353,12 +3396,21 @@ async function produceVideo(
             });
             const clip = animated.clips[0]!;
             const providerDurationSec = animated.effectiveDurationSecs[0] ?? targetSec;
+            const receipt = animationReceipts.find((entry) => entry.sceneIndex === 0);
             const event: VideoProviderEvent = {
               eventId: videoProviderEventId(job, `hybrid_animation:${scene.id}`),
               provider: animated.provider, model: animated.model, durationSec: providerDurationSec,
               requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_animation:${scene.id}`,
               criteria: jobVideoPriceCriteria(job),
-              costPaise: await computeVideoCostPaise({ provider: animated.provider, model: animated.model, durationSec: providerDurationSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
+              costPaise: await computeVideoCostPaise({
+                provider: animated.provider, model: animated.model, durationSec: providerDurationSec,
+                variantCriteria: jobVideoPriceCriteria(job),
+                providerReportedActualUsd: receipt?.providerReportedActualUsd,
+                videoTokens: receipt?.videoTokens,
+              }).catch(() => null),
+              ...(receipt?.providerReportedActualUsd !== undefined
+                ? { providerReportedActualUsd: receipt.providerReportedActualUsd } : {}),
+              ...(receipt?.videoTokens !== undefined ? { videoTokens: receipt.videoTokens } : {}),
               unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
             };
             scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, clip, "video/mp4"), provider: animated.provider, model: animated.model, durationSec: providerDurationSec, event };
@@ -3417,7 +3469,15 @@ async function produceVideo(
               eventId: videoProviderEventId(job, `hybrid_plate:${scene.id}`), provider: plate.provider, model: plate.model,
               durationSec: plateDurationSec, requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_plate:${scene.id}`,
               criteria: jobVideoPriceCriteria(job),
-              costPaise: await computeVideoCostPaise({ provider: plate.provider, model: plate.model, durationSec: plateDurationSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
+              costPaise: await computeVideoCostPaise({
+                provider: plate.provider, model: plate.model, durationSec: plateDurationSec,
+                variantCriteria: jobVideoPriceCriteria(job),
+                providerReportedActualUsd: plate.providerReportedActualUsd,
+                videoTokens: plate.videoTokens,
+              }).catch(() => null),
+              ...(plate.providerReportedActualUsd !== undefined
+                ? { providerReportedActualUsd: plate.providerReportedActualUsd } : {}),
+              ...(plate.videoTokens !== undefined ? { videoTokens: plate.videoTokens } : {}),
               unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
             };
             if (!savedPlate) {
@@ -3871,7 +3931,10 @@ async function produceVideo(
                 return recovered.still;
               }
             : undefined,
-        onCheckpoint: async ({ sceneIndex, buffer, provider, model: sceneModel, durationSec }) => {
+        onCheckpoint: async ({
+          sceneIndex, buffer, provider, model: sceneModel, durationSec,
+          providerReportedActualUsd, videoTokens,
+        }) => {
           const scene = board.scenes[sceneIndex]!;
           const event: VideoProviderEvent = {
             eventId: videoProviderEventId(job, `topic_scene:${scene.id}`),
@@ -3886,7 +3949,11 @@ async function produceVideo(
               model: sceneModel,
               durationSec,
               variantCriteria: jobVideoPriceCriteria(job),
+              providerReportedActualUsd,
+              videoTokens,
             }).catch(() => null),
+            ...(providerReportedActualUsd !== undefined ? { providerReportedActualUsd } : {}),
+            ...(videoTokens !== undefined ? { videoTokens } : {}),
             unitWeight:
               hasDeferredTemplateFunding(job)
                 ? board.visualsSource === "character"
@@ -6100,7 +6167,21 @@ async function finishGuidedStoryIntrinsicDialogue(
             quality: model.quality,
             generateAudio: false,
           }),
-          costPaise: planned.estimatedAnimationPaise,
+          costPaise: await computeVideoCostPaise({
+            provider: animated.provider,
+            model: animated.model,
+            durationSec: animationDurationSec,
+            variantCriteria: videoPriceCriteria({
+              resolution: model.resolution,
+              quality: model.quality,
+              generateAudio: false,
+            }),
+            providerReportedActualUsd: animated.providerReportedActualUsd,
+            videoTokens: animated.videoTokens,
+          }).catch(() => null),
+          ...(animated.providerReportedActualUsd !== undefined
+            ? { providerReportedActualUsd: animated.providerReportedActualUsd } : {}),
+          ...(animated.videoTokens !== undefined ? { videoTokens: animated.videoTokens } : {}),
         };
         await update({ state: "animation_succeeded", animationEvent });
         await verifyRenderedVideo(animated.buffer, {
@@ -6714,6 +6795,8 @@ async function executeVideoJob(
           model: event.model,
           durationSec: event.durationSec,
           variantCriteria: event.criteria,
+          providerReportedActualUsd: event.providerReportedActualUsd,
+          videoTokens: event.videoTokens,
         }).catch(() => null);
       // Provider work is never assumed free. The pricing layer can return 0
       // for an uncataloged/free-tagged model or sub-paise rounding; preserve

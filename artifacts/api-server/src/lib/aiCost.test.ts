@@ -88,6 +88,84 @@ describe("usdToPaise", () => {
   });
 });
 
+describe("video-token cost precedence", () => {
+  it("uses actual USD, then video tokens, then the existing duration fallback", async () => {
+    await setAiCostConfig({ usdToInrPaise: 10_000 });
+    expect(
+      await computeVideoCostPaise({
+        provider: "atlascloud",
+        model: `${RUN}-not-catalogued`,
+        providerReportedActualUsd: 1.25,
+        videoTokens: 999_999,
+        durationSec: 10,
+      }),
+    ).toBe(12_500);
+
+    const standard = await upsertModelPrice({
+      kind: "video",
+      provider: "atlascloud",
+      model: `${RUN}-atlas`,
+      inputUsdPerMtok: 999,
+      outputUsdPerMtok: 999,
+      usdPerImage: null,
+      usdPerSecond: 0.3,
+      usdPerVideo: null,
+      usdPerMillionVideoTokens: 17.3875,
+      variantCriteria: { resolution: "720p" },
+    });
+    createdPriceIds.push(standard.id);
+
+    expect(
+      await computeVideoCostPaise({
+        provider: "atlascloud",
+        model: `${RUN}-atlas`,
+        videoTokens: 1_000_000,
+        durationSec: 5,
+        variantCriteria: { resolution: "720p", inputMode: "non_video" },
+      }),
+    ).toBe(173_875);
+    expect(
+      await computeVideoCostPaise({
+        provider: "atlascloud",
+        model: `${RUN}-atlas`,
+        durationSec: 5,
+        variantCriteria: { resolution: "720p", inputMode: "non_video" },
+      }),
+    ).toBe(15_000);
+  });
+
+  it("prefers the exact reference-video variant and never treats text tokens as video tokens", async () => {
+    await setAiCostConfig({ usdToInrPaise: 10_000 });
+    const model = `${RUN}-atlas-reference`;
+    const standard = await upsertModelPrice({
+      kind: "video", provider: "atlascloud", model,
+      inputUsdPerMtok: 999, outputUsdPerMtok: 999, usdPerImage: null,
+      usdPerSecond: 0.3, usdPerVideo: null, usdPerMillionVideoTokens: 17.3875,
+      variantCriteria: { resolution: "720p" },
+    });
+    const reference = await upsertModelPrice({
+      kind: "video", provider: "atlascloud", model,
+      inputUsdPerMtok: 999, outputUsdPerMtok: 999, usdPerImage: null,
+      usdPerSecond: null, usdPerVideo: null, usdPerMillionVideoTokens: 8.32,
+      variantCriteria: { inputMode: "video", resolution: "720p" },
+    });
+    createdPriceIds.push(standard.id, reference.id);
+
+    expect(await computeVideoCostPaise({
+      provider: "atlascloud", model, videoTokens: 1_000_000, durationSec: 5,
+      variantCriteria: { inputMode: "video", resolution: "720p" },
+    })).toBe(83_200);
+    expect(await computeVideoCostPaise({
+      provider: "atlascloud", model, durationSec: 5,
+      variantCriteria: { inputMode: "video", resolution: "720p" },
+    })).toBeNull();
+    expect(await computeVideoCostPaise({
+      provider: "atlascloud", model, durationSec: 5,
+      variantCriteria: { inputMode: "non_video", resolution: "720p" },
+    })).toBe(15_000);
+  });
+});
+
 describe("effectiveVideoUsdPerSecond", () => {
   const price = {
     usdPerSecond: 0.569,

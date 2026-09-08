@@ -47,4 +47,10 @@ export interface UpsertAiModelPriceRequest {
      * @nullable
      */
   usdPerVideo?: number | null;
+  /**
+     * Video models only — USD per 1M explicitly reported video tokens.
+     * @minimum 0
+     * @nullable
+     */
+  usdPerMillionVideoTokens?: number | null;
 }

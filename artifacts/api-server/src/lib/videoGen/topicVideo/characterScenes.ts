@@ -12,7 +12,12 @@ import type { Cinematography } from "../cinematography";
 import { trimClipToStart } from "../postprocess";
 import { MIN_SYNC_HEIGHT } from "../lipSyncSource";
 import { lipSyncClip } from "../lipSyncClip";
-import { VideoGenProviderError, type VideoAspect } from "../types";
+import {
+  videoGenReceipt,
+  VideoGenProviderError,
+  type VideoAspect,
+  type VideoGenReceipt,
+} from "../types";
 import { logger } from "../../logger";
 import { sliceNarration, type NarrationCue } from "./narration";
 import type { SceneSegment } from "./compose";
@@ -511,7 +516,7 @@ export async function animateSceneKeyframes(params: {
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
   savedClips?: Array<Buffer | null>;
-  onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
+  onCheckpoint?: (args: VideoGenReceipt & { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
   lipSync?: SceneLipSync | null;
   /** Optional provider-specific prompt, resolved from the frozen job model. */
   scenePrompts?: readonly string[];
@@ -568,6 +573,7 @@ export async function animateSceneKeyframes(params: {
       await params.onCheckpoint?.({
         sceneIndex: i, buffer: clip.buffer, provider, model,
         durationSec: clip.effectiveDurationSec ?? durationSec,
+        ...videoGenReceipt(clip),
       });
       return clip.buffer;
     };

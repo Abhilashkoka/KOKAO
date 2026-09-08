@@ -6212,6 +6212,7 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6255,6 +6256,7 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6298,6 +6300,7 @@ export const AdminUpdateAiCostMarkupResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6332,6 +6335,7 @@ export const AdminRefreshAiCostRateResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6366,6 +6370,7 @@ export const AdminRefreshBytePlusSeedancePricingResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6392,6 +6397,8 @@ export const adminUpsertAiModelPriceBodyUsdPerSecondMin = 0;
 
 export const adminUpsertAiModelPriceBodyUsdPerVideoMin = 0;
 
+export const adminUpsertAiModelPriceBodyUsdPerMillionVideoTokensMin = 0;
+
 
 
 export const AdminUpsertAiModelPriceBody = zod.object({
@@ -6403,7 +6410,8 @@ export const AdminUpsertAiModelPriceBody = zod.object({
   "outputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyOutputUsdPerMtokMin).nullish(),
   "usdPerImage": zod.number().min(adminUpsertAiModelPriceBodyUsdPerImageMin).nullish(),
   "usdPerSecond": zod.number().min(adminUpsertAiModelPriceBodyUsdPerSecondMin).nullish(),
-  "usdPerVideo": zod.number().min(adminUpsertAiModelPriceBodyUsdPerVideoMin).nullish()
+  "usdPerVideo": zod.number().min(adminUpsertAiModelPriceBodyUsdPerVideoMin).nullish(),
+  "usdPerMillionVideoTokens": zod.number().min(adminUpsertAiModelPriceBodyUsdPerMillionVideoTokensMin).nullish().describe('Video models only — USD per 1M explicitly reported video tokens.')
 })
 
 export const AdminUpsertAiModelPriceResponse = zod.object({
@@ -6428,6 +6436,7 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6537,6 +6546,7 @@ export const AdminConfirmAiModelPriceImportResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6573,6 +6583,7 @@ export const AdminDedupeAiModelPricesResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6612,6 +6623,7 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),
@@ -6751,6 +6763,7 @@ export const AdminUpdateElevenLabsCreditRateResponse = zod.object({
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
   "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerMillionVideoTokens": zod.number().nullable().describe('Video models — USD per 1M provider-reported video tokens. Never used for text tokens.'),
   "effectiveUsdPerSecond": zod.number().nullable().describe('Currently billable video rate after applying only an unexpired promotion.'),
   "sourceUrl": zod.string().url().nullable().describe('Authoritative provider page used for the last successful refresh.'),
   "sourceCheckedAt": zod.coerce.date().nullable().describe('When the authoritative provider page was last fetched successfully.'),

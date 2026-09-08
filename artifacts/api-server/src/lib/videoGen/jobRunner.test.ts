@@ -68,6 +68,7 @@ const state = vi.hoisted(() => ({
   normalizeError: null as unknown,
   dialogueVisuals: [] as string[],
   videoRequests: [] as Array<{ resolvedVideoModel?: unknown; mode: string }>,
+  videoReceipt: null as { providerReportedActualUsd?: number; videoTokens?: number } | null,
   dialogueWardrobeSnapshots: [] as unknown[],
   dialogueVisualModels: [] as Array<{ provider: string; model: string }>,
   dialogueSpeech: [] as string[],
@@ -343,6 +344,7 @@ vi.mock("./index", async (importOriginal) => {
         buffer: Buffer.from("generated-ai-person-video"),
         provider: "replicate",
         model: "visual-model",
+        ...(state.videoReceipt ?? {}),
       };
     }),
   };
@@ -447,7 +449,11 @@ vi.mock("./characterClip", async (importOriginal) => ({
       provider: "replicate",
       model: "visual-model",
     };
-    return { buffer: Buffer.from("saved-character-plate"), ...selected };
+    return {
+      buffer: Buffer.from("saved-character-plate"),
+      ...selected,
+      ...(state.videoReceipt ?? {}),
+    };
   }),
 }));
 
@@ -603,8 +609,16 @@ vi.mock("../aiCost", async (importOriginal) => {
       provider?: string;
       model: string;
       durationSec?: number | null;
+      providerReportedActualUsd?: number | null;
+      videoTokens?: number | null;
     }) => {
       if (state.unpricedVideoModels.has(args.model)) return null;
+      if (typeof args.providerReportedActualUsd === "number") {
+        return Math.round(args.providerReportedActualUsd * 10_000);
+      }
+      if (typeof args.videoTokens === "number") {
+        return Math.round((args.videoTokens / 1_000_000) * 83_200);
+      }
       if (
         args.model === "visual-model" ||
         args.model === "fallback-visual-model" ||
@@ -886,6 +900,7 @@ beforeEach(() => {
   state.normalizeError = null;
   state.dialogueVisuals.length = 0;
   state.videoRequests.length = 0;
+  state.videoReceipt = null;
   state.dialogueWardrobeSnapshots.length = 0;
   state.dialogueVisualModels.length = 0;
   state.dialogueSpeech.length = 0;
@@ -1345,12 +1360,24 @@ describe("the clip storyboard pause", () => {
         characterSnapshot,
       },
     });
+    // An Atlas Asset Library image reference remains an image-reference render;
+    // its billing criteria must never be promoted to reference-video.
+    state.dialogueVisualModels.push({
+      provider: "atlascloud",
+      model: "bytedance/seedance-2.5/image-to-video",
+    });
+    state.videoReceipt = { videoTokens: 1_000_000 };
 
     await runVideoGenerationJob(job.id, "credit");
 
     expect(state.dialogueWardrobeSnapshots).toEqual([characterSnapshot]);
     const completed = await readJob(job.id);
     expect(completed.status, completed.error ?? "no job error").toBe("succeeded");
+    expect(completed.options?.renderCheckpoint?.providerEvents?.[0]).toMatchObject({
+      provider: "atlascloud",
+      videoTokens: 1_000_000,
+      criteria: { inputMode: "non_video" },
+    });
   });
 
   it("explains that partial storyboard images survive an AI provider failure", () => {
@@ -2946,6 +2973,37 @@ describe("dialogue_lip_sync runner", () => {
     expect(state.usage.map((event) => event.funding)).toEqual(["quota", "quota"]);
   });
 
+  it("prices and persists AI-person manual plate receipts in actual, token, then duration order", async () => {
+    const tenant = await newTenant();
+    state.videoReceipt = { providerReportedActualUsd: 1.25, videoTokens: 1_000_000 };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A fictional presenter",
+      options: dialogueOptions(),
+    });
+    await runVideoGenerationJob(job.id, "quota");
+    const event = (await readJob(job.id)).options?.renderCheckpoint?.providerEvents?.[0];
+    expect(event).toMatchObject({
+      providerReportedActualUsd: 1.25,
+      videoTokens: 1_000_000,
+      costPaise: 12_500,
+    });
+    state.videoReceipt = { videoTokens: 1_000_000 };
+    const tokenJob = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", prompt: "A fictional presenter", options: dialogueOptions(),
+    });
+    await runVideoGenerationJob(tokenJob.id, "quota");
+    expect((await readJob(tokenJob.id)).options?.renderCheckpoint?.providerEvents?.[0]?.costPaise)
+      .toBe(83_200);
+    state.videoReceipt = null;
+    const fallbackJob = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", prompt: "A fictional presenter", options: dialogueOptions(),
+    });
+    await runVideoGenerationJob(fallbackJob.id, "quota");
+    expect((await readJob(fallbackJob.id)).options?.renderCheckpoint?.providerEvents?.[0]?.costPaise)
+      .toBe(80);
+  });
+
   it("extends a short default-provider plate to a 15-second dialogue duration", async () => {
     const tenant = await newTenant();
     const job = await seedJob(tenant.tenantId, {
@@ -2964,6 +3022,7 @@ describe("dialogue_lip_sync runner", () => {
 
   it("renders every frozen saved-character scene at measured narration duration and composes them", async () => {
     const tenant = await newTenant();
+    state.videoReceipt = { providerReportedActualUsd: 1.25, videoTokens: 1_000_000 };
     state.dialogueBrandVoice = true;
     state.dialogueNarrationDurations.push(4.2, 5.7);
     const options = savedCharacterDialogueOptions();
@@ -2984,6 +3043,13 @@ describe("dialogue_lip_sync runner", () => {
     expect(state.dialogueVisuals[0]).toContain("visibly talking naturally from the first second");
     expect(state.dialogueVisuals[0]).not.toContain("lips relaxed and closed");
     expect(completed.options?.characterDialogue?.scenes[0]?.visualPrompt).toBe(state.dialogueVisuals[0]);
+    const persistedVisual = completed.options?.characterDialogue?.scenes[0]?.checkpoint?.visualEvent;
+    expect(persistedVisual).toMatchObject({
+      providerReportedActualUsd: 1.25,
+      videoTokens: 1_000_000,
+      // Measured-duration recomputation must retain the provider's actual cost.
+      costPaise: 12_500,
+    });
     expect(state.lipSyncCalls).toBe(2);
     expect(state.dialogueCompositions).toEqual([{
       clips: 2,
@@ -2997,9 +3063,7 @@ describe("dialogue_lip_sync runner", () => {
     // lip-sync mock reports 8s even though narration is 4.2/5.7s, proving cost
     // attribution no longer substitutes requested or narration duration.
     expect(state.videoCostDurations).toEqual([
-      { model: "visual-model", durationSec: 8 },
       { model: "bytedance/latentsync", durationSec: 8 },
-      { model: "visual-model", durationSec: 8 },
       { model: "bytedance/latentsync", durationSec: 8 },
     ]);
   });

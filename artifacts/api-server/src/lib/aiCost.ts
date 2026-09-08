@@ -136,9 +136,62 @@ export async function listModelPrices(): Promise<AiModelPrice[]> {
  * correction is never overwritten on restart.
  */
 export async function seedPublishedModelPrices(): Promise<void> {
+  const atlasSourceUrl =
+    "https://www.atlascloud.ai/pricing/models?type=video&provider=BYTEDANCE";
+  const atlasSourceCheckedAt = new Date("2026-09-08T09:33:04.000Z");
+  const atlasResolutions = [
+    ["480p", 0.1397],
+    ["720p", 0.3005],
+    ["1080p", 0.5914],
+  ] as const;
+  const atlasModels = [
+    "bytedance/seedance-2.5/text-to-video",
+    "bytedance/seedance-2.5/image-to-video",
+    "bytedance/seedance-2.5/reference-to-video",
+  ] as const;
+  const atlasStandardRows = atlasModels.flatMap((model) =>
+    atlasResolutions.map(([resolution, usdPerSecond]) => {
+      const variantCriteria = { resolution };
+      return {
+        kind: "video",
+        provider: "atlascloud",
+        model,
+        variantKey: canonicalVideoVariantKey(variantCriteria),
+        variantCriteria,
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond,
+        usdPerVideo: null,
+        usdPerMillionVideoTokens: 17.3875,
+        sourceUrl: atlasSourceUrl,
+        sourceCheckedAt: atlasSourceCheckedAt,
+      };
+    }),
+  );
+  const atlasReferenceVideoRows = atlasResolutions.map(([resolution]) => {
+    const variantCriteria = { inputMode: "video", resolution };
+    return {
+      kind: "video",
+      provider: "atlascloud",
+      model: "bytedance/seedance-2.5/reference-to-video",
+      variantKey: canonicalVideoVariantKey(variantCriteria),
+      variantCriteria,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+      usdPerMillionVideoTokens: 8.32,
+      sourceUrl: atlasSourceUrl,
+      sourceCheckedAt: atlasSourceCheckedAt,
+    };
+  });
   await db
     .insert(aiModelPricesTable)
     .values([
+      ...atlasStandardRows,
+      ...atlasReferenceVideoRows,
       {
         kind: "video",
         provider: "replicate",
@@ -208,6 +261,41 @@ export async function seedPublishedModelPrices(): Promise<void> {
       },
     ])
     .onConflictDoNothing();
+  // These token rates are provider metadata layered onto the established
+  // resolution estimates. Refresh them on existing rows without touching an
+  // administrator-corrected per-second amount.
+  await db.update(aiModelPricesTable).set({
+    usdPerMillionVideoTokens: 17.3875,
+    sourceUrl: atlasSourceUrl,
+    sourceCheckedAt: atlasSourceCheckedAt,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(aiModelPricesTable.kind, "video"),
+    eq(aiModelPricesTable.provider, "atlascloud"),
+    inArray(aiModelPricesTable.model, [...atlasModels]),
+    inArray(
+      aiModelPricesTable.variantKey,
+      atlasResolutions.map(([resolution]) =>
+        canonicalVideoVariantKey({ resolution })),
+    ),
+  ));
+  await db.update(aiModelPricesTable).set({
+    usdPerSecond: null,
+    usdPerVideo: null,
+    usdPerMillionVideoTokens: 8.32,
+    sourceUrl: atlasSourceUrl,
+    sourceCheckedAt: atlasSourceCheckedAt,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(aiModelPricesTable.kind, "video"),
+    eq(aiModelPricesTable.provider, "atlascloud"),
+    eq(aiModelPricesTable.model, "bytedance/seedance-2.5/reference-to-video"),
+    inArray(
+      aiModelPricesTable.variantKey,
+      atlasResolutions.map(([resolution]) =>
+        canonicalVideoVariantKey({ inputMode: "video", resolution })),
+    ),
+  ));
 }
 
 export interface UpsertModelPriceInput {
@@ -219,6 +307,7 @@ export interface UpsertModelPriceInput {
   usdPerImage: number | null;
   usdPerSecond: number | null;
   usdPerVideo: number | null;
+  usdPerMillionVideoTokens?: number | null;
   /** Video request attributes that select this price; omitted means default. */
   variantCriteria?: VideoPriceCriteria;
   /** Alias used by provider catalog entries. */
@@ -341,6 +430,7 @@ async function upsertModelPriceWithExecutor(
     usdPerImage: input.usdPerImage,
     usdPerSecond: input.usdPerSecond,
     usdPerVideo: input.usdPerVideo,
+    usdPerMillionVideoTokens: input.usdPerMillionVideoTokens ?? null,
     ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl } : {}),
     ...(input.sourceCheckedAt !== undefined ? { sourceCheckedAt: input.sourceCheckedAt } : {}),
     ...(input.promotionalUsdPerSecond !== undefined
@@ -568,6 +658,7 @@ export async function dedupeModelPrices(): Promise<ModelPriceMerge[]> {
             usdPerImage: newest.usdPerImage,
             usdPerSecond: newest.usdPerSecond,
             usdPerVideo: newest.usdPerVideo,
+            usdPerMillionVideoTokens: newest.usdPerMillionVideoTokens,
             sourceUrl: newest.sourceUrl,
             sourceCheckedAt: newest.sourceCheckedAt,
             promotionalUsdPerSecond: newest.promotionalUsdPerSecond,
@@ -847,6 +938,9 @@ export async function hasVideoModelPriceConfiguration(args: {
     if (row.usdPerVideo !== null) {
       return usdToPaise(row.usdPerVideo, usdToInrPaise) !== null;
     }
+    if (row.usdPerMillionVideoTokens !== null) {
+      return usdToPaise(row.usdPerMillionVideoTokens / 1_000_000, usdToInrPaise) !== null;
+    }
     return false;
   });
 }
@@ -946,8 +1040,9 @@ export async function isTextModelPriced(args: {
 
 /**
  * Cost of one video generation in paise, or null when unknown.
- * Per-second when the price row has a $/second rate AND the caller measured
- * the output duration; otherwise the flat per-video price. Never guessed.
+ * Provider-reported actual USD wins. Otherwise provider-reported VIDEO tokens
+ * use the dedicated video-token rate. Text token fields are never consulted.
+ * If neither receipt exists, use per-second then flat per-video pricing.
  */
 export async function computeVideoCostPaise(args: {
   provider: string;
@@ -959,14 +1054,34 @@ export async function computeVideoCostPaise(args: {
   variant?: VideoPriceCriteria | null;
   /** Measured output clip length in seconds (ffprobe), not wall-clock time. */
   durationSec?: number | null;
+  /** Actual USD charged, only when explicitly reported by the video provider. */
+  providerReportedActualUsd?: number | null;
+  /** Video-token count, only when explicitly labelled as such by the provider. */
+  videoTokens?: number | null;
 }): Promise<number | null> {
+  const { usdToInrPaise } = await getAiCostConfig();
+  const actualUsd = args.providerReportedActualUsd ?? null;
+  if (actualUsd !== null && Number.isFinite(actualUsd) && actualUsd >= 0) {
+    return usdToPaise(actualUsd, usdToInrPaise);
+  }
   const price = await findVideoPrice(
     args.provider,
     args.model,
     args.variantCriteria ?? args.criteria ?? args.variant ?? undefined,
   );
   if (!price) return null;
-  const { usdToInrPaise } = await getAiCostConfig();
+  const videoTokens = args.videoTokens ?? null;
+  if (
+    videoTokens !== null &&
+    Number.isFinite(videoTokens) &&
+    videoTokens >= 0 &&
+    price.usdPerMillionVideoTokens !== null
+  ) {
+    return usdToPaise(
+      (videoTokens / 1_000_000) * price.usdPerMillionVideoTokens,
+      usdToInrPaise,
+    );
+  }
   const durationSec = args.durationSec ?? null;
   const usdPerSecond = effectiveVideoUsdPerSecond(price);
   if (usdPerSecond !== null && durationSec !== null && durationSec > 0) {

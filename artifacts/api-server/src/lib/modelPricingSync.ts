@@ -40,6 +40,7 @@ interface LookedUpPrices {
   usdPerImage: number | null;
   usdPerSecond: number | null;
   usdPerVideo: number | null;
+  usdPerMillionVideoTokens: number | null;
 }
 
 const EMPTY: LookedUpPrices = {
@@ -48,6 +49,7 @@ const EMPTY: LookedUpPrices = {
   usdPerImage: null,
   usdPerSecond: null,
   usdPerVideo: null,
+  usdPerMillionVideoTokens: null,
 };
 
 function hasAnyPrice(p: LookedUpPrices): boolean {
@@ -56,7 +58,8 @@ function hasAnyPrice(p: LookedUpPrices): boolean {
     p.outputUsdPerMtok !== null ||
     p.usdPerImage !== null ||
     p.usdPerSecond !== null ||
-    p.usdPerVideo !== null
+    p.usdPerVideo !== null ||
+    p.usdPerMillionVideoTokens !== null
   );
 }
 
@@ -64,7 +67,7 @@ function hasSavedPrice(
   kind: PricedKind,
   price: Pick<
     UpsertModelPriceInput,
-    "inputUsdPerMtok" | "outputUsdPerMtok" | "usdPerImage" | "usdPerSecond" | "usdPerVideo"
+    "inputUsdPerMtok" | "outputUsdPerMtok" | "usdPerImage" | "usdPerSecond" | "usdPerVideo" | "usdPerMillionVideoTokens"
   >,
 ): boolean {
   if (kind === "text") {
@@ -77,7 +80,11 @@ function hasSavedPrice(
       price.outputUsdPerMtok !== null
     );
   }
-  return price.usdPerSecond !== null || price.usdPerVideo !== null;
+  return (
+    price.usdPerSecond != null ||
+    price.usdPerVideo != null ||
+    price.usdPerMillionVideoTokens != null
+  );
 }
 
 function replicateVideoUnits(entry: {
@@ -241,6 +248,7 @@ export async function refreshBytePlusSeedancePricing(): Promise<BytePlusSeedance
       usdPerImage: null,
       usdPerSecond: price.usdPerSecond,
       usdPerVideo: null,
+      usdPerMillionVideoTokens: null,
       variantCriteria,
       sourceUrl: pricing.sourceUrl,
       sourceCheckedAt: pricing.sourceCheckedAt,
@@ -339,6 +347,7 @@ export async function syncActivatedModelPricing(args: {
                 inputUsdPerMtok: null,
                 outputUsdPerMtok: null,
                 usdPerImage: null,
+                usdPerMillionVideoTokens: null,
                 ...units,
                 variantCriteria: entry.criteria,
               });
@@ -384,6 +393,8 @@ export async function syncActivatedModelPricing(args: {
           usdPerImage: live.usdPerImage ?? existing?.usdPerImage ?? null,
           usdPerSecond: live.usdPerSecond ?? existing?.usdPerSecond ?? null,
           usdPerVideo: live.usdPerVideo ?? existing?.usdPerVideo ?? null,
+          usdPerMillionVideoTokens:
+            live.usdPerMillionVideoTokens ?? existing?.usdPerMillionVideoTokens ?? null,
         };
         await upsertModelPrice(merged);
         if (

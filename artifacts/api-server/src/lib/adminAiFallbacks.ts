@@ -55,6 +55,7 @@ function priceFields(row: Awaited<ReturnType<typeof findModelPrice>>) {
   if (!row) return { label: "Missing price", estimate: null };
   const pairs: [number | null, string][] = [
     [row.usdPerImage, "image"], [row.usdPerSecond, "second"], [row.usdPerVideo, "video"],
+    [row.usdPerMillionVideoTokens, "1M video tokens"],
     [row.inputUsdPerMtok, "input 1M tokens"], [row.outputUsdPerMtok, "output 1M tokens"],
   ];
   const values = pairs.filter((p): p is [number, string] => p[0] !== null);

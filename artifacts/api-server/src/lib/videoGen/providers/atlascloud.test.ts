@@ -13,6 +13,7 @@ import {
   ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
   ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
   atlasCloudRequestBody,
+  atlasVideoReceipt,
   generateWithAtlasCloud,
   pinnedDownload,
   setAtlasPinnedDownloadForTest,
@@ -71,6 +72,16 @@ describe("Atlas Cloud Seedance 2.5", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("accepts only clearly labelled video-token and actual-USD receipt fields", () => {
+    expect(atlasVideoReceipt({
+      usage: { video_tokens: "250000", total_tokens: 999999 },
+      actual_cost_usd: "1.75",
+    })).toEqual({ providerReportedActualUsd: 1.75, videoTokens: 250000 });
+    expect(atlasVideoReceipt({
+      usage: { total_tokens: 999999, input_tokens: 1, output_tokens: 2 },
+    })).toEqual({});
   });
 
   it("uses the documented text and image endpoint model contracts", () => {

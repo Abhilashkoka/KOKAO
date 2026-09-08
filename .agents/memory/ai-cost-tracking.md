@@ -14,6 +14,12 @@ description: Design invariants for per-tenant real AI cost capture (superadmin r
 
 **Video costing:** price rows carry $/second and/or flat $/video; cost = measured output duration (ffprobe, returned by the render QA gate — never wall-clock durationMs) × $/second when both exist, else flat $/video, else NULL. Multi-unit video jobs bill the whole render's cost on the FIRST usage row; supplemental unit rows store costPaise 0 (not NULL) so the report never counts them as unknown. Videos add NOTHING to tenant-facing display spend until a video display rate exists — falling back to caption/image rates would be wrong.
 
+**Video-token costing:** video-token rates use their own $/1M field; never reuse text-token columns. Cost precedence is provider-reported actual USD, then explicit video tokens × token rate, then measured-duration/flat fallback. Every wrapper and durable per-provider event must preserve the receipt fields independently.
+
+**Why:** Atlas can return exact cost or video-token usage after generation. Dropping that receipt in a character, story, hybrid, or recovery wrapper silently replaces actual cost with an estimate and permanently misprices resumed work.
+
+**How to apply:** forward the typed video receipt through every result wrapper and checkpoint. Keep one receipt per provider operation; never attach an aggregate receipt to multiple scene events or infer video tokens from text usage.
+
 Known keyless stock sources (Pexels, Pixabay, Wikimedia) on stock-only topic renders are free asset provenance, not paid AI provider events. Never synthesize a price-required render event from their provider label; unknown AI providers remain fail-closed.
 
 **Token-based image costing:** image price rows may carry token prices (in+out $/1M) alongside or instead of flat $/image; cost prefers token-based when the provider reported tokens (OpenAI gpt-image-1, Gemini usageMetadata), else flat, else null. Spec is OpenAPI 3.1 — use `type: ["number","null"]`, never `nullable: true` (lint fails).

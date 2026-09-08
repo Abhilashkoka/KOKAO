@@ -11,7 +11,12 @@ import {
   currentBytePlusAssetPolicy,
 } from "../characterAssets";
 import { getMotionInstruction } from "./motionPrompt";
-import { VideoGenProviderError, type VideoAspect } from "./types";
+import {
+  videoGenReceipt,
+  VideoGenProviderError,
+  type VideoAspect,
+  type VideoGenResult,
+} from "./types";
 import type { ResolvedModelOptions } from "./modelCatalog";
 import type { Cinematography } from "./cinematography";
 import type { ImageGenResult } from "../imageGen/types";
@@ -65,7 +70,7 @@ export async function generateCharacterClip(params: {
   /** Generic enqueue-time wardrobe snapshot used by ordinary character jobs. */
   wardrobeSnapshot?: CharacterSnapshot | null;
   operationKey?: string;
-}): Promise<{ buffer: Buffer; provider: string; model: string; effectiveDurationSec?: number }> {
+}): Promise<VideoGenResult> {
   if (
     params.snapshot?.atlasAssetReferenceId != null &&
     !isAtlasGenerationReferenceId(params.snapshot.atlasAssetReferenceId)
@@ -210,6 +215,7 @@ export async function generateCharacterClip(params: {
       provider: clip.provider,
       model: clip.model,
       effectiveDurationSec: clip.effectiveDurationSec,
+      ...videoGenReceipt(clip),
     };
   }
   const reference = await loadReferenceImage(outfit.referenceImagePath, params.tenantId);
@@ -237,5 +243,6 @@ export async function generateCharacterClip(params: {
     provider: clip.provider,
     model: clip.model,
     effectiveDurationSec: clip.effectiveDurationSec,
+    ...videoGenReceipt(clip),
   };
 }

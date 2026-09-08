@@ -134,13 +134,33 @@ async function restoreSnapshots(
   await client.query("BEGIN");
   try {
     for (const snap of snapshots) {
+      // pg parses json/jsonb values into objects/arrays. Passing those arrays
+      // back directly makes pg encode a PostgreSQL array literal (for example
+      // enabled_model_ids), which PostgreSQL then rejects as invalid JSON.
+      // Discover the real JSON columns rather than stringifying all arrays:
+      // native SQL array configuration columns must remain native arrays.
+      const jsonColumns = new Set(
+        ((await client.query<{ column_name: string }>(
+          `SELECT column_name
+             FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = $1
+              AND data_type IN ('json', 'jsonb')`,
+          [snap.table],
+        )).rows ?? []).map((column) => column.column_name),
+      );
       await client.query(`DELETE FROM ${snap.table}`);
       for (const row of snap.rows) {
         const cols = snap.columns.map((c) => `"${c}"`).join(", ");
         const params = snap.columns.map((_, i) => `$${i + 1}`).join(", ");
         await client.query(
           `INSERT INTO ${snap.table} (${cols}) VALUES (${params})`,
-          snap.columns.map((c) => row[c]),
+          snap.columns.map((c) => {
+            const value = row[c];
+            return jsonColumns.has(c) && value !== null
+              ? JSON.stringify(value)
+              : value;
+          }),
         );
       }
     }

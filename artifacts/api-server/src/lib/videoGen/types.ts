@@ -158,6 +158,26 @@ export interface VideoGenResult {
   /** Sanitized provider correlation identifiers; never URLs or credentials. */
   providerTaskId?: string;
   providerRequestId?: string;
+  /** Actual USD charged, only when explicitly reported by the provider. */
+  providerReportedActualUsd?: number;
+  /** Token count explicitly identified by the provider as VIDEO tokens. */
+  videoTokens?: number;
+}
+
+/** Receipt fields that must survive every video composition/checkpoint wrapper. */
+export type VideoGenReceipt = Pick<
+  VideoGenResult,
+  "providerReportedActualUsd" | "videoTokens"
+>;
+
+/** Preserve only authoritative provider billing metadata when wrapping a render. */
+export function videoGenReceipt(result: VideoGenReceipt): VideoGenReceipt {
+  return {
+    ...(result.providerReportedActualUsd !== undefined
+      ? { providerReportedActualUsd: result.providerReportedActualUsd }
+      : {}),
+    ...(result.videoTokens !== undefined ? { videoTokens: result.videoTokens } : {}),
+  };
 }
 
 /** Thrown when the selected provider is missing its API key. */

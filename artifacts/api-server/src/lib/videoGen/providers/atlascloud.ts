@@ -31,6 +31,10 @@ interface Prediction {
   status?: unknown;
   outputs?: unknown;
   error?: unknown;
+  usage?: unknown;
+  cost_usd?: unknown;
+  actual_cost_usd?: unknown;
+  actualCostUsd?: unknown;
 }
 
 interface Envelope {
@@ -59,6 +63,43 @@ function detail(value: unknown): string {
     try { return JSON.stringify(value).slice(0, 300); } catch { /* use fallback */ }
   }
   return "unknown provider error";
+}
+
+function nonNegativeNumber(value: unknown): number | null {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
+ * Read only semantically explicit receipt fields. In particular, total_tokens,
+ * input_tokens and output_tokens are intentionally ignored because Atlas may
+ * use those names for text accounting.
+ */
+export function atlasVideoReceipt(prediction: Prediction): {
+  providerReportedActualUsd?: number;
+  videoTokens?: number;
+} {
+  const usage =
+    prediction.usage && typeof prediction.usage === "object"
+      ? prediction.usage as Record<string, unknown>
+      : {};
+  const cost = nonNegativeNumber(
+    prediction.actual_cost_usd ?? prediction.cost_usd ?? prediction.actualCostUsd,
+  );
+  const tokens = nonNegativeNumber(
+    usage.video_tokens ?? usage.video_token_count ?? usage.videoTokens ??
+      (prediction as Record<string, unknown>).video_tokens ??
+      (prediction as Record<string, unknown>).video_token_count,
+  );
+  return {
+    ...(cost !== null ? { providerReportedActualUsd: cost } : {}),
+    ...(tokens !== null ? { videoTokens: tokens } : {}),
+  };
 }
 
 async function parse(response: Response, operation: string): Promise<Prediction> {
@@ -339,5 +380,6 @@ export async function generateWithAtlasCloud(
     buffer, provider: "atlascloud", model: expected,
     effectiveDurationSec: Math.max(4, Math.min(30, Math.round(input.durationSec))),
     providerTaskId: taskId, ...(requestId ? { providerRequestId: requestId } : {}),
+    ...atlasVideoReceipt(prediction),
   };
 }

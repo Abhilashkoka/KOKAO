@@ -10121,6 +10121,11 @@ export interface AiModelPriceView {
      */
   usdPerVideo: number | null;
   /**
+     * Video models — USD per 1M provider-reported video tokens. Never used for text tokens.
+     * @nullable
+     */
+  usdPerMillionVideoTokens: number | null;
+  /**
      * Currently billable video rate after applying only an unexpired promotion.
      * @nullable
      */
@@ -10265,6 +10270,12 @@ export interface UpsertAiModelPriceRequest {
      * @nullable
      */
   usdPerVideo?: number | null;
+  /**
+     * Video models only — USD per 1M explicitly reported video tokens.
+     * @minimum 0
+     * @nullable
+     */
+  usdPerMillionVideoTokens?: number | null;
 }
 
 export type AiModelPriceImportPreviewInputKind = typeof AiModelPriceImportPreviewInputKind[keyof typeof AiModelPriceImportPreviewInputKind];

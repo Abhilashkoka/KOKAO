@@ -21,7 +21,7 @@ export type VideoPriceCriteria = Record<string, string | number | boolean>;
  * Provider prices are quoted in USD:
  *   - text models: USD per MILLION input tokens / per MILLION output tokens
  *   - image models: USD per generated image
- *   - video models: USD per second of output video and/or USD per video
+ *   - video models: USD per million VIDEO tokens, per output second, and/or per video
  * Unknown models (no matching row) yield a NULL cost on the usage event —
  * never a guessed number.
  */
@@ -52,6 +52,8 @@ export const aiModelPricesTable = pgTable(
     usdPerSecond: doublePrecision("usd_per_second"),
     /** Video models: flat USD per generated video. */
     usdPerVideo: doublePrecision("usd_per_video"),
+    /** Video models: USD per 1M provider-reported video tokens. */
+    usdPerMillionVideoTokens: doublePrecision("usd_per_million_video_tokens"),
     /** Authoritative provider page used for the latest successful refresh. */
     sourceUrl: text("source_url"),
     /** When the authoritative provider page was last fetched successfully. */

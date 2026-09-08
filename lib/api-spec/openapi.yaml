@@ -23416,6 +23416,7 @@ components:
           usdPerImage,
           usdPerSecond,
           usdPerVideo,
+          usdPerMillionVideoTokens,
           effectiveUsdPerSecond,
           sourceUrl,
           sourceCheckedAt,
@@ -23459,6 +23460,9 @@ components:
         usdPerVideo:
           type: ["number", "null"]
           description: Video models — flat USD per generated video.
+        usdPerMillionVideoTokens:
+          type: ["number", "null"]
+          description: Video models — USD per 1M provider-reported video tokens. Never used for text tokens.
         effectiveUsdPerSecond:
           type: ["number", "null"]
           description: Currently billable video rate after applying only an unexpired promotion.
@@ -23582,6 +23586,10 @@ components:
         usdPerVideo:
           type: ["number", "null"]
           minimum: 0
+        usdPerMillionVideoTokens:
+          type: ["number", "null"]
+          minimum: 0
+          description: Video models only — USD per 1M explicitly reported video tokens.
     AiModelPriceImportPreviewInput:
       type: object
       required: [sourceUrl, kind]

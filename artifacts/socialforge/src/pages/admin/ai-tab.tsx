@@ -3142,6 +3142,7 @@ export function AiCostCard() {
   const [imageUsd, setImageUsd] = useState("");
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
+  const [videoTokenUsd, setVideoTokenUsd] = useState("");
   const [variantResolution, setVariantResolution] = useState("");
   const [variantInputMode, setVariantInputMode] = useState("");
   const [variantQuality, setVariantQuality] = useState("");
@@ -3205,6 +3206,7 @@ export function AiCostCard() {
     setImageUsd("");
     setSecondUsd("");
     setVideoUsd("");
+    setVideoTokenUsd("");
     setVariantResolution("");
     setVariantInputMode("");
     setVariantQuality("");
@@ -3402,6 +3404,7 @@ export function AiCostCard() {
     const hasImagePrice = imageUsd.trim() !== "";
     const hasSecondPrice = secondUsd.trim() !== "";
     const hasVideoPrice = videoUsd.trim() !== "";
+    const hasVideoTokenPrice = videoTokenUsd.trim() !== "";
     const invalid =
       kind === "text"
         ? !validNum(inputUsd) || !validNum(outputUsd) || !hasTokenPair
@@ -3411,9 +3414,10 @@ export function AiCostCard() {
             (hasImagePrice && !validNum(imageUsd)) ||
             (hasTokenPair && (!validNum(inputUsd) || !validNum(outputUsd))) ||
             (inputUsd.trim() !== "") !== (outputUsd.trim() !== "")
-          : (!hasSecondPrice && !hasVideoPrice) ||
+          : (!hasSecondPrice && !hasVideoPrice && !hasVideoTokenPrice) ||
             (hasSecondPrice && !validNum(secondUsd)) ||
-            (hasVideoPrice && !validNum(videoUsd));
+            (hasVideoPrice && !validNum(videoUsd)) ||
+            (hasVideoTokenPrice && !validNum(videoTokenUsd));
     if (invalid) {
       toast({
         title: "Invalid price",
@@ -3422,7 +3426,7 @@ export function AiCostCard() {
             ? "Enter USD per 1M input and output tokens (0 or more)."
             : kind === "image"
               ? "Enter USD per image, or both token prices for models that report token usage."
-              : "Enter USD per second of output video, USD per video, or both.",
+              : "Enter USD per 1M video tokens, per second of output video, or per video.",
         variant: "destructive",
       });
       return;
@@ -3453,6 +3457,8 @@ export function AiCostCard() {
           usdPerImage: kind === "image" && hasImagePrice ? Number(imageUsd) : null,
           usdPerSecond: kind === "video" && hasSecondPrice ? Number(secondUsd) : null,
           usdPerVideo: kind === "video" && hasVideoPrice ? Number(videoUsd) : null,
+          usdPerMillionVideoTokens:
+            kind === "video" && hasVideoTokenPrice ? Number(videoTokenUsd) : null,
           variant: kind === "video" && Object.keys(videoVariantCriteria()).length > 0
             ? videoVariantCriteria()
             : null,
@@ -3870,6 +3876,9 @@ export function AiCostCard() {
                                     }`
                                   : null,
                                 p.usdPerVideo !== null ? `$${p.usdPerVideo} per video` : null,
+                                 p.usdPerMillionVideoTokens !== null
+                                   ? `$${p.usdPerMillionVideoTokens} per 1M video tokens`
+                                   : null,
                               ]
                                 .filter(Boolean)
                                 .join(" · ")
@@ -3900,6 +3909,11 @@ export function AiCostCard() {
                           setImageUsd(p.usdPerImage !== null ? String(p.usdPerImage) : "");
                           setSecondUsd(p.usdPerSecond !== null ? String(p.usdPerSecond) : "");
                           setVideoUsd(p.usdPerVideo !== null ? String(p.usdPerVideo) : "");
+                           setVideoTokenUsd(
+                             p.usdPerMillionVideoTokens !== null
+                               ? String(p.usdPerMillionVideoTokens)
+                               : "",
+                           );
                            setVariantResolution(typeof p.variant?.resolution === "string" ? p.variant.resolution : "");
                            setVariantInputMode(typeof p.variant?.inputMode === "string" ? p.variant.inputMode : "");
                            setVariantQuality(typeof p.variant?.quality === "string" ? p.variant.quality : "");
@@ -3993,6 +4007,20 @@ export function AiCostCard() {
                 )}
                 {kind === "video" && (
                   <>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-video-token-usd">
+                        $ / 1M video tokens
+                      </label>
+                      <Input
+                        id="price-video-token-usd"
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        value={videoTokenUsd}
+                        onChange={(e) => setVideoTokenUsd(e.target.value)}
+                        data-testid="input-price-video-token-usd"
+                      />
+                    </div>
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium" htmlFor="price-second-usd">
                         $ / second
@@ -5489,6 +5517,7 @@ export function NvidiaAdminCard() {
 function BytePlusAssetsCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [open, setOpen] = useState(false);
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const { data, isLoading } = useGetAdminBytePlusAssets({
@@ -5521,14 +5550,15 @@ function BytePlusAssetsCard() {
     mutation: { onSuccess: refresh },
   });
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>BytePlus ModelArk Asset Library</CardTitle>
-        <CardDescription>
-          Reviewed fictional portraits and liveness-verified real people. The AK/SK pair is
-          separate from the video-generation bearer token and is never returned.
-        </CardDescription>
-      </CardHeader>
+    <Card data-testid="card-byteplus-assets">
+      <CollapsibleCardHeader
+        title="BytePlus ModelArk Asset Library"
+        description="Reviewed fictional portraits and liveness-verified real people. The AK/SK pair is separate from the video-generation bearer token and is never returned."
+        open={open}
+        onToggle={() => setOpen((current) => !current)}
+        testId="toggle-byteplus-assets-card"
+      />
+      {open && (
       <CardContent className="space-y-4">
         {isLoading ? <Skeleton className="h-10 w-full" /> : (
           <>
@@ -5603,6 +5633,7 @@ function BytePlusAssetsCard() {
           </>
         )}
       </CardContent>
+      )}
     </Card>
   );
 }

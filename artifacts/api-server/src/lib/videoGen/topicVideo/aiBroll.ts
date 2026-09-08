@@ -14,7 +14,13 @@ import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import { appendCreativeFragment } from "../creativeBrief";
 import type { Cinematography } from "../cinematography";
-import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
+import {
+  ASPECT_DIMENSIONS,
+  videoGenReceipt,
+  VideoGenProviderError,
+  type VideoAspect,
+  type VideoGenReceipt,
+} from "../types";
 import { clipDurationForScene, type ScriptScene } from "./characterScenes";
 import type { SceneSegment } from "./compose";
 import { characterScenePrompt } from "./characterMotion";
@@ -421,7 +427,7 @@ export async function animateBrollStills(params: {
    * silent clip, and undefined preserves the caller's existing model setting.
    */
   nativeAudio?: boolean;
-  onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
+  onCheckpoint?: (args: VideoGenReceipt & { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
   /**
    * Generated-storyboard-only hook. Identity-backed callers omit it and fail
    * closed rather than silently changing a real person's image.
@@ -475,6 +481,7 @@ export async function animateBrollStills(params: {
       await params.onCheckpoint?.({
         sceneIndex: i, buffer: clip.buffer, provider, model,
         durationSec: clip.effectiveDurationSec ?? durationSec,
+        ...videoGenReceipt(clip),
       });
       return clip.buffer;
     };

@@ -25,7 +25,13 @@ import {
   MAX_SLIDE_SECONDS,
   MAX_SLIDESHOW_IMAGES,
 } from "./slideshow";
-import { VideoGenProviderError, type SourceImage, type VideoAspect } from "./types";
+import {
+  videoGenReceipt,
+  VideoGenProviderError,
+  type SourceImage,
+  type VideoAspect,
+  type VideoGenReceipt,
+} from "./types";
 import {
   assetRefsForOutfit,
   atlasAssetRefsForOutfit,
@@ -500,7 +506,7 @@ export interface ClipStoryboardRenderParams {
   /** Reads photos and keyframes back out of tenant storage. */
   load: (objectPath: string) => Promise<{ buffer: Buffer; mimeType: string }>;
   onStage?: (stage: string) => void;
-  onCheckpoint?: (args: {
+  onCheckpoint?: (args: VideoGenReceipt & {
     sceneIndex: number;
     buffer: Buffer;
     provider: string;
@@ -693,6 +699,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
         provider: result.provider,
         model: result.model,
         durationSec: result.effectiveDurationSec ?? durations[i]!,
+        ...videoGenReceipt(result),
       });
     }
     provider = result.provider;

@@ -2153,6 +2153,7 @@ async function serializeAiCostConfig() {
       usdPerImage: p.usdPerImage,
       usdPerSecond: p.usdPerSecond,
       usdPerVideo: p.usdPerVideo,
+      usdPerMillionVideoTokens: p.usdPerMillionVideoTokens,
       effectiveUsdPerSecond: effectiveVideoUsdPerSecond(p),
       sourceUrl: p.sourceUrl,
       sourceCheckedAt: p.sourceCheckedAt?.toISOString() ?? null,
@@ -2448,6 +2449,7 @@ interface ModelPriceFields {
   usdPerImage?: number | null;
   usdPerSecond?: number | null;
   usdPerVideo?: number | null;
+  usdPerMillionVideoTokens?: number | null;
   variant?: Record<string, string | number | boolean> | null;
 }
 
@@ -2466,9 +2468,10 @@ function normalizeModelPrice(data: ModelPriceFields) {
   }
   // Video rows may be per-second (most Replicate video models), flat
   // per-video, or both.
-  if (data.kind === "video" && data.usdPerSecond == null && data.usdPerVideo == null) {
+  if (data.kind === "video" && data.usdPerSecond == null && data.usdPerVideo == null &&
+      data.usdPerMillionVideoTokens == null) {
     return {
-      error: "Video model prices need a USD per second amount, a USD per video amount, or both.",
+      error: "Video model prices need USD per 1M video tokens, USD per second, or USD per video.",
     };
   }
   return {
@@ -2481,6 +2484,8 @@ function normalizeModelPrice(data: ModelPriceFields) {
     usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
     usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
     usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
+    usdPerMillionVideoTokens:
+      data.kind === "video" ? (data.usdPerMillionVideoTokens ?? null) : null,
     variant: data.kind === "video" ? (data.variant ?? null) : null,
     // An explicit admin save is authoritative and must not inherit a previous
     // provider promotion or source timestamp from the row it replaces.
@@ -2538,7 +2543,7 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
   await auditAiCostChange(
     req,
     null,
-    `${row.kind}:${row.provider}/${row.model} variant=${row.variantKey || "default"} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
+    `${row.kind}:${row.provider}/${row.model} variant=${row.variantKey || "default"} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"} videoMtok=${row.usdPerMillionVideoTokens ?? "-"}`,
   );
   triggerModelPriceTrueUp(req, row);
   res.json(await serializeAiCostConfig());
