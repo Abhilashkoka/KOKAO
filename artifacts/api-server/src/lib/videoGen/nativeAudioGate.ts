@@ -1,4 +1,5 @@
 import type { GuidedStoryLocale, GuidedStoryScript } from "@workspace/db";
+import { transliterate } from "transliteration";
 
 export type NativeAudioAssessment =
   | { outcome: "pass"; detectedLocale: GuidedStoryLocale | null }
@@ -40,6 +41,16 @@ export function guidedSpokenText(script: GuidedStoryScript): string {
   return script.scenes
     .flatMap((scene) => [...scene.lines].sort((a, b) => a.startMs - b.startMs))
     .map((line) => line.text.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function guidedSpokenPhoneticText(script: GuidedStoryScript): string {
+  return script.scenes
+    .flatMap((scene) => [...scene.lines].sort((a, b) => a.startMs - b.startMs))
+    .map((line) =>
+      line.romanizedPronunciation?.trim() || line.text.trim()
+    )
     .filter(Boolean)
     .join(" ");
 }
@@ -94,27 +105,70 @@ function normalizeProviderLanguage(value: string | null | undefined): string | n
   return /^[a-z]{2,3}$/.test(normalized) ? normalized : null;
 }
 
-function dialogueSimilarity(expected: string, actual: string): number {
-  const expectedWords = normalizedWords(expected);
-  const actualWords = normalizedWords(actual);
-  if (expectedWords.length === 0) return 1;
-  const prior = new Array<number>(actualWords.length + 1).fill(0);
-  for (const expectedWord of expectedWords) {
+function orderedSimilarity<T>(expected: T[], actual: T[]): number {
+  if (expected.length === 0) return 1;
+  const prior = new Array<number>(actual.length + 1).fill(0);
+  for (const expectedItem of expected) {
     let diagonal = 0;
-    for (let index = 1; index <= actualWords.length; index++) {
+    for (let index = 1; index <= actual.length; index++) {
       const above = prior[index]!;
-      prior[index] = expectedWord === actualWords[index - 1]
+      prior[index] = expectedItem === actual[index - 1]
         ? diagonal + 1
         : Math.max(prior[index]!, prior[index - 1]!);
       diagonal = above;
     }
   }
-  const orderedMatches = prior[actualWords.length]!;
-  return (2 * orderedMatches) / (expectedWords.length + actualWords.length);
+  const orderedMatches = prior[actual.length]!;
+  return (2 * orderedMatches) / (expected.length + actual.length);
+}
+
+function phoneticCharacters(text: string): string[] {
+  const normalized = transliterate(text)
+    .normalize("NFKD")
+    .toLocaleLowerCase()
+    // Collapse common romanization choices before removing vowels. This is
+    // deliberately lossy: the sequence comparison below remains strict enough
+    // to reject reordered or unrelated speech while tolerating ASR spelling,
+    // word-boundary, and cross-Indic-script variation.
+    .replaceAll("ph", "f")
+    .replaceAll("bh", "b")
+    .replaceAll("dh", "d")
+    .replaceAll("th", "t")
+    .replaceAll("kh", "k")
+    .replaceAll("gh", "g")
+    .replaceAll("ch", "c")
+    .replaceAll("sh", "s")
+    .replaceAll("zh", "l")
+    .replaceAll("c", "k")
+    .replaceAll("q", "k")
+    .replaceAll("w", "v")
+    .replaceAll("x", "ks")
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/[aeiouy]/g, "")
+    .replace(/(.)\1+/g, "$1");
+  return [...normalized];
+}
+
+function dialogueSimilarity(
+  expected: string,
+  actual: string,
+  expectedPhoneticDialogue?: string,
+): number {
+  const exactWordScore = orderedSimilarity(
+    normalizedWords(expected),
+    normalizedWords(actual),
+  );
+  if (!expectedPhoneticDialogue?.trim()) return exactWordScore;
+  const phoneticScore = orderedSimilarity(
+    phoneticCharacters(expectedPhoneticDialogue),
+    phoneticCharacters(actual),
+  );
+  return Math.max(exactWordScore, phoneticScore);
 }
 
 function transcriptAnalysis(args: {
   expectedDialogue: string;
+  expectedPhoneticDialogue?: string;
   transcript: string;
   providerDetectedLanguage?: string | null;
 }) {
@@ -122,13 +176,18 @@ function transcriptAnalysis(args: {
     providerDetectedLocale: normalizeProviderLanguage(args.providerDetectedLanguage),
     transcriptDetectedLocale: detectTranscriptLocale(args.transcript),
     transcriptWordCount: normalizedWords(args.transcript).length,
-    dialogueSimilarity: dialogueSimilarity(args.expectedDialogue, args.transcript),
+    dialogueSimilarity: dialogueSimilarity(
+      args.expectedDialogue,
+      args.transcript,
+      args.expectedPhoneticDialogue,
+    ),
   };
 }
 
 /** Bounded diagnostics only: no transcript text or arbitrary provider payload. */
 export function nativeAudioTranscriptDiagnostics(args: {
   expectedDialogue: string;
+  expectedPhoneticDialogue?: string;
   transcript: string;
   providerDetectedLanguage?: string | null;
 }) {
@@ -142,6 +201,7 @@ export function nativeAudioTranscriptDiagnostics(args: {
 export function assessNativeAudioTranscript(args: {
   expectedLocale: GuidedStoryLocale;
   expectedDialogue: string;
+  expectedPhoneticDialogue?: string;
   transcript: string;
   providerDetectedLanguage?: string | null;
 }): NativeAudioAssessment {

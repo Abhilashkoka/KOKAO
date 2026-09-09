@@ -8344,6 +8344,243 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     expect(retry.body.error).toMatch(/start a fresh video attempt/i);
   });
 
+  async function seedHistoricalIndicNativeAudioFailure(
+    tenantId: number,
+    corruption?: "missing_checkpoint" | "duplicate_event",
+  ) {
+    const sceneCount = corruption === "duplicate_event" ? 2 : 1;
+    const guidedStory: NonNullable<VideoJobOptions["guidedStory"]> = {
+      version: 1,
+      draftId: 73061,
+      draftRevision: 1,
+      scriptApprovedAt: "2026-01-01T00:00:00.000Z",
+      locale: "te",
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: sceneCount * 5,
+      },
+      script: {
+        version: 1,
+        title: "Historical Telugu dialogue",
+        logline: "A saved direct render is checked again.",
+        runtimeSeconds: sceneCount * 5,
+        warnings: [],
+        roles: [],
+        scenes: Array.from({ length: sceneCount }, (_, index) => ({
+          id: `scene-${index + 1}`,
+          startMs: index * 5_000,
+          endMs: (index + 1) * 5_000,
+          visualDirection: `Saved scene ${index + 1}`,
+          roleIds: [],
+          lines: [{
+            id: `line-${index + 1}`,
+            ownerRoleId: null,
+            kind: "dialogue" as const,
+            text: "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం",
+            romanizedPronunciation:
+              "Mana chinna tara kosam enta duramaina veltam.",
+            startMs: index * 5_000,
+            endMs: (index + 1) * 5_000,
+          }],
+        })),
+      },
+      cast: [],
+    };
+    const storyboard = guidedStoryStoryboard(guidedStory);
+    storyboard.scenes.forEach((scene, index) => {
+      if (corruption === "missing_checkpoint" && index === 0) return;
+      scene.providerCheckpoint = {
+        path: `/objects/${tenantId}/video/saved-${index + 1}.mp4`,
+        provider: "higgsfield",
+        model: "veo3.1/fast/image-to-video",
+        durationSec: 5,
+        event: {
+          eventId:
+            corruption === "duplicate_event"
+              ? "historical-native-scene"
+              : `historical-native-scene-${index + 1}`,
+          provider: "higgsfield",
+          model: "veo3.1/fast/image-to-video",
+          durationSec: 5,
+          requestBytes: 100,
+          label: `topic_scene:${scene.id}`,
+          costPaise: 100,
+          accounted: true,
+        },
+      };
+    });
+    const options: VideoJobOptions = {
+      aspectRatio: "9:16",
+      modelId: "higgsfield-veo-3.1-fast",
+      generateAudio: true,
+      guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+      guidedStory,
+      resolvedVideoModel: {
+        version: 1,
+        source: "explicit",
+        mode: "image",
+        provider: "higgsfield",
+        model: "veo3.1/fast/image-to-video",
+        catalogModelId: "higgsfield-veo-3.1-fast",
+        durationSec: 5,
+        permittedDurationSec: [5],
+        resolution: "720p",
+        quality: null,
+        generateAudio: true,
+        supportsEndFrame: false,
+      },
+      guidedNativeAudioQa: {
+        version: 1,
+        checkedAt: "2026-01-01T00:00:01.000Z",
+        asrProvider: "groq",
+        asrModel: "whisper-large-v3",
+        expectedLocale: "te",
+        providerDetectedLocale: "ta",
+        transcriptDetectedLocale: "ta",
+        transcriptWordCount: 8,
+        dialogueSimilarity: 0.2,
+        outcome: "dialogue_drift",
+      },
+    };
+    return (
+      await db.insert(videoGenerationsTable).values({
+        tenantId,
+        engine: "topic_to_video",
+        status: "failed",
+        prompt: "Historical Telugu direct video",
+        options,
+        storyboard,
+        funding: "wallet",
+        error: "Structured historical native-audio failure.",
+        errorHistory: [{
+          jobId: 73061,
+          jobNumber: 1,
+          scope: "job",
+          occurredAt: "2026-01-01T00:00:02.000Z",
+          sceneNumber: null,
+          displayNumber: null,
+          sceneId: null,
+          operation: "Checking spoken language",
+          provider: "higgsfield",
+          model: "veo3.1/fast/image-to-video",
+          providerRequestId: null,
+          code: "native_audio_dialogue_drift",
+          message: "Structured historical native-audio failure.",
+          attempt: 1,
+          recoveryAttempt: 0,
+          outcome: "stopped",
+          fingerprint: "historical-indic-dialogue-drift",
+        }],
+      }).returning()
+    )[0]!;
+  }
+
+  it("creates a zero-funded verification-only child without touching wallet, credits, or quota", async () => {
+    const tenant = await newTenant("pro");
+    await db.insert(walletBalancesTable).values({
+      tenantId: tenant.tenantId,
+      balancePaise: 12_345,
+    });
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 3,
+      kind: "admin_grant",
+      note: "verification-only test",
+    });
+    const source = await seedHistoricalIndicNativeAudioFailure(tenant.tenantId);
+    const [walletBefore, creditsBefore, usageBefore, operationsBefore] =
+      await Promise.all([
+        db.select().from(walletBalancesTable)
+          .where(eq(walletBalancesTable.tenantId, tenant.tenantId)),
+        getCreditBalances(tenant.tenantId),
+        getUsage(tenant.tenantId),
+        db.select().from(walletProviderOperationsTable)
+          .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId)),
+      ]);
+
+    const serialized = await request(app).get(`/api/ai/video-jobs/${source.id}`);
+    expect(serialized.status).toBe(200);
+    expect(serialized.body.retryable).toBe(true);
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/retry`);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.units).toBe(0);
+    expect(response.body.recovery.verificationOnly).toEqual({
+      version: 1,
+      reason: "indic_cross_script_asr_recheck",
+    });
+    const [child] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, response.body.id));
+    expect(child?.options?.recovery).toMatchObject({
+      sourceJobId: source.id,
+      fundedUnits: 0,
+      state: "queued",
+      verificationOnly: {
+        version: 1,
+        reason: "indic_cross_script_asr_recheck",
+      },
+    });
+    expect(child).toMatchObject({
+      funding: null,
+      walletReservationId: null,
+      walletReservedPaise: null,
+      walletReservedUnits: null,
+    });
+    const [walletAfter, creditsAfter, usageAfter, operationsAfter] =
+      await Promise.all([
+        db.select().from(walletBalancesTable)
+          .where(eq(walletBalancesTable.tenantId, tenant.tenantId)),
+        getCreditBalances(tenant.tenantId),
+        getUsage(tenant.tenantId),
+        db.select().from(walletProviderOperationsTable)
+          .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId)),
+      ]);
+    expect(walletAfter).toEqual(walletBefore);
+    expect(creditsAfter).toEqual(creditsBefore);
+    expect(usageAfter).toEqual(usageBefore);
+    expect(operationsAfter).toEqual(operationsBefore);
+    expect(runnerState.calls).toContainEqual({
+      jobId: child!.id,
+      funding: "quota",
+    });
+  });
+
+  it.each([
+    ["missing", "missing_checkpoint"],
+    ["malformed duplicate-event", "duplicate_event"],
+  ] as const)(
+    "keeps a %s historical checkpoint on the fresh-restart path",
+    async (_label, corruption) => {
+      const tenant = await newTenant("pro");
+      const source = await seedHistoricalIndicNativeAudioFailure(
+        tenant.tenantId,
+        corruption,
+      );
+
+      const response = await request(app)
+        .post(`/api/ai/video-jobs/${source.id}/retry`);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        code: "recovery_requires_fresh_restart",
+      });
+      expect(runnerState.calls).toHaveLength(0);
+      const children = await db.select().from(videoGenerationsTable)
+        .where(and(
+          eq(videoGenerationsTable.tenantId, tenant.tenantId),
+          ne(videoGenerationsTable.id, source.id),
+        ));
+      expect(children).toHaveLength(0);
+    },
+  );
+
   it("allows only one concurrent child and funds only missing operations", async () => {
     const tenant = await newTenant("pro");
     const source = await seedFailed(tenant, 1);

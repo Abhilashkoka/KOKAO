@@ -78,6 +78,42 @@ describe("native Guided audio assessment", () => {
     });
   });
 
+  it("accepts locale-hinted Telugu with ordered phonetic ASR spelling noise", () => {
+    const expectedDialogue =
+      "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం";
+    const expectedPhoneticDialogue =
+      "Mana chinna tara kosam enta duramaina veltam.";
+    const transcript =
+      "మంచిన్ని తార్ కిలన ఏరదురమణన వెత్తమ్";
+
+    expect(assessNativeAudioTranscript({
+      expectedLocale: "te",
+      expectedDialogue,
+      expectedPhoneticDialogue,
+      transcript,
+      providerDetectedLanguage: "Telugu",
+    })).toEqual({ outcome: "pass", detectedLocale: "te" });
+    expect(nativeAudioTranscriptDiagnostics({
+      expectedDialogue,
+      expectedPhoneticDialogue,
+      transcript,
+      providerDetectedLanguage: "Telugu",
+    }).dialogueSimilarity).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("does not accept reordered Telugu on phonetic similarity alone", () => {
+    expect(assessNativeAudioTranscript({
+      expectedLocale: "te",
+      expectedDialogue:
+        "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం ఆశకు ఆకాశమే హద్దు కాదు",
+      expectedPhoneticDialogue:
+        "Mana chinna tara kosam enta duramaina veltam aashaku akashame haddu kaadu",
+      transcript:
+        "ఆశకు ఆకాశమే హద్దు కాదు మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం",
+      providerDetectedLanguage: "Telugu",
+    }).outcome).toBe("dialogue_drift");
+  });
+
   it("rejects clips with no transcribed speech", () => {
     expect(assessNativeAudioTranscript({
       expectedLocale: "en",

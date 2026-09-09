@@ -169,6 +169,11 @@ const state = vi.hoisted(() => ({
   asrTranscript: "We will complete rescue step 1 safely together.",
   asrDetectedLanguage: "en" as string | null,
   asrCalls: 0,
+  asrLanguages: [] as Array<string | null>,
+  asrResponsesByLanguage: new Map<
+    string,
+    { text: string; detectedLanguage: string | null }
+  >(),
 }));
 
 function pcmWav(seconds = 2): Buffer {
@@ -192,14 +197,21 @@ vi.mock("../featureFlags", async (importOriginal) => {
 });
 
 vi.mock("../asr", () => ({
-  transcribeAudio: vi.fn(async () => {
+  transcribeAudio: vi.fn(async (input: { language?: string }) => {
     state.asrCalls += 1;
+    state.asrLanguages.push(input.language ?? null);
+    const response = input.language
+      ? state.asrResponsesByLanguage.get(input.language)
+      : undefined;
     return {
-      text: state.asrTranscript,
+      text: response?.text ?? state.asrTranscript,
       provider: "test-asr",
       model: "test-asr-model",
-      ...(state.asrDetectedLanguage
-        ? { detectedLanguage: state.asrDetectedLanguage }
+      ...((response?.detectedLanguage ?? state.asrDetectedLanguage)
+        ? {
+            detectedLanguage:
+              response?.detectedLanguage ?? state.asrDetectedLanguage!,
+          }
         : {}),
     };
   }),
@@ -1081,6 +1093,8 @@ beforeEach(() => {
   state.asrTranscript = "We will complete rescue step 1 safely together.";
   state.asrDetectedLanguage = "en";
   state.asrCalls = 0;
+  state.asrLanguages.length = 0;
+  state.asrResponsesByLanguage.clear();
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -4273,9 +4287,48 @@ describe("Guided Story preview-only runner", () => {
     expect(state.asrCalls).toBe(2);
   });
 
+  it("blocks verification-only recovery before provider dispatch when a scene checkpoint is missing", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    snapshot.locale = "te";
+    const options = directNativeOptions(snapshot);
+    options.guidedStory!.locale = "te";
+    options.recovery = {
+      version: 1,
+      chainId: 73061,
+      sourceJobId: 73061,
+      fundedUnits: 0,
+      mode: "resume",
+      state: "queued",
+      reusable: ["saved scene checkpoints"],
+      regenerated: ["local composition and speech verification"],
+      verificationOnly: {
+        version: 1,
+        reason: "indic_cross_script_asr_recheck",
+      },
+    };
+    const storyboard = guidedStoryStoryboard(options.guidedStory!);
+    storyboard.scenes[0]!.providerCheckpoint = null;
+    const providerCallsBefore = state.topicCheckpointed.length;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard,
+      options,
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.error).toMatch(
+      /verification-only native-audio recovery is missing a validated saved checkpoint.*no video provider call was made/i,
+    );
+    expect(state.topicCheckpointed).toHaveLength(providerCallsBefore);
+  });
+
   it("fails wrong-language native speech after preserving its provider receipt", async () => {
     const tenant = await newTenant();
-    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
     state.guidedInitialBoard = guidedStoryStoryboard({ ...snapshot, locale: "en" });
     state.topicPlanMode = "ai";
     state.asrTranscript = "El diálogo se pronunció en el idioma equivocado.";
@@ -4316,6 +4369,49 @@ describe("Guided Story preview-only runner", () => {
     const saved = await readJob(job.id);
     expect(saved.status, saved.error ?? undefined).toBe("succeeded");
     expect(state.asrCalls).toBe(1);
+  });
+
+  it("rechecks cross-script Indic ASR with the frozen locale before rejecting native dialogue", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    snapshot.locale = "te";
+    snapshot.script.scenes[0]!.lines[0]!.text =
+      "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం";
+    snapshot.script.scenes[0]!.lines[0]!.romanizedPronunciation =
+      "Mana chinna tara kosam enta duramaina veltam.";
+    state.guidedInitialBoard = guidedStoryStoryboard(snapshot);
+    state.topicPlanMode = "ai";
+    state.asrTranscript =
+      "மன சின்ன தார கோசம் என்த தூரமைன வெள்தாம்";
+    state.asrDetectedLanguage = "ta";
+    state.asrResponsesByLanguage.set("te", {
+      text: "మంచిన్ని తార్ కిలన ఏరదురమణన వెత్తమ్",
+      detectedLanguage: "te",
+    });
+    const options = directNativeOptions(snapshot);
+    options.guidedStory!.locale = "te";
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options,
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status, saved.error ?? undefined).toBe("succeeded");
+    expect(state.asrCalls).toBe(2);
+    expect(state.asrLanguages).toEqual([null, "te"]);
+    expect(saved.options?.guidedNativeAudioQa).toMatchObject({
+      outcome: "pass",
+      expectedLocale: "te",
+      transcriptDetectedLocale: "te",
+      dialogueSimilarity: expect.any(Number),
+      transcriptionMode: "locale_hinted",
+    });
+    expect(
+      saved.options?.guidedNativeAudioQa?.dialogueSimilarity ?? 0,
+    ).toBeGreaterThanOrEqual(0.75);
   });
 
   it("reports changed native dialogue separately from wrong-language speech", async () => {

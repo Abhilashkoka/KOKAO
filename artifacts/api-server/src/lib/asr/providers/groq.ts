@@ -23,6 +23,9 @@ export async function transcribeWithGroq(
     input.filename,
   );
   form.append("model", GROQ_MODEL);
+  if (input.language?.trim()) {
+    form.append("language", input.language.trim());
+  }
   // verbose_json is the only Whisper format that carries segment timings; it
   // costs a larger payload, so only the callers that need a spine ask for it.
   form.append("response_format", input.timestamps || input.detectLanguage ? "verbose_json" : "json");

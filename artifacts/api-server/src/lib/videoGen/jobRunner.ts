@@ -198,6 +198,7 @@ import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
 import {
   assessNativeAudioTranscript,
+  guidedSpokenPhoneticText,
   guidedSpokenText,
   nativeAudioTranscriptDiagnostics,
   NativeAudioQualityError,
@@ -1856,6 +1857,45 @@ async function produceVideo(
   onStage: (stage: string) => void,
 ): Promise<ProduceResult> {
   const options = job.options ?? { aspectRatio: "9:16" as const };
+  const verificationOnly =
+    options.recovery?.verificationOnly?.version === 1 &&
+    options.recovery.verificationOnly.reason ===
+      "indic_cross_script_asr_recheck";
+  if (verificationOnly) {
+    const board = job.storyboard;
+    const eventIds = new Set<string>();
+    const invalidScene = board?.scenes.find((scene) => {
+      const checkpoint = scene.providerCheckpoint;
+      const path = checkpoint?.path?.trim();
+      const event = checkpoint?.event;
+      const eventId = event?.eventId?.trim();
+      const invalid =
+        !path ||
+        !path.startsWith(`/objects/${job.tenantId}/`) ||
+        !eventId ||
+        !event?.provider?.trim() ||
+        !event.model?.trim() ||
+        !event.label?.trim() ||
+        event?.accounted !== true ||
+        eventIds.has(eventId);
+      if (eventId) eventIds.add(eventId);
+      return invalid;
+    });
+    if (
+      job.engine !== "topic_to_video" ||
+      options.recovery?.fundedUnits !== 0 ||
+      !board ||
+      board.mode !== "guided_story" ||
+      board.scenes.length === 0 ||
+      options.guidedStoryIntrinsicLipSync != null ||
+      options.studioLipSync != null ||
+      invalidScene
+    ) {
+      throw new VideoJobInputError(
+        `Verification-only native-audio recovery is missing a validated saved checkpoint${invalidScene ? ` for scene ${invalidScene.id}` : ""}; no video provider call was made.`,
+      );
+    }
+  }
   const aspectRatio = options.aspectRatio ?? "9:16";
   // The model-shaped half of the options, resolved once: which catalog model
   // (if any), the duration snapped to a length it renders, and the
@@ -5154,13 +5194,25 @@ export async function runVideoGenerationJob(
   const claimed = (
     await db
       .update(videoGenerationsTable)
-      .set({ status: "processing", stage: "Getting started", funding })
+      .set({
+        status: "processing",
+        stage: "Getting started",
+        funding: sql`case
+          when ${videoGenerationsTable.options}->'recovery'->'verificationOnly'->>'reason' = 'indic_cross_script_asr_recheck'
+          then null
+          else ${funding}
+        end`,
+      })
       .where(and(eq(videoGenerationsTable.id, jobId), eq(videoGenerationsTable.status, "queued")))
       .returning()
   )[0];
   if (!claimed) return;
   const guided = claimed.options?.guidedStory;
-  if (guided) {
+  const verificationOnly =
+    claimed.options?.recovery?.verificationOnly?.version === 1 &&
+    claimed.options.recovery.verificationOnly.reason ===
+      "indic_cross_script_asr_recheck";
+  if (guided && !verificationOnly) {
     const invalid =
       !guidedStoryBackdropsAreApproved(guided) ||
       (claimed.storyboard != null && (() => {
@@ -6538,6 +6590,7 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
   const snapshot = job.options?.guidedStory;
   if (!snapshot?.locale || !usesGuidedProviderSpeechOptions(job.options)) return;
   const expectedDialogue = guidedSpokenText(snapshot.script);
+  const expectedPhoneticDialogue = guidedSpokenPhoneticText(snapshot.script);
   if (!expectedDialogue.trim()) return;
 
   let audio: Buffer;
@@ -6570,17 +6623,60 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
       `The completed video's spoken language could not be verified before delivery. The completed provider work was saved; retry when speech verification is available.`,
     );
   }
-  const assessment = assessNativeAudioTranscript({
+  let selectedTranscript = transcript;
+  let assessment = assessNativeAudioTranscript({
     expectedLocale: snapshot.locale,
     expectedDialogue,
+    expectedPhoneticDialogue,
     transcript: transcript.text,
     providerDetectedLanguage: transcript.detectedLanguage,
   });
-  const diagnostics = nativeAudioTranscriptDiagnostics({
+  let diagnostics = nativeAudioTranscriptDiagnostics({
     expectedDialogue,
+    expectedPhoneticDialogue,
     transcript: transcript.text,
     providerDetectedLanguage: transcript.detectedLanguage,
   });
+  let transcriptionMode: "automatic" | "locale_hinted" = "automatic";
+  if (
+    assessment.outcome !== "pass" &&
+    assessment.outcome !== "no_speech" &&
+    ["te", "ta", "hi"].includes(snapshot.locale)
+  ) {
+    let hintedTranscript;
+    try {
+      hintedTranscript = await transcribeAudio({
+        buffer: audio,
+        mimeType: "audio/wav",
+        filename: `guided-native-audio-${job.id}-${snapshot.locale}.wav`,
+        detectLanguage: true,
+        language: snapshot.locale,
+      });
+    } catch {
+      throw new NativeAudioQualityError(
+        "native_audio_unverified",
+        `The completed video's spoken language could not be verified before delivery. The completed provider work was saved; retry when speech verification is available.`,
+      );
+    }
+    const hintedAssessment = assessNativeAudioTranscript({
+      expectedLocale: snapshot.locale,
+      expectedDialogue,
+      expectedPhoneticDialogue,
+      transcript: hintedTranscript.text,
+      providerDetectedLanguage: hintedTranscript.detectedLanguage,
+    });
+    if (hintedAssessment.outcome === "pass") {
+      selectedTranscript = hintedTranscript;
+      assessment = hintedAssessment;
+      diagnostics = nativeAudioTranscriptDiagnostics({
+        expectedDialogue,
+        expectedPhoneticDialogue,
+        transcript: hintedTranscript.text,
+        providerDetectedLanguage: hintedTranscript.detectedLanguage,
+      });
+      transcriptionMode = "locale_hinted";
+    }
+  }
   const latestOptions = structuredClone(
     (
       await db.select({ options: videoGenerationsTable.options })
@@ -6592,8 +6688,9 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
   latestOptions.guidedNativeAudioQa = {
     version: 1,
     checkedAt: new Date().toISOString(),
-    asrProvider: transcript.provider.slice(0, 120),
-    asrModel: transcript.model.slice(0, 120),
+    asrProvider: selectedTranscript.provider.slice(0, 120),
+    asrModel: selectedTranscript.model.slice(0, 120),
+    transcriptionMode,
     expectedLocale: snapshot.locale,
     providerDetectedLocale: diagnostics.providerDetectedLocale,
     transcriptDetectedLocale: diagnostics.transcriptDetectedLocale,
@@ -7230,7 +7327,12 @@ async function executeVideoJob(
 
   try {
     const guidedSnapshot = job.options?.guidedStory;
+    const verificationOnly =
+      job.options?.recovery?.verificationOnly?.version === 1 &&
+      job.options.recovery.verificationOnly.reason ===
+        "indic_cross_script_asr_recheck";
     if (
+      !verificationOnly &&
       guidedSnapshot &&
       !guidedCastApprovalsMatch({
         draftRevision: guidedSnapshot.draftRevision,
@@ -7240,13 +7342,16 @@ async function executeVideoJob(
     ) {
       throw new VideoJobInputError(GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE);
     }
-    if (guidedSnapshot) {
+    if (guidedSnapshot && !verificationOnly) {
       await verifyGuidedBackdropBytesBeforeRender(guidedSnapshot, job.tenantId);
     }
     // The long-standing Video Studio master switch overrides every engine,
     // including lip sync. Re-check it here so a queued or paused job cannot
     // outlive an admin shutdown and spend after the whole studio is disabled.
-    if (!(await isFeatureEnabled("videoGen").catch(() => true))) {
+    if (
+      !verificationOnly &&
+      !(await isFeatureEnabled("videoGen").catch(() => true))
+    ) {
       throw new VideoJobInputError("Video Studio is currently turned off.");
     }
     // Re-check at execution time so jobs queued just before an admin flips a
@@ -7255,6 +7360,7 @@ async function executeVideoJob(
     const modeFeature = videoModeFeature(job.engine);
     if (
       modeFeature &&
+      !verificationOnly &&
       !(await isFeatureEnabled(modeFeature).catch(() => true))
     ) {
       throw new VideoJobInputError(VIDEO_MODE_DISABLED_MESSAGES[modeFeature]);

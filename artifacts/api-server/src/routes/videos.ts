@@ -1036,6 +1036,82 @@ function requiresFreshRestartAfterNativeAudioFailure(job: VideoGeneration): bool
   return latest != null && NATIVE_AUDIO_FRESH_RESTART_CODES.has(latest);
 }
 
+const INDIC_NATIVE_AUDIO_RECHECK_CODES = new Map([
+  ["native_audio_wrong_language", "wrong_language"],
+  ["native_audio_dialogue_drift", "dialogue_drift"],
+] as const);
+
+function historicalIndicNativeAudioRecheckEligible(
+  job: VideoGeneration,
+  inventory = videoRecoveryInventory(job),
+): boolean {
+  const latest = job.errorHistory?.at(-1);
+  const expectedOutcome = latest
+    ? INDIC_NATIVE_AUDIO_RECHECK_CODES.get(
+        latest.code as "native_audio_wrong_language" | "native_audio_dialogue_drift",
+      )
+    : undefined;
+  const options = job.options;
+  const qa = options?.guidedNativeAudioQa;
+  const board = job.storyboard;
+  if (
+    job.engine !== "topic_to_video" ||
+    options?.guidedStoryRenderFlow?.version !== 1 ||
+    options.guidedStoryRenderFlow.mode !== "direct_video" ||
+    !options.guidedStory ||
+    !usesGuidedNativeAudio(options) ||
+    !qa ||
+    qa.version !== 1 ||
+    !["te", "ta", "hi"].includes(qa.expectedLocale) ||
+    options.guidedStory.locale !== qa.expectedLocale ||
+    qa.outcome !== expectedOutcome ||
+    (qa.transcriptionMode != null && qa.transcriptionMode !== "automatic") ||
+    !Number.isInteger(qa.transcriptWordCount) ||
+    qa.transcriptWordCount <= 0 ||
+    !board ||
+    board.mode !== "guided_story" ||
+    board.scenes.length === 0 ||
+    options.guidedStoryIntrinsicLipSync != null ||
+    options.studioLipSync != null ||
+    Object.keys(options.providerTasks ?? {}).length > 0 ||
+    !Number.isFinite(inventory.units) ||
+    !Number.isInteger(inventory.units) ||
+    inventory.units !== 0
+  ) {
+    return false;
+  }
+  const eventIds = new Set<string>();
+  return board.scenes.every((scene) => {
+    const checkpoint = scene.providerCheckpoint;
+    const path = checkpoint?.path?.trim();
+    const event = checkpoint?.event;
+    const eventId = event?.eventId?.trim();
+    if (
+      !path ||
+      !path.startsWith(`/objects/${job.tenantId}/`) ||
+      !eventId ||
+      !event?.provider?.trim() ||
+      !event.model?.trim() ||
+      !event.label?.trim() ||
+      event?.accounted !== true ||
+      eventIds.has(eventId)
+    ) {
+      return false;
+    }
+    eventIds.add(eventId);
+    return true;
+  });
+}
+
+function usesGuidedNativeAudio(options: VideoJobOptions): boolean {
+  const resolved = options.resolvedVideoModel;
+  return Boolean(
+    options.guidedStory?.locale &&
+      resolved?.generateAudio === true &&
+      hasNativeSynchronizedAudio(resolved.provider, resolved.model),
+  );
+}
+
 function serializeVideoJob(
   job: VideoGeneration,
   retryableOverride?: boolean,
@@ -1132,7 +1208,8 @@ function serializeVideoJob(
       retryableOverride ??
       (job.status === "failed" &&
         RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
-        !requiresFreshRestartAfterNativeAudioFailure(job) &&
+        (!requiresFreshRestartAfterNativeAudioFailure(job) ||
+          historicalIndicNativeAudioRecheckEligible(job)) &&
         !(
           job.options?.guidedStoryDialogueReplay &&
           Object.values(
@@ -1153,6 +1230,7 @@ function serializeVideoJob(
             sourceJobId: recovery?.sourceJobId ?? job.id,
             reusable: recovery?.reusable ?? failedInventory!.reusable,
             regenerated: recovery?.regenerated ?? failedInventory!.regenerated,
+             verificationOnly: recovery?.verificationOnly ?? null,
           }
         : null,
     freshRestart: job.options?.freshRestart ?? null,
@@ -12061,6 +12139,34 @@ async function validateRecoveryObjects(
   return null;
 }
 
+async function validateVerificationOnlyCheckpointObjects(
+  source: VideoGeneration,
+): Promise<{ code: string; message: string } | null> {
+  for (const scene of source.storyboard?.scenes ?? []) {
+    const path = scene.providerCheckpoint?.path;
+    if (!path || !path.startsWith(`/objects/${source.tenantId}/`)) {
+      return {
+        code: "recovery_requires_fresh_restart",
+        message:
+          "The historical speech verdict has no complete tenant-owned scene checkpoint. Start a fresh video attempt.",
+      };
+    }
+    try {
+      await musicStorage.getObjectEntityFile(path, source.tenantId);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        return {
+          code: "recovery_requires_fresh_restart",
+          message:
+            "A saved scene checkpoint is missing. Start a fresh video attempt.",
+        };
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
 const VIDEO_STORYBOARD_RECOVERY_LOCK_NS = 1_077_001;
 
 router.post(
@@ -12084,7 +12190,10 @@ router.post(
       });
       return;
     }
-    if (requiresFreshRestartAfterNativeAudioFailure(initial)) {
+    if (
+      requiresFreshRestartAfterNativeAudioFailure(initial) &&
+      !historicalIndicNativeAudioRecheckEligible(initial)
+    ) {
       res.status(409).json({
         error:
           "This completed provider render failed its spoken-audio quality check and cannot reuse the rejected audio. Start a fresh video attempt.",
@@ -12259,6 +12368,20 @@ router.post(
         }
       }
       const lockedInventory = videoRecoveryInventory(source);
+      const verificationOnly =
+        requiresFreshRestartAfterNativeAudioFailure(source) &&
+        historicalIndicNativeAudioRecheckEligible(source, lockedInventory);
+      if (
+        requiresFreshRestartAfterNativeAudioFailure(source) &&
+        !verificationOnly
+      ) {
+        recoveryError = {
+          code: "recovery_requires_fresh_restart",
+          message:
+            "This completed provider render failed its spoken-audio quality check and cannot reuse the rejected audio. Start a fresh video attempt.",
+        };
+        return;
+      }
       const privacyCapability = historicalPrivacyRecoveryCapability(source);
       if (privacyCapability?.eligible) {
         historicalPrivacyRecovery = true;
@@ -12272,7 +12395,9 @@ router.post(
         source.options?.guidedStory != null &&
         source.options.resolvedVideoModel?.provider === "atlascloud";
       if (!atlasGuidedRecovery) {
-        recoveryError = await validateRecoveryObjects(source, lockedInventory);
+        recoveryError = verificationOnly
+          ? await validateVerificationOnlyCheckpointObjects(source)
+          : await validateRecoveryObjects(source, lockedInventory);
         if (recoveryError) return;
       }
       const tenantJobs = await tx
@@ -12327,6 +12452,12 @@ router.post(
         },
         reusable: lockedInventory.reusable,
         regenerated: lockedInventory.regenerated,
+        verificationOnly: verificationOnly
+          ? {
+              version: 1,
+              reason: "indic_cross_script_asr_recheck",
+            }
+          : null,
         privacyRecovery: privacyCapability?.eligible
           ? {
               code: privacyCapability.code,
@@ -12406,7 +12537,11 @@ router.post(
       code: string;
     } | null;
     if (lockedRecoveryError) {
-      res.status(410).json({
+      res.status(
+        lockedRecoveryError.code === "recovery_requires_fresh_restart"
+          ? 409
+          : 410,
+      ).json({
         error: lockedRecoveryError.message,
         code: lockedRecoveryError.code,
       });
@@ -12497,6 +12632,10 @@ router.post(
     };
     try {
     const options = childJob.options!;
+    const verificationOnlyRecovery =
+      options.recovery?.verificationOnly?.version === 1 &&
+      options.recovery.verificationOnly.reason ===
+        "indic_cross_script_asr_recheck";
     const recoveryLeaseOwner = options.recovery?.creatingLease?.owner;
     const refreshRecoveryCreatingLease = async (): Promise<void> => {
       if (!recoveryLeaseOwner) throw new Error("Retry creating lease is missing.");
@@ -12526,6 +12665,7 @@ router.post(
       return;
     }
     if (
+      !verificationOnlyRecovery &&
       options.guidedStory &&
       !guidedCastApprovalsMatch({
         draftRevision: options.guidedStory.draftRevision,
@@ -12543,6 +12683,7 @@ router.post(
       return;
     }
     for (const [feature, featureMessage] of requiredFeatures) {
+      if (verificationOnlyRecovery) break;
       if (!(await isFeatureEnabled(feature))) {
         const message = await failChild(
           `stopped before funding because ${featureMessage}`,
@@ -12994,9 +13135,13 @@ router.post(
       ) {
         return { kind: "insufficient" as const };
       }
+      const verificationOnly =
+        childOptions.recovery?.verificationOnly?.version === 1 &&
+        childOptions.recovery.verificationOnly.reason ===
+          "indic_cross_script_asr_recheck";
       const [fundedChild] = await tx.update(videoGenerationsTable).set({
         options: childOptions,
-        funding,
+        funding: verificationOnly ? null : funding,
         status: "queued",
         walletReservationId: reservation?.id ?? null,
         walletReservedPaise: reservation?.amountPaise ?? null,

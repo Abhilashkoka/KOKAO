@@ -653,6 +653,15 @@ export interface VideoJobOptions {
     fundingReleasedAt?: string | null;
     reusable: string[];
     regenerated: string[];
+    /**
+     * Narrow, zero-funded replay of a historical native-audio verdict. This
+     * marker permits local composition and ASR only; it never authorizes a
+     * provider generation operation.
+     */
+    verificationOnly?: {
+      version: 1;
+      reason: "indic_cross_script_asr_recheck";
+    } | null;
     /** One-shot recovery of a legacy OpenRouter privacy rejection. */
     privacyRecovery?: {
       code: "InputImageSensitiveContentDetected.PrivacyInformation";
@@ -1092,6 +1101,8 @@ export interface VideoJobOptions {
     checkedAt: string;
     asrProvider: string;
     asrModel: string;
+    /** Which transcript produced the persisted verdict. */
+    transcriptionMode?: "automatic" | "locale_hinted";
     expectedLocale: GuidedStoryLocale;
     providerDetectedLocale: string | null;
     transcriptDetectedLocale: GuidedStoryLocale | null;
