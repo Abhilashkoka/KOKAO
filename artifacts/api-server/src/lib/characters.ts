@@ -56,23 +56,45 @@ export function characterReferencePrompt(description: string): string {
   );
 }
 
-/** Prompt for the separate, human-reviewed multi-view identity sheet. */
+/**
+ * Prompt for the separate, human-reviewed multi-view identity sheet.
+ *
+ * This image is not only reviewed by a person — it is the asset registered
+ * with Atlas and handed to the video model as the character's identity. That
+ * makes every non-photographic element in it a liability, and job #69001 shows
+ * why: the sheets came back with panel headers, hex swatch chips, a "Detail
+ * Swatch" caption, garbled labels ("FRONT BOUP: FACE & HAIR", "Full-Body Side
+ * (Sick)"), and a title naming a character who is not the one in the story.
+ * A reference model reads all of that as part of the subject.
+ *
+ * So: no text of any kind, no swatches, no captions. Panels only. Everything
+ * an operator needs to judge identity is visible in the photographs
+ * themselves; everything else is noise the model has to ignore, and does not.
+ *
+ * Note this is still a grid, which caps how many pixels each face gets. The
+ * real fix is registering a full-body frontal and a face close-up as two
+ * separate single-subject assets, which is what ByteDance's own guidance
+ * asks for — a change to the approval flow, not to this prompt.
+ */
 export function characterReferenceSheetPrompt(character: Character): string {
   const description = character.description
     ? ` The character is described as: ${character.description}.`
     : "";
   return (
-    "Create a professional character reference sheet of the exact same single person " +
+    "Create a character reference sheet of the exact same single person " +
     "shown in the reference image. Preserve their exact identity, face, hair, body, " +
     "clothing, colors, accessories, and footwear." +
     description +
-    " Arrange a clean, useful labeled grid containing: full-body front view, full-body " +
-    "side/profile view, full-body back view, front close-up of face and hair, and a " +
-    "top-down view. Include small useful detail and color swatches. Use a clean light " +
-    "gray studio background, photorealistic cinematic quality, natural even lighting, " +
-    "and consistent scale. Every panel depicts the same person in the same clothing; " +
-    "do not invent multiple distinct people, alternate identities, or alternate outfits. " +
-    "No watermark or branding."
+    " Arrange five photographic panels edge to edge on one clean light gray " +
+    "background: full-body front view, full-body side/profile view, full-body " +
+    "back view, a front close-up of the face and hair filling its panel, and a " +
+    "top-down view. Photorealistic cinematic quality, natural even lighting, " +
+    "consistent scale across panels. Every panel depicts the same person in the " +
+    "same clothing; do not invent multiple distinct people, alternate identities, " +
+    "or alternate outfits. " +
+    "The image contains photographs and nothing else: absolutely no text, no " +
+    "titles, no names, no panel labels or captions, no color swatches or chips, " +
+    "no arrows, no measurements, no borders, no logo, no watermark, no branding."
   );
 }
 

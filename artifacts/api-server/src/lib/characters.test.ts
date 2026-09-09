@@ -161,16 +161,36 @@ describe("character reference sheet approval", () => {
     ).toBe(true);
   });
 
-  it("asks for one identity, exact clothing, a labeled grid, and natural studio treatment", () => {
+  it("asks for one identity, exact clothing, and natural studio treatment", () => {
     const prompt = characterReferenceSheetPrompt(CHARACTER);
     expect(prompt).toMatch(/exact same single person/i);
     expect(prompt).toMatch(/exact identity/i);
     expect(prompt).toMatch(/clothing/i);
-    expect(prompt).toMatch(/labeled grid/i);
     expect(prompt).toMatch(/light gray/i);
     expect(prompt).toMatch(/photorealistic cinematic/i);
     expect(prompt).toMatch(/natural even lighting/i);
     expect(prompt).toMatch(/do not invent multiple distinct people/i);
+  });
+
+  it("bans every non-photographic element, because this image IS the model's reference", () => {
+    const prompt = characterReferenceSheetPrompt(CHARACTER);
+    // Job #69001's sheets carried panel headers, hex swatch chips, a "Detail
+    // Swatch" caption, garbled labels, and a title naming the wrong character.
+    // A reference model reads all of that as part of the subject.
+    expect(prompt).toMatch(/no text/i);
+    expect(prompt).toMatch(/no titles/i);
+    expect(prompt).toMatch(/no names/i);
+    expect(prompt).toMatch(/no panel labels/i);
+    expect(prompt).toMatch(/no color swatches/i);
+    // The old prompt asked for exactly what went wrong.
+    expect(prompt).not.toMatch(/labeled grid/i);
+    expect(prompt).not.toMatch(/include small useful detail and color swatches/i);
+  });
+
+  it("still asks the face close-up to fill its panel", () => {
+    // Face pixels are the identity signal; in a five-panel grid they are
+    // already scarce, so the close-up must not be framed as another wide shot.
+    expect(characterReferenceSheetPrompt(CHARACTER)).toMatch(/filling its panel/i);
   });
 });
 
