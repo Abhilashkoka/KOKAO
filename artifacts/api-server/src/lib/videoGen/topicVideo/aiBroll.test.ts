@@ -11,6 +11,7 @@ import {
 import { assignClipsToScenes } from "./visionRank";
 import { videoJobUnits } from "../units";
 import { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
+import { VideoGenProviderError } from "../types";
 
 const animateState = vi.hoisted(() => ({
   calls: [] as {
@@ -668,6 +669,23 @@ describe("animateBrollStills", () => {
         aspectRatio: "9:16",
       }),
     ).rejects.toThrow("provider down");
+  });
+
+  it("does not retry a definite provider payment rejection", async () => {
+    animateState.queuedErrors.push(
+      new VideoGenProviderError("Atlas Cloud provider credits are unavailable", 402),
+    );
+
+    await expect(
+      animateBrollStills({
+        images: [Buffer.from("still-a")],
+        visuals: ["flour"],
+        scenes: [scenes[0]!],
+        aspectRatio: "9:16",
+      }),
+    ).rejects.toMatchObject({ status: 402 });
+
+    expect(animateState.calls).toHaveLength(1);
   });
 
   it("skips completed ai_video scenes and checkpoints only missing scenes", async () => {

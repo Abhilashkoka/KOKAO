@@ -908,6 +908,19 @@ function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
         await tx.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, jobId));
       });
     },
+    async clearSubmitStarted(operationKey, provider, model) {
+      await db.transaction(async (tx) => {
+        const [row] = await tx.select({ options: videoGenerationsTable.options })
+          .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+        if (!row?.options) throw new Error("Video job disappeared after Atlas Cloud rejected its submit.");
+        const options = structuredClone(row.options);
+        const saved = options.providerTasks?.[operationKey];
+        if (saved?.provider === provider && saved.model === model && !saved.taskId) {
+          delete options.providerTasks?.[operationKey];
+          await tx.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, jobId));
+        }
+      });
+    },
     async isSubmitUncertain(operationKey, provider, model) {
       const [row] = await db.select({ options: videoGenerationsTable.options })
         .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).limit(1);
@@ -933,6 +946,9 @@ function safeVideoErrorMessage(error: unknown, fallback: string): string {
       ? error.inputIndex
       : null;
     return `OpenRouter rejected${inputIndex == null ? " an input image" : ` input image ${inputIndex}`} because it may depict an identifiable real person. Use a fictional or more stylized generated scene, or choose a different image.`;
+  }
+  if (error instanceof VideoGenProviderError && error.status === 402) {
+    return "Atlas Cloud could not start this scene because the configured provider account has insufficient credits or unavailable billing. No Atlas task was accepted. Add Atlas provider credits or select another video provider, then start a fresh attempt.";
   }
   // Provider messages routinely contain request bodies, signed URLs and
   // echoed prompts. Customer-visible history is deliberately allow-list-only.

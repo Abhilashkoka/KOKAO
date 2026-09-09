@@ -145,6 +145,8 @@ export interface VideoGenInput {
   }) => Promise<void>;
   /** Durable fence written immediately before an ambiguous paid submit. */
   onProviderSubmitStarted?: () => Promise<void>;
+  /** Clear the submit fence after a definite provider rejection with no task. */
+  onProviderSubmitRejected?: () => Promise<void>;
 }
 
 /** Result returned by every provider. */

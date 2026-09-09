@@ -179,6 +179,32 @@ describe("Atlas Cloud Seedance 2.5", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("records a 402 as a definite rejection with no accepted paid task", async () => {
+    const submitStarted = vi.fn(async () => {});
+    const submitRejected = vi.fn(async () => {});
+    const accepted = vi.fn(async () => {});
+    const fetch = vi.fn(async () => new Response(
+      JSON.stringify({ message: "unknown provider error" }),
+      { status: 402, headers: { "Content-Type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(generateWithAtlasCloud({
+      ...input,
+      onProviderSubmitStarted: submitStarted,
+      onProviderSubmitRejected: submitRejected,
+      onProviderTaskAccepted: accepted,
+    }, "secret")).rejects.toMatchObject({
+      status: 402,
+      message: expect.stringMatching(/insufficient provider credits|unavailable billing/i),
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(submitStarted).toHaveBeenCalledTimes(1);
+    expect(submitRejected).toHaveBeenCalledTimes(1);
+    expect(accepted).not.toHaveBeenCalled();
+  });
+
   it("pins lookup to the validated address while preserving the TLS hostname", async () => {
     const transport = fakeHttpsRequest(200, (response) => {
       response.emit("data", Buffer.from("video"));

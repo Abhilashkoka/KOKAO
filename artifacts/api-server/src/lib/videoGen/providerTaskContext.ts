@@ -18,6 +18,7 @@ export interface VideoProviderTaskStore {
     receipt: VideoProviderTaskReceipt,
   ): Promise<void>;
   markSubmitStarted?(operationKey: string, provider: string, model: string): Promise<void>;
+  clearSubmitStarted?(operationKey: string, provider: string, model: string): Promise<void>;
   isSubmitUncertain?(operationKey: string, provider: string, model: string): Promise<boolean>;
 }
 

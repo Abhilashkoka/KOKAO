@@ -24,6 +24,7 @@ vi.mock("./providers/openrouter", () => ({
 vi.mock("./providers/atlascloud", () => ({
   ATLASCLOUD_SEEDANCE_25_T2V_MODEL: "bytedance/seedance-2.5/text-to-video",
   ATLASCLOUD_SEEDANCE_25_I2V_MODEL: "bytedance/seedance-2.5/image-to-video",
+  ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL: "bytedance/seedance-2.5/reference-to-video",
   generateWithAtlasCloud: vi.fn(),
 }));
 
@@ -179,5 +180,59 @@ describe("generateVideo exact-provider behavior", () => {
     await expect(withVideoProviderTaskStore(store(), () => generateVideo(atlasParams)))
       .rejects.toThrow(/outcome is uncertain/);
     expect(vi.mocked(generateWithAtlasCloud)).toHaveBeenCalledTimes(callsAfterFirstInvocation);
+  });
+
+  it("clears the submit marker after Atlas definitely rejects the request", async () => {
+    const durable = new Map<string, {
+      provider: string;
+      model: string;
+      submitStartedAt: string;
+      taskId: string;
+    }>();
+    const clearSubmitStarted = vi.fn(async (operationKey: string) => {
+      durable.delete(operationKey);
+    });
+    const store = {
+      load: vi.fn(async () => null),
+      save: vi.fn(async () => {}),
+      markSubmitStarted: vi.fn(async (operationKey: string, provider: string, model: string) => {
+        durable.set(operationKey, {
+          provider,
+          model,
+          submitStartedAt: "2026-09-09T00:00:00.000Z",
+          taskId: "",
+        });
+      }),
+      clearSubmitStarted,
+      isSubmitUncertain: vi.fn(async (operationKey: string, provider: string, model: string) => {
+        const receipt = durable.get(operationKey);
+        return receipt?.provider === provider && receipt.model === model &&
+          Boolean(receipt.submitStartedAt) && !receipt.taskId;
+      }),
+    };
+    const atlasParams = {
+      ...params,
+      operationKey: "scene:atlas-rejected",
+      resolvedVideoModel: {
+        ...params.resolvedVideoModel,
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/text-to-video",
+      },
+    };
+    vi.mocked(generateWithAtlasCloud).mockImplementation(async (input) => {
+      await input.onProviderSubmitStarted?.();
+      await input.onProviderSubmitRejected?.();
+      throw new VideoGenProviderError("Atlas Cloud provider credits unavailable", 402);
+    });
+
+    await expect(withVideoProviderTaskStore(store, () => generateVideo(atlasParams)))
+      .rejects.toMatchObject({ status: 402 });
+
+    expect(clearSubmitStarted).toHaveBeenCalledWith(
+      "scene:atlas-rejected",
+      "atlascloud",
+      "bytedance/seedance-2.5/text-to-video",
+    );
+    expect(durable.has("scene:atlas-rejected")).toBe(false);
   });
 });

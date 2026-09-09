@@ -105,8 +105,11 @@ export function atlasVideoReceipt(prediction: Prediction): {
 async function parse(response: Response, operation: string): Promise<Prediction> {
   const envelope = await response.json().catch(() => null) as Envelope | null;
   if (!response.ok) {
+    const providerDetail = response.status === 402
+      ? "the configured Atlas Cloud account has insufficient provider credits or unavailable billing"
+      : detail(envelope?.message);
     throw new VideoGenProviderError(
-      `Atlas Cloud ${operation} failed (${response.status}): ${detail(envelope?.message)}`,
+      `Atlas Cloud ${operation} failed (${response.status}): ${providerDetail}`,
       response.status,
     );
   }
@@ -366,6 +369,9 @@ export async function generateWithAtlasCloud(
       );
     }
     requestId = responseRequestId(response) ?? requestId;
+    if (response.status >= 400 && response.status < 500 && response.status !== 408) {
+      await input.onProviderSubmitRejected?.();
+    }
     prediction = await parse(response, "generation request");
     taskId = safeId(prediction.id);
     if (!taskId) throw new VideoGenProviderError("Atlas Cloud returned no valid prediction id.", 502);

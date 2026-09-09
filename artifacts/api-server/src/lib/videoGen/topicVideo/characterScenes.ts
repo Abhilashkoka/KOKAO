@@ -5,6 +5,7 @@ import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
 import type { ImageGenResult } from "../../imageGen/types";
 import { generateVideo } from "../index";
+import { isTransientStatus } from "../retry";
 import { getMotionInstruction } from "../motionPrompt";
 import { characterScenePrompt } from "./characterMotion";
 import type { ResolvedModelOptions } from "../modelCatalog";
@@ -584,6 +585,9 @@ export async function animateSceneKeyframes(params: {
     try {
       clip = await attempt();
     } catch (err) {
+      if (err instanceof VideoGenProviderError && !isTransientStatus(err.status)) {
+        throw err;
+      }
       logger.warn({ err, scene: i }, "character scene animation failed; retrying once");
       clip = await attempt();
     }

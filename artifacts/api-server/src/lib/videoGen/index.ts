@@ -1062,6 +1062,11 @@ export async function generateVideo(
         await taskStore.markSubmitStarted?.(params.operationKey, snapshot.provider, model);
       }
     },
+    onProviderSubmitRejected: async () => {
+      if (params.operationKey && taskStore) {
+        await taskStore.clearSubmitStarted?.(params.operationKey, snapshot.provider, model);
+      }
+    },
   });
 
   /**

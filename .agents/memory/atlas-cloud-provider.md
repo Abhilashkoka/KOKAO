@@ -9,6 +9,12 @@ Atlas Cloud is a distinct paid video provider; never reuse BytePlus model contra
 
 **How to apply:** Fence every paid submit durably before POST, save accepted prediction IDs immediately, resume polling instead of resubmitting, and send unknown-cost events as NULL. Activation requires an authoritative price.
 
+An Atlas HTTP 402 is a definite provider-account billing rejection, not an ambiguous paid submit and not a transient scene failure.
+
+**Why:** Retrying a 402 left the pre-submit fence without a task ID, so the retry surfaced as “outcome uncertain” and hid the actual Atlas credit problem.
+
+**How to apply:** On definite non-timeout 4xx responses, clear the operation’s empty submit marker before surfacing the error. Never retry 402; report that no Atlas task was accepted and the configured Atlas account needs provider credits or billing repair.
+
 Atlas Asset Library records have three distinct identifiers: the numeric library record ID is for status/deletion GETs, `ark_asset_id` is the strict ASCII `asset-*` generation reference used as `asset://...`, and `atlas_asset_id` is informational. Successful responses may use a nested `data` envelope and a string application code.
 
 **Why:** Live funded-account testing showed that string IDs fail status GETs, while Seedance ignores the numeric record ID for generation. Treating them as interchangeable makes active assets fail at dispatch.

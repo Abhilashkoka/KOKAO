@@ -9,6 +9,7 @@ import type { ImageGenResult } from "../../imageGen/types";
 import { logger } from "../../logger";
 import { runFfmpeg } from "../slideshow";
 import { generateVideo } from "../index";
+import { isTransientStatus } from "../retry";
 import { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
@@ -497,6 +498,9 @@ export async function animateBrollStills(params: {
         // Exactly one animation attempt follows the one replacement keyframe.
         // A second policy rejection bubbles out and cannot start another loop.
         return await attempt();
+      }
+      if (err instanceof VideoGenProviderError && !isTransientStatus(err.status)) {
+        throw err;
       }
       logger.warn({ err, scene: i }, "animated b-roll scene failed; retrying once");
       return await attempt();
