@@ -1065,22 +1065,33 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const inherit = useInheritGuidedStoryDefaultBackdrop();
   const shown = backdrop ?? legacy;
   const approvalReference = backdrop ?? (sceneId === null ? legacy : null);
+  const savedLocation = draft.visualChoices?.location;
+  const savedLocationDescription =
+    savedLocation?.mode === "text" ? savedLocation.description.trim() : "";
   const automaticPrompt = sceneId
     ? direction?.trim() || `A consistent location for scene ${sceneId} of ${draft.script?.title ?? "this Guided Story"}.`
     : [
         `Create the primary shared location for the Guided Story "${draft.script?.title ?? "Untitled story"}".`,
+        savedLocationDescription
+          ? `Required shared location direction: ${savedLocationDescription}`
+          : null,
         draft.script?.logline,
         ...(draft.script?.scenes ?? []).map((scene, index) =>
           `Scene ${index + 1}: ${scene.visualDirection}`),
       ].filter(Boolean).join("\n");
-  const [prompt, setPrompt] = useState(shown?.prompt ?? direction ?? "");
+  const [prompt, setPrompt] = useState(
+    shown?.prompt ?? (sceneId ? direction : savedLocationDescription) ?? "",
+  );
   const [file, setFile] = useState<File | null>(null);
   const [enlarged, setEnlarged] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [customization, setCustomization] = useState("");
   const [comparison, setComparison] = useState<{ original: any; replacement: any } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setPrompt(shown?.prompt ?? direction ?? ""); setFile(null); }, [shown?.fingerprint, direction]);
+  useEffect(() => {
+    setPrompt(shown?.prompt ?? (sceneId ? direction : savedLocationDescription) ?? "");
+    setFile(null);
+  }, [shown?.fingerprint, direction, savedLocationDescription, sceneId]);
   const refresh = (next: GuidedStoryDraft) => queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
   const refreshAfterConflict = () =>
     queryClient.invalidateQueries({
@@ -1107,7 +1118,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
         if (!put.ok) throw new Error(`Upload failed (${put.status}).`);
         imagePath = result.objectPath;
       }
-      if (regenerate || !imagePath) imagePath = (await generate.mutateAsync({ data: { prompt: [selectedPrompt, sceneId ? `Scene-specific direction: ${direction}` : "Default shared location", "Clean location reference plate; no people, text, logos, or action."].join("\n"), size: "1024x1024", referenceImagePath: shown?.imagePath, guidedStoryDraftId: draft.id, guidedStoryRevision: draft.revision } })).imagePath;
+      if (regenerate || !imagePath) imagePath = (await generate.mutateAsync({ data: { prompt: [selectedPrompt, sceneId ? `Scene-specific direction: ${direction}` : "Default shared location", "Clean location reference plate; no people, text, logos, or action."].join("\n"), size: "1024x1024", referenceImagePath: shown?.imagePath ?? (savedLocation?.mode === "image" ? savedLocation.imagePath : undefined), guidedStoryDraftId: draft.id, guidedStoryRevision: draft.revision } })).imagePath;
       const previous = shown;
       const next = await prepare.mutateAsync({ draftId: draft.id, data: { revision: draft.revision, prompt: selectedPrompt, imagePath, sceneId } });
       const replacement = sceneId

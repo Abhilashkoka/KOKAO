@@ -1779,6 +1779,55 @@ describe("GuidedStoryWorkflow", () => {
     });
   });
 
+  it("uses the saved visual-consistency location description to generate the backdrop", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: {
+        ...draft().visualChoices,
+        location: {
+          mode: "text",
+          imagePath: null,
+          description: "A branded creative studio with a warm walnut feature wall.",
+        },
+        backdropReference: undefined,
+        backdrops: { version: 1, default: null, sceneOverrides: {} },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect((screen.getByTestId("input-guided-backdrop-prompt") as HTMLTextAreaElement).value)
+      .toContain("warm walnut feature wall");
+    await userEvent.click(screen.getByTestId("button-prepare-guided-backdrop"));
+
+    await waitFor(() => expect(state.generatedImageRequest).not.toBeNull());
+    expect(state.generatedImageRequest.prompt).toContain("warm walnut feature wall");
+  });
+
+  it("uses the saved visual-consistency background photo as the backdrop reference", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "r1" }, { roleId: "r2" }],
+      visualChoices: {
+        ...draft().visualChoices,
+        location: {
+          mode: "image",
+          imagePath: "/objects/99/uploads/location-reference.png",
+          description: null,
+        },
+        backdropReference: undefined,
+        backdrops: { version: 1, default: null, sceneOverrides: {} },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(screen.getByTestId("button-prepare-guided-backdrop"));
+
+    await waitFor(() => expect(state.generatedImageRequest).not.toBeNull());
+    expect(state.generatedImageRequest.referenceImagePath)
+      .toBe("/objects/99/uploads/location-reference.png");
+  });
+
   it("keeps expanded story backdrop prompts inside the API limit", () => {
     const expandedDirections = Array.from(
       { length: 9 },
