@@ -1,0 +1,5 @@
+date,model,requests,knownTasks,unmappedRequests,amountUsd,mappedUsd,unmappedUsd,outputTokens,partial
+2026-09-08,bytedance/seedance-2.5/text-to-video,2,0,2,1.080251,0.000000,1.080251,77660,false
+2026-09-08,bytedance/seedance-2.5/image-to-video,3,3,0,10.722936,10.722936,0.000000,881241,false
+2026-09-08,bytedance/seedance-2.5/reference-to-video,1,0,1,0.540125,0.000000,0.540125,38830,false
+2026-09-09,bytedance/seedance-2.5/reference-to-video,16,16,0,63.078886,63.078886,0.000000,5184000,true

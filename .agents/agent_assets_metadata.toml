@@ -367,3 +367,31 @@ mtime_ms = 1788927068131
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/fb133b79-d9cf-4423-8f4c-9226099733e9/c7cd640c-6250-4d65-aaca-b2f5de571a8c"
 storage_version_token = "1788927112657745"
 content_type = "image/png"
+
+[[outputs]]
+id = "1BmkcC5hrNhGQf067-DE3"
+uri = "file://reports/atlas-audit/atlas-charge-reconciliation.html"
+type = "text"
+title = "Atlas Cloud Charge Reconciliation"
+description = "Exact Atlas daily/model costs, all 22 billed requests, 19 mapped KOKAO tasks, failed-attempt recovery, wallet anomalies, and unnecessary-spend findings."
+logical_id = "5f24cc72-25e1-4171-9c0c-0bd93ffbc854"
+content_hash = "sha256:296073dae1331393d02181badd59496cb2db3884b554ba485ccdf24e426df864"
+size = 21452
+mtime_ms = 1788948822896
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/5f24cc72-25e1-4171-9c0c-0bd93ffbc854/9287dc9a-3aef-4990-9846-dd2f49b9627d"
+storage_version_token = "1788948859637537"
+content_type = "text/html"
+
+[[outputs]]
+id = "Ho1MMYk2VRKtzMLbrbGpp"
+uri = "file://reports/atlas-audit/task-to-generation-map.csv"
+type = "table"
+title = "Atlas Task-to-Generation Map"
+description = "Complete CSV mapping of every billed Atlas request to KOKAO jobs, provider outcomes, retry chains, estimated per-task allocation, and the three unmatched requests."
+logical_id = "f94126cc-f012-408a-b031-9c7ad3fc8ee9"
+content_hash = "sha256:99ee0ed86a879ca3ebbd50f93b55580060e911b0122b4aebe41db7dd54ac2f24"
+size = 6621
+mtime_ms = 1788948796229
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/f94126cc-f012-408a-b031-9c7ad3fc8ee9/0ff958d9-acba-4975-beb0-f248d854fcc6"
+storage_version_token = "1788948861091592"
+content_type = "text/csv"

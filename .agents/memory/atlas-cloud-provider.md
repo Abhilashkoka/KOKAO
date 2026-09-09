@@ -74,3 +74,9 @@ Atlas character/outfit registration leases must identify the API process that ow
 **Why:** A restart after persisting the numeric outfit record left a fresh ten-minute lease owned by a dead worker. The next attempt correctly avoided a duplicate POST but failed before the lease aged out instead of polling the known record.
 
 **How to apply:** Prefix asset lease owners with a process-lifetime ID. A different or legacy owner makes only known-ID `Processing` work reclaimable; unknown-ID submit fences remain blocked because GET-only recovery is impossible.
+
+Atlas billing exposes exact UTC daily/model cost and usage buckets plus current balance, but no per-transaction charge ledger; completed prediction GETs may omit cost and token receipts.
+
+**Why:** A live account audit could exactly reconcile whole model/day buckets, but individual task amounts had to remain estimates even after polling every known prediction ID.
+
+**How to apply:** Compare each bucket's request count with durable accepted task IDs. Label bucket totals as exact and any per-task allocation as estimated; never invent IDs for unmatched requests or present an allocated share as an Atlas receipt.

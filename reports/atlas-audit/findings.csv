@@ -1,0 +1,8 @@
+severity,finding,evidence,interpretation
+HIGH,Unmapped Atlas spend,3 requests / $1.620376 are not tied to any KOKAO video_generation or recorded task ID.,Treat as development/provider-validation spend unless external evidence identifies another client.
+HIGH,Wrong-language output,Job #69717 used 4 completed Atlas requests; estimated share $18.447528. The output succeeded technically but spoke the wrong language.,Prevented going forward by the English-only native-audio policy.
+HIGH,Wallet finalization missing,Successful Jobs #69717 and #69772 have only reserve ledger rows and no settle/true-up/refund or settlement outbox.,Funds are held but not finalized; investigate settlement recovery before manual correction.
+MEDIUM,Atlas cost capture undercount,Job #69771 has 4 completed Atlas tasks but only 2 corresponding KOKAO usage-cost rows; the recovery adds one row. Two charged provider operations are absent from KOKAO cost reporting.,Backfill only after deriving immutable operation identities; do not guess or double-charge.
+PASS,No duplicate paid retry submissions,The #68999→#69001 and #69771→#69772 chains reuse identical Atlas task IDs.,No duplicate Atlas request was observed in either retry chain.
+PASS,No Atlas task failures among known IDs,All 19 recorded Atlas task IDs currently return completed.,KOKAO failures occurred before submit or after provider completion.
+PASS,Asset registrations active,"28 Atlas Asset Library records (14 characters, 14 outfits) are Active. Billing API reports no non-video model costs.",No separate billed Asset Library operation was visible.
