@@ -9,6 +9,7 @@ import { logger } from "../logger";
 import { videoJobUnits } from "./units";
 import { enqueueBackgroundJob } from "../backgroundJobs";
 import { cleanupGuidedAtlasBackdropAssets, runVideoGenerationJob } from "./jobRunner";
+import { VIDEO_PROCESS_INSTANCE_ID } from "./processInstance";
 
 /**
  * Periodic settling for video_generations rows that will never settle
@@ -258,7 +259,10 @@ export async function sweepStrandedGuidedStoryCreations(): Promise<number> {
       sql`(
         (
           ${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt' is not null
-          and (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt')::timestamptz < now()
+          and (
+            (${videoGenerationsTable.options}->'guidedCreatingLease'->>'processInstanceId') is distinct from ${VIDEO_PROCESS_INSTANCE_ID}
+            or (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt')::timestamptz < now()
+          )
         )
         or (
           ${videoGenerationsTable.options}->'guidedCreatingLease' is null
@@ -282,7 +286,10 @@ export async function sweepStrandedGuidedStoryCreations(): Promise<number> {
             ? sql`
                 (${videoGenerationsTable.options}->'guidedCreatingLease'->>'owner') = ${lease.owner}
                 and (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt') = ${lease.expiresAt}
-                and (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt')::timestamptz < now()
+                and (
+                  (${videoGenerationsTable.options}->'guidedCreatingLease'->>'processInstanceId') is distinct from ${VIDEO_PROCESS_INSTANCE_ID}
+                  or (${videoGenerationsTable.options}->'guidedCreatingLease'->>'expiresAt')::timestamptz < now()
+                )
               `
             : and(
                 sql`${videoGenerationsTable.options}->'guidedCreatingLease' is null`,

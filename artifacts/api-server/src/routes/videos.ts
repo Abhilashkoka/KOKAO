@@ -92,6 +92,7 @@ import {
   rollbackWalletFundedStoryboardScene,
 } from "../lib/wallet";
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
+import { VIDEO_PROCESS_INSTANCE_ID } from "../lib/videoGen/processInstance";
 import {
   runVideoGenerationJob,
   resumeVideoGenerationJob,
@@ -9573,6 +9574,7 @@ async function generateVideoHandler(
     const lease = {
       version: 1 as const,
       owner: guidedCreatingLeaseOwner,
+      processInstanceId: VIDEO_PROCESS_INSTANCE_ID,
       heartbeatAt: now.toISOString(),
       // Atlas may poll both the parent and outfit for many minutes. The sweep
       // must not infer abandonment from the route's old ten-minute threshold.
@@ -9645,6 +9647,7 @@ async function generateVideoHandler(
     options.guidedCreatingLease = {
       version: 1,
       owner: guidedCreatingLeaseOwner,
+      processInstanceId: VIDEO_PROCESS_INSTANCE_ID,
       heartbeatAt: leaseNow.toISOString(),
       expiresAt: new Date(leaseNow.getTime() + 2 * 60 * 60 * 1000).toISOString(),
     };

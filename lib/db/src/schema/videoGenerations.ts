@@ -207,6 +207,7 @@ export interface VideoJobOptions {
   guidedCreatingLease?: {
     version: 1;
     owner: string;
+    processInstanceId?: string;
     heartbeatAt: string;
     expiresAt: string;
   } | null;

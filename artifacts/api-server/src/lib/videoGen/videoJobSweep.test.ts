@@ -16,6 +16,7 @@ import {
 } from "./videoJobSweep";
 import { getCreditBalances, grantCredits } from "../credits";
 import { createTenant, deleteTenant } from "../../test/dbHelpers";
+import { VIDEO_PROCESS_INSTANCE_ID } from "./processInstance";
 
 let tenantId: number;
 
@@ -334,10 +335,11 @@ describe("sweepStrandedGuidedStoryCreations", () => {
         guidedCreatingLease: {
           version: 1,
           owner,
+          processInstanceId: VIDEO_PROCESS_INSTANCE_ID,
           heartbeatAt: new Date(Date.now() - 11 * 60_000).toISOString(),
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         },
-      } as typeof videoGenerationsTable.$inferInsert.options,
+      } as unknown as typeof videoGenerationsTable.$inferInsert.options,
     }).returning();
     await db.update(videoGenerationsTable).set({
       updatedAt: new Date(Date.now() - 11 * 60_000),
@@ -358,6 +360,31 @@ describe("sweepStrandedGuidedStoryCreations", () => {
     }).where(eq(videoGenerationsTable.id, created!.id));
     expect(await sweepStrandedGuidedStoryCreations()).toBeGreaterThanOrEqual(1);
     expect((await getJob(created!.id)).status).toBe("failed");
+  });
+
+  it("immediately terminalizes an unexpired lease owned by a prior API process", async () => {
+    const [created] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "topic_to_video",
+      status: "creating",
+      provider: "atlascloud",
+      options: {
+        aspectRatio: "9:16",
+        guidedStory: { draftId: 987655 },
+        guidedCreatingLease: {
+          version: 1,
+          owner: "dead-registration-owner",
+          processInstanceId: "prior-api-process",
+          heartbeatAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+        },
+      } as unknown as typeof videoGenerationsTable.$inferInsert.options,
+    }).returning();
+
+    expect(await sweepStrandedGuidedStoryCreations()).toBeGreaterThanOrEqual(1);
+    expect((await getJob(created!.id)).error).toBe(
+      guidedStoryCreatingInterruptedError(created!.id),
+    );
   });
 
   it("terminalizes a stale numbered Atlas Guided attempt exactly once", async () => {

@@ -32,3 +32,9 @@ Re-approving an unchanged script after recovery must be a no-op when every scrip
 **Why:** The recovery editor exposed an already-approved script, and its ordinary approval action discarded exact approved portraits/sheets and bought replacements.
 
 **How to apply:** Preserve cast IDs, byte-bound approvals, and generated assets when `scriptApprovedAt` and complete role coverage still exist. Script-save invalidation remains the boundary for regeneration.
+
+Long-lived Guided creation leases must carry an API-process identity. A restart immediately terminalizes leases owned by the prior process; expiry remains the fallback for abandoned work within one live process.
+
+**Why:** A two-hour Atlas registration lease protected slow active calls but also trapped jobs whose route worker disappeared during a deployment restart, blocking retry despite no funding or accepted video task.
+
+**How to apply:** Stamp creation leases with one process-lifetime ID, compare it in the startup sweep, and condition the terminal write on the exact owner and expiry. Missing process IDs are legacy/dead after the new process boots.

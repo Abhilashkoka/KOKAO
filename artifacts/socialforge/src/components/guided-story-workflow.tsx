@@ -808,12 +808,12 @@ export function GuidedStoryWorkflow({
       className="space-y-2 rounded-md border p-3"
       data-testid="guided-intrinsic-lipsync-notice"
     >
-      <p className="text-sm font-medium">Higgsfield native dialogue</p>
+      <p className="text-sm font-medium">Governed dialogue</p>
       <p className="text-xs text-muted-foreground">
         KOKAO compiles the approved cast, blocking, reactions, eyelines, camera,
         continuity, and exact speaker-owned dialogue into the final governed
-        prompt. Higgsfield renders the visible ensemble and synchronized audio
-        together; no separate lip-sync pass is added.
+        prompt. The selected provider renders the visible ensemble; KOKAO uses
+        approved-language narration whenever provider-native speech is not safe.
       </p>
     </div>
   );
@@ -822,7 +822,7 @@ export function GuidedStoryWorkflow({
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
         <div className="space-y-1.5">
           <CardTitle>Guided Story</CardTitle>
-          <CardDescription>Plan a cast-led story, approve its script and references, then compile the final governed prompt for direct Higgsfield generation.</CardDescription>
+          <CardDescription>Plan a cast-led story, approve its script and references, then compile the final governed prompt for direct video generation.</CardDescription>
         </div>
         {draft && (
           <Button
