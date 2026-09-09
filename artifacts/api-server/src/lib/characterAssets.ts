@@ -28,10 +28,19 @@ import {
   isAtlasGenerationReferenceId,
   selectAtlasGenerationReferenceId,
 } from "./atlascloud/assetId";
+import { VIDEO_PROCESS_INSTANCE_ID } from "./videoGen/processInstance";
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 
 const storage = new ObjectStorageService();
+
+function newAtlasAssetLeaseOwner(): string {
+  return `${VIDEO_PROCESS_INSTANCE_ID}:${randomUUID()}`;
+}
+
+function atlasAssetLeaseIsOwnedByCurrentProcess(owner: string | null): boolean {
+  return owner?.startsWith(`${VIDEO_PROCESS_INSTANCE_ID}:`) === true;
+}
 
 /** Hash storage bytes, rather than trusting a path, before an Atlas claim. */
 export async function atlasSourceSha256(objectPath: string, tenantId: number): Promise<string> {
@@ -426,7 +435,7 @@ export async function registerAtlasCharacterAsset(args: {
   }
 
   const stale = new Date(Date.now() - 10 * 60_000);
-  leaseOwner = randomUUID();
+  leaseOwner = newAtlasAssetLeaseOwner();
   const claimed = await db.transaction(async (tx) => {
     const [locked] = await tx.select().from(charactersTable).where(and(
       eq(charactersTable.id, args.character.id),
@@ -451,7 +460,11 @@ export async function registerAtlasCharacterAsset(args: {
       locked.atlasAssetStatus === "Failed" ||
       needsGetOnlyReconciliation ||
       (locked.atlasAssetStatus === "Processing" &&
-        (!locked.atlasAssetClaimedAt || locked.atlasAssetClaimedAt < stale));
+        (
+          !locked.atlasAssetClaimedAt ||
+          locked.atlasAssetClaimedAt < stale ||
+          !atlasAssetLeaseIsOwnedByCurrentProcess(locked.atlasAssetLeaseOwner)
+        ));
     if (
       !leaseAvailable ||
       locked.referenceSource !== "generated" ||
@@ -882,7 +895,7 @@ export async function registerAtlasOutfitAsset(args: {
     );
   }
   const stale = new Date(Date.now() - 10 * 60_000);
-  leaseOwner = randomUUID();
+  leaseOwner = newAtlasAssetLeaseOwner();
   const claimed = await db.transaction(async (tx) => {
     const [parent] = await tx.select().from(charactersTable).where(and(
       eq(charactersTable.id, args.character.id),
@@ -925,7 +938,11 @@ export async function registerAtlasOutfitAsset(args: {
       locked.atlasAssetStatus === "Failed" ||
       needsGetOnlyReconciliation ||
       (locked.atlasAssetStatus === "Processing" &&
-        (!locked.atlasAssetClaimedAt || locked.atlasAssetClaimedAt < stale));
+        (
+          !locked.atlasAssetClaimedAt ||
+          locked.atlasAssetClaimedAt < stale ||
+          !atlasAssetLeaseIsOwnedByCurrentProcess(locked.atlasAssetLeaseOwner)
+        ));
     if (
       !leaseAvailable ||
       locked.referenceImagePath !== args.expectedSourcePath ||

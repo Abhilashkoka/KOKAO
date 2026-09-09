@@ -68,3 +68,9 @@ Temporary Atlas references shared by several paid operations need durable owners
 **Why:** In-memory cleanup loses assets on process death, while age-only sweeping can delete a reference during slow activation. Removing the claim after DELETE lets a stale runner submit a deleted reference, and copying ownership into a child lets either job delete an asset still used by the other.
 
 **How to apply:** Record all not-yet-checkpointed dependents up front. Never copy temporary ownership or its tombstones into recovery, repair, or fresh-restart children. Treat unsubmitted dependencies as cleanup-safe only at a live runner's known terminal boundary or after job terminalization; keep ambiguous submits and unknown states fenced. Reclaim interrupted processing children, and make provider DELETE 404 idempotent.
+
+Atlas character/outfit registration leases must identify the API process that owns them. After a restart, a known numeric record in `Processing` is reclaimed immediately for GET-only activation polling; same-process claims remain exclusive.
+
+**Why:** A restart after persisting the numeric outfit record left a fresh ten-minute lease owned by a dead worker. The next attempt correctly avoided a duplicate POST but failed before the lease aged out instead of polling the known record.
+
+**How to apply:** Prefix asset lease owners with a process-lifetime ID. A different or legacy owner makes only known-ID `Processing` work reclaimable; unknown-ID submit fences remain blocked because GET-only recovery is impossible.

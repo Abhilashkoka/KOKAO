@@ -159,6 +159,25 @@ describe("atomic Atlas character claim", () => {
     expect(provider.createCalls).toBe(0);
   });
 
+  it("resumes polling a recent character registration owned by a prior API process", async () => {
+    const character = await insertCharacter({
+      atlasAssetLibraryId: 9_100_012,
+      atlasAssetStatus: "Processing",
+      atlasAssetClaimedAt: new Date(),
+      atlasAssetLeaseOwner: "prior-process:character-worker",
+      atlasAssetSubmitFencedAt: new Date(),
+      atlasAssetFenceState: "submitting",
+      atlasAssetSourcePath: "/objects/991337/uploads/sheet",
+      atlasAssetSourceSha256: "approved-sha",
+    });
+
+    const result = await register(character);
+    expect(result.atlasAssetStatus).toBe("Active");
+    expect(result.atlasAssetLibraryId).toBe(9_100_012);
+    expect(provider.getCalls).toBe(1);
+    expect(provider.createCalls).toBe(0);
+  });
+
   it("blocks an asset namespace without a numeric id and never posts", async () => {
     const character = await insertCharacter({
       atlasAssetReferenceId: "asset-orphan-character",
@@ -382,6 +401,47 @@ describe("atomic Atlas character claim", () => {
     });
     expect(reused.atlasAssetStatus).toBe("Active");
     expect(provider.createCalls).toBe(1);
+  });
+
+  it("resumes polling a recent outfit registration owned by a prior API process", async () => {
+    const character = await insertCharacter({
+      atlasAssetLibraryId: 9_100_013,
+      atlasAssetReferenceId: "asset-parent-ready-restart",
+      atlasAssetId: "asset-parent-ready-restart",
+      atlasAssetStatus: "Active",
+      atlasAssetSourcePath: "/objects/991337/uploads/sheet",
+      atlasAssetSourceSha256: "approved-sha",
+    });
+    const [outfit] = await db.insert(characterOutfitsTable).values({
+      tenantId: character.tenantId,
+      characterId: character.id,
+      name: "Restarted",
+      description: "green",
+      referenceImagePath: "/objects/991337/uploads/restarted-outfit",
+      status: "approved",
+      identityVerified: true,
+      atlasApprovedSourceSha256: "restarted-outfit-sha",
+      atlasAssetLibraryId: 9_100_014,
+      atlasAssetStatus: "Processing",
+      atlasAssetClaimedAt: new Date(),
+      atlasAssetLeaseOwner: "prior-process:outfit-worker",
+      atlasAssetSubmitFencedAt: new Date(),
+      atlasAssetFenceState: "submitting",
+      atlasAssetSourcePath: "/objects/991337/uploads/restarted-outfit",
+      atlasAssetSourceSha256: "restarted-outfit-sha",
+    }).returning();
+
+    const result = await registerAtlasOutfitAsset({
+      tenantId: character.tenantId,
+      character,
+      outfit: outfit!,
+      expectedSourcePath: outfit!.referenceImagePath,
+      expectedSourceSha256: "restarted-outfit-sha",
+    });
+    expect(result.atlasAssetStatus).toBe("Active");
+    expect(result.atlasAssetLibraryId).toBe(9_100_014);
+    expect(provider.getCalls).toBe(1);
+    expect(provider.createCalls).toBe(0);
   });
 
   it("keeps an ambiguous outfit fenced and blocks POST and deletion-retry state changes", async () => {
