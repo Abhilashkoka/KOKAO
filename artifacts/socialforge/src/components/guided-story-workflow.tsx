@@ -1078,6 +1078,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const [enlarged, setEnlarged] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [customization, setCustomization] = useState("");
+  const [comparison, setComparison] = useState<{ original: any; replacement: any } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setPrompt(shown?.prompt ?? direction ?? ""); setFile(null); }, [shown?.fingerprint, direction]);
   const refresh = (next: GuidedStoryDraft) => queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
@@ -1107,7 +1108,15 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
         imagePath = result.objectPath;
       }
       if (regenerate || !imagePath) imagePath = (await generate.mutateAsync({ data: { prompt: [selectedPrompt, sceneId ? `Scene-specific direction: ${direction}` : "Default shared location", "Clean location reference plate; no people, text, logos, or action."].join("\n"), size: "1024x1024", referenceImagePath: shown?.imagePath, guidedStoryDraftId: draft.id, guidedStoryRevision: draft.revision } })).imagePath;
-      refresh(await prepare.mutateAsync({ draftId: draft.id, data: { revision: draft.revision, prompt: selectedPrompt, imagePath, sceneId } }));
+      const previous = shown;
+      const next = await prepare.mutateAsync({ draftId: draft.id, data: { revision: draft.revision, prompt: selectedPrompt, imagePath, sceneId } });
+      const replacement = sceneId
+        ? next.visualChoices?.backdrops?.sceneOverrides[sceneId]
+        : next.visualChoices?.backdrops?.default;
+      if (regenerate && previous && replacement && previous.imagePath !== replacement.imagePath) {
+        setComparison({ original: previous, replacement });
+      }
+      refresh(next);
       setFile(null);
     } catch (cause) {
       const message = apiErrorMessage(cause, "Could not prepare this backdrop.");
@@ -1120,6 +1129,24 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   const unsaved = !!file || prompt.trim() !== (shown?.prompt?.trim() ?? "");
   const isGenerating = prepare.isPending || generate.isPending;
   const test = (name: string) => sceneId ? `${name}-${suffix}` : name;
+  const selectForApproval = async (reference: any) => {
+    setError(null);
+    try {
+      const next = await prepare.mutateAsync({
+        draftId: draft.id,
+        data: {
+          revision: draft.revision,
+          prompt: reference.prompt,
+          imagePath: reference.imagePath,
+          sceneId,
+        },
+      });
+      setPrompt(reference.prompt);
+      refresh(next);
+    } catch (cause) {
+      setError(apiErrorMessage(cause, "Could not select this backdrop."));
+    }
+  };
   if (sceneId && !backdrop) return <div className="space-y-2 rounded-md border p-3" data-testid={`card-guided-backdrop-scene-${sceneId}`}>
     <div><b>{label}</b> <span className="text-sm text-muted-foreground">Uses default backdrop</span></div><p className="text-sm text-muted-foreground">{direction}</p>
     <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Optional—leave blank and AI will use this scene’s story direction" data-testid={test("input-guided-backdrop-prompt")} />
@@ -1129,7 +1156,21 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
   </div>;
   return <div className="space-y-3 rounded-md border p-3" data-testid={sceneId ? `card-guided-backdrop-scene-${sceneId}` : "card-guided-backdrop-default"}>
     <div><b>{label}</b> <span className="text-sm text-muted-foreground">{sceneId ? "Override" : shown && !backdrop ? "Legacy default (replace to migrate)" : "Default for inheriting scenes"}</span></div>
-    {shown && <button type="button" onClick={() => setEnlarged(true)} aria-label={`Enlarge ${label}`} data-testid={test("button-enlarge-guided-backdrop")}><img src={`/api/storage${shown.imagePath}`} alt={`${label} reference`} className="h-32 w-52 rounded-md border object-cover" /></button>}
+    {comparison ? <div className="grid gap-3 sm:grid-cols-2" data-testid={test("comparison-guided-backdrop")}>
+      {([
+        { key: "original", title: "Previous backdrop", reference: comparison.original },
+        { key: "replacement", title: "Regenerated backdrop", reference: comparison.replacement },
+      ] as const).map(({ key, title, reference }) => {
+        const selected = shown?.imagePath === reference.imagePath;
+        return <div key={key} className={`space-y-2 rounded-md border p-3 ${selected ? "border-primary ring-2 ring-primary/20" : ""}`} data-testid={test(`option-guided-backdrop-${key}`)}>
+          <div className="flex items-center justify-between gap-2"><b className="text-sm">{title}</b><span className="text-xs text-muted-foreground">{selected ? "Selected" : ""}</span></div>
+          <img src={`/api/storage${reference.imagePath}`} alt={`${title} for ${label}`} className="h-36 w-full rounded-md border object-cover" />
+          <Button type="button" variant={selected ? "secondary" : "outline"} disabled={selected || prepare.isPending} onClick={() => void selectForApproval(reference)} data-testid={test(`button-select-guided-backdrop-${key}`)}>
+            {selected ? "Selected for approval" : `Select ${key === "original" ? "previous" : "regenerated"}`}
+          </Button>
+        </div>;
+      })}
+    </div> : shown && <button type="button" onClick={() => setEnlarged(true)} aria-label={`Enlarge ${label}`} data-testid={test("button-enlarge-guided-backdrop")}><img src={`/api/storage${shown.imagePath}`} alt={`${label} reference`} className="h-32 w-52 rounded-md border object-cover" /></button>}
     <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={sceneId ? "Optional—leave blank and AI will use this scene’s story direction" : "Optional—leave blank and AI will use the approved story and every scene direction"} data-testid={test("input-guided-backdrop-prompt")} />
     <Input type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid={test("input-guided-backdrop-upload")} />
     <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={isGenerating} aria-busy={isGenerating} onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>
@@ -1140,7 +1181,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
       </Button>
       {shown && <Button type="button" variant="outline" onClick={() => { setCustomization(prompt); setCustomizing(true); }} data-testid={test("button-regenerate-guided-backdrop")}>Customize &amp; regenerate</Button>}
       {sceneId && <Button type="button" variant="outline" onClick={() => inherit.mutate({ draftId: draft.id, sceneId, data: { revision: draft.revision } }, { onSuccess: refresh, onError: (cause) => { const message = apiErrorMessage(cause, "Could not inherit the default backdrop."); setError(message); if (/draft changed|changed while|out of date|conflict/i.test(message)) void refreshAfterConflict(); } })} data-testid={test("button-inherit-guided-backdrop")}>Inherit default</Button>}
-      <Button type="button" disabled={!approvalReference || !!approvalReference.approvedAt || unsaved} onClick={() => approvalReference && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: approvalReference.fingerprint, sceneId } }, { onSuccess: refresh, onError: reportApprovalError })} data-testid={test("button-approve-guided-backdrop")}>{approvalReference?.approvedAt ? "Approved" : "Approve backdrop"}</Button></div>
+      <Button type="button" disabled={!approvalReference || !!approvalReference.approvedAt || unsaved} onClick={() => approvalReference && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: approvalReference.fingerprint, sceneId } }, { onSuccess: (next) => { setComparison(null); refresh(next); }, onError: reportApprovalError })} data-testid={test("button-approve-guided-backdrop")}>{approvalReference?.approvedAt ? "Approved" : comparison ? "Approve selected backdrop" : "Approve backdrop"}</Button></div>
     {unsaved && <p className="text-sm text-amber-700" role="status" data-testid={test("status-guided-backdrop-unsaved")}>Save backdrop review changes before approval.</p>}{error && <p className="text-sm text-destructive" role="alert">{error}</p>}
     <Dialog open={enlarged} onOpenChange={setEnlarged}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>{label}</DialogTitle><DialogDescription>Inspect the exact frozen backdrop before approving it.</DialogDescription></DialogHeader>{shown && <img src={`/api/storage${shown.imagePath}`} alt={`Enlarged ${label}`} className="mx-auto max-h-[70vh] max-w-full object-contain" data-testid={test("image-enlarged-guided-backdrop")} />}</DialogContent></Dialog>
     <Dialog open={customizing} onOpenChange={setCustomizing}><DialogContent><DialogHeader><DialogTitle>Customize this backdrop</DialogTitle><DialogDescription>Describe the replacement before generating it.</DialogDescription></DialogHeader><Textarea value={customization} onChange={(event) => setCustomization(event.target.value)} data-testid={test("input-guided-backdrop-customization")} /><Button type="button" disabled={customization.trim().length < 3} onClick={() => { const value = customization.trim(); setPrompt(value); setCustomizing(false); void save(true, value); }} data-testid={test("button-confirm-guided-backdrop-regeneration")}>Generate customized backdrop</Button></DialogContent></Dialog>

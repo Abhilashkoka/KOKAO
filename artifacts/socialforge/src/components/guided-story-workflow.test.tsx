@@ -1826,6 +1826,22 @@ describe("GuidedStoryWorkflow", () => {
       referenceImagePath: "/objects/99/uploads/visual.png",
     }));
     expect(state.generatedImageRequest.prompt).toContain("dark walnut walls");
+    expect(await screen.findByTestId("comparison-guided-backdrop")).toBeTruthy();
+    expect((screen.getByAltText("Previous backdrop for Default backdrop") as HTMLImageElement).src)
+      .toContain("/api/storage/objects/99/uploads/visual.png");
+    expect((screen.getByAltText("Regenerated backdrop for Default backdrop") as HTMLImageElement).src)
+      .toContain("/api/storage/objects/99/generated/custom-backdrop.png");
+    expect((screen.getByTestId("button-select-guided-backdrop-replacement") as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(screen.getByTestId("button-approve-guided-backdrop").textContent)
+      .toBe("Approve selected backdrop");
+
+    await userEvent.click(screen.getByTestId("button-select-guided-backdrop-original"));
+    await waitFor(() => expect(
+      (screen.getByTestId("button-select-guided-backdrop-original") as HTMLButtonElement).disabled,
+    ).toBe(true));
+    await userEvent.click(screen.getByTestId("button-approve-guided-backdrop"));
+    await waitFor(() => expect(screen.queryByTestId("comparison-guided-backdrop")).toBeNull());
   });
 
   it("saves text and uploaded image location choices and blocks enqueue until each change is saved", async () => {
