@@ -3897,6 +3897,7 @@ router.post(
         name: parsed.data.name.trim(),
         description: parsed.data.description.trim(),
         wardrobeDescription: parsed.data.wardrobeDescription.trim(),
+        ethnicity: parsed.data.ethnicity?.trim() || null,
       };
       const existing = row.state.castOperations?.[roleId];
       // A duplicate submission after its atomic reset is safe: return its
@@ -3935,7 +3936,9 @@ router.post(
       const [clone] = await tx.insert(charactersTable).values({
         tenantId: req.tenantId,
         name: customization.name,
-        description: customization.description,
+        description: customization.ethnicity
+          ? `${customization.description}\nEthnicity: ${customization.ethnicity}.`
+          : customization.description,
         referenceImagePath: character.referenceImagePath,
         referenceSheetStatus: "pending",
         referenceSheetImagePath: null,
@@ -4607,7 +4610,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 .join(" ")
                 .slice(0, 1500),
             }) + (operation.customization
-              ? `\nUse this approved role-bound character customization exactly: ${operation.customization.description}\nWardrobe: ${operation.customization.wardrobeDescription}`
+              ? `\nUse this approved role-bound character customization exactly: ${operation.customization.description}${operation.customization.ethnicity ? `\nEthnicity: ${operation.customization.ethnicity}. Keep this ethnicity visually consistent across the portrait, sheet and video scenes.` : ""}\nWardrobe: ${operation.customization.wardrobeDescription}\nRender the person and outfit as a photorealistic production photograph with natural skin and realistic fabric. No cartoon, comic, illustration, anime, 3D-render or concept-art styling.`
               : "");
             // This checkpoint is the one-way provider boundary on every funding
             // rail. Once written, a crash or ambiguous exception can never turn
@@ -4905,8 +4908,9 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         referenceImagePath = operation.path;
         provider = operation.provider;
         model = operation.model;
-        const characterDescription = operation.customization?.description ??
-          `Wholly fictional character. ${role.description}`;
+        const characterDescription = operation.customization
+          ? `${operation.customization.description}${operation.customization.ethnicity ? ` Ethnicity: ${operation.customization.ethnicity}.` : ""}`
+          : `Wholly fictional character. ${role.description}`;
         const wardrobeDescription = operation.customization?.wardrobeDescription ??
           `Original fictional wardrobe suited to ${row.state.setup!.genre.replaceAll("_", " ")}. ` +
           `Preserve all wardrobe details specified by the approved role description: ${role.description}`;

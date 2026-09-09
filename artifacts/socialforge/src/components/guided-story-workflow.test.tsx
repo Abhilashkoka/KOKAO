@@ -1114,10 +1114,12 @@ describe("GuidedStoryWorkflow", () => {
 
     await userEvent.click(screen.getByTestId("button-guided-customize-character-r1"));
     expect((screen.getByTestId("input-guided-custom-character-name") as HTMLInputElement).value).toBe("Ari");
+    expect((screen.getByTestId("input-guided-custom-character-ethnicity") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("input-guided-custom-character-description") as HTMLTextAreaElement).value).toBe("Planner appearance");
     expect((screen.getByTestId("input-guided-custom-character-wardrobe") as HTMLTextAreaElement).value).toBe("Planner outfit");
     await userEvent.clear(screen.getByTestId("input-guided-custom-character-name"));
     await userEvent.type(screen.getByTestId("input-guided-custom-character-name"), "Aria");
+    await userEvent.type(screen.getByTestId("input-guided-custom-character-ethnicity"), "South Asian");
     await userEvent.click(screen.getByTestId("button-guided-save-custom-character"));
     expect(state.customizationRequest).toEqual({
       draftId: 7,
@@ -1126,6 +1128,7 @@ describe("GuidedStoryWorkflow", () => {
         revision: 2,
         name: "Aria",
         description: "Planner appearance",
+        ethnicity: "South Asian",
         wardrobeDescription: "Planner outfit",
       },
     });

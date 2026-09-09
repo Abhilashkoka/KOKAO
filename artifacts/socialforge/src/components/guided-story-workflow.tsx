@@ -1289,6 +1289,7 @@ function CastApprovalStep(props: any) {
   const [customizeRoleId, setCustomizeRoleId] = useState<string | null>(null);
   const [customName, setCustomName] = useState("");
   const [customDescription, setCustomDescription] = useState("");
+  const [customEthnicity, setCustomEthnicity] = useState("");
   const [customWardrobe, setCustomWardrobe] = useState("");
   const [customizationError, setCustomizationError] = useState<string | null>(null);
   const createReference = useCreateGuidedStoryReference();
@@ -1322,6 +1323,7 @@ function CastApprovalStep(props: any) {
     setCustomizeRoleId(roleId);
     setCustomName(member.character.name);
     setCustomDescription(member.character.description);
+    setCustomEthnicity("");
     setCustomWardrobe(member.outfit?.description ?? "");
     setCustomizationError(null);
   };
@@ -1409,6 +1411,7 @@ function CastApprovalStep(props: any) {
           revision: props.draft.revision,
           name: customName.trim(),
           description: customDescription.trim(),
+          ethnicity: customEthnicity.trim() || undefined,
           wardrobeDescription: customWardrobe.trim(),
         },
       });
@@ -1764,6 +1767,28 @@ function CastApprovalStep(props: any) {
         </DialogHeader>
         <div className="space-y-3">
           <div><Label htmlFor="guided-custom-character-name">Character name</Label><Input id="guided-custom-character-name" value={customName} onChange={(event) => setCustomName(event.target.value)} data-testid="input-guided-custom-character-name" /></div>
+          <div>
+            <Label htmlFor="guided-custom-character-ethnicity">Ethnicity / cultural appearance (optional)</Label>
+            <Input
+              id="guided-custom-character-ethnicity"
+              list="guided-character-ethnicity-options"
+              placeholder="e.g. South Asian"
+              value={customEthnicity}
+              onChange={(event) => setCustomEthnicity(event.target.value)}
+              data-testid="input-guided-custom-character-ethnicity"
+            />
+            <datalist id="guided-character-ethnicity-options">
+              <option value="South Asian" />
+              <option value="East Asian" />
+              <option value="Southeast Asian" />
+              <option value="Black / African diaspora" />
+              <option value="Middle Eastern / North African" />
+              <option value="Latino / Hispanic" />
+              <option value="White / European" />
+              <option value="Mixed / multiracial" />
+            </datalist>
+            <p className="text-xs text-muted-foreground">Use the same value for multiple fictional characters when they should share an ethnicity.</p>
+          </div>
           <div><Label htmlFor="guided-custom-character-description">Appearance / description</Label><Textarea id="guided-custom-character-description" value={customDescription} onChange={(event) => setCustomDescription(event.target.value)} data-testid="input-guided-custom-character-description" /></div>
           <div><Label htmlFor="guided-custom-character-wardrobe">Wardrobe / outfit description</Label><Textarea id="guided-custom-character-wardrobe" value={customWardrobe} onChange={(event) => setCustomWardrobe(event.target.value)} data-testid="input-guided-custom-character-wardrobe" /></div>
           {customizationError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-customize-character">{customizationError}</p>}

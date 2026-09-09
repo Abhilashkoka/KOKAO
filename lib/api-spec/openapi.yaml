@@ -18106,6 +18106,10 @@ components:
         name: { type: string, minLength: 1, maxLength: 160 }
         description: { type: string, minLength: 3, maxLength: 4000 }
         wardrobeDescription: { type: string, minLength: 3, maxLength: 4000 }
+        ethnicity:
+          type: string
+          minLength: 2
+          maxLength: 120
     GuidedStoryCastApprovalAsset:
       type: object
       additionalProperties: false

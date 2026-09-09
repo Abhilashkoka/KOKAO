@@ -95,6 +95,8 @@ const state = vi.hoisted(() => ({
   invokeGuidedAtlasResolver: false,
   guidedAtlasResolvedIds: [] as string[][],
   guidedAtlasAssetCalls: [] as Array<{ characterId: number; includeCharacterSheet?: boolean }>,
+  guidedAtlasBackdropCreates: [] as string[],
+  guidedAtlasBackdropDeletes: [] as number[],
   renderedOutputBuffer: null as Buffer | null,
   uploadedBodies: [] as Array<{ body: Buffer; contentType: string | null }>,
 }));
@@ -135,6 +137,28 @@ vi.mock("../characterAssets", async (importOriginal) => {
     }),
   };
 });
+
+vi.mock("../atlascloud/assets", () => ({
+  resolveAtlasAssetsKey: vi.fn(async () => "atlas-test-key"),
+  createAtlasAsset: vi.fn(async (url: string) => {
+    state.guidedAtlasBackdropCreates.push(url);
+    return {
+      libraryRecordId: 901,
+      atlasAssetId: "backdrop-console-901",
+      generationReferenceId: "asset-backdrop-901",
+    };
+  }),
+  waitForAtlasAsset: vi.fn(async () => ({
+    libraryRecordId: 901,
+    atlasAssetId: "backdrop-console-901",
+    generationReferenceId: "asset-backdrop-901",
+    status: "Active",
+    error: null,
+  })),
+  deleteAtlasAsset: vi.fn(async (libraryRecordId: number) => {
+    state.guidedAtlasBackdropDeletes.push(libraryRecordId);
+  }),
+}));
 
 vi.mock("./clipStoryboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./clipStoryboard")>();
@@ -811,6 +835,12 @@ vi.mock("../objectStorage", async (importOriginal) => {
     normalizeObjectEntityPath(uploadURL: string): string {
       return new URL(uploadURL).pathname;
     }
+    async getSignedDownloadURL(
+      objectPath: string,
+      tenantId: number,
+    ): Promise<string> {
+      return `https://storage.example.com/signed/${tenantId}${objectPath}`;
+    }
     async getObjectEntityFile(
       _objectPath: string,
       _tenantId: number,
@@ -956,6 +986,8 @@ beforeEach(() => {
   state.invokeGuidedAtlasResolver = false;
   state.guidedAtlasResolvedIds.length = 0;
   state.guidedAtlasAssetCalls.length = 0;
+  state.guidedAtlasBackdropCreates.length = 0;
+  state.guidedAtlasBackdropDeletes.length = 0;
   state.renderedOutputBuffer = null;
   state.uploadedBodies.length = 0;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
@@ -4168,6 +4200,29 @@ describe("Guided Story preview-only runner", () => {
       provider: "atlascloud",
       model: "bytedance/seedance-2.5/reference-to-video",
     };
+    const backdropImageSha256 = createHash("sha256")
+      .update("fake-video-bytes")
+      .digest("hex");
+    const canonicalBackdrop = {
+      version: 1 as const,
+      prompt: snapshot.backdropReference.prompt,
+      imagePath: snapshot.backdropReference.imagePath,
+      imageSha256: backdropImageSha256,
+      revision: 1,
+      approvedAt: "2025-01-01T00:00:00.000Z",
+      fingerprint: guidedBackdropFingerprint({
+        prompt: snapshot.backdropReference.prompt,
+        imagePath: snapshot.backdropReference.imagePath,
+        imageSha256: backdropImageSha256,
+        revision: 1,
+        sceneId: null,
+      }),
+    };
+    snapshot.backdrops = {
+      version: 1 as const,
+      default: canonicalBackdrop,
+      sceneOverrides: {},
+    };
     state.topicPlanMode = "ai";
     state.invokeGuidedAtlasResolver = true;
     const job = await seedJob(tenant.tenantId, {
@@ -4205,7 +4260,10 @@ describe("Guided Story preview-only runner", () => {
       "asset-outfit-4",
       "asset-sheet-1",
       "asset-outfit-1",
+      "asset-backdrop-901",
     ]]);
+    expect(state.guidedAtlasBackdropCreates).toHaveLength(1);
+    expect(state.guidedAtlasBackdropDeletes).toEqual([901]);
     expect(state.guidedAtlasAssetCalls.map((call) => ({
       characterId: call.characterId,
       includeCharacterSheet: call.includeCharacterSheet,

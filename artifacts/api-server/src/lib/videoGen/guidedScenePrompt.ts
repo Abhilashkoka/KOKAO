@@ -132,8 +132,11 @@ function castClause(sceneCast: GuidedStoryCastSnapshot[]): string {
 function locationClause(input: GuidedSceneVisualInput): string {
   if (input.backdrop) {
     const direction = stripStoryboardDump(input.backdrop.prompt);
+    const referenceLabel =
+      input.referenceLabels?.[input.sceneCast.length * 2];
     return (
       `The location is the approved ${input.backdropLabel} backdrop` +
+      (referenceLabel ? ` shown exactly in ${referenceLabel}` : "") +
       (direction ? `: ${direction}` : ".") +
       " Keep this location unchanged for the whole shot."
     );

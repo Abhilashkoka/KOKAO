@@ -16,6 +16,7 @@ import {
   guidedCastApprovalsMatch,
   guidedCastOperationCanRestart,
   guidedCastOperationCanResume,
+  governedGuidedCastPrompt,
   guidedStoryApprovalSnapshotMatches,
   guidedStoryEstimates,
   guidedStorySnapshotFingerprint,
@@ -30,6 +31,23 @@ import {
   validateGuidedStoryGeneratedSpeech,
   validateGuidedResumableCastOperation,
 } from "./guidedStory";
+
+it("keeps generated cast and wardrobe photographic instead of comic-styled", async () => {
+  const prompt = await governedGuidedCastPrompt({
+    tenantId: 1,
+    role: {
+      id: "hero",
+      name: "Mina",
+      description: "A wholly fictional event planner",
+    },
+    genre: "comedy",
+    visualDirection: "A colorful workplace comedy.",
+  });
+
+  expect(prompt).toContain("photorealistic production photograph");
+  expect(prompt).toContain("realistic fabric construction");
+  expect(prompt).toContain("No cartoon, comic-book, illustration, anime");
+});
 
 function approvedBackdrop(
   prompt: string,

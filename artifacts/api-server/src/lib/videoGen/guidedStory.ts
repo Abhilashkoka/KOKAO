@@ -248,6 +248,7 @@ export async function governedGuidedCastPrompt(params: {
     `Role: ${params.role.name}. ${params.role.description}`,
     `Genre: ${params.genre}. Story visual direction: ${params.visualDirection}`,
     "Create a full-body neutral reference portrait with an original face and a complete genre-appropriate outfit. Do not depict or imitate a real person.",
+    "This must be a photorealistic production photograph with natural skin texture, anatomically realistic features, realistic fabric construction and neutral studio lighting. No cartoon, comic-book, illustration, anime, cel-shaded, 3D-render, game-art or concept-art look.",
   ].join("\n");
   const governed = await getGovernedPrompt({
     flowKey: "guided_story_cast",
@@ -1177,10 +1178,13 @@ export function guidedStoryStoryboard(
     const atlasReferenceLabels =
       snapshot.videoModel?.provider === "atlascloud" &&
       snapshot.videoModel.model === "bytedance/seedance-2.5/reference-to-video"
-        ? sceneCast.flatMap((_member, index) => [
-            `@Image${index * 2 + 1}`,
-            `@Image${index * 2 + 2}`,
-          ])
+        ? [
+            ...sceneCast.flatMap((_member, index) => [
+              `@Image${index * 2 + 1}`,
+              `@Image${index * 2 + 2}`,
+            ]),
+            ...(sceneBackdrop ? [`@Image${sceneCast.length * 2 + 1}`] : []),
+          ]
         : undefined;
     return {
       id: scriptScene.id,

@@ -170,10 +170,17 @@ export function seedanceScenePrompt(input: SeedanceSceneInput): string {
             "@Image 1 is the approved active-speaker or primary-character portrait in the approved outfit. It defines only that character's face, hair, body appearance, and wardrobe; it does not define the environment or the complete shot composition.",
           ]
         : input.referenceMode === "atlas-character-assets"
-          ? input.sceneCast.flatMap((member, index) => [
-              `@Image${index * 2 + 1} is ${member.character.name}'s approved multi-view character sheet and defines their face, hair, build, and identity.`,
-              `@Image${index * 2 + 2} is ${member.character.name}'s approved outfit reference and defines their clothing exactly.`,
-            ])
+          ? [
+              ...input.sceneCast.flatMap((member, index) => [
+                `@Image${index * 2 + 1} is ${member.character.name}'s approved multi-view character sheet and defines their face, hair, build, and identity.`,
+                `@Image${index * 2 + 2} is ${member.character.name}'s approved outfit reference and defines their clothing exactly.`,
+              ]),
+              ...(input.backdrop
+                ? [
+                    `@Image${input.sceneCast.length * 2 + 1} is the exact approved backdrop and defines the architecture, layout, surfaces, fixed props, lighting direction, and color palette. Keep it unchanged.`,
+                  ]
+                : []),
+            ]
           : slots.map((slot) => `@Image ${slot.slot} defines ${slot.defines}.`);
   for (const member of input.sceneCast) {
     references.push(

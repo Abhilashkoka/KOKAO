@@ -4874,6 +4874,11 @@ export interface GuidedStoryGeneratedCastCustomizationInput {
      * @maxLength 4000
      */
   wardrobeDescription: string;
+  /**
+     * @minLength 2
+     * @maxLength 120
+     */
+  ethnicity?: string;
 }
 
 export interface GuidedStoryCastApprovalAsset {

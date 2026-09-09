@@ -301,6 +301,7 @@ export interface GuidedStoryDraftState {
       name: string;
       description: string;
       wardrobeDescription: string;
+      ethnicity?: string | null;
     };
     /**
      * The portrait and its multi-view reference sheet are separate paid

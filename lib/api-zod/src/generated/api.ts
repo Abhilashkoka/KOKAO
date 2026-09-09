@@ -16581,13 +16581,17 @@ export const customizeGuidedStoryGeneratedCastRoleBodyDescriptionMax = 4000;
 export const customizeGuidedStoryGeneratedCastRoleBodyWardrobeDescriptionMin = 3;
 export const customizeGuidedStoryGeneratedCastRoleBodyWardrobeDescriptionMax = 4000;
 
+export const customizeGuidedStoryGeneratedCastRoleBodyEthnicityMin = 2;
+export const customizeGuidedStoryGeneratedCastRoleBodyEthnicityMax = 120;
+
 
 
 export const CustomizeGuidedStoryGeneratedCastRoleBody = zod.object({
   "revision": zod.number().min(1),
   "name": zod.string().min(1).max(customizeGuidedStoryGeneratedCastRoleBodyNameMax),
   "description": zod.string().min(customizeGuidedStoryGeneratedCastRoleBodyDescriptionMin).max(customizeGuidedStoryGeneratedCastRoleBodyDescriptionMax),
-  "wardrobeDescription": zod.string().min(customizeGuidedStoryGeneratedCastRoleBodyWardrobeDescriptionMin).max(customizeGuidedStoryGeneratedCastRoleBodyWardrobeDescriptionMax)
+  "wardrobeDescription": zod.string().min(customizeGuidedStoryGeneratedCastRoleBodyWardrobeDescriptionMin).max(customizeGuidedStoryGeneratedCastRoleBodyWardrobeDescriptionMax),
+  "ethnicity": zod.string().min(customizeGuidedStoryGeneratedCastRoleBodyEthnicityMin).max(customizeGuidedStoryGeneratedCastRoleBodyEthnicityMax).optional()
 })
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMin = 15;

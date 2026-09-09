@@ -82,6 +82,12 @@ import {
   OpenRouterInputImagePrivacyError,
 } from "./providers/openrouter";
 import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "./providers/atlascloud";
+import {
+  createAtlasAsset,
+  deleteAtlasAsset,
+  resolveAtlasAssetsKey,
+  waitForAtlasAsset,
+} from "../atlascloud/assets";
 import { assertHybridStoryBeatPlan, planHybridStoryBeats } from "./hybridStory";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import {
@@ -3905,6 +3911,74 @@ async function produceVideo(
       const music = directGuidedNativeAudio
         ? null
         : await resolveMusic(job, options, 30, onStage);
+      const atlasBackdropAssets = new Map<
+        string,
+        Promise<{ libraryRecordId: number; generationReferenceId: string }>
+      >();
+      const resolveAtlasBackdropAsset = async (sceneIndex: number) => {
+        const scene = board.scenes[sceneIndex];
+        const scriptSceneId = scene?.guidedStory?.scriptSceneId;
+        const effective =
+          scriptSceneId && options.guidedStory
+            ? effectiveGuidedBackdrop(options.guidedStory, scriptSceneId)
+            : null;
+        if (!effective) {
+          throw new VideoJobInputError(
+            `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved backdrop.`,
+          );
+        }
+        const reference = effective.reference;
+        if (!reference.imageSha256) {
+          throw new VideoJobInputError(
+            `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s approved backdrop has no frozen byte fingerprint.`,
+          );
+        }
+        const cacheKey = `${reference.imagePath}:${reference.imageSha256}`;
+        let pending = atlasBackdropAssets.get(cacheKey);
+        if (!pending) {
+          pending = (async () => {
+            const apiKey = await resolveAtlasAssetsKey();
+            if (!apiKey) {
+              throw new VideoGenNotConfiguredError(
+                "Atlas Cloud is not configured for approved backdrop references.",
+              );
+            }
+            const url = await objectStorageService.getSignedDownloadURL(
+              reference.imagePath,
+              job.tenantId,
+              15 * 60,
+            );
+            const created = await createAtlasAsset(url, apiKey);
+            try {
+              const activated = await waitForAtlasAsset(
+                created.libraryRecordId,
+                apiKey,
+              );
+              if (activated.status !== "Active") {
+                throw new VideoGenProviderError(
+                  activated.error ??
+                    "Atlas Cloud did not activate the approved backdrop reference.",
+                );
+              }
+              return {
+                libraryRecordId: activated.libraryRecordId,
+                generationReferenceId: activated.generationReferenceId,
+              };
+            } catch (error) {
+              await deleteAtlasAsset(created.libraryRecordId, apiKey).catch(
+                (cleanupError) =>
+                  logger.warn(
+                    { cleanupError, libraryRecordId: created.libraryRecordId },
+                    "failed to compensate Atlas backdrop asset creation",
+                  ),
+              );
+              throw error;
+            }
+          })();
+          atlasBackdropAssets.set(cacheKey, pending);
+        }
+        return pending;
+      };
       let result;
       try {
       result = await renderTopicStoryboard({
@@ -3984,6 +4058,8 @@ async function produceVideo(
                   }
                   attached.push(...refs);
                 }
+                const backdrop = await resolveAtlasBackdropAsset(sceneIndex);
+                attached.push(backdrop.generationReferenceId);
                 return attached;
               }
             : undefined,
@@ -4060,6 +4136,30 @@ async function produceVideo(
             error);
         }
         throw error;
+      }
+      if (atlasBackdropAssets.size > 0) {
+        const apiKey = await resolveAtlasAssetsKey();
+        if (apiKey) {
+          const resolved = await Promise.allSettled(atlasBackdropAssets.values());
+          await Promise.all(
+            resolved.flatMap((item) =>
+              item.status === "fulfilled"
+                ? [
+                    deleteAtlasAsset(item.value.libraryRecordId, apiKey).catch(
+                      (cleanupError) =>
+                        logger.warn(
+                          {
+                            cleanupError,
+                            libraryRecordId: item.value.libraryRecordId,
+                          },
+                          "failed to delete completed Atlas backdrop asset",
+                        ),
+                    ),
+                  ]
+                : [],
+            ),
+          );
+        }
       }
       let finalBuffer = result.buffer;
       let presenterEvents: VideoProviderEvent[] = [];

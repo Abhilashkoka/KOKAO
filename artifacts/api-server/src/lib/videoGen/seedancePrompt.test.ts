@@ -203,7 +203,7 @@ describe("Seedance 2.5 prompt assembly", () => {
     expect(prompt).toContain("@Image2 is Mira's approved outfit reference");
     expect(prompt).toContain("@Image3 is Dev's approved multi-view character sheet");
     expect(prompt).toContain("@Image4 is Dev's approved outfit reference");
-    expect(prompt).not.toContain("@Image5");
+    expect(prompt).toContain("@Image5 is the exact approved backdrop");
   });
 
   it("preserves the existing narration contract when native audio is disabled", () => {
