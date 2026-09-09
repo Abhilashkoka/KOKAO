@@ -153,3 +153,4 @@
 - [OpenRouter image API](openrouter-image-api.md) — image generation and capability discovery use the dedicated Images API, not chat-completion modalities.
 - [Provider pricing freshness](provider-pricing-freshness.md) — scheduled official-rate refreshes preserve snapshots and alert from the last successful source timestamp, not failure counts.
 - [Provider-backed identity deletion](provider-identity-deletion.md) — deletion may race callback success; finalizers must verify persistence and compensate upstream assets.
+- [Native provider audio QA](native-provider-audio-qa.md) — verify locale and ordered dialogue after receipt persistence; terminal content failures require fresh restarts.

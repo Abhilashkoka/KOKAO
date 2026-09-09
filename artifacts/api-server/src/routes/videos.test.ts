@@ -8227,6 +8227,46 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     });
   });
 
+  it("requires a fresh restart instead of reusing rejected native speech", async () => {
+    const owner = await newTenant();
+    actAs(owner.clerkUserId);
+    const [source] = await db.insert(videoGenerationsTable).values({
+      tenantId: owner.tenantId,
+      engine: "topic_to_video",
+      status: "failed",
+      options: { aspectRatio: "9:16" },
+      error: "The provider spoke the wrong language.",
+      errorHistory: [{
+        jobId: 1,
+        jobNumber: 1,
+        scope: "job",
+        occurredAt: "2026-09-09T00:00:00.000Z",
+        sceneNumber: null,
+        displayNumber: null,
+        sceneId: null,
+        operation: "pipeline",
+        provider: "higgsfield",
+        model: "veo3.1/fast/image-to-video",
+        providerRequestId: null,
+        code: "native_audio_wrong_language",
+        message: "The provider spoke the wrong language.",
+        attempt: 1,
+        recoveryAttempt: 0,
+        outcome: "stopped",
+        fingerprint: "native-audio-wrong-language",
+      }],
+    }).returning();
+
+    const serialized = await request(app).get(`/api/ai/video-jobs/${source!.id}`);
+    expect(serialized.status).toBe(200);
+    expect(serialized.body.retryable).toBe(false);
+
+    const retry = await request(app).post(`/api/ai/video-jobs/${source!.id}/retry`);
+    expect(retry.status).toBe(409);
+    expect(retry.body).toMatchObject({ code: "recovery_requires_fresh_restart" });
+    expect(retry.body.error).toMatch(/start a fresh video attempt/i);
+  });
+
   it("allows only one concurrent child and funds only missing operations", async () => {
     const tenant = await newTenant("pro");
     const source = await seedFailed(tenant, 1);

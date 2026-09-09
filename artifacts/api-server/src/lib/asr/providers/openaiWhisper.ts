@@ -15,8 +15,12 @@ export async function transcribeWithOpenAI(
       file,
       model: OPENAI_ASR_MODEL,
       // verbose_json is the only Whisper format carrying segment timings.
-      response_format: input.timestamps ? "verbose_json" : "json",
-    })) as { text: string; segments?: { start?: number; end?: number; text?: string }[] };
+      response_format: input.timestamps || input.detectLanguage ? "verbose_json" : "json",
+    })) as {
+      text: string;
+      language?: string;
+      segments?: { start?: number; end?: number; text?: string }[];
+    };
     const segments = input.timestamps
       ? normalizeSegments(
           (result.segments ?? []).map((segment) => ({
@@ -30,6 +34,9 @@ export async function transcribeWithOpenAI(
       text: result.text.trim(),
       provider: "openai",
       model: OPENAI_ASR_MODEL,
+      ...(input.detectLanguage && result.language?.trim()
+        ? { detectedLanguage: result.language.trim() }
+        : {}),
       ...(segments.length > 0 ? { segments } : {}),
     };
   } catch (err) {

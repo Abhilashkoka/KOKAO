@@ -1013,6 +1013,17 @@ function blocksAnotherRepair(job: VideoGeneration): boolean {
   );
 }
 
+const NATIVE_AUDIO_FRESH_RESTART_CODES = new Set([
+  "native_audio_missing_speech",
+  "native_audio_wrong_language",
+  "native_audio_dialogue_drift",
+]);
+
+function requiresFreshRestartAfterNativeAudioFailure(job: VideoGeneration): boolean {
+  const latest = job.errorHistory?.at(-1)?.code;
+  return latest != null && NATIVE_AUDIO_FRESH_RESTART_CODES.has(latest);
+}
+
 function serializeVideoJob(
   job: VideoGeneration,
   retryableOverride?: boolean,
@@ -1109,6 +1120,7 @@ function serializeVideoJob(
       retryableOverride ??
       (job.status === "failed" &&
         RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
+        !requiresFreshRestartAfterNativeAudioFailure(job) &&
         !(
           job.options?.guidedStoryDialogueReplay &&
           Object.values(
@@ -12035,6 +12047,14 @@ router.post(
       res.status(400).json({
         error: "This video does not have saved inputs that can be retried.",
         code: "recovery_not_eligible",
+      });
+      return;
+    }
+    if (requiresFreshRestartAfterNativeAudioFailure(initial)) {
+      res.status(409).json({
+        error:
+          "This completed provider render failed its spoken-audio quality check and cannot reuse the rejected audio. Start a fresh video attempt.",
+        code: "recovery_requires_fresh_restart",
       });
       return;
     }

@@ -35,7 +35,11 @@ export async function transcribeWithAssemblyAI(
   const createRes = await asrFetch(`${BASE}/transcript`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ audio_url: uploadUrl, speech_model: ASSEMBLYAI_MODEL }),
+    body: JSON.stringify({
+      audio_url: uploadUrl,
+      speech_model: ASSEMBLYAI_MODEL,
+      ...(input.detectLanguage ? { language_detection: true } : {}),
+    }),
   });
   if (!createRes.ok) {
     const detail = (await createRes.text().catch(() => "")).slice(0, 300);
@@ -58,6 +62,7 @@ export async function transcribeWithAssemblyAI(
       status?: string;
       text?: string | null;
       error?: string;
+      language_code?: string | null;
       words?: { start?: number; end?: number; text?: string }[];
     };
     if (data.status === "completed") {
@@ -77,6 +82,9 @@ export async function transcribeWithAssemblyAI(
         text: (data.text ?? "").trim(),
         provider: "assemblyai",
         model: ASSEMBLYAI_MODEL,
+        ...(input.detectLanguage && data.language_code?.trim()
+          ? { detectedLanguage: data.language_code.trim() }
+          : {}),
         ...(segments.length > 0 ? { segments } : {}),
       };
     }

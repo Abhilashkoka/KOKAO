@@ -166,6 +166,9 @@ const state = vi.hoisted(() => ({
   guidedAtlasPredictionTerminal: true,
   renderedOutputBuffer: null as Buffer | null,
   uploadedBodies: [] as Array<{ body: Buffer; contentType: string | null }>,
+  asrTranscript: "We will complete rescue step 1 safely together.",
+  asrDetectedLanguage: "en" as string | null,
+  asrCalls: 0,
 }));
 
 function pcmWav(seconds = 2): Buffer {
@@ -187,6 +190,20 @@ vi.mock("../featureFlags", async (importOriginal) => {
     isFeatureEnabled: vi.fn(async (id: string) => id !== state.disabledFeature),
   };
 });
+
+vi.mock("../asr", () => ({
+  transcribeAudio: vi.fn(async () => {
+    state.asrCalls += 1;
+    return {
+      text: state.asrTranscript,
+      provider: "test-asr",
+      model: "test-asr-model",
+      ...(state.asrDetectedLanguage
+        ? { detectedLanguage: state.asrDetectedLanguage }
+        : {}),
+    };
+  }),
+}));
 
 vi.mock("../characterAssets", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../characterAssets")>();
@@ -1061,6 +1078,9 @@ beforeEach(() => {
   state.guidedAtlasPredictionTerminal = true;
   state.renderedOutputBuffer = null;
   state.uploadedBodies.length = 0;
+  state.asrTranscript = "We will complete rescue step 1 safely together.";
+  state.asrDetectedLanguage = "en";
+  state.asrCalls = 0;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -4144,6 +4164,30 @@ describe("Guided Story preview-only runner", () => {
     };
   }
 
+  function directNativeOptions(snapshot: ReturnType<typeof guidedSnapshot>): VideoJobOptions {
+    return {
+      aspectRatio: "9:16",
+      reviewStoryboard: false,
+      guidedStory: { ...snapshot, locale: "en" },
+      guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+      generateAudio: true,
+      resolvedVideoModel: {
+        version: 1,
+        source: "explicit",
+        mode: "image",
+        provider: "higgsfield",
+        model: "veo3.1/fast/image-to-video",
+        catalogModelId: "higgsfield-veo-3.1-fast",
+        durationSec: 5,
+        permittedDurationSec: [5],
+        resolution: "720p",
+        quality: null,
+        generateAudio: true,
+        supportsEndFrame: false,
+      },
+    };
+  }
+
   it("allows a valid approved Guided Story without a preexisting board through initial planning", async () => {
     const tenant = await newTenant();
     const snapshot = guidedSnapshot(tenant.tenantId, 2);
@@ -4212,6 +4256,7 @@ describe("Guided Story preview-only runner", () => {
     expect(saved.storyboard?.scenes[0]?.previewCheckpoint).toBeFalsy();
     expect(state.guidedPreviewProviderCalls).toBe(previewCallsBefore);
     expect(state.dialogueSpeech).toHaveLength(speechCallsBefore);
+    expect(state.asrCalls).toBe(1);
 
     const providerCallsAfterFirstRender = state.topicCheckpointed.length;
     const resumed = await seedJob(tenant.tenantId, {
@@ -4225,6 +4270,95 @@ describe("Guided Story preview-only runner", () => {
     expect(resumedSaved.status, resumedSaved.error ?? undefined).toBe("succeeded");
     expect(resumedSaved.videoPath).toBeTruthy();
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
+    expect(state.asrCalls).toBe(2);
+  });
+
+  it("fails wrong-language native speech after preserving its provider receipt", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    state.guidedInitialBoard = guidedStoryStoryboard({ ...snapshot, locale: "en" });
+    state.topicPlanMode = "ai";
+    state.asrTranscript = "El diálogo se pronunció en el idioma equivocado.";
+    state.asrDetectedLanguage = "es";
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: directNativeOptions(snapshot),
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.error).toMatch(/wrong language.*detected es.*expected en/i);
+    expect(saved.error).not.toMatch(/changed the approved/i);
+    expect(saved.storyboard?.scenes[0]?.providerCheckpoint?.path).toBeTruthy();
+    expect(saved.storyboard?.scenes[0]?.providerCheckpoint?.event?.accounted).toBe(true);
+    expect(state.usage).toHaveLength(1);
+  });
+
+  it("accepts uncertain language detection when the exact dialogue matches", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    snapshot.script.scenes[0]!.lines[0]!.text = "OK 2";
+    state.guidedInitialBoard = guidedStoryStoryboard({ ...snapshot, locale: "en" });
+    state.topicPlanMode = "ai";
+    state.asrTranscript = "OK 2";
+    state.asrDetectedLanguage = null;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: directNativeOptions(snapshot),
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status, saved.error ?? undefined).toBe("succeeded");
+    expect(state.asrCalls).toBe(1);
+  });
+
+  it("reports changed native dialogue separately from wrong-language speech", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    state.guidedInitialBoard = guidedStoryStoryboard({ ...snapshot, locale: "en" });
+    state.topicPlanMode = "ai";
+    state.asrTranscript = "A completely different English sentence was spoken.";
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: directNativeOptions(snapshot),
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.error).toMatch(/changed the approved en dialogue/i);
+    expect(saved.error).toMatch(/language was not the problem/i);
+    expect(saved.error).not.toMatch(/wrong language/i);
+    expect(saved.storyboard?.scenes[0]?.providerCheckpoint?.event?.accounted).toBe(true);
+  });
+
+  it("fails a native-speech render with no usable audio without retranscribing", async () => {
+    const tenant = await newTenant();
+    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    state.guidedInitialBoard = guidedStoryStoryboard({ ...snapshot, locale: "en" });
+    state.topicPlanMode = "ai";
+    state.failNativeAudioExtraction = true;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: directNativeOptions(snapshot),
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.error).toMatch(/no usable spoken audio/i);
+    expect(state.asrCalls).toBe(0);
+    expect(saved.storyboard?.scenes[0]?.providerCheckpoint?.event?.accounted).toBe(true);
   });
 
   it("direct Atlas rendering resolves every scene character's sheet and outfit and reuses checkpoints", async () => {

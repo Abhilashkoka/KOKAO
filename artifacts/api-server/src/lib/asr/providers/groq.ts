@@ -25,7 +25,7 @@ export async function transcribeWithGroq(
   form.append("model", GROQ_MODEL);
   // verbose_json is the only Whisper format that carries segment timings; it
   // costs a larger payload, so only the callers that need a spine ask for it.
-  form.append("response_format", input.timestamps ? "verbose_json" : "json");
+  form.append("response_format", input.timestamps || input.detectLanguage ? "verbose_json" : "json");
 
   const res = await asrFetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
@@ -38,6 +38,7 @@ export async function transcribeWithGroq(
   }
   const data = (await res.json()) as {
     text?: string;
+    language?: string;
     segments?: { start?: number; end?: number; text?: string }[];
   };
   if (typeof data.text !== "string") {
@@ -56,6 +57,9 @@ export async function transcribeWithGroq(
     text: data.text.trim(),
     provider: "groq",
     model: GROQ_MODEL,
+    ...(input.detectLanguage && data.language?.trim()
+      ? { detectedLanguage: data.language.trim() }
+      : {}),
     ...(segments.length > 0 ? { segments } : {}),
   };
 }

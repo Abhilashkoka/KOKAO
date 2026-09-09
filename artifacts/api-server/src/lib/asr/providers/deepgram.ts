@@ -18,7 +18,7 @@ export async function transcribeWithDeepgram(
 
   // utterances=true adds speech-delimited spans; without it Deepgram returns a
   // single flat transcript with nowhere to hang a subtitle cue.
-  const query = `model=${DEEPGRAM_MODEL}&smart_format=true${input.timestamps ? "&utterances=true" : ""}`;
+  const query = `model=${DEEPGRAM_MODEL}&smart_format=true${input.timestamps ? "&utterances=true" : ""}${input.detectLanguage ? "&detect_language=true" : ""}`;
   const res = await asrFetch(
     `https://api.deepgram.com/v1/listen?${query}`,
     {
@@ -39,11 +39,15 @@ export async function transcribeWithDeepgram(
   }
   const data = (await res.json()) as {
     results?: {
-      channels?: { alternatives?: { transcript?: string }[] }[];
+      channels?: {
+        detected_language?: string;
+        alternatives?: { transcript?: string }[];
+      }[];
       utterances?: { start?: number; end?: number; transcript?: string }[];
     };
   };
   const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+  const detectedLanguage = data.results?.channels?.[0]?.detected_language;
   if (typeof transcript !== "string") {
     throw new AsrProviderError("Deepgram returned an unexpected response (no transcript).");
   }
@@ -60,6 +64,9 @@ export async function transcribeWithDeepgram(
     text: transcript.trim(),
     provider: "deepgram",
     model: DEEPGRAM_MODEL,
+    ...(input.detectLanguage && detectedLanguage?.trim()
+      ? { detectedLanguage: detectedLanguage.trim() }
+      : {}),
     ...(segments.length > 0 ? { segments } : {}),
   };
 }

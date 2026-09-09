@@ -14,6 +14,8 @@ export interface TranscribeInput {
    * know where each line sits before it can be re-timed.
    */
   timestamps?: boolean;
+  /** Ask the provider to identify the spoken language when supported. */
+  detectLanguage?: boolean;
   /** Optional BCP-47/ISO language hint passed through to providers that support it. */
   language?: string;
 }
@@ -30,6 +32,8 @@ export interface TranscriptionResult {
   text: string;
   provider: string;
   model: string;
+  /** Provider-detected BCP-47/ISO language code, absent when detection is unavailable. */
+  detectedLanguage?: string;
   /**
    * Present only when `timestamps` was requested and the provider returned
    * usable spans. Granularity differs by provider — Whisper returns

@@ -195,6 +195,12 @@ import {
 import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBrief";
 import { videoPriceCriteria } from "./pricing";
 import { atlasAssetRefsForOutfit } from "../characterAssets";
+import { transcribeAudio } from "../asr";
+import {
+  assessNativeAudioTranscript,
+  guidedSpokenText,
+  NativeAudioQualityError,
+} from "./nativeAudioGate";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -1158,6 +1164,9 @@ function safeVideoErrorMessage(error: unknown, fallback: string): string {
     // checks, never from arbitrary provider response bodies.
     return error.message;
   }
+  if (error instanceof NativeAudioQualityError) {
+    return error.message;
+  }
   if (
     error instanceof OpenRouterInputImagePrivacyError ||
     (error as { code?: unknown } | null)?.code === OPENROUTER_INPUT_IMAGE_PRIVACY_CODE
@@ -1201,6 +1210,9 @@ function providerRequestIdFromError(error: unknown): string | null {
 
 function safeFailureCode(error: unknown): string | null {
   if (error instanceof VideoModelResolutionError) {
+    return error.code;
+  }
+  if (error instanceof NativeAudioQualityError) {
     return error.code;
   }
   if (
@@ -4133,14 +4145,7 @@ async function produceVideo(
       // after final approval.
       const directGuidedNativeAudio =
         board.mode === "guided_story" &&
-        options.guidedStoryRenderFlow?.version === 1 &&
-        options.guidedStoryRenderFlow.mode === "direct_video" &&
-        options.guidedStory?.locale === "en" &&
-        options.resolvedVideoModel?.generateAudio === true &&
-        hasNativeSynchronizedAudio(
-          options.resolvedVideoModel.provider,
-          options.resolvedVideoModel.model,
-        );
+        usesGuidedProviderSpeechOptions(options);
       if (board.mode === "guided_story" && !board.narration && !directGuidedNativeAudio) {
         const guidedSnapshot = options.guidedStory;
         if (!guidedSnapshot) {
@@ -6492,6 +6497,79 @@ async function extractNativeAudio(video: Buffer): Promise<Buffer> {
   }
 }
 
+function usesGuidedProviderSpeechOptions(options: VideoJobOptions | null | undefined): boolean {
+  const resolved = options?.resolvedVideoModel;
+  return Boolean(
+    options?.guidedStoryRenderFlow?.version === 1 &&
+    options.guidedStoryRenderFlow.mode === "direct_video" &&
+    options.guidedStory?.locale === "en" &&
+    resolved?.generateAudio === true &&
+    hasNativeSynchronizedAudio(resolved.provider, resolved.model),
+  );
+}
+
+async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): Promise<void> {
+  const snapshot = job.options?.guidedStory;
+  if (!snapshot?.locale || !usesGuidedProviderSpeechOptions(job.options)) return;
+  const expectedDialogue = guidedSpokenText(snapshot.script);
+  if (!expectedDialogue.trim()) return;
+
+  let audio: Buffer;
+  try {
+    audio = await extractNativeAudio(video);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "";
+    if (!/no usable audio|no audio|does not contain any stream|matches no streams|stream.*not found/i.test(detail)) {
+      throw new NativeAudioQualityError(
+        "native_audio_unverified",
+        `The completed video's spoken language could not be verified before delivery. The completed provider work was saved; retry when speech verification is available.`,
+      );
+    }
+    throw new NativeAudioQualityError(
+      "native_audio_missing_speech",
+      `The video provider returned no usable spoken audio for the approved ${snapshot.locale} dialogue. The completed provider work was saved; start a fresh video attempt.`,
+    );
+  }
+  let transcript;
+  try {
+    transcript = await transcribeAudio({
+      buffer: audio,
+      mimeType: "audio/wav",
+      filename: `guided-native-audio-${job.id}.wav`,
+      detectLanguage: true,
+    });
+  } catch {
+    throw new NativeAudioQualityError(
+      "native_audio_unverified",
+      `The completed video's spoken language could not be verified before delivery. The completed provider work was saved; retry when speech verification is available.`,
+    );
+  }
+  const assessment = assessNativeAudioTranscript({
+    expectedLocale: snapshot.locale,
+    expectedDialogue,
+    transcript: transcript.text,
+    providerDetectedLanguage: transcript.detectedLanguage,
+  });
+  if (assessment.outcome === "wrong_language") {
+    throw new NativeAudioQualityError(
+      "native_audio_wrong_language",
+      `The video provider spoke the wrong language (detected ${assessment.detectedLocale}; expected ${snapshot.locale}). The completed provider work was saved; start a fresh video attempt.`,
+    );
+  }
+  if (assessment.outcome === "dialogue_drift") {
+    throw new NativeAudioQualityError(
+      "native_audio_dialogue_drift",
+      `The video provider changed the approved ${snapshot.locale} dialogue. The language was not the problem, but the spoken words did not match the frozen script. The completed provider work was saved; start a fresh video attempt.`,
+    );
+  }
+  if (assessment.outcome === "no_speech") {
+    throw new NativeAudioQualityError(
+      "native_audio_missing_speech",
+      `The video provider returned audio but no speech could be detected for the approved ${snapshot.locale} dialogue. The completed provider work was saved; start a fresh video attempt.`,
+    );
+  }
+}
+
 async function extractStudioLipSyncSegment(
   video: Buffer,
   startSec: number,
@@ -7289,6 +7367,11 @@ async function executeVideoJob(
       ).durationSec;
     }
 
+    if (usesGuidedProviderSpeechOptions(job.options)) {
+      onStage("Checking spoken language");
+      await verifyGuidedProviderSpeech(job, buffer);
+    }
+
     // Plans with the watermark switch ON get a "Made with KOKAO.in" pill in
     // the corner, subject to the platform-wide kill switch. Every step fails
     // SOFT to the unwatermarked video — this must never fail a paid render.
@@ -7677,7 +7760,8 @@ async function executeVideoJob(
       surfacedError instanceof ImageGenProviderError
         ? imageProviderFailureMessage(surfacedError, latestCheckpointRow?.storyboard)
         : surfacedError instanceof VideoGenNotConfiguredError ||
-            surfacedError instanceof VideoGenProviderError
+            surfacedError instanceof VideoGenProviderError ||
+            surfacedError instanceof NativeAudioQualityError
           ? safeVideoErrorMessage(
               surfacedError,
               "The video provider could not complete this generation. Please try again.",

@@ -1,0 +1,149 @@
+import type { GuidedStoryLocale, GuidedStoryScript } from "@workspace/db";
+
+export type NativeAudioAssessment =
+  | { outcome: "pass"; detectedLocale: GuidedStoryLocale | null }
+  | { outcome: "no_speech"; detectedLocale: null }
+  | { outcome: "wrong_language"; detectedLocale: string }
+  | { outcome: "dialogue_drift"; detectedLocale: GuidedStoryLocale | null };
+
+export type NativeAudioQualityCode =
+  | "native_audio_unverified"
+  | "native_audio_missing_speech"
+  | "native_audio_wrong_language"
+  | "native_audio_dialogue_drift";
+
+export class NativeAudioQualityError extends Error {
+  constructor(
+    public readonly code: NativeAudioQualityCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "NativeAudioQualityError";
+  }
+}
+
+const SCRIPT_PATTERNS: Array<[GuidedStoryLocale, RegExp]> = [
+  ["te", /\p{Script=Telugu}/gu],
+  ["ta", /\p{Script=Tamil}/gu],
+  ["hi", /\p{Script=Devanagari}/gu],
+  ["en", /\p{Script=Latin}/gu],
+];
+
+function normalizedWords(text: string): string[] {
+  return text
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+export function guidedSpokenText(script: GuidedStoryScript): string {
+  return script.scenes
+    .flatMap((scene) => [...scene.lines].sort((a, b) => a.startMs - b.startMs))
+    .map((line) => line.text.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function detectTranscriptLocale(text: string): GuidedStoryLocale | null {
+  const counts = SCRIPT_PATTERNS.map(([locale, pattern]) => [
+    locale,
+    text.match(pattern)?.length ?? 0,
+  ] as const).sort((left, right) => right[1] - left[1]);
+  const [winner, count] = counts[0]!;
+  const recognized = counts.reduce((sum, entry) => sum + entry[1], 0);
+  if (count < 4 || recognized === 0 || count / recognized < 0.7) return null;
+  return winner;
+}
+
+function normalizeProviderLanguage(value: string | null | undefined): string | null {
+  const base = value?.trim().toLowerCase().replaceAll("_", "-").split("-")[0] ?? "";
+  const aliases: Record<string, string> = {
+    english: "en",
+    eng: "en",
+    hindi: "hi",
+    hin: "hi",
+    telugu: "te",
+    tel: "te",
+    tamil: "ta",
+    tam: "ta",
+    spanish: "es",
+    spa: "es",
+    french: "fr",
+    fra: "fr",
+    fre: "fr",
+    german: "de",
+    deu: "de",
+    ger: "de",
+    portuguese: "pt",
+    por: "pt",
+    italian: "it",
+    ita: "it",
+    dutch: "nl",
+    nld: "nl",
+    chinese: "zh",
+    zho: "zh",
+    mandarin: "zh",
+    japanese: "ja",
+    jpn: "ja",
+    korean: "ko",
+    kor: "ko",
+    arabic: "ar",
+    ara: "ar",
+  };
+  const normalized = aliases[base] ?? base;
+  return /^[a-z]{2,3}$/.test(normalized) ? normalized : null;
+}
+
+function dialogueSimilarity(expected: string, actual: string): number {
+  const expectedWords = normalizedWords(expected);
+  const actualWords = normalizedWords(actual);
+  if (expectedWords.length === 0) return 1;
+  const prior = new Array<number>(actualWords.length + 1).fill(0);
+  for (const expectedWord of expectedWords) {
+    let diagonal = 0;
+    for (let index = 1; index <= actualWords.length; index++) {
+      const above = prior[index]!;
+      prior[index] = expectedWord === actualWords[index - 1]
+        ? diagonal + 1
+        : Math.max(prior[index]!, prior[index - 1]!);
+      diagonal = above;
+    }
+  }
+  const orderedMatches = prior[actualWords.length]!;
+  return (2 * orderedMatches) / (expectedWords.length + actualWords.length);
+}
+
+export function assessNativeAudioTranscript(args: {
+  expectedLocale: GuidedStoryLocale;
+  expectedDialogue: string;
+  transcript: string;
+  providerDetectedLanguage?: string | null;
+}): NativeAudioAssessment {
+  const transcript = args.transcript.trim();
+  if (normalizedWords(transcript).length === 0) {
+    return { outcome: "no_speech", detectedLocale: null };
+  }
+  const providerLocale = normalizeProviderLanguage(args.providerDetectedLanguage);
+  // One- or two-word clips are too ambiguous for a provider language label to
+  // justify a terminal wrong-language verdict ("no", names, and numbers often
+  // straddle languages). Their exact dialogue still has to match below.
+  if (
+    providerLocale &&
+    providerLocale !== args.expectedLocale &&
+    normalizedWords(transcript).length >= 4
+  ) {
+    return { outcome: "wrong_language", detectedLocale: providerLocale };
+  }
+  const detectedLocale = providerLocale === args.expectedLocale
+    ? args.expectedLocale
+    : detectTranscriptLocale(transcript);
+  if (detectedLocale && detectedLocale !== args.expectedLocale) {
+    return { outcome: "wrong_language", detectedLocale };
+  }
+  // Script detection can be uncertain for names, numbers, and very short lines.
+  // In that case exact-dialogue similarity remains the safer independent signal.
+  if (dialogueSimilarity(args.expectedDialogue, transcript) < 0.75) {
+    return { outcome: "dialogue_drift", detectedLocale };
+  }
+  return { outcome: "pass", detectedLocale };
+}
