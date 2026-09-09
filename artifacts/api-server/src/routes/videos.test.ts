@@ -43,6 +43,7 @@ const runnerState = vi.hoisted(() => ({
 }));
 const objectStorageState = vi.hoisted(() => ({
   missingPaths: new Set<string>(),
+  referenceBytes: new Map<string, Buffer>(),
 }));
 const guidedCastProviderState = vi.hoisted(() => ({
   calls: 0,
@@ -94,8 +95,10 @@ vi.mock("../lib/characters", async (importOriginal) => {
         model: "mock-sheet-v1",
       };
     }),
-    loadReferenceImage: vi.fn(async () => ({
-      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    loadReferenceImage: vi.fn(async (path: string) => ({
+      buffer:
+        objectStorageState.referenceBytes.get(path) ??
+        Buffer.from([0x89, 0x50, 0x4e, 0x47]),
       mimeType: "image/png",
     })),
   };
@@ -237,6 +240,12 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
     }
     normalizeObjectEntityPath(uploadURL: string): string {
       return new URL(uploadURL).pathname;
+    }
+    async getObjectEntityBytes(objectPath: string): Promise<Buffer> {
+      return (
+        objectStorageState.referenceBytes.get(objectPath) ??
+        Buffer.from([0x89, 0x50, 0x4e, 0x47])
+      );
     }
     async getObjectEntityFile(objectPath: string) {
       if (objectStorageState.missingPaths.has(objectPath)) {
@@ -696,6 +705,7 @@ beforeEach(() => {
   runnerState.guidedPreviewRenders.length = 0;
   runnerState.guidedCorrections.length = 0;
   objectStorageState.missingPaths.clear();
+  objectStorageState.referenceBytes.clear();
   guidedCastProviderState.calls = 0;
   guidedCastProviderState.sheetCalls = 0;
   guidedCastProviderState.sheetError = null;
@@ -8886,6 +8896,266 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
     expect(child.storyboard).toBeNull();
     expect(child.errorHistory).toBeNull();
     expect(child.providerTaskId).toBeNull();
+  });
+
+  it.each([
+    ["quota", "pro"],
+    ["wallet", "payg"],
+  ] as const)(
+    "freezes the Atlas reference model and ordered cast mappings before %s funding",
+    async (expectedFunding, plan) => {
+    const tenant = await newTenant(plan);
+    const priorSelection = await getVideoGenSelection();
+    const atlasModel = "bytedance/seedance-2.5/reference-to-video";
+    const restoreAtlasPrice = await installVideoTestPrice(atlasModel, "atlascloud");
+    await setStoredVideoGenKey("atlascloud", "test-atlas-token");
+    await setVideoGenSelection({
+      provider: "atlascloud",
+      textToVideoModel: null,
+      imageToVideoModel: null,
+      enabledModelIds: null,
+    });
+    if (expectedFunding === "wallet") {
+      await db.insert(featureFlagsTable).values({ feature: "wallet", enabled: true })
+        .onConflictDoUpdate({
+          target: featureFlagsTable.feature,
+          set: { enabled: true, updatedAt: new Date() },
+        });
+      invalidateFeatureFlagCache();
+      await db.update(tenantsTable)
+        .set({ billingMode: "wallet" })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+      await db.insert(walletBalancesTable)
+        .values({ tenantId: tenant.tenantId, balancePaise: 100_000_000 });
+    }
+
+    const approvedBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const approvedSha = createHash("sha256").update(approvedBytes).digest("hex");
+    const cast = [];
+    for (const [index, roleId] of ["friend", "hero"].entries()) {
+      const portraitPath = `/objects/${tenant.tenantId}/uploads/${roleId}.png`;
+      const sheetPath = `/objects/${tenant.tenantId}/uploads/${roleId}-sheet.png`;
+      const outfitPath = `/objects/${tenant.tenantId}/uploads/${roleId}-outfit.png`;
+      const [character] = await db.insert(charactersTable).values({
+        tenantId: tenant.tenantId,
+        name: roleId,
+        description: `${roleId} description`,
+        referenceImagePath: portraitPath,
+        referenceSource: "generated",
+        bytePlusIdentityId: null,
+        referenceSheetImagePath: sheetPath,
+        referenceSheetStatus: "approved",
+        referenceSheetApprovedSha256: approvedSha,
+        atlasAssetLibraryId: tenant.tenantId * 10 + index,
+        atlasAssetReferenceId: `asset-restart-${tenant.tenantId}-${roleId}-character`,
+        atlasAssetId: `asset-restart-${tenant.tenantId}-${roleId}-character`,
+        atlasAssetStatus: "Active",
+        atlasAssetSourcePath: sheetPath,
+        atlasAssetSourceSha256: approvedSha,
+      }).returning();
+      const [outfit] = await db.insert(characterOutfitsTable).values({
+        tenantId: tenant.tenantId,
+        characterId: character!.id,
+        name: `${roleId} outfit`,
+        description: "Approved wardrobe",
+        referenceImagePath: outfitPath,
+        status: "approved",
+        identityVerified: true,
+        atlasAssetLibraryId: tenant.tenantId * 10 + index + 2,
+        atlasAssetReferenceId: `asset-restart-${tenant.tenantId}-${roleId}-outfit`,
+        atlasAssetId: `asset-restart-${tenant.tenantId}-${roleId}-outfit`,
+        atlasAssetStatus: "Active",
+        atlasAssetSourcePath: outfitPath,
+        atlasAssetSourceSha256: approvedSha,
+        atlasApprovedSourceSha256: approvedSha,
+      }).returning();
+      cast.push({
+        roleId,
+        source: "saved" as const,
+        referenceSource: "generated" as const,
+        characterId: character!.id,
+        outfitId: outfit!.id,
+        brandKitId: null,
+        voiceId: `voice-${roleId}`,
+        requiresAtlasAsset: false,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
+        character: {
+          name: roleId,
+          description: `${roleId} description`,
+          referenceImagePath: portraitPath,
+        },
+        outfit: {
+          name: `${roleId} outfit`,
+          description: "Approved wardrobe",
+          referenceImagePath: outfitPath,
+        },
+        voice: {
+          id: `voice-${roleId}`,
+          label: roleId,
+          provider: "stock" as const,
+          providerVoiceId: null,
+        },
+        isUserRole: false,
+        consentGranted: true,
+      });
+    }
+    const approvals = {
+      version: 1 as const,
+      draftRevision: 1,
+      roles: Object.fromEntries(cast.map((member) => [
+        member.roleId,
+        {
+          roleId: member.roleId,
+          approvedAt: "2026-09-09T00:00:00.000Z",
+          character: {
+            referenceImagePath: member.character.referenceImagePath,
+            sha256: approvedSha,
+          },
+          outfit: {
+            referenceImagePath: member.outfit.referenceImagePath,
+            sha256: approvedSha,
+          },
+        },
+      ])),
+    };
+    const guidedStory = {
+      version: 1 as const,
+      draftId: 9200,
+      draftRevision: 1,
+      scriptApprovedAt: "2026-09-09T00:00:00.000Z",
+      locale: "en" as const,
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 5,
+      },
+      script: {
+        version: 1 as const,
+        title: "Atlas restart",
+        logline: "Friends restart their journey.",
+        runtimeSeconds: 5,
+        warnings: [],
+        roles: cast.map((member) => ({
+          id: member.roleId,
+          name: member.character.name,
+          description: member.character.description,
+        })),
+        scenes: [{
+          id: "scene-one",
+          startMs: 0,
+          endMs: 5_000,
+          visualDirection: "The two friends walk forward.",
+          roleIds: ["hero", "friend"],
+          lines: [{
+            id: "line-one",
+            ownerRoleId: "hero",
+            kind: "dialogue" as const,
+            text: "We can begin again and finish this journey together.",
+            startMs: 0,
+            endMs: 5_000,
+          }],
+        }],
+      },
+      cast,
+      castApprovals: approvals,
+    };
+    const insertLegacySource = async () => (
+      await db.insert(videoGenerationsTable).values({
+        tenantId: tenant.tenantId,
+        engine: "topic_to_video",
+        status: "failed",
+        prompt: "Legacy Guided Story",
+        sourceImagePaths: [],
+        options: {
+          aspectRatio: "9:16",
+          durationSec: 5,
+          guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+          guidedStory,
+        },
+        error: "Legacy provider failed.",
+      }).returning()
+    )[0]!;
+
+    try {
+      const source = await insertLegacySource();
+      const beforeWallet = (await db.select().from(walletBalancesTable)
+        .where(eq(walletBalancesTable.tenantId, tenant.tenantId)))[0] ?? null;
+      const response = await request(app).post(`/api/ai/video-jobs/${source.id}/restart`);
+
+      expect(response.status, JSON.stringify(response.body)).toBe(201);
+      const child = await readJob(response.body.id);
+      expect(child.funding).toBe(expectedFunding);
+      expect(child.options?.resolvedVideoModel).toMatchObject({
+        provider: "atlascloud",
+        model: atlasModel,
+        catalogModelId: "atlascloud-seedance-2.5-reference",
+        mode: "text",
+        generateAudio: true,
+      });
+      expect(child.options?.guidedStory?.cast.map((member) => ({
+        roleId: member.roleId,
+        character: member.atlasCharacterReferenceId,
+        outfit: member.atlasAssetReferenceId,
+      }))).toEqual([
+        {
+          roleId: "friend",
+          character: `asset-restart-${tenant.tenantId}-friend-character`,
+          outfit: `asset-restart-${tenant.tenantId}-friend-outfit`,
+        },
+        {
+          roleId: "hero",
+          character: `asset-restart-${tenant.tenantId}-hero-character`,
+          outfit: `asset-restart-${tenant.tenantId}-hero-outfit`,
+        },
+      ]);
+      const fundedWallet = (await db.select().from(walletBalancesTable)
+        .where(eq(walletBalancesTable.tenantId, tenant.tenantId)))[0] ?? null;
+      if (expectedFunding === "wallet") {
+        expect(fundedWallet!.balancePaise).toBeLessThan(beforeWallet!.balancePaise);
+      } else {
+        expect(fundedWallet).toBeNull();
+      }
+
+      const changedSource = await insertLegacySource();
+      const changedPath = guidedStory.cast[1]!.character.referenceImagePath!;
+      objectStorageState.referenceBytes.set(changedPath, Buffer.from("changed approval bytes"));
+      const beforeRejectedWallet = (await db.select().from(walletBalancesTable)
+        .where(eq(walletBalancesTable.tenantId, tenant.tenantId)))[0] ?? null;
+      const beforeRejectedLedger = await db.select().from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenant.tenantId));
+      const beforeRejectedJobs = await db.select({ id: videoGenerationsTable.id })
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+
+      const rejected = await request(app)
+        .post(`/api/ai/video-jobs/${changedSource.id}/restart`);
+
+      expect(rejected.status).toBe(409);
+      expect(rejected.body.code).toBe("fresh_guided_assets_unavailable");
+      expect((await readJob(changedSource.id)).status).toBe("failed");
+      const afterRejectedWallet = (await db.select().from(walletBalancesTable)
+        .where(eq(walletBalancesTable.tenantId, tenant.tenantId)))[0] ?? null;
+      const afterRejectedLedger = await db.select().from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenant.tenantId));
+      const afterRejectedJobs = await db.select({ id: videoGenerationsTable.id })
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+      expect(afterRejectedWallet?.balancePaise ?? null)
+        .toBe(beforeRejectedWallet?.balancePaise ?? null);
+      expect(afterRejectedLedger).toHaveLength(beforeRejectedLedger.length);
+      expect(afterRejectedJobs).toHaveLength(beforeRejectedJobs.length);
+    } finally {
+      objectStorageState.referenceBytes.clear();
+      await setVideoGenSelection(priorSelection);
+      await clearStoredVideoGenKey("atlascloud");
+      await restoreAtlasPrice();
+      await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
+      invalidateFeatureFlagCache();
+    }
   });
 
   it("is tenant-scoped, permits one concurrent child, and rolls an unfunded creation back", async () => {

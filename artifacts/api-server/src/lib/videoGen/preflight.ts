@@ -160,7 +160,13 @@ function modeForVideoJob(
   }
   return (
     (engine === "text_to_video" && options?.characterId == null) ||
-    (engine === "dialogue_lip_sync" && !options?.characterDialogue)
+    (engine === "dialogue_lip_sync" && !options?.characterDialogue) ||
+    (
+      engine === "topic_to_video" &&
+      options?.guidedStoryRenderFlow?.mode === "direct_video" &&
+      options.resolvedVideoModel?.provider === "atlascloud" &&
+      options.resolvedVideoModel.mode === "text"
+    )
   )
     ? "text"
     : "image";
