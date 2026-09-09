@@ -214,23 +214,35 @@ export function assessNativeAudioTranscript(args: {
   const strongExpectedScript =
     analysis.transcriptDetectedLocale === args.expectedLocale &&
     ["te", "ta", "hi"].includes(args.expectedLocale);
+  const strongExpectedPhonetics =
+    Boolean(args.expectedPhoneticDialogue?.trim()) &&
+    ["te", "ta", "hi"].includes(args.expectedLocale) &&
+    analysis.dialogueSimilarity >= 0.75;
   // One- or two-word clips are too ambiguous for a provider language label to
   // justify a terminal wrong-language verdict ("no", names, and numbers often
   // straddle languages). A strong Telugu/Tamil/Devanagari transcript is also
-  // better evidence than a conflicting provider label; exact dialogue still
-  // has to match below.
+  // better evidence than a conflicting provider label. A strong ordered
+  // phonetic match against the frozen pronunciation is also independent
+  // evidence that the spoken content is correct when ASR labels a phonetically
+  // written cross-script transcript as another Indic language.
   if (
     providerLocale &&
     providerLocale !== args.expectedLocale &&
     analysis.transcriptWordCount >= 4 &&
-    !strongExpectedScript
+    !strongExpectedScript &&
+    !strongExpectedPhonetics
   ) {
     return { outcome: "wrong_language", detectedLocale: providerLocale };
   }
-  const detectedLocale = providerLocale === args.expectedLocale
-    ? args.expectedLocale
-    : analysis.transcriptDetectedLocale;
-  if (detectedLocale && detectedLocale !== args.expectedLocale) {
+  const detectedLocale =
+    providerLocale === args.expectedLocale || strongExpectedPhonetics
+      ? args.expectedLocale
+      : analysis.transcriptDetectedLocale;
+  if (
+    detectedLocale &&
+    detectedLocale !== args.expectedLocale &&
+    !strongExpectedPhonetics
+  ) {
     return { outcome: "wrong_language", detectedLocale };
   }
   // Script detection can be uncertain for names, numbers, and very short lines.

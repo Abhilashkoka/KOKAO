@@ -4382,7 +4382,7 @@ describe("Guided Story preview-only runner", () => {
     state.guidedInitialBoard = guidedStoryStoryboard(snapshot);
     state.topicPlanMode = "ai";
     state.asrTranscript =
-      "மன சின்ன தார கோசம் என்த தூரமைன வெள்தாம்";
+      "இந்த கதை முற்றிலும் வேறு விஷயத்தை பற்றி பேசுகிறது";
     state.asrDetectedLanguage = "ta";
     state.asrResponsesByLanguage.set("te", {
       text: "మంచిన్ని తార్ కిలన ఏరదురమణన వెత్తమ్",

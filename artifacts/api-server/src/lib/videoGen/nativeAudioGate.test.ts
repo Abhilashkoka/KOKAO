@@ -101,6 +101,34 @@ describe("native Guided audio assessment", () => {
     }).dialogueSimilarity).toBeGreaterThanOrEqual(0.75);
   });
 
+  it("trusts strong frozen Telugu phonetics over a conflicting Tamil label", () => {
+    const expectedDialogue =
+      "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం";
+    const expectedPhoneticDialogue =
+      "Mana chinna tara kosam enta duramaina veltam.";
+
+    expect(assessNativeAudioTranscript({
+      expectedLocale: "te",
+      expectedDialogue,
+      expectedPhoneticDialogue,
+      transcript: "Mana chinna tara kosam enta duramaina veltam",
+      providerDetectedLanguage: "Tamil",
+    })).toEqual({ outcome: "pass", detectedLocale: "te" });
+  });
+
+  it("keeps a conflicting Tamil label when Telugu phonetics do not match", () => {
+    expect(assessNativeAudioTranscript({
+      expectedLocale: "te",
+      expectedDialogue:
+        "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం",
+      expectedPhoneticDialogue:
+        "Mana chinna tara kosam enta duramaina veltam.",
+      transcript:
+        "Indha kathai mutrilum veru vishayathai patri pesugirathu",
+      providerDetectedLanguage: "Tamil",
+    })).toEqual({ outcome: "wrong_language", detectedLocale: "ta" });
+  });
+
   it("does not accept reordered Telugu on phonetic similarity alone", () => {
     expect(assessNativeAudioTranscript({
       expectedLocale: "te",
