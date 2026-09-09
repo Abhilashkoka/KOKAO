@@ -149,6 +149,7 @@ import {
   OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
   parsePersistedOpenRouterInputImagePrivacyError,
 } from "../lib/videoGen/providers/openrouter";
+import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "../lib/videoGen/providers/atlascloud";
 import { availableVideoModels } from "../lib/videoGen";
 import { registerAtlasCharacterAssets } from "../lib/characterAssets";
 import { selectAtlasGenerationReferenceId } from "../lib/atlascloud/assetId";
@@ -9335,13 +9336,20 @@ async function generateVideoHandler(
             : null;
   if (resolvedMode) {
     try {
+      const requestedModel = findVideoModel(options.modelId);
+      const requestedProvider =
+        requestedModel?.provider ?? (await getVideoGenSelection()).provider;
+      const useAtlasGuidedReferences =
+        options.guidedStory != null && requestedProvider === "atlascloud";
       const resolvedVideoModel = await resolveVideoModelSnapshot({
-        mode: resolvedMode,
-        modelId: options.modelId,
+        mode: useAtlasGuidedReferences ? "text" : resolvedMode,
+        modelId: useAtlasGuidedReferences
+          ? "atlascloud-seedance-2.5-reference"
+          : options.modelId,
         durationSec: options.durationSec ?? 5,
         resolution: options.resolution,
         quality: options.quality,
-        generateAudio: options.generateAudio,
+        generateAudio: useAtlasGuidedReferences ? true : options.generateAudio,
         permittedDurationSec: compositeVideoDurations(body.engine, options),
       });
       options.resolvedVideoModel =
@@ -11639,13 +11647,21 @@ router.post(
       initial.options?.resolvedVideoModel ?? null;
     if (initial.options?.guidedStory && !recoveryResolvedVideoModel) {
       try {
+        const requestedModel = findVideoModel(initial.options.modelId);
+        const requestedProvider =
+          requestedModel?.provider ?? (await getVideoGenSelection()).provider;
+        const useAtlasGuidedReferences = requestedProvider === "atlascloud";
         recoveryResolvedVideoModel = await resolveVideoModelSnapshot({
-          mode: "image",
-          modelId: initial.options.modelId,
+          mode: useAtlasGuidedReferences ? "text" : "image",
+          modelId: useAtlasGuidedReferences
+            ? "atlascloud-seedance-2.5-reference"
+            : initial.options.modelId,
           durationSec: initial.options.durationSec ?? 5,
           resolution: initial.options.resolution,
           quality: initial.options.quality,
-          generateAudio: initial.options.generateAudio,
+          generateAudio: useAtlasGuidedReferences
+            ? true
+            : initial.options.generateAudio,
           permittedDurationSec: compositeVideoDurations(
             initial.engine,
             initial.options,
@@ -12650,8 +12666,11 @@ function freshRestartOptions(source: VideoGeneration): VideoJobOptions {
   return options;
 }
 
+class FreshRestartInputError extends Error {}
+
 async function prepareFreshRestartOptions(
   source: VideoGeneration,
+  tenantId: number,
 ): Promise<VideoJobOptions> {
   const options = freshRestartOptions(source);
   const frozen = options.resolvedVideoModel;
@@ -12666,9 +12685,13 @@ async function prepareFreshRestartOptions(
   // A fresh restart keeps the approved story inputs, not an obsolete provider
   // contract. Resolve and freeze the current platform selection before
   // preflight/funding so the worker never guesses from mutable settings.
+  const currentSelection = await getVideoGenSelection();
+  const useAtlasGuidedReferences = currentSelection.provider === "atlascloud";
   const resolved = await resolveVideoModelSnapshot({
-    mode: "image",
-    modelId: null,
+    mode: useAtlasGuidedReferences ? "text" : "image",
+    modelId: useAtlasGuidedReferences
+      ? "atlascloud-seedance-2.5-reference"
+      : null,
     durationSec: options.durationSec ?? 5,
     resolution: options.resolution,
     quality: options.quality,
@@ -12692,6 +12715,106 @@ async function prepareFreshRestartOptions(
       model: resolved.model,
     },
   };
+  if (
+    resolved.provider === "atlascloud" &&
+    resolved.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
+  ) {
+    const guided = options.guidedStory;
+    const participating = new Set(
+      guided.script.scenes.flatMap((scene) => scene.roleIds),
+    );
+    const cast = [];
+    for (const member of guided.cast) {
+      if (!participating.has(member.roleId)) {
+        cast.push(member);
+        continue;
+      }
+      const approval = guided.castApprovals?.roles[member.roleId];
+      const detail =
+        member.characterId != null
+          ? await getCharacterDetail(tenantId, member.characterId)
+          : null;
+      const outfit = detail ? resolveOutfit(detail, member.outfitId) : null;
+      if (
+        !approval ||
+        !detail ||
+        !outfit ||
+        detail.character.referenceSource !== "generated" ||
+        detail.character.bytePlusIdentityId !== null ||
+        detail.character.referenceSheetStatus !== "approved" ||
+        !detail.character.referenceSheetImagePath ||
+        !detail.character.referenceSheetApprovedSha256 ||
+        outfit.status !== "approved" ||
+        !outfit.identityVerified ||
+        outfit.referenceImagePath !== approval.outfit.referenceImagePath
+      ) {
+        throw new FreshRestartInputError(
+          `Guided Story role ${member.roleId} no longer has approved generated character-sheet and outfit inputs for Atlas.`,
+        );
+      }
+      const [portraitBytes, sheetBytes, outfitBytes] = await Promise.all([
+        loadReferenceImage(detail.character.referenceImagePath, tenantId),
+        loadReferenceImage(detail.character.referenceSheetImagePath, tenantId),
+        loadReferenceImage(outfit.referenceImagePath, tenantId),
+      ]);
+      if (
+        createHash("sha256").update(portraitBytes.buffer).digest("hex") !==
+          approval.character.sha256 ||
+        createHash("sha256").update(sheetBytes.buffer).digest("hex") !==
+          detail.character.referenceSheetApprovedSha256 ||
+        createHash("sha256").update(outfitBytes.buffer).digest("hex") !==
+          approval.outfit.sha256
+      ) {
+        throw new FreshRestartInputError(
+          `Guided Story role ${member.roleId}'s approved Atlas inputs changed before fresh-restart funding.`,
+        );
+      }
+      const registered = await registerAtlasCharacterAssets({
+        tenantId,
+        characterId: detail.character.id,
+        outfitId: outfit.id,
+        expectedReferenceSheetPath: detail.character.referenceSheetImagePath,
+        expectedReferenceSheetSha256:
+          detail.character.referenceSheetApprovedSha256,
+        expectedOutfitPath: outfit.referenceImagePath,
+        expectedOutfitSha256: approval.outfit.sha256,
+      });
+      const characterReferenceId = selectAtlasGenerationReferenceId(
+        registered.character.atlasAssetReferenceId,
+        registered.character.atlasAssetId,
+      );
+      const outfitReferenceId = selectAtlasGenerationReferenceId(
+        registered.outfit.atlasAssetReferenceId,
+        registered.outfit.atlasAssetId,
+      );
+      if (
+        !registered.character.atlasAssetLibraryId ||
+        !characterReferenceId ||
+        !registered.outfit.atlasAssetLibraryId ||
+        !outfitReferenceId
+      ) {
+        throw new FreshRestartInputError(
+          `Guided Story role ${member.roleId}'s Atlas assets did not become active before fresh-restart funding.`,
+        );
+      }
+      cast.push({
+        ...member,
+        referenceSource: "generated" as const,
+        requiresAtlasAsset: true,
+        atlasCharacterLibraryId: registered.character.atlasAssetLibraryId,
+        atlasCharacterReferenceId: characterReferenceId,
+        atlasOutfitLibraryId: registered.outfit.atlasAssetLibraryId,
+        atlasApprovedReferenceSheetPath:
+          detail.character.referenceSheetImagePath,
+        atlasApprovedReferenceSheetSha256:
+          detail.character.referenceSheetApprovedSha256,
+        atlasAssetReferenceId: outfitReferenceId,
+        atlasAssetId: outfitReferenceId,
+        atlasAssetStatus: registered.outfit.atlasAssetStatus,
+      });
+    }
+    options.guidedStory = { ...guided, cast };
+  }
   return options;
 }
 
@@ -12725,7 +12848,7 @@ router.post(
     if (await rejectDisabledVideoMode(initial.engine, res)) return;
     let options: VideoJobOptions;
     try {
-      options = await prepareFreshRestartOptions(initial);
+      options = await prepareFreshRestartOptions(initial, req.tenantId);
     } catch (error) {
       if (error instanceof VideoModelResolutionError) {
         res.status(400).json({
@@ -12733,6 +12856,13 @@ router.post(
           code: error.code,
           provider: error.provider,
           model: error.model,
+        });
+        return;
+      }
+      if (error instanceof FreshRestartInputError) {
+        res.status(409).json({
+          error: error.message,
+          code: "fresh_guided_assets_unavailable",
         });
         return;
       }

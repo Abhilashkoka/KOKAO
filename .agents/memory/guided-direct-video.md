@@ -3,7 +3,7 @@ name: Guided direct video
 description: Execution and compatibility rules for Guided Story jobs that bypass storyboard image rendering.
 ---
 
-New Guided Story jobs go directly from completed script, cast, character/outfit/reference-sheet, and backdrop approvals to the explicitly selected Higgsfield native-audio model. They do not generate AI storyboard images, pause for storyboard review, synthesize narration, add subtitles, or add external music. Each scene uses the approved primary character/outfit image as the single provider opening-frame input; governed prompts carry environment, secondary cast, camera motion, performance, continuity, timed dialogue, and native-audio direction.
+New Guided Story jobs go directly from completed script, cast, character/outfit/reference-sheet, and backdrop approvals to the explicitly selected native-audio model. They do not generate AI storyboard images, pause for storyboard review, synthesize narration, add subtitles, or add external music. Ordinary image-to-video providers use the approved primary character/outfit image as one opening-frame input. Atlas reference-to-video instead attaches every scene participant's approved character sheet then outfit, ordered by the scene's role list; prompt labels must use that exact order. Governed prompts carry environment, cast, camera motion, performance, continuity, timed dialogue, and native-audio direction.
 
 Preserve authored multi-character dialogue scenes: one line has one designated owner, but every intended visible character remains in the scene with blocking, reactions, and eyelines. Do not post-process scripts into isolated single-speaker shots.
 

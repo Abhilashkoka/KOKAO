@@ -69,10 +69,12 @@ describe("guidedSceneVisualPrompt", () => {
     expect(guidedSceneVisualPrompt(base)).not.toContain("@Image");
     const labelled = guidedSceneVisualPrompt({
       ...base,
-      referenceLabels: ["@Image1", "@Image2"],
+      referenceLabels: ["@Image1", "@Image2", "@Image3", "@Image4"],
     });
-    expect(labelled).toContain("Meera is @Image1");
-    expect(labelled).toContain("Ma is @Image2");
+    expect(labelled).toContain("Meera's approved character sheet is @Image1");
+    expect(labelled).toContain("approved outfit reference is @Image2");
+    expect(labelled).toContain("Ma's approved character sheet is @Image3");
+    expect(labelled).toContain("approved outfit reference is @Image4");
   });
 
   it("refuses a scene whose character has no approved outfit", () => {

@@ -20,9 +20,10 @@ export interface GuidedSceneVisualInput {
   platform: PlatformFraming;
   /**
    * Positional labels for the references actually attached to this request,
-   * in cast order — "@Image1", "@Image2". Supply these only once the caller
-   * really is sending reference assets: naming a reference that was not sent
-   * is worse than naming none.
+   * as character-sheet/outfit pairs in cast order — "@Image1", "@Image2",
+   * then "@Image3", "@Image4". Supply these only once the caller really is
+   * sending reference assets: naming a reference that was not sent is worse
+   * than naming none.
    */
   referenceLabels?: readonly string[];
 }
@@ -96,7 +97,10 @@ export function stripStoryboardDump(text: string): string {
  * descriptions here ("anxious but witty") are personality, which is not
  * visible at all.
  */
-function roleClause(member: GuidedStoryCastSnapshot, label: string | null): string {
+function roleClause(
+  member: GuidedStoryCastSnapshot,
+  labels: readonly string[],
+): string {
   const wardrobe = member.outfit?.description?.trim();
   if (!wardrobe) {
     throw new VideoGenProviderError(
@@ -105,7 +109,9 @@ function roleClause(member: GuidedStoryCastSnapshot, label: string | null): stri
       400,
     );
   }
-  const named = label ? `${member.character.name} is ${label}` : member.character.name;
+  const named = labels.length === 2
+    ? `${member.character.name}'s approved character sheet is ${labels[0]} and approved outfit reference is ${labels[1]}`
+    : member.character.name;
   return `${named}, wearing ${wardrobe}, matching their approved reference exactly.`;
 }
 
@@ -145,7 +151,7 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
   const labels = input.referenceLabels ?? [];
   const blocks = [
     stripStoryboardDump(input.scriptScene.visualDirection),
-    input.sceneCast.map((member, i) => roleClause(member, labels[i] ?? null)).join(" "),
+    input.sceneCast.map((member, i) => roleClause(member, labels.slice(i * 2, i * 2 + 2))).join(" "),
     castClause(input.sceneCast),
     locationClause(input),
     // The logo is composited, not described. A path here was never actionable,

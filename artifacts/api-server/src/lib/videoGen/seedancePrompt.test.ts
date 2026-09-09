@@ -181,6 +181,31 @@ describe("Seedance 2.5 prompt assembly", () => {
     expect(prompt).toContain("Dialogue 2 — 5s — Dev says in English: {Then we leave now.}");
   });
 
+  it("labels Atlas character sheets and outfits in exact scene-cast order", () => {
+    const prompt = seedanceScenePrompt({
+      scriptScene: scene(),
+      sceneCast: cast(),
+      backdrop: { imagePath: "/objects/ferry.png", prompt: "A coastal ferry at dawn." },
+      location: { mode: "none", imagePath: null, description: null },
+      platform: { aspectRatio: "9:16", safeArea: "Keep faces inside the center safe area." },
+      locale: "en",
+      dialogueNumbers: new Map([
+        ["line-1", 1],
+        ["line-2", 2],
+      ]),
+      segmentIndex: 0,
+      segmentCount: 1,
+      nativeAudio: true,
+      referenceMode: "atlas-character-assets",
+    });
+
+    expect(prompt).toContain("@Image1 is Mira's approved multi-view character sheet");
+    expect(prompt).toContain("@Image2 is Mira's approved outfit reference");
+    expect(prompt).toContain("@Image3 is Dev's approved multi-view character sheet");
+    expect(prompt).toContain("@Image4 is Dev's approved outfit reference");
+    expect(prompt).not.toContain("@Image5");
+  });
+
   it("preserves the existing narration contract when native audio is disabled", () => {
     const prompt = seedanceScenePrompt({
       scriptScene: scene(),

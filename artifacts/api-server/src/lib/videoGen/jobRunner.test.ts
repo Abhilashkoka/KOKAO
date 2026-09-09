@@ -92,6 +92,9 @@ const state = vi.hoisted(() => ({
   unpricedVideoModels: new Set<string>(),
   guidedPreviewProviderCalls: 0,
   guidedPreviewGenerationEnabled: false,
+  invokeGuidedAtlasResolver: false,
+  guidedAtlasResolvedIds: [] as string[][],
+  guidedAtlasAssetCalls: [] as Array<{ characterId: number; includeCharacterSheet?: boolean }>,
   renderedOutputBuffer: null as Buffer | null,
   uploadedBodies: [] as Array<{ body: Buffer; contentType: string | null }>,
 }));
@@ -113,6 +116,23 @@ vi.mock("../featureFlags", async (importOriginal) => {
   return {
     ...actual,
     isFeatureEnabled: vi.fn(async (id: string) => id !== state.disabledFeature),
+  };
+});
+
+vi.mock("../characterAssets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../characterAssets")>();
+  return {
+    ...actual,
+    atlasAssetRefsForOutfit: vi.fn(async (args: {
+      characterId: number;
+      includeCharacterSheet?: boolean;
+    }) => {
+      state.guidedAtlasAssetCalls.push(args);
+      return [
+        `asset-sheet-${args.characterId}`,
+        `asset-outfit-${args.characterId}`,
+      ];
+    }),
   };
 });
 
@@ -240,6 +260,7 @@ vi.mock("./topicVideo", async (importOriginal) => {
     }),
     renderTopicStoryboard: vi.fn(async (params: {
       storyboard: { scenes: Array<{ providerCheckpoint?: unknown }> };
+      resolveGuidedAtlasAssetIds?: (sceneIndex: number) => Promise<string[]>;
       onPrivacyImageRejected?: (args: {
         sceneIndex: number;
         error: import("./providers/openrouter").OpenRouterInputImagePrivacyError;
@@ -254,6 +275,14 @@ vi.mock("./topicVideo", async (importOriginal) => {
     }) => {
       if (!state.topicPlanMode) return actual.renderTopicStoryboard(params as never);
       state.topicRenders += 1;
+      if (state.invokeGuidedAtlasResolver) {
+        for (const [sceneIndex, scene] of params.storyboard.scenes.entries()) {
+          if (scene.providerCheckpoint || !params.resolveGuidedAtlasAssetIds) continue;
+          state.guidedAtlasResolvedIds.push(
+            await params.resolveGuidedAtlasAssetIds(sceneIndex),
+          );
+        }
+      }
       if (state.topicRenderError) throw state.topicRenderError;
       if (state.privacyRejectScene) {
         if (!params.onPrivacyImageRejected) {
@@ -924,6 +953,9 @@ beforeEach(() => {
   state.unpricedVideoModels.clear();
   state.guidedPreviewProviderCalls = 0;
   state.guidedPreviewGenerationEnabled = false;
+  state.invokeGuidedAtlasResolver = false;
+  state.guidedAtlasResolvedIds.length = 0;
+  state.guidedAtlasAssetCalls.length = 0;
   state.renderedOutputBuffer = null;
   state.uploadedBodies.length = 0;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
@@ -4033,7 +4065,7 @@ describe("Guided Story preview-only runner", () => {
 
   it("direct-render marker skips the legacy storyboard review pause", async () => {
     const tenant = await newTenant();
-    const snapshot = guidedSnapshot(tenant.tenantId, 1);
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
     state.guidedInitialBoard = guidedStoryStoryboard(snapshot);
     state.topicPlanMode = "ai";
     state.guidedPreviewGenerationEnabled = true;
@@ -4077,6 +4109,126 @@ describe("Guided Story preview-only runner", () => {
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
   });
 
+  it("direct Atlas rendering resolves every scene character's sheet and outfit and reuses checkpoints", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    const hero = snapshot.cast[0]!;
+    Object.assign(hero, {
+      referenceSource: "generated",
+      requiresAtlasAsset: true,
+      atlasCharacterLibraryId: 101,
+      atlasCharacterReferenceId: "asset-sheet-1",
+      atlasOutfitLibraryId: 102,
+      atlasApprovedReferenceSheetPath: `/objects/${tenant.tenantId}/hero-sheet.png`,
+      atlasApprovedReferenceSheetSha256: "c".repeat(64),
+      atlasAssetReferenceId: "asset-outfit-1",
+    });
+    const friend = {
+      ...hero,
+      roleId: "friend",
+      characterId: 4,
+      outfitId: 5,
+      atlasCharacterLibraryId: 104,
+      atlasCharacterReferenceId: "asset-sheet-4",
+      atlasOutfitLibraryId: 105,
+      atlasApprovedReferenceSheetPath: `/objects/${tenant.tenantId}/friend-sheet.png`,
+      atlasApprovedReferenceSheetSha256: "d".repeat(64),
+      atlasAssetReferenceId: "asset-outfit-4",
+      character: {
+        ...hero.character,
+        name: "Friend",
+        referenceImagePath: `/objects/${tenant.tenantId}/friend.png`,
+      },
+      outfit: {
+        ...hero.outfit!,
+        referenceImagePath: `/objects/${tenant.tenantId}/friend-coat.png`,
+      },
+    };
+    snapshot.cast.push(friend);
+    snapshot.script.roles.push({
+      id: "friend",
+      name: "Friend",
+      description: "A fictional friend",
+    });
+    snapshot.script.scenes[0]!.roleIds = ["friend", "hero"];
+    snapshot.castApprovals!.roles.friend = {
+      roleId: "friend",
+      approvedAt: "2025-01-01T00:00:00.000Z",
+      character: {
+        referenceImagePath: friend.character.referenceImagePath,
+        sha256: "e".repeat(64),
+      },
+      outfit: {
+        referenceImagePath: friend.outfit.referenceImagePath,
+        sha256: "f".repeat(64),
+      },
+    };
+    snapshot.promptFormat = "seedance-2.5";
+    snapshot.videoModel = {
+      provider: "atlascloud",
+      model: "bytedance/seedance-2.5/reference-to-video",
+    };
+    state.topicPlanMode = "ai";
+    state.invokeGuidedAtlasResolver = true;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        guidedStory: snapshot,
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        generateAudio: true,
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "text",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
+          catalogModelId: "atlascloud-seedance-2.5-reference",
+          durationSec: 10,
+          permittedDurationSec: [10],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status, saved.error ?? undefined).toBe("succeeded");
+    expect(state.guidedAtlasResolvedIds).toEqual([[
+      "asset-sheet-4",
+      "asset-outfit-4",
+      "asset-sheet-1",
+      "asset-outfit-1",
+    ]]);
+    expect(state.guidedAtlasAssetCalls.map((call) => ({
+      characterId: call.characterId,
+      includeCharacterSheet: call.includeCharacterSheet,
+    }))).toEqual([
+      { characterId: 4, includeCharacterSheet: true },
+      { characterId: 1, includeCharacterSheet: true },
+    ]);
+
+    const resolverCallsAfterFirstRender = state.guidedAtlasAssetCalls.length;
+    const providerCallsAfterFirstRender = state.topicCheckpointed.length;
+    const resumed = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: saved.storyboard,
+      options: saved.options!,
+    });
+    await runVideoGenerationJob(resumed.id, "quota");
+
+    const resumedSaved = await readJob(resumed.id);
+    expect(resumedSaved.status, resumedSaved.error ?? undefined).toBe("succeeded");
+    expect(state.guidedAtlasAssetCalls).toHaveLength(resolverCallsAfterFirstRender);
+    expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
+  });
+
   it.each([
     ["uploaded", "uploaded", false],
     ["legacy", null, false],
@@ -4105,10 +4257,10 @@ describe("Guided Story preview-only runner", () => {
           resolvedVideoModel: {
             version: 1,
             source: "explicit",
-            mode: "image",
+            mode: "text",
             provider: "atlascloud",
-            model: "bytedance/seedance-2.5/image-to-video",
-            catalogModelId: "atlascloud-seedance-2.5",
+            model: "bytedance/seedance-2.5/reference-to-video",
+            catalogModelId: "atlascloud-seedance-2.5-reference",
             durationSec: 5,
             permittedDurationSec: [5],
             resolution: "720p",

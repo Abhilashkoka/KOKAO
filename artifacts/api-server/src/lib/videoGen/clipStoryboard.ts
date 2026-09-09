@@ -609,6 +609,14 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       for (const member of scene.guidedStory.cast.filter((cast) => scene.guidedStory!.roleIds.includes(cast.roleId))) {
         const frozenProvider = modelOptions.resolvedVideoModel?.provider;
         if (frozenProvider === "atlascloud") {
+          if (
+            modelOptions.resolvedVideoModel?.model !==
+            "bytedance/seedance-2.5/reference-to-video"
+          ) {
+            throw new VideoGenProviderError(
+              "Guided Story Atlas rendering requires a frozen reference-to-video model.",
+            );
+          }
           if (member.requiresBytePlusAsset === true) {
             throw new VideoGenProviderError(
               `Guided Story scene ${i + 1} has a BytePlus identity-linked cast member and cannot send that identity to Atlas Cloud.`,
@@ -651,8 +659,9 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
             expectedOutfitAssetId: frozenOutfitReferenceId,
             expectedOutfitPath: member.outfitReferenceImagePath,
             expectedOutfitSha256: member.outfitReferenceSha256,
+            includeCharacterSheet: true,
           });
-          if (!refs.length) {
+          if (refs.length !== 2) {
             throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a participating cast member without an active Atlas Cloud asset mapping.`);
           }
           assetIds.push(...refs);

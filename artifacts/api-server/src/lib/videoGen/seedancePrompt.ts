@@ -105,7 +105,11 @@ export interface SeedanceSceneInput {
    * The default keeps the standalone multi-reference contract available for
    * providers that can upload the character assets positionally.
    */
-  referenceMode?: "character-assets" | "opening-frame" | "primary-character-opening-frame";
+  referenceMode?:
+    | "character-assets"
+    | "atlas-character-assets"
+    | "opening-frame"
+    | "primary-character-opening-frame";
   nativeAudio?: boolean;
 }
 
@@ -165,7 +169,12 @@ export function seedanceScenePrompt(input: SeedanceSceneInput): string {
         ? [
             "@Image 1 is the approved active-speaker or primary-character portrait in the approved outfit. It defines only that character's face, hair, body appearance, and wardrobe; it does not define the environment or the complete shot composition.",
           ]
-        : slots.map((slot) => `@Image ${slot.slot} defines ${slot.defines}.`);
+        : input.referenceMode === "atlas-character-assets"
+          ? input.sceneCast.flatMap((member, index) => [
+              `@Image${index * 2 + 1} is ${member.character.name}'s approved multi-view character sheet and defines their face, hair, build, and identity.`,
+              `@Image${index * 2 + 2} is ${member.character.name}'s approved outfit reference and defines their clothing exactly.`,
+            ])
+          : slots.map((slot) => `@Image ${slot.slot} defines ${slot.defines}.`);
   for (const member of input.sceneCast) {
     references.push(
       `The references show one ${member.character.name}. The video contains exactly one ${member.character.name}.`,

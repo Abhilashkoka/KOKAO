@@ -253,4 +253,65 @@ describe("renderTopicStoryboard Seedance contract", () => {
       music: null,
     });
   });
+
+  it("uses ordered Atlas character-sheet and outfit labels for every scene participant", async () => {
+    const directBoard = storyboard();
+    directBoard.narration = null as never;
+    directBoard.scenes[0]!.previewPath = "/mira-outfit.png";
+    const guided = guidedSnapshot("seedance-2.5");
+    guided.videoModel = {
+      provider: "atlascloud",
+      model: "bytedance/seedance-2.5/reference-to-video",
+    };
+    guided.script.scenes[0]!.roleIds = ["friend", "hero"];
+    guided.cast.push({
+      ...guided.cast[0]!,
+      roleId: "friend",
+      characterId: 3,
+      outfitId: 4,
+      character: {
+        ...guided.cast[0]!.character,
+        name: "Dev",
+        referenceImagePath: "/dev.png",
+      },
+      outfit: {
+        ...guided.cast[0]!.outfit,
+        description: "a blue shirt",
+        referenceImagePath: "/dev-outfit.png",
+      },
+    });
+    const resolveAssetIds = vi.fn(async () => [
+      "asset-dev-sheet",
+      "asset-dev-outfit",
+      "asset-mira-sheet",
+      "asset-mira-outfit",
+    ]);
+
+    await renderTopicStoryboard({
+      storyboard: directBoard as never,
+      aspectRatio: "9:16",
+      subtitles: false,
+      music: null,
+      modelOptions: {
+        ...modelOptions,
+        resolvedVideoModel: {
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
+        },
+      } as never,
+      guidedStory: guided as never,
+      directNativeAudio: true,
+      resolveGuidedAtlasAssetIds: resolveAssetIds,
+      load: async (path) => Buffer.from(path),
+    });
+
+    const animate = renderState.animate[0]!;
+    expect(animate.resolveAssetIds).toBe(resolveAssetIds);
+    const prompt = (animate.visuals as string[])[0]!;
+    expect(prompt).toContain("@Image1 is Dev's approved multi-view character sheet");
+    expect(prompt).toContain("@Image2 is Dev's approved outfit reference");
+    expect(prompt).toContain("@Image3 is Mira's approved multi-view character sheet");
+    expect(prompt).toContain("@Image4 is Mira's approved outfit reference");
+    expect(prompt).not.toContain("primary-character portrait");
+  });
 });

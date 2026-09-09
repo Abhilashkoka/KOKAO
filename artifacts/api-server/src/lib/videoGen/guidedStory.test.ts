@@ -271,6 +271,24 @@ describe("automatic Guided Story intrinsic dialogue planning", () => {
 });
 
 describe("guided story platform contracts", () => {
+  it("labels every Atlas sheet and outfit in the exact cast-reference order", () => {
+    const { snapshot } = approvalFixture();
+    const board = guidedStoryStoryboard({
+      ...snapshot,
+      videoModel: {
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/reference-to-video",
+      },
+    });
+
+    expect(board.scenes[0]!.visual).toContain(
+      `${snapshot.cast[0]!.character.name}'s approved character sheet is @Image1 and approved outfit reference is @Image2`,
+    );
+    expect(board.scenes[0]!.visual).toContain(
+      `${snapshot.cast[1]!.character.name}'s approved character sheet is @Image3 and approved outfit reference is @Image4`,
+    );
+  });
+
   it("normalizes supported BCP-47 tags and rejects unsupported or ambiguous locales", () => {
     expect(normalizeGuidedStoryLocale("te-IN")).toBe("te");
     expect(normalizeGuidedStoryLocale("te-Telu-IN")).toBe("te");

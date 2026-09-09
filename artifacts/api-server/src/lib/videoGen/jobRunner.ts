@@ -81,6 +81,7 @@ import {
   OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
   OpenRouterInputImagePrivacyError,
 } from "./providers/openrouter";
+import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "./providers/atlascloud";
 import { assertHybridStoryBeatPlan, planHybridStoryBeats } from "./hybridStory";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import {
@@ -3087,6 +3088,14 @@ async function produceVideo(
       options.guidedStoryRenderFlow?.version === 1 &&
       options.guidedStoryRenderFlow.mode === "direct_video"
     ) {
+      if (
+        options.resolvedVideoModel?.provider === "atlascloud" &&
+        options.resolvedVideoModel.model !== ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
+      ) {
+        throw new VideoJobInputError(
+          "Guided Story Atlas rendering requires a frozen reference-to-video model.",
+        );
+      }
       if (options.resolvedVideoModel?.provider === "atlascloud") {
         const participatingRoleIds = new Set(
           options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
@@ -3107,9 +3116,9 @@ async function produceVideo(
       // New Guided Story attempts have already crossed their script, cast,
       // reference-sheet and backdrop approval boundaries. Build the immutable
       // execution board only as an internal per-scene receipt/checkpoint
-      // container; the approved active-speaker outfit (or identity fallback)
-      // is the provider's single opening-frame image input. Environment and
-      // the rest of the cast remain governed prompt instructions.
+      // container. Atlas reference-to-video attaches every participating
+      // character's approved sheet and outfit; other providers retain the
+      // approved active-speaker opening-frame input.
       // No generated preview, preview checkpoint, or review pause is created.
       const storyboard = guidedStoryStoryboard(options.guidedStory);
       storyboard.scenes = storyboard.scenes.map((scene) => {
@@ -3138,7 +3147,10 @@ async function produceVideo(
                   primary.character.referenceImagePath
               ? primary.character.referenceImagePath
               : null;
-        if (!approvedCharacterInput) {
+        if (
+          options.resolvedVideoModel?.provider !== "atlascloud" &&
+          !approvedCharacterInput
+        ) {
           throw new VideoJobInputError(
             `Guided Story scene ${scene.id} has no approved primary-character outfit or identity input.`,
           );
@@ -3913,62 +3925,66 @@ async function produceVideo(
         modelOptions: model,
         guidedStory: options.guidedStory ?? null,
         resolveGuidedAtlasAssetIds:
-          options.resolvedVideoModel?.provider === "atlascloud" && options.guidedStory
+          options.resolvedVideoModel?.provider === "atlascloud" &&
+          options.resolvedVideoModel.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL &&
+          options.guidedStory
             ? async (sceneIndex) => {
                 const scene = board.scenes[sceneIndex];
                 const guidedScene = scene?.guidedStory;
-                const scriptScene = guidedScene
-                  ? options.guidedStory!.script.scenes.find(
-                    (candidate) => candidate.id === guidedScene.scriptSceneId,
-                  )
-                  : null;
-                const roleId = scriptScene?.lines.find(
-                  (line) => line.kind === "dialogue" && line.ownerRoleId,
-                )?.ownerRoleId ?? scriptScene?.roleIds[0] ?? null;
-                const member = roleId
-                  ? options.guidedStory!.cast.find((candidate) => candidate.roleId === roleId)
-                  : null;
-                const approval = roleId
-                  ? options.guidedStory!.castApprovals?.roles[roleId]
-                  : null;
-                if (
-                  !member ||
-                  !approval ||
-                  member.characterId == null ||
-                  member.outfitId == null ||
-                  member.referenceSource !== "generated" ||
-                  member.requiresAtlasAsset !== true ||
-                  !member.atlasCharacterLibraryId ||
-                  !member.atlasCharacterReferenceId ||
-                  !member.atlasOutfitLibraryId ||
-                  !member.atlasApprovedReferenceSheetPath ||
-                  !member.atlasApprovedReferenceSheetSha256 ||
-                  !member.atlasAssetReferenceId ||
-                  !member.outfit?.referenceImagePath
-                ) {
+                if (!guidedScene || guidedScene.roleIds.length === 0) {
                   throw new VideoJobInputError(
-                    `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas outfit asset.`,
+                    `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen participating cast.`,
                   );
                 }
-                const refs = await atlasAssetRefsForOutfit({
-                  tenantId: job.tenantId,
-                  characterId: member.characterId,
-                  outfitId: member.outfitId,
-                  expectedCharacterLibraryId: member.atlasCharacterLibraryId,
-                  expectedCharacterReferenceId: member.atlasCharacterReferenceId,
-                  expectedReferenceSheetPath: member.atlasApprovedReferenceSheetPath,
-                  expectedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256,
-                  expectedOutfitLibraryId: member.atlasOutfitLibraryId,
-                  expectedOutfitAssetId: member.atlasAssetReferenceId,
-                  expectedOutfitPath: member.outfit.referenceImagePath,
-                  expectedOutfitSha256: approval.outfit.sha256,
-                });
-                if (refs.length !== 1) {
-                  throw new VideoJobInputError(
-                    `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s frozen Atlas asset is no longer active or was replaced. No video provider call was made.`,
-                  );
+                const castByRole = new Map(
+                  options.guidedStory!.cast.map((member) => [member.roleId, member]),
+                );
+                const attached: string[] = [];
+                for (const roleId of guidedScene.roleIds) {
+                  const member = castByRole.get(roleId);
+                  const approval =
+                    options.guidedStory!.castApprovals?.roles[roleId];
+                  if (
+                    !member ||
+                    !approval ||
+                    member.characterId == null ||
+                    member.outfitId == null ||
+                    member.referenceSource !== "generated" ||
+                    member.requiresAtlasAsset !== true ||
+                    !member.atlasCharacterLibraryId ||
+                    !member.atlasCharacterReferenceId ||
+                    !member.atlasOutfitLibraryId ||
+                    !member.atlasApprovedReferenceSheetPath ||
+                    !member.atlasApprovedReferenceSheetSha256 ||
+                    !member.atlasAssetReferenceId ||
+                    !member.outfit?.referenceImagePath
+                  ) {
+                    throw new VideoJobInputError(
+                      `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas sheet and outfit for role ${roleId}.`,
+                    );
+                  }
+                  const refs = await atlasAssetRefsForOutfit({
+                    tenantId: job.tenantId,
+                    characterId: member.characterId,
+                    outfitId: member.outfitId,
+                    expectedCharacterLibraryId: member.atlasCharacterLibraryId,
+                    expectedCharacterReferenceId: member.atlasCharacterReferenceId,
+                    expectedReferenceSheetPath: member.atlasApprovedReferenceSheetPath,
+                    expectedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256,
+                    expectedOutfitLibraryId: member.atlasOutfitLibraryId,
+                    expectedOutfitAssetId: member.atlasAssetReferenceId,
+                    expectedOutfitPath: member.outfit.referenceImagePath,
+                    expectedOutfitSha256: approval.outfit.sha256,
+                    includeCharacterSheet: true,
+                  });
+                  if (refs.length !== 2) {
+                    throw new VideoJobInputError(
+                      `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s frozen Atlas assets for role ${roleId} are no longer active or were replaced. No video provider call was made.`,
+                    );
+                  }
+                  attached.push(...refs);
                 }
-                return refs;
+                return attached;
               }
             : undefined,
         directNativeAudio: directGuidedNativeAudio,

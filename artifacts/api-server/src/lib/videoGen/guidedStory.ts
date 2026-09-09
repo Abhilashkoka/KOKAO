@@ -1174,6 +1174,14 @@ export function guidedStoryStoryboard(
         : snapshot.backdrops && !migratedLegacyDefault
           ? "default"
           : "shared";
+    const atlasReferenceLabels =
+      snapshot.videoModel?.provider === "atlascloud" &&
+      snapshot.videoModel.model === "bytedance/seedance-2.5/reference-to-video"
+        ? sceneCast.flatMap((_member, index) => [
+            `@Image${index * 2 + 1}`,
+            `@Image${index * 2 + 2}`,
+          ])
+        : undefined;
     return {
       id: scriptScene.id,
       text: scriptScene.lines.map((line) => line.text).join(" "),
@@ -1187,6 +1195,7 @@ export function guidedStoryStoryboard(
         location: visuals.location,
         logoPath: showLogo ? visuals.logo.path : null,
         platform: snapshot.platform,
+        ...(atlasReferenceLabels ? { referenceLabels: atlasReferenceLabels } : {}),
       }),
       durationSec: (scriptScene.endMs - scriptScene.startMs) / 1000,
       previewPath: reusable ? prior!.previewPath : null,

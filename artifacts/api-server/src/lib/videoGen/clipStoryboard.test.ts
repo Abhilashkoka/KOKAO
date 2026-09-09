@@ -38,9 +38,9 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../characterAssets", () => ({
   assetRefsForOutfit: vi.fn(async () => state.assetRefs),
-  atlasAssetRefsForOutfit: vi.fn(async () => {
+  atlasAssetRefsForOutfit: vi.fn(async (args: { characterId: number }) => {
     state.atlasAssetCalls += 1;
-    return ["atlas-role-1"];
+    return [`atlas-sheet-${args.characterId}`, `atlas-outfit-${args.characterId}`];
   }),
   requiresVerifiedBytePlusAsset: vi.fn(async () => true),
 }));
@@ -731,6 +731,78 @@ describe("renderClipStoryboard", () => {
     })).rejects.toThrow(/BytePlus identity-linked.*cannot send.*Atlas Cloud/);
     expect(state.atlasAssetCalls).toBe(0);
     expect(state.generateCalls).toHaveLength(0);
+  });
+
+  it("attaches each Atlas character sheet and outfit in prompt-label order", async () => {
+    const atlasMember = (roleId: string, characterId: number, outfitId: number) => ({
+      roleId,
+      source: "generated",
+      referenceSource: "generated",
+      characterId,
+      outfitId,
+      requiresAtlasAsset: true,
+      requiresBytePlusAsset: false,
+      atlasCharacterLibraryId: characterId + 100,
+      atlasCharacterReferenceId: `asset-sheet-${characterId}`,
+      atlasOutfitLibraryId: outfitId + 100,
+      atlasApprovedReferenceSheetPath: `/objects/1/sheet-${characterId}.png`,
+      atlasApprovedReferenceSheetSha256: "a".repeat(64),
+      atlasAssetReferenceId: `asset-outfit-${characterId}`,
+      outfitReferenceImagePath: `/objects/1/outfit-${characterId}.png`,
+      outfitReferenceSha256: "b".repeat(64),
+    });
+    const guided = scene({
+      previewPath: null,
+      visual:
+        "Hero's approved character sheet is @Image1 and approved outfit reference is @Image2. " +
+        "Friend's approved character sheet is @Image3 and approved outfit reference is @Image4.",
+      guidedStory: {
+        scriptSceneId: "script-1",
+        startMs: 0,
+        endMs: 5000,
+        roleIds: ["hero", "friend"],
+        lineOwnership: [],
+        cast: [
+          atlasMember("hero", 7, 3),
+          atlasMember("friend", 8, 4),
+        ],
+        inconsistencyFlags: [],
+        inputFingerprint: "fp",
+        visuals: {
+          logoPath: null,
+          locationMode: "none",
+          locationImagePath: null,
+          locationDescription: null,
+        },
+      } as never,
+    });
+
+    await renderClipStoryboard({
+      job: makeJob({ options: { aspectRatio: "9:16", resolvedVideoModel: {
+        version: 1,
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/reference-to-video",
+        resolvedAt: "2026-01-01T00:00:00Z",
+      } } as never }),
+      storyboard: board({ mode: "guided_story", visualsSource: "ai_video", scenes: [guided] }),
+      aspectRatio: "9:16",
+      load: async () => ({ buffer: Buffer.from("approved"), mimeType: "image/png" }),
+    });
+
+    expect(state.generateCalls).toEqual([
+      expect.objectContaining({
+        mode: "text",
+        hasImage: false,
+        assetIds: [
+          "atlas-sheet-7",
+          "atlas-outfit-7",
+          "atlas-sheet-8",
+          "atlas-outfit-8",
+        ],
+        prompt: expect.stringContaining("Friend's approved character sheet is @Image3"),
+      }),
+    ]);
+    expect(state.atlasAssetCalls).toBe(2);
   });
 
   it("fails closed when a participating Guided Story character was deleted", async () => {

@@ -1373,6 +1373,7 @@ export async function atlasAssetRefsForOutfit(args: {
   expectedOutfitAssetId: string;
   expectedOutfitPath: string;
   expectedOutfitSha256: string;
+  includeCharacterSheet?: boolean;
 }): Promise<string[]> {
   const [freshReferenceSheetSha256, freshOutfitSha256] = await Promise.all([
     atlasSourceSha256(args.expectedReferenceSheetPath, args.tenantId),
@@ -1425,7 +1426,9 @@ export async function atlasAssetRefsForOutfit(args: {
       outfit.atlasAssetLibraryId !== args.expectedOutfitLibraryId ||
       outfitReferenceId !== args.expectedOutfitAssetId
     ) return [];
-    return [outfitReferenceId];
+    return args.includeCharacterSheet
+      ? [characterReferenceId, outfitReferenceId]
+      : [outfitReferenceId];
   });
 }
 

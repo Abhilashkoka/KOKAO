@@ -8,6 +8,7 @@ import {
 import { eq } from "drizzle-orm";
 import { logger } from "../../logger";
 import { VideoGenProviderError, type VideoAspect, type VideoGenReceipt } from "../types";
+import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "../providers/atlascloud";
 import type { PromptVariantKey } from "@workspace/db";
 import { generateTopicScript, narrationSentenceWordBounds } from "./script";
 import {
@@ -1641,6 +1642,7 @@ export async function renderTopicStoryboard(params: {
   if (
     params.guidedStory &&
     params.modelOptions?.resolvedVideoModel?.provider === "atlascloud" &&
+    params.modelOptions.resolvedVideoModel.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL &&
     !params.resolveGuidedAtlasAssetIds
   ) {
     throw new VideoGenProviderError(
@@ -1711,9 +1713,14 @@ export async function renderTopicStoryboard(params: {
                 (candidate) => candidate.id === boardScene.guidedStory?.scriptSceneId,
               ) ?? null;
             if (!scriptScene || !boardScene.guidedStory) return null;
-            const sceneCast = guided.cast.filter((member) =>
-              scriptScene.roleIds.includes(member.roleId),
+            const castByRole = new Map(
+              guided.cast.map((member) => [member.roleId, member]),
             );
+            const sceneCast = scriptScene.roleIds
+              .map((roleId) => castByRole.get(roleId))
+              .filter(
+                (member): member is NonNullable<typeof member> => Boolean(member),
+              );
             const backdrop = effectiveGuidedBackdrop(guided, scriptScene.id)?.reference ?? null;
             return seedanceScenePrompt({
               scriptScene,
@@ -1728,9 +1735,14 @@ export async function renderTopicStoryboard(params: {
               segmentIndex: sceneIndex,
               segmentCount: board.scenes.length,
               nativeAudio,
-              referenceMode: params.directNativeAudio
-                ? "primary-character-opening-frame"
-                : "opening-frame",
+              referenceMode:
+                params.modelOptions?.resolvedVideoModel?.provider === "atlascloud" &&
+                params.modelOptions.resolvedVideoModel.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL &&
+                params.resolveGuidedAtlasAssetIds
+                  ? "atlas-character-assets"
+                  : params.directNativeAudio
+                    ? "primary-character-opening-frame"
+                    : "opening-frame",
               motionInstruction,
             });
           });
