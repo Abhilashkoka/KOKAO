@@ -111,6 +111,39 @@ describe("generateImage provider fallback", () => {
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
 
+  it("falls back when Gemini returns a no-output STOP without a safety block", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
+      new ImageGenProviderError(
+        'Gemini could not generate an image (STOP): {"block_reason":null}',
+        400,
+      ),
+    );
+    vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
+
+    const out = await generateImage("p", "1024x1024");
+    expect(out.provider).toBe("gemini");
+    expect(generateWithGemini).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues past an unavailable Seedream model to the next provider", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.ARK_API_KEY = "test-ark-key";
+    fallbackOrderState.image = ["seedream", "gemini"];
+    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
+      new ImageGenProviderError("upstream down", 503),
+    );
+    vi.mocked(generateWithSeedream).mockRejectedValue(
+      new ImageGenProviderError("InvalidEndpointOrModel.NotFound", 404),
+    );
+    vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
+
+    const out = await generateImage("p", "1024x1024");
+    expect(out.provider).toBe("gemini");
+    expect(generateWithSeedream).toHaveBeenCalledTimes(1);
+    expect(generateWithGemini).toHaveBeenCalledTimes(1);
+  });
+
   it("does not fail over when an explicit global lock disables fallback", async () => {
     process.env.GEMINI_API_KEY = "test-gemini-key";
     await setImageGenSelection({

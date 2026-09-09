@@ -1117,7 +1117,7 @@ describe("GuidedStoryWorkflow", () => {
     renderWorkflow();
     expect(state.cast).toBeNull();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_100);
+      await vi.advanceTimersByTimeAsync(10_100);
     });
     expect(state.draftRefetches).toBeGreaterThan(0);
     expect(state.cast).toBeNull();

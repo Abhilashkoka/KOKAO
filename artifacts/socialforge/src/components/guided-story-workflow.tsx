@@ -299,7 +299,14 @@ export function GuidedStoryWorkflow({
     },
   });
   const draftQuery = useGetGuidedStoryDraft(draftId ?? 0, {
-    query: { enabled: draftId !== null, queryKey: getGetGuidedStoryDraftQueryKey(draftId ?? 0) },
+    query: {
+      enabled: draftId !== null,
+      queryKey: getGetGuidedStoryDraftQueryKey(draftId ?? 0),
+      retry: (failureCount, error) =>
+        (error as { status?: number } | null)?.status !== 429 &&
+        failureCount < 2,
+      retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 10_000),
+    },
   });
   const queriedDraft = draftQuery.data;
   useEffect(() => {
@@ -826,10 +833,20 @@ export function GuidedStoryWorkflow({
     // Approval has already committed and dispatched the durable server worker.
     // The browser is observation-only: refresh state, never submit a second
     // cast mutation or cross a provider boundary.
-    const timer = window.setInterval(() => {
-      void draftQuery.refetch();
-    }, 2_000);
-    return () => window.clearInterval(timer);
+    let cancelled = false;
+    let timer: number;
+    const poll = async () => {
+      const result = await draftQuery.refetch();
+      if (cancelled) return;
+      const rateLimited =
+        (result.error as { status?: number } | null)?.status === 429;
+      timer = window.setTimeout(poll, rateLimited ? 60_000 : 10_000);
+    };
+    timer = window.setTimeout(poll, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [
     draft?.id,
     draft?.revision,

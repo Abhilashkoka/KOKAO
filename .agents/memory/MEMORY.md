@@ -155,3 +155,4 @@
 - [Provider-backed identity deletion](provider-identity-deletion.md) — deletion may race callback success; finalizers must verify persistence and compensate upstream assets.
 - [Native provider audio QA](native-provider-audio-qa.md) — verify locale and ordered dialogue after receipt persistence; terminal content failures require fresh restarts.
 - [Publish Python autodetection](publish-python-autodetection.md) — an unused root pyproject triggers uv lock; stale .pythonlibs can fail PNPM-only publish builds.
+- [Image fallback failure classes](image-fallback-failure-classes.md) — no-output STOP without a safety block and provider-local model 404s should continue through an enabled fallback chain.

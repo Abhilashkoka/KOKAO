@@ -513,6 +513,25 @@ function isTransientImageGenError(error: unknown): boolean {
   if (error instanceof ImagePreservationError) return false;
   if (error instanceof ImageGenProviderError) {
     if (error.status === undefined) return true; // timeout / network-shaped
+    // OpenRouter occasionally reports Gemini's no-output STOP as HTTP 400 even
+    // when its metadata explicitly says no safety block occurred. Another
+    // reference-capable provider can safely serve that request; ordinary 400s
+    // remain terminal because they usually indicate an invalid prompt/request.
+    if (
+      error.status === 400 &&
+      /Gemini could not generate an image \(STOP\)/i.test(error.message) &&
+      /"block_reason":null/i.test(error.message)
+    ) {
+      return true;
+    }
+    // This is specific to one provider's configured deployment and says
+    // nothing about whether another provider can satisfy the same prompt.
+    if (
+      error.status === 404 &&
+      /InvalidEndpointOrModel\.NotFound/i.test(error.message)
+    ) {
+      return true;
+    }
     return (
       error.status === 429 ||
       error.status === 500 ||

@@ -460,6 +460,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter, {
   guidedCastSweepAllocation,
+  guidedCastOperationNeedsSweep,
   sweepPendingGuidedStoryCasts,
 } from "./videos";
 import { actAs, resetAuthState } from "../test/authState";
@@ -932,6 +933,19 @@ describe("guided cast sweep allocation", () => {
       immediateLimit: 5,
       cursorLimit: 45,
     });
+  });
+
+  it("resumes a settled portrait so its sheet and cast commit can finish", () => {
+    expect(
+      guidedCastOperationNeedsSweep({
+        operationKey: "guided-story-cast:1:2:hero",
+        revision: 2,
+        voiceId: "alloy",
+        status: "uploaded",
+        claimedAt: "2026-09-09T17:24:54.382Z",
+        updatedAt: "2026-09-09T17:25:25.522Z",
+      }),
+    ).toBe(true);
   });
 });
 

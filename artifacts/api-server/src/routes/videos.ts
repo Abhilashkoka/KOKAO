@@ -5810,6 +5810,34 @@ export function guidedCastSweepAllocation(immediateCount: number): {
   };
 }
 
+export function guidedCastOperationNeedsSweep(
+  operation:
+    | GuidedStoryDraftState["castOperations"][string]
+    | undefined,
+): boolean {
+  const sheetStatus = operation?.sheetOperation?.status;
+  if (
+    sheetStatus === "provider_running" ||
+    sheetStatus === "outcome_unknown" ||
+    sheetStatus === "failed"
+  ) {
+    return false;
+  }
+  return (
+    operation?.autoStart === true ||
+    operation?.status === "claimed" ||
+    operation?.status === "funded" ||
+    operation?.status === "provider_succeeded" ||
+    operation?.status === "upload_succeeded" ||
+    // A settled portrait still needs the same durable worker to generate its
+    // reference sheet and commit the completed role into the draft cast.
+    operation?.status === "uploaded" ||
+    sheetStatus === "funded" ||
+    sheetStatus === "provider_succeeded" ||
+    sheetStatus === "uploaded"
+  );
+}
+
 /**
  * Resume automatic generated casts without relying on a browser to submit the
  * cast form.  We intentionally only pick durable pre-provider claims.  A
@@ -5876,25 +5904,9 @@ export async function sweepPendingGuidedStoryCasts(): Promise<void> {
         !draft.state.scriptApprovedAt ||
         draft.state.castStrategy === "saved" ||
         !script.roles.length ||
-        !script.roles.some((role) => {
-          const operation = operations[role.id];
-          const sheetStatus = operation?.sheetOperation?.status;
-          if (
-            sheetStatus === "provider_running" ||
-            sheetStatus === "outcome_unknown" ||
-            sheetStatus === "failed"
-          ) {
-            return false;
-          }
-          return operation?.autoStart === true ||
-            operation?.status === "claimed" ||
-            operation?.status === "funded" ||
-            operation?.status === "provider_succeeded" ||
-            operation?.status === "upload_succeeded" ||
-            sheetStatus === "funded" ||
-            sheetStatus === "provider_succeeded" ||
-            sheetStatus === "uploaded";
-        })
+        !script.roles.some((role) =>
+          guidedCastOperationNeedsSweep(operations[role.id]),
+        )
       ) continue;
 
       // The normal cast pipeline only needs tenantId and log from Request.
