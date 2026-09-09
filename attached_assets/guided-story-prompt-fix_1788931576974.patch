@@ -1,0 +1,412 @@
+From 8716469f5c0480c4dacff8c2642870613982facc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 9 Sep 2026 05:20:15 +0000
+Subject: [PATCH] Guided Story: stop writing storage paths and whole
+ storyboards into prompts
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Job #69001 rendered the mother as two visibly different women across three
+scenes and returned one character in a shot that asks for three. Three of the
+reasons were in this one 60-line file.
+
+  1. `identity reference /objects/4/uploads/<uuid>` went into the prompt as
+     text. That is tenant storage — no video model resolves it — so the
+     identity direction did nothing while reading as though it worked, and a
+     wrong-person render looked like a model quality problem. Identity travels
+     as an attached reference; generateVideo already takes `assetIds` and
+     providers/atlascloud.ts already turns them into `reference_images`
+     with @ImageN naming. This file just has to stop competing with it.
+  2. The backdrop direction carried the whole storyboard — "Scene 1: …
+     Scene 2: … Scene 3: …", the last truncated mid-sentence at "She...." —
+     into every scene, handing the model three shots and asking for one.
+     stripStoryboardDump cuts everything from the first scene heading.
+  3. The cast was described but never closed, so a scene asking to end on all
+     three together could return one person and be, on its own terms, correct.
+     It is now stated as an exact set that no one enters or leaves.
+
+Also: role descriptions were personality ("anxious but witty"), which is not
+visible, so the model invented a look per scene — appearance now comes from
+the reference and the prompt carries only the wardrobe, which is actionable.
+A character with no approved outfit used to put the literal word "MISSING"
+into the prompt; it now fails with something an operator can act on. The logo
+path became a request for logo space, since the path was never openable and
+the bare word invites the model to invent one.
+
+`referenceLabels` is the hook for the reference work: pass "@Image1",
+"@Image2" in cast order once assetIds really are attached, and each character
+is bound to its own reference. Left unset until then, because naming a
+reference that was not sent is worse than naming none.
+
+The old test asserted the broken wording verbatim ("preserves the existing
+visual prompt wording and order"), so it is replaced rather than extended.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_015ek88yExN2abbR9DaW7vmr
+---
+ .../lib/videoGen/guidedScenePrompt.test.ts    | 167 +++++++++++++++---
+ .../src/lib/videoGen/guidedScenePrompt.ts     | 146 ++++++++++++---
+ 2 files changed, 261 insertions(+), 52 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts
+index 9da9550..b88b524 100644
+--- a/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.test.ts
+@@ -1,33 +1,144 @@
+ import { describe, expect, it } from "vitest";
+-import { guidedSceneVisualPrompt } from "./guidedScenePrompt";
++import { guidedSceneVisualPrompt, stripStoryboardDump } from "./guidedScenePrompt";
++import { VideoGenProviderError } from "./types";
++
++/**
++ * These cases come from job #69001, which rendered the mother as two different
++ * women across three scenes and returned one character in a shot that asked
++ * for three. Each test pins one reason that was possible.
++ */
++
++const cast = [
++  {
++    roleId: "meera",
++    character: { name: "Meera", referenceImagePath: "/objects/4/uploads/52f59f54" },
++    outfit: {
++      description: "a turquoise floral anarkali with an orange dupatta",
++      referenceImagePath: "/objects/4/uploads/52f59f54",
++    },
++  },
++  {
++    roleId: "ma",
++    character: { name: "Ma", referenceImagePath: "/objects/4/uploads/6a04c1d7" },
++    outfit: {
++      description: "a cream cotton sari",
++      referenceImagePath: "/objects/4/uploads/6a04c1d7",
++    },
++  },
++] as any;
++
++const base = {
++  scriptScene: { visualDirection: "A warm two-shot in the living room." },
++  sceneCast: cast,
++  backdrop: null,
++  backdropLabel: "shared" as const,
++  location: { mode: "text", imagePath: null, description: "A sunlit living room" },
++  logoPath: null,
++  platform: { aspectRatio: "9:16", safeArea: "Keep faces in the safe area." },
++} as any;
+ 
+ describe("guidedSceneVisualPrompt", () => {
+-  it("preserves the existing visual prompt wording and order", () => {
+-    expect(
+-      guidedSceneVisualPrompt({
+-        scriptScene: { visualDirection: "A warm two-shot at the station." },
+-        sceneCast: [
+-          {
+-            roleId: "hero",
+-            character: { name: "Mira", referenceImagePath: "/mira.png" },
+-            outfit: {
+-              description: "a saffron jacket",
+-              referenceImagePath: "/mira-outfit.png",
+-            },
+-          },
+-        ] as any,
+-        backdrop: null,
+-        backdropLabel: "shared",
+-        location: { mode: "text", imagePath: null, description: "A rainy station" },
+-        logoPath: "/logo.png",
+-        platform: { aspectRatio: "9:16", safeArea: "Keep faces in the safe area." },
+-      }),
+-    ).toBe(
+-      "A warm two-shot at the station.\n" +
+-        "Mira (hero) wears a saffron jacket; identity reference /mira.png; outfit reference /mira-outfit.png.\n" +
+-        "Shared location direction: A rainy station.\n" +
+-        "Place the approved logo /logo.png subtly in this scene.\n" +
+-        "Compose for 9:16. Keep faces in the safe area.",
++  it("never writes an app storage path into the prompt", () => {
++    const prompt = guidedSceneVisualPrompt(base);
++    // The exact bug from #69001: these paths reached Seedance as prose, so the
++    // identity direction did nothing while looking like it worked.
++    expect(prompt).not.toContain("/objects/");
++    expect(prompt).not.toContain("identity reference");
++    expect(prompt).not.toContain("outfit reference");
++  });
++
++  it("keeps the wardrobe, which is the part a model can act on", () => {
++    const prompt = guidedSceneVisualPrompt(base);
++    expect(prompt).toContain("a turquoise floral anarkali with an orange dupatta");
++    expect(prompt).toContain("a cream cotton sari");
++  });
++
++  it("closes the cast so characters cannot quietly leave the frame", () => {
++    const prompt = guidedSceneVisualPrompt(base);
++    expect(prompt).toContain("Exactly 2 people are in frame: Meera and Ma");
++    expect(prompt).toContain("no one enters and no one leaves");
++  });
++
++  it("ends on what must not change", () => {
++    expect(guidedSceneVisualPrompt(base)).toContain(
++      "stays identical to the references for the entire shot",
++    );
++  });
++
++  it("names each character to its reference only when references are attached", () => {
++    expect(guidedSceneVisualPrompt(base)).not.toContain("@Image");
++    const labelled = guidedSceneVisualPrompt({
++      ...base,
++      referenceLabels: ["@Image1", "@Image2"],
++    });
++    expect(labelled).toContain("Meera is @Image1");
++    expect(labelled).toContain("Ma is @Image2");
++  });
++
++  it("refuses a scene whose character has no approved outfit", () => {
++    const noOutfit = {
++      ...base,
++      sceneCast: [{ roleId: "ma", character: { name: "Ma" }, outfit: null }] as any,
++    };
++    // "MISSING" used to be written into the prompt as a literal word.
++    expect(() => guidedSceneVisualPrompt(noOutfit)).toThrow(VideoGenProviderError);
++    expect(() => guidedSceneVisualPrompt(noOutfit)).toThrow(/no approved outfit/i);
++  });
++
++  it("strips the storyboard dump out of the backdrop direction", () => {
++    const prompt = guidedSceneVisualPrompt({
++      ...base,
++      backdrop: {
++        imagePath: "/objects/4/uploads/8c1f8d23",
++        prompt:
++          "Create the primary shared location for the Guided Story. " +
++          "Scene 1: Centered 9:16 living-room group shot. " +
++          "Scene 2: Same shared frame, slightly tighter. " +
++          "Scene 3: Shared reaction shot. She....",
++      },
++      backdropLabel: "default",
++    });
++    expect(prompt).toContain("the approved default backdrop");
++    expect(prompt).toContain("Create the primary shared location");
++    // Every scene prompt used to carry all three shots.
++    expect(prompt).not.toContain("Scene 1:");
++    expect(prompt).not.toContain("Scene 3:");
++    expect(prompt).not.toContain("She....");
++    expect(prompt).not.toContain("/objects/");
++  });
++
++  it("asks for logo space rather than naming a file it cannot open", () => {
++    const prompt = guidedSceneVisualPrompt({
++      ...base,
++      logoPath: "/objects/4/uploads/logo.png",
++    });
++    expect(prompt).toContain("clear space in the lower third");
++    expect(prompt).not.toContain("/objects/");
++  });
++
++  it("keeps the platform framing line last", () => {
++    expect(guidedSceneVisualPrompt(base).trimEnd().endsWith("Keep faces in the safe area.")).toBe(
++      true,
++    );
++  });
++});
++
++describe("stripStoryboardDump", () => {
++  it("cuts everything from the first scene heading onwards", () => {
++    expect(stripStoryboardDump("A sunlit room. Scene 1: wide shot. Scene 2: tighter.")).toBe(
++      "A sunlit room.",
++    );
++  });
++
++  it("drops a truncated trailing fragment", () => {
++    expect(stripStoryboardDump("A sunlit room.\nShe reaches for the file and....")).toBe(
++      "A sunlit room.",
++    );
++  });
++
++  it("leaves clean direction untouched", () => {
++    expect(stripStoryboardDump("A sunlit living room with plants.")).toBe(
++      "A sunlit living room with plants.",
+     );
+   });
+-});
+\ No newline at end of file
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts
+index 289c68c..141c7e7 100644
+--- a/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts
++++ b/artifacts/api-server/src/lib/videoGen/guidedScenePrompt.ts
+@@ -3,6 +3,7 @@ import type {
+   GuidedStoryScript,
+   GuidedStoryVisualChoices,
+ } from "@workspace/db";
++import { VideoGenProviderError } from "./types";
+ 
+ type PlatformFraming = { aspectRatio: string; safeArea: string };
+ type ScriptScene = GuidedStoryScript["scenes"][number];
+@@ -17,45 +18,142 @@ export interface GuidedSceneVisualInput {
+   location: GuidedStoryVisualChoices["location"];
+   logoPath: string | null;
+   platform: PlatformFraming;
++  /**
++   * Positional labels for the references actually attached to this request,
++   * in cast order — "@Image1", "@Image2". Supply these only once the caller
++   * really is sending reference assets: naming a reference that was not sent
++   * is worse than naming none.
++   */
++  referenceLabels?: readonly string[];
+ }
+ 
+-function roleClause(member: GuidedStoryCastSnapshot): string {
++/**
++ * Guided Story scene prompts.
++ *
++ * Rewritten after job #69001, where a three-scene story rendered the mother as
++ * two visibly different women and lost two of three characters from the
++ * closing shot. Three faults lived in this file:
++ *
++ *  1. `identity reference /objects/4/uploads/<uuid>` went into the prompt as
++ *     text. That is tenant storage — no video model resolves it, so the
++ *     identity direction did nothing while reading as though it worked.
++ *     Identity travels as an attached reference (assetIds → Atlas
++ *     `reference_images`), never as a path inside a sentence.
++ *  2. The backdrop direction carried the whole storyboard — "Scene 1: …
++ *     Scene 2: … Scene 3: …", the last truncated mid-sentence — into every
++ *     scene. The model was handed three shots and asked for one.
++ *  3. The cast was described but never closed, so a scene asking to "end on
++ *     all three smiling together" could return one person and be, on its own
++ *     terms, correct.
++ *
++ * The rule the whole file now follows: everything in this string must be
++ * something a model can act on. Anything addressed to our own systems belongs
++ * in the request, not in the prose.
++ */
++
++/** Anything that means something to us and nothing to a video model. */
++const STORAGE_PATH = /(\/objects\/\d+\/[\w/-]+|\bfile:\/\/\S+)/;
++
++/**
++ * A last line of defence rather than the mechanism: the builders below simply
++ * never interpolate a path. If one ever starts again, this turns a silently
++ * wrong render into a failure that names the offending text.
++ */
++function assertNoStoragePaths(prompt: string): string {
++  const match = prompt.match(STORAGE_PATH);
++  if (match) {
++    throw new VideoGenProviderError(
++      `A Guided Story prompt named an app storage path (${match[0]}). ` +
++        "References must be attached to the request, not written into the prompt text.",
++      400,
++    );
++  }
++  return prompt;
++}
++
++/**
++ * Cut a whole-storyboard dump down to the shot being rendered.
++ *
++ * The backdrop direction in #69001 opened with a one-line brief and then
++ * pasted every scene of the story after it. Everything from the first
++ * "Scene N:" onwards is other shots, and a trailing "She...." is an
++ * unfinished sentence a model will happily finish.
++ */
++export function stripStoryboardDump(text: string): string {
++  const upToFirstScene = text.split(/(?:^|\s)Scene\s+\d+\s*:/)[0] ?? text;
++  return upToFirstScene
++    .split("\n")
++    .map((line) => line.trim())
++    .filter((line) => line.length > 0 && !/\.{3,}$/.test(line))
++    .join(" ")
++    .trim();
++}
++
++/**
++ * What the model needs about one character: who they are in this shot, and
++ * what they wear. Appearance itself comes from the attached reference — long
++ * appearance text competes with the image and degrades it, and the role
++ * descriptions here ("anxious but witty") are personality, which is not
++ * visible at all.
++ */
++function roleClause(member: GuidedStoryCastSnapshot, label: string | null): string {
++  const wardrobe = member.outfit?.description?.trim();
++  if (!wardrobe) {
++    throw new VideoGenProviderError(
++      `${member.character.name} has no approved outfit for this scene. ` +
++        "Approve a wardrobe before generating — an unspecified costume changes between shots.",
++      400,
++    );
++  }
++  const named = label ? `${member.character.name} is ${label}` : member.character.name;
++  return `${named}, wearing ${wardrobe}, matching their approved reference exactly.`;
++}
++
++/** The cast as a closed set, which is what stops characters quietly leaving. */
++function castClause(sceneCast: GuidedStoryCastSnapshot[]): string {
++  const names = sceneCast.map((m) => m.character.name);
++  if (names.length === 0) return "";
++  const list =
++    names.length === 1
++      ? names[0]!
++      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+   return (
+-    `${member.character.name} (${member.roleId}) wears ` +
+-    `${member.outfit?.description ?? "the approved wardrobe"}; ` +
+-    `identity reference ${member.character.referenceImagePath ?? "MISSING"}; ` +
+-    `outfit reference ${member.outfit?.referenceImagePath ?? "MISSING"}.`
++    `Exactly ${names.length} ${names.length === 1 ? "person is" : "people are"} in frame: ${list}. ` +
++    "All of them stay visible for the whole shot; no one enters and no one leaves."
+   );
+ }
+ 
+ function locationClause(input: GuidedSceneVisualInput): string {
+   if (input.backdrop) {
++    const direction = stripStoryboardDump(input.backdrop.prompt);
+     return (
+-      `Use the frozen approved ${input.backdropLabel} backdrop ${input.backdrop.imagePath}. ` +
+-      `Backdrop direction: ${input.backdrop.prompt}. ` +
+-      "Preserve this location unless an explicitly scene-only background correction is requested."
++      `The location is the approved ${input.backdropLabel} backdrop` +
++      (direction ? `: ${direction}` : ".") +
++      " Keep this location unchanged for the whole shot."
+     );
+   }
+   if (input.location.mode === "image") {
+-    return `Use the shared location image ${input.location.imagePath} as environmental guidance.`;
++    return "The location is the approved shared location image.";
+   }
+-  if (input.location.mode === "text") {
+-    return `Shared location direction: ${input.location.description}.`;
++  if (input.location.mode === "text" && input.location.description?.trim()) {
++    return `Shared location direction: ${stripStoryboardDump(input.location.description)}`;
+   }
+   return "";
+ }
+ 
+ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
+-  const roleDirection = input.sceneCast.map(roleClause).join(" ");
+-  const locationDirection = locationClause(input);
+-  const logoDirection = input.logoPath
+-    ? `Place the approved logo ${input.logoPath} subtly in this scene.`
+-    : "";
+-  return (
+-    `${input.scriptScene.visualDirection}\n` +
+-    `${roleDirection}\n` +
+-    `${locationDirection}\n` +
+-    `${logoDirection}\n` +
+-    `Compose for ${input.platform.aspectRatio}. ${input.platform.safeArea}`
+-  );
+-}
+\ No newline at end of file
++  const labels = input.referenceLabels ?? [];
++  const blocks = [
++    stripStoryboardDump(input.scriptScene.visualDirection),
++    input.sceneCast.map((member, i) => roleClause(member, labels[i] ?? null)).join(" "),
++    castClause(input.sceneCast),
++    locationClause(input),
++    // The logo is composited, not described. A path here was never actionable,
++    // and the bare word "logo" invites the model to invent one.
++    input.logoPath ? "Leave clear space in the lower third for a logo overlay." : "",
++    // Last, so the final thing read is what must not change.
++    "Every face, hairstyle, build and garment stays identical to the references for the entire shot.",
++    `Compose for ${input.platform.aspectRatio}. ${input.platform.safeArea}`,
++  ];
++  return assertNoStoragePaths(blocks.filter((b) => b.trim().length > 0).join("\n"));
++}
+-- 
+2.43.0
+
