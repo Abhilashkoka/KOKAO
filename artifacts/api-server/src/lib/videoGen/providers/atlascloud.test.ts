@@ -172,6 +172,43 @@ describe("Atlas Cloud Seedance 2.5", () => {
     expect(fetch.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
   });
 
+  it("keeps polling an accepted prediction beyond the shared ten-minute budget", async () => {
+    vi.useFakeTimers();
+    let polls = 0;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/generateVideo")) {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ code: 0, data: {
+          id: "prediction-slow", status: "processing",
+        } }));
+      }
+      if (url.endsWith("/prediction/prediction-slow")) {
+        expect(init?.method).toBe("GET");
+        polls += 1;
+        return new Response(JSON.stringify({ code: 0, data:
+          polls > 120
+            ? {
+                id: "prediction-slow",
+                status: "completed",
+                outputs: ["https://media.example/slow.mp4"],
+              }
+            : { id: "prediction-slow", status: "processing" },
+        }));
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const generation = generateWithAtlasCloud(input, "secret");
+    await vi.advanceTimersByTimeAsync((10 * 60 * 1000) + 5_000);
+
+    await expect(generation).resolves.toMatchObject({
+      providerTaskId: "prediction-slow",
+    });
+    expect(polls).toBe(121);
+    expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
   it("does not retry an ambiguous failed generation POST", async () => {
     const fetch = vi.fn(async () => new Response("unavailable", { status: 503 }));
     vi.stubGlobal("fetch", fetch);

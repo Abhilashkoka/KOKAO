@@ -1179,6 +1179,13 @@ function safeVideoErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof VideoGenProviderError && error.status === 402) {
     return "Atlas Cloud could not start this scene because the configured provider account has insufficient credits or unavailable billing. No Atlas task was accepted. Add Atlas provider credits or select another video provider, then start a fresh attempt.";
   }
+  if (
+    error instanceof VideoGenProviderError &&
+    error.providerTaskId &&
+    error.message === "Atlas Cloud generation timed out before completion."
+  ) {
+    return "Atlas Cloud is still processing an accepted scene. Retry this job to continue polling the saved provider task; KOKAO will not submit that scene again.";
+  }
   // Provider messages routinely contain request bodies, signed URLs and
   // echoed prompts. Customer-visible history is deliberately allow-list-only.
   return fallback;

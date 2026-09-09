@@ -9,6 +9,12 @@ Atlas Cloud is a distinct paid video provider; never reuse BytePlus model contra
 
 **How to apply:** Fence every paid submit durably before POST, save accepted prediction IDs immediately, resume polling instead of resubmitting, and send unknown-cost events as NULL. Activation requires an authoritative price.
 
+Atlas Seedance reference-to-video predictions can legitimately remain processing beyond ten minutes; use a provider-specific long poll budget rather than the shared short video-provider budget.
+
+**Why:** A live four-scene Guided job had two completed predictions and two healthy predictions still processing when the generic ten-minute deadline marked the job failed. Both pending predictions later completed without another POST.
+
+**How to apply:** Allow at least thirty minutes for Atlas prediction polling. If the wait still expires, keep the accepted task ID and tell the user recovery continues that exact task instead of implying the provider rejected it.
+
 An Atlas HTTP 402 is a definite provider-account billing rejection, not an ambiguous paid submit and not a transient scene failure.
 
 **Why:** Retrying a 402 left the pre-submit fence without a task ID, so the retry surfaced as “outcome uncertain” and hid the actual Atlas credit problem.

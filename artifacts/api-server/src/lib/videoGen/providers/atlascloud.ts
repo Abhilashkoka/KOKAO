@@ -4,7 +4,6 @@ import {
   videoGenFetch,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
-  VIDEO_GEN_TOTAL_DEADLINE_MS,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
@@ -23,6 +22,10 @@ export const ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL =
 const BASE_URL = "https://api.atlascloud.ai/api/v1/model";
 const GENERATE_URL = `${BASE_URL}/generateVideo`;
 const POLL_INTERVAL_MS = 5_000;
+// Atlas reference-to-video predictions regularly outlive the shared ten-minute
+// provider budget. Keep polling the accepted task instead of presenting a
+// provider failure while Atlas is still producing the scene.
+const ATLASCLOUD_VIDEO_GEN_TOTAL_DEADLINE_MS = 30 * 60 * 1000;
 const MAX_VIDEO_BYTES = 250 * 1024 * 1024;
 const PENDING = new Set(["processing", "pending", "queued", "running"]);
 
@@ -344,7 +347,7 @@ export async function generateWithAtlasCloud(
     throw new VideoGenProviderError(`Atlas Cloud only supports the official ${expected} model for this request.`, 400);
   }
   const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
-  const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
+  const deadline = Date.now() + ATLASCLOUD_VIDEO_GEN_TOTAL_DEADLINE_MS;
   let requestId = safeId(input.providerRequestId);
   let taskId = safeId(input.providerTaskId);
   if (input.providerTaskId && !taskId) {
