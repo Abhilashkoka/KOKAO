@@ -14,3 +14,9 @@ Optional finishing stages are different when the failed job deliberately retains
 **Why:** A finishing-stage failure can still leave completed base work and paid finishing calls attached to the retained output. Treating the whole job as zero-cost refunds delivered work; treating inherited recovery receipts as new work double-charges it.
 
 **How to apply:** Filter `accounted` receipts before all child failure usage, credit, and wallet calculations. Freeze finishing prices before funding, and run recovery preflight for missing paid stages independently of unrelated resilience flags.
+
+Homogeneous composite workflows such as direct Guided Story must reserve each missing provider operation at the longest duration allowed by the frozen model contract, then refund the unused difference. A flat per-unit display estimate can underfund longer scenes even when the missing-operation count is correct.
+
+**Why:** Scene durations are quantized independently (for example, 5/8/10 seconds), while a recovery reservation may cover only one missing 10-second scene. Counting one unit at a generic display rate does not guarantee enough held funding for that exact receipt.
+
+**How to apply:** Use the immutable provider/model/variant snapshot and maximum permitted duration to price direct Guided enqueue, recovery, and fresh restart holds. Do not include inherited `accounted` receipts in the current attempt.

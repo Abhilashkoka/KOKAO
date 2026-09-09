@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assessNativeAudioTranscript, detectTranscriptLocale } from "./nativeAudioGate";
+import {
+  assessNativeAudioTranscript,
+  detectTranscriptLocale,
+  nativeAudioTranscriptDiagnostics,
+} from "./nativeAudioGate";
 
 describe("native Guided audio assessment", () => {
   it("accepts the requested language and dialogue", () => {
@@ -52,6 +56,26 @@ describe("native Guided audio assessment", () => {
       transcript: "No",
       providerDetectedLanguage: "spanish",
     })).toEqual({ outcome: "pass", detectedLocale: null });
+  });
+
+  it("trusts matching Telugu script over a conflicting Tamil provider label", () => {
+    const expected = "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం";
+    expect(assessNativeAudioTranscript({
+      expectedLocale: "te",
+      expectedDialogue: expected,
+      transcript: `${expected}.`,
+      providerDetectedLanguage: "Tamil",
+    })).toEqual({ outcome: "pass", detectedLocale: "te" });
+    expect(nativeAudioTranscriptDiagnostics({
+      expectedDialogue: expected,
+      transcript: `${expected}.`,
+      providerDetectedLanguage: "Tamil",
+    })).toMatchObject({
+      providerDetectedLocale: "ta",
+      transcriptDetectedLocale: "te",
+      transcriptWordCount: 7,
+      dialogueSimilarity: 1,
+    });
   });
 
   it("rejects clips with no transcribed speech", () => {

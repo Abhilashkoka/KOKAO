@@ -1082,6 +1082,23 @@ export interface VideoJobOptions {
     /** Canonical immutable per-scene backdrop snapshot. */
     backdrops?: GuidedStoryBackdropChoices;
   };
+  /**
+   * Privacy-safe post-render speech QA evidence. Transcript text is
+   * intentionally never persisted; these bounded fields are enough to
+   * distinguish provider-label mistakes from script/dialogue failures.
+   */
+  guidedNativeAudioQa?: {
+    version: 1;
+    checkedAt: string;
+    asrProvider: string;
+    asrModel: string;
+    expectedLocale: GuidedStoryLocale;
+    providerDetectedLocale: string | null;
+    transcriptDetectedLocale: GuidedStoryLocale | null;
+    transcriptWordCount: number;
+    dialogueSimilarity: number;
+    outcome: "pass" | "no_speech" | "wrong_language" | "dialogue_drift";
+  };
 }
 
 /**

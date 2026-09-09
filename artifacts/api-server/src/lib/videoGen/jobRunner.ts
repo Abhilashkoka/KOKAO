@@ -199,6 +199,7 @@ import { transcribeAudio } from "../asr";
 import {
   assessNativeAudioTranscript,
   guidedSpokenText,
+  nativeAudioTranscriptDiagnostics,
   NativeAudioQualityError,
 } from "./nativeAudioGate";
 
@@ -6575,6 +6576,32 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
     transcript: transcript.text,
     providerDetectedLanguage: transcript.detectedLanguage,
   });
+  const diagnostics = nativeAudioTranscriptDiagnostics({
+    expectedDialogue,
+    transcript: transcript.text,
+    providerDetectedLanguage: transcript.detectedLanguage,
+  });
+  const latestOptions = structuredClone(
+    (
+      await db.select({ options: videoGenerationsTable.options })
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job.id))
+        .limit(1)
+    )[0]?.options ?? job.options!,
+  );
+  latestOptions.guidedNativeAudioQa = {
+    version: 1,
+    checkedAt: new Date().toISOString(),
+    asrProvider: transcript.provider.slice(0, 120),
+    asrModel: transcript.model.slice(0, 120),
+    expectedLocale: snapshot.locale,
+    providerDetectedLocale: diagnostics.providerDetectedLocale,
+    transcriptDetectedLocale: diagnostics.transcriptDetectedLocale,
+    transcriptWordCount: diagnostics.transcriptWordCount,
+    dialogueSimilarity: diagnostics.dialogueSimilarity,
+    outcome: assessment.outcome,
+  };
+  await setJob(job.id, { options: latestOptions });
   if (assessment.outcome === "wrong_language") {
     throw new NativeAudioQualityError(
       "native_audio_wrong_language",

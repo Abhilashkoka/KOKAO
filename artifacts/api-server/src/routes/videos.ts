@@ -468,12 +468,12 @@ function compositeVideoDurations(
 }
 
 /**
- * Direct clip engines make one homogeneous provider call per unit, so their
- * exact selected variant can safely size the wallet reservation. Composite
- * workflows keep the conservative display reservation and settle from their
- * per-provider receipts because they can span several models.
+ * Homogeneous clip workflows make one call to the same frozen provider/model
+ * per unit, so their exact selected variant can safely size the reservation.
+ * Direct Guided Story is also homogeneous, but its scene timings vary; reserve
+ * every missing unit at the longest permitted clip and refund the difference.
  */
-async function directVideoReservationPrice(
+export async function directVideoReservationPrice(
   engine: string,
   options: NonNullable<VideoGeneration["options"]>,
   units: number,
@@ -482,21 +482,33 @@ async function directVideoReservationPrice(
   model: string;
   totalCostPaise: number;
 } | null> {
-  if (engine !== "text_to_video" && engine !== "image_to_video") return null;
-  const mode = engine === "text_to_video" ? "text" : "image";
   const snapshot = options.resolvedVideoModel;
-  if (!snapshot || snapshot.mode !== mode) return null;
+  if (!snapshot) return null;
+  const directMode =
+    engine === "text_to_video"
+      ? "text"
+      : engine === "image_to_video"
+        ? "image"
+        : null;
+  const directGuided =
+    engine === "topic_to_video" &&
+    options.guidedStoryRenderFlow?.version === 1 &&
+    options.guidedStoryRenderFlow.mode === "direct_video" &&
+    options.guidedStory != null;
+  if (!directGuided && (!directMode || snapshot.mode !== directMode)) return null;
   // Reservation must use precisely the variants frozen at enqueue, not a
   // catalog re-resolution that could change after an admin/catalog edit.
-  const resolved = snapshot;
+  const durationSec = directGuided
+    ? Math.max(snapshot.durationSec, ...(snapshot.permittedDurationSec ?? []))
+    : snapshot.durationSec;
   const oneCall = await computeVideoCostPaise({
     provider: snapshot.provider,
     model: snapshot.model,
-    durationSec: resolved.durationSec,
+    durationSec,
     variantCriteria: videoPriceCriteria({
-      resolution: resolved.resolution,
-      quality: resolved.quality,
-      generateAudio: resolved.generateAudio,
+      resolution: snapshot.resolution,
+      quality: snapshot.quality,
+      generateAudio: snapshot.generateAudio,
     }),
   });
   if (oneCall === null || oneCall <= 0) return null;
@@ -12859,6 +12871,13 @@ router.post(
     if (childOptions.characterDialogue?.retry) {
       childOptions.characterDialogue.retry.state = "queued";
     }
+    const exactRecoveryReservation = walletRetry
+      ? await directVideoReservationPrice(
+          childJob.engine,
+          childOptions,
+          units,
+        ).catch(() => null)
+      : null;
     const fundedResult = await db.transaction(async (tx) => {
       if (
         options.guidedStory &&
@@ -12953,7 +12972,19 @@ router.post(
       }
       let reservation: WalletReservation | null = null;
       if (units > 0 && funding === "wallet") {
-        reservation = await reserveWallet(req.tenantId, "video", {}, units, undefined, tx);
+        reservation = await reserveWallet(
+          req.tenantId,
+          "video",
+          exactRecoveryReservation
+            ? {
+                provider: exactRecoveryReservation.provider,
+                model: exactRecoveryReservation.model,
+              }
+            : {},
+          units,
+          exactRecoveryReservation?.totalCostPaise,
+          tx,
+        );
         if (!reservation) return { kind: "insufficient" as const };
       } else if (
         units > 0 &&

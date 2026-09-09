@@ -459,6 +459,7 @@ import {
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter, {
+  directVideoReservationPrice,
   guidedCastSweepAllocation,
   guidedCastOperationNeedsSweep,
   sweepPendingGuidedStoryCasts,
@@ -8116,6 +8117,69 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
 
     expect(videoJobUnits("text_to_video", options)).toBe(4);
     expect(videoJobFullUnits("text_to_video", options)).toBe(9);
+  });
+
+  it("reserves direct Guided scenes at the longest frozen clip duration", async () => {
+    const model = "bytedance/seedance-2.5/reference-to-video";
+    const existing = await findModelPrice(
+      "video",
+      "atlascloud",
+      model,
+      { exactProviderOnly: true },
+    );
+    const price = await upsertModelPrice({
+      kind: "video",
+      provider: "atlascloud",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.01,
+      usdPerVideo: null,
+    });
+    try {
+      const snapshot = {
+        version: 1 as const,
+        source: "explicit" as const,
+        mode: "text" as const,
+        provider: "atlascloud",
+        model,
+        catalogModelId: "atlascloud-seedance-2.5-reference",
+        durationSec: 5,
+        permittedDurationSec: [5, 8, 10],
+        resolution: "1080p" as const,
+        quality: null,
+        generateAudio: true,
+        supportsEndFrame: false,
+      };
+      const guided = await directVideoReservationPrice(
+        "topic_to_video",
+        {
+          aspectRatio: "9:16",
+          guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+          guidedStory: {} as NonNullable<VideoJobOptions["guidedStory"]>,
+          resolvedVideoModel: snapshot,
+        },
+        2,
+      );
+      const longestDirect = await directVideoReservationPrice(
+        "text_to_video",
+        {
+          aspectRatio: "9:16",
+          resolvedVideoModel: {
+            ...snapshot,
+            durationSec: 10,
+            permittedDurationSec: undefined,
+          },
+        },
+        2,
+      );
+
+      expect(guided).toEqual(longestDirect);
+    } finally {
+      if (existing) await restoreHighLipSyncPrice(existing);
+      else await deleteModelPrice(price.id);
+    }
   });
 
   async function seedRecoveryDialogueKit(tenant: TestTenant): Promise<number> {
