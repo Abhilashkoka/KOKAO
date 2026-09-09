@@ -11821,6 +11821,8 @@ router.post(
         source.options ?? { aspectRatio: "9:16" as const },
       );
       delete childOptions.guidedCreatingLease;
+      delete childOptions.guidedAtlasBackdropAssets;
+      delete childOptions.guidedAtlasBackdropCleanupFences;
       markInheritedProviderReceiptsAccounted(childOptions);
       childOptions.resolvedVideoModel = recoveryResolvedVideoModel;
       const chainId =
@@ -12652,6 +12654,8 @@ function freshRestartOptions(source: VideoGeneration): VideoJobOptions {
   delete options.recovery;
   delete options.repair;
   delete options.providerTasks;
+  delete options.guidedAtlasBackdropAssets;
+  delete options.guidedAtlasBackdropCleanupFences;
   delete options.renderCheckpoint;
   delete options.musicCheckpoint;
   delete options.presenterMusicCheckpoint;
@@ -13102,6 +13106,8 @@ router.post(
         return;
       }
       const options = structuredClone(source.options!);
+      delete options.guidedAtlasBackdropAssets;
+      delete options.guidedAtlasBackdropCleanupFences;
       options.repair = {
         version: 1,
         chainId: source.options?.repair?.chainId ?? source.id,

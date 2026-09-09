@@ -8787,6 +8787,18 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
           acceptedAt: "2026-09-07T00:00:00.000Z",
         },
       },
+      guidedAtlasBackdropAssets: {
+        sourceBackdrop: {
+          version: 1,
+          libraryRecordId: 9812,
+          generationReferenceId: "asset-source-backdrop",
+          sourcePath: `/objects/${tenant.tenantId}/uploads/source-backdrop.png`,
+          sourceSha256: "a".repeat(64),
+          dependentOperationKeys: ["topic_animation:0"],
+          createdAt: "2026-09-07T00:00:00.000Z",
+        },
+      },
+      guidedAtlasBackdropCleanupFences: ["topic_animation:9"],
       renderCheckpoint: { stage: "final", path: `/objects/${tenant.tenantId}/uploads/old.mp4`, provider: "replicate", model: "old", durationSec: 4, providerEvents: [] },
       storyboardFunding: { version: 1, sceneCount: 3, requiredUnits: 3, fundedUnits: 3, planningUnits: 0 },
     });
@@ -8813,6 +8825,9 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
     });
     expect(child.options?.recovery).toBeUndefined();
     expect(child.options?.providerTasks).toBeUndefined();
+    expect(child.options?.guidedAtlasBackdropAssets).toBeUndefined();
+    expect(child.options?.guidedAtlasBackdropCleanupFences).toBeUndefined();
+    expect(retired.options?.guidedAtlasBackdropAssets).toBeDefined();
     expect(child.options?.renderCheckpoint).toBeUndefined();
     expect(child.options?.storyboardFunding).toBeUndefined();
     expect(child.storyboard).toBeNull();

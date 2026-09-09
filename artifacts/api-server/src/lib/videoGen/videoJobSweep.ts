@@ -8,7 +8,7 @@ import {
 import { logger } from "../logger";
 import { videoJobUnits } from "./units";
 import { enqueueBackgroundJob } from "../backgroundJobs";
-import { runVideoGenerationJob } from "./jobRunner";
+import { cleanupGuidedAtlasBackdropAssets, runVideoGenerationJob } from "./jobRunner";
 
 /**
  * Periodic settling for video_generations rows that will never settle
@@ -41,6 +41,7 @@ export const VIDEO_JOB_STUCK_TIMEOUT_MS = 40 * 60 * 1000;
 export const FRESH_RESTART_CREATING_TIMEOUT_MS = 10 * 60 * 1000;
 /** Legacy rows without a lease get the same conservative registration window. */
 export const GUIDED_STORY_CREATING_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+export const GUIDED_ATLAS_ASSET_STALE_MS = 5 * 60 * 1000;
 
 /** Error stamped on video jobs orphaned by a restart. */
 export const VIDEO_JOB_INTERRUPTED_ERROR =
@@ -148,9 +149,13 @@ export async function sweepStuckVideoJobs(): Promise<number> {
         and(
           inArray(videoGenerationsTable.status, ["queued", "processing"]),
           lt(videoGenerationsTable.updatedAt, cutoff),
-          // Fresh-restart children are durably re-enqueued above. Never race
-          // that recovery by failing/refunding the same funded row here.
-          sql`(${videoGenerationsTable.options}->'freshRestart'->>'sourceJobId') IS NULL`,
+          // Queued fresh-restart children are durably re-enqueued above. A
+          // processing child is owned by a worker and must be reclaimed after
+          // the same heartbeat timeout as every other interrupted render.
+          sql`(
+            ${videoGenerationsTable.status} <> 'queued'
+            OR (${videoGenerationsTable.options}->'freshRestart'->>'sourceJobId') IS NULL
+          )`,
         ),
       )
       .returning(SETTLE_COLUMNS);
@@ -164,6 +169,25 @@ export async function sweepStuckVideoJobs(): Promise<number> {
     return reclaimed.length;
   } catch (err) {
     logger.error({ err }, "Video job sweep failed");
+    return 0;
+  }
+}
+
+/** Reconcile provider assets left by a process death; unsafe/unknown predictions are retained. */
+export async function sweepGuidedAtlasBackdropAssets(): Promise<number> {
+  try {
+    const cutoff = new Date(Date.now() - GUIDED_ATLAS_ASSET_STALE_MS);
+    const rows = await db.select({ id: videoGenerationsTable.id })
+      .from(videoGenerationsTable)
+      .where(and(
+        lt(videoGenerationsTable.updatedAt, cutoff),
+        sql`${videoGenerationsTable.options}->'guidedAtlasBackdropAssets' IS NOT NULL`,
+      ));
+    let cleaned = 0;
+    for (const row of rows) cleaned += await cleanupGuidedAtlasBackdropAssets(row.id);
+    return cleaned;
+  } catch (err) {
+    logger.error({ err }, "Guided Atlas backdrop asset sweep failed");
     return 0;
   }
 }
@@ -387,6 +411,7 @@ async function sweepOnce(): Promise<void> {
   await sweepStrandedGuidedStoryCreations();
   await sweepExpiredStoryboards();
   await sweepStuckVideoJobs();
+  await sweepGuidedAtlasBackdropAssets();
 }
 
 let sweepTimer: NodeJS.Timeout | null = null;

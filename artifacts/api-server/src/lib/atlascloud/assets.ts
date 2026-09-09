@@ -7,6 +7,7 @@ import { isAtlasGenerationReferenceId } from "./assetId";
 const CREDENTIAL_PROVIDER = "videogen_atlascloud";
 /** Official Atlas Asset Library API (separate from the model API host). */
 const ASSETS_URL = "https://console.atlascloud.ai/api/v1/sd/assets";
+const PREDICTIONS_URL = "https://api.atlascloud.ai/api/v1/model/prediction";
 const TIMEOUT_MS = 30_000;
 
 interface StoredKey { apiKey: string }
@@ -172,7 +173,35 @@ export async function deleteAtlasAsset(
   if (!safeRecordId(libraryRecordId)) {
     throw new AtlasAssetsError("Atlas Cloud asset deletion requires a numeric record id.", 400);
   }
-  await call(`/${libraryRecordId}`, { method: "DELETE" }, apiKey);
+  try {
+    await call(`/${libraryRecordId}`, { method: "DELETE" }, apiKey);
+  } catch (error) {
+    if (error instanceof AtlasAssetsError && error.status === 404) return;
+    throw error;
+  }
+}
+
+/** True only when Atlas explicitly confirms an accepted prediction is no longer running. */
+export async function isAtlasPredictionTerminal(taskId: string, apiKey: string): Promise<boolean> {
+  const id = safeId(taskId);
+  if (!id) return false;
+  const response = await boundedProviderFetch(
+    `${PREDICTIONS_URL}/${encodeURIComponent(id)}`,
+    {
+      method: "GET",
+      redirect: "error",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    },
+    TIMEOUT_MS,
+    () => new AtlasAssetsError("Atlas Cloud prediction status request timed out."),
+  );
+  if (!response.ok) {
+    throw new AtlasAssetsError(`Atlas Cloud prediction status failed (${response.status}).`, response.status);
+  }
+  const payload = await response.json() as { status?: unknown; data?: { status?: unknown } };
+  const prediction = payload.data && typeof payload.data === "object" ? payload.data : payload;
+  const status = String(prediction.status ?? "").toLowerCase();
+  return ["completed", "failed", "rejected", "canceled", "cancelled", "error"].includes(status);
 }
 
 export async function waitForAtlasAsset(

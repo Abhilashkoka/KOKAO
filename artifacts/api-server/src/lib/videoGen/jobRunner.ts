@@ -85,6 +85,7 @@ import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "./providers/atlascloud";
 import {
   createAtlasAsset,
   deleteAtlasAsset,
+  isAtlasPredictionTerminal,
   resolveAtlasAssetsKey,
   waitForAtlasAsset,
 } from "../atlascloud/assets";
@@ -855,7 +856,7 @@ async function setJob(
     .where(eq(videoGenerationsTable.id, jobId));
 }
 
-function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
+export function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
   return {
     async load(operationKey, provider, model) {
       const [row] = await db.select({ options: videoGenerationsTable.options })
@@ -897,9 +898,23 @@ function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
     },
     async markSubmitStarted(operationKey, provider, model) {
       await db.transaction(async (tx) => {
-        const [row] = await tx.select({ options: videoGenerationsTable.options })
+        const [row] = await tx.select({
+          options: videoGenerationsTable.options,
+          status: videoGenerationsTable.status,
+        })
           .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
         if (!row?.options) throw new Error("Video job disappeared before Atlas Cloud submit.");
+        if (row.status !== "processing") {
+          throw new Error("Video job is no longer running before provider submission.");
+        }
+        const cleanupClaimed = Object.values(row.options.guidedAtlasBackdropAssets ?? {}).some(
+          (asset) =>
+            asset.cleanupStartedAt &&
+            asset.dependentOperationKeys.includes(operationKey),
+        ) || row.options.guidedAtlasBackdropCleanupFences?.includes(operationKey);
+        if (cleanupClaimed) {
+          throw new Error("Atlas backdrop cleanup already claimed this scene before provider submission.");
+        }
         const options = structuredClone(row.options);
         options.providerTasks = {
           ...(options.providerTasks ?? {}),
@@ -931,6 +946,94 @@ function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
   };
 }
 
+export async function cleanupGuidedAtlasBackdropAssets(
+  jobId: number,
+  cleanupOptions: { allowUnsubmitted?: boolean } = {},
+): Promise<number> {
+  const apiKey = await resolveAtlasAssetsKey();
+  if (!apiKey) return 0;
+  const [row] = await db.select({
+    options: videoGenerationsTable.options,
+    status: videoGenerationsTable.status,
+  })
+    .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).limit(1);
+  const assets = row?.options?.guidedAtlasBackdropAssets ?? {};
+  let cleaned = 0;
+  for (const assetKey of Object.keys(assets)) {
+    const snapshot = (await db.select({
+      options: videoGenerationsTable.options,
+      status: videoGenerationsTable.status,
+    })
+      .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).limit(1))[0];
+    const current = snapshot?.options?.guidedAtlasBackdropAssets?.[assetKey];
+    if (!current) continue;
+    const terminalTasks = new Set<string>();
+    for (const operationKey of current.dependentOperationKeys) {
+      const task = snapshot?.options?.providerTasks?.[operationKey];
+      if (task?.taskId && await isAtlasPredictionTerminal(task.taskId, apiKey).catch(() => false)) {
+        terminalTasks.add(task.taskId);
+      }
+    }
+    const claimed = await db.transaction(async (tx) => {
+      const [locked] = await tx.select({
+        options: videoGenerationsTable.options,
+        status: videoGenerationsTable.status,
+      })
+        .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+      const asset = locked?.options?.guidedAtlasBackdropAssets?.[assetKey];
+      if (!locked?.options || !asset) return null;
+      const lockedOptions = locked.options;
+      const allowUnsubmitted =
+        cleanupOptions.allowUnsubmitted === true ||
+        ["succeeded", "failed", "cancelled"].includes(locked.status);
+      const safe = asset.dependentOperationKeys.every((operationKey) => {
+        const task = lockedOptions.providerTasks?.[operationKey];
+        if (!task?.submitStartedAt && !task?.taskId) return allowUnsubmitted;
+        return Boolean(task?.taskId && terminalTasks.has(task.taskId));
+      });
+      if (!safe) return null;
+      const existingFences = lockedOptions.guidedAtlasBackdropCleanupFences ?? [];
+      const missingFence = asset.dependentOperationKeys.some(
+        (operationKey) => !existingFences.includes(operationKey),
+      );
+      if (!asset.cleanupStartedAt || missingFence) {
+        const options = structuredClone(locked.options);
+        options.guidedAtlasBackdropAssets![assetKey] = {
+          ...asset,
+          cleanupStartedAt: asset.cleanupStartedAt ?? new Date().toISOString(),
+        };
+        options.guidedAtlasBackdropCleanupFences = [
+          ...new Set([...existingFences, ...asset.dependentOperationKeys]),
+        ];
+        await tx.update(videoGenerationsTable).set({ options })
+          .where(eq(videoGenerationsTable.id, jobId));
+      }
+      return asset.libraryRecordId;
+    });
+    if (!claimed) continue;
+    try {
+      await deleteAtlasAsset(claimed, apiKey);
+    } catch (cleanupError) {
+      logger.warn({ cleanupError, jobId, libraryRecordId: claimed },
+        "failed to delete owned Atlas backdrop asset");
+      continue;
+    }
+    await db.transaction(async (tx) => {
+      const [locked] = await tx.select({ options: videoGenerationsTable.options })
+        .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+      if (!locked?.options?.guidedAtlasBackdropAssets?.[assetKey]) return;
+      const options = structuredClone(locked.options);
+      delete options.guidedAtlasBackdropAssets![assetKey];
+      if (Object.keys(options.guidedAtlasBackdropAssets!).length === 0) {
+        options.guidedAtlasBackdropAssets = null;
+      }
+      await tx.update(videoGenerationsTable).set({ options })
+        .where(eq(videoGenerationsTable.id, jobId));
+    });
+    cleaned += 1;
+  }
+  return cleaned;
+}
 /** Never persist arbitrary provider payloads/tokens in the customer-visible audit. */
 function safeVideoErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof VideoGenNotConfiguredError) {
@@ -3949,7 +4052,20 @@ async function produceVideo(
             `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s approved backdrop has no frozen byte fingerprint.`,
           );
         }
+        const sourceSha256 = reference.imageSha256;
         const cacheKey = `${reference.imagePath}:${reference.imageSha256}`;
+        const dependentOperationKeys = board.scenes.flatMap((candidate, index) => {
+          const candidateScriptSceneId = candidate.guidedStory?.scriptSceneId;
+          const candidateBackdrop =
+            candidateScriptSceneId && options.guidedStory
+              ? effectiveGuidedBackdrop(options.guidedStory, candidateScriptSceneId)
+              : null;
+          return !candidate.providerCheckpoint?.path &&
+            candidateBackdrop?.reference.imagePath === reference.imagePath &&
+            candidateBackdrop.reference.imageSha256 === sourceSha256
+            ? [`topic_animation:${index}`]
+            : [];
+        });
         let pending = atlasBackdropAssets.get(cacheKey);
         if (!pending) {
           pending = (async () => {
@@ -3959,12 +4075,77 @@ async function produceVideo(
                 "Atlas Cloud is not configured for approved backdrop references.",
               );
             }
+            const [persistedRow] = await db.select({ options: videoGenerationsTable.options })
+              .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id)).limit(1);
+            if (
+              dependentOperationKeys.some((operationKey) =>
+                persistedRow?.options?.guidedAtlasBackdropCleanupFences?.includes(operationKey)
+              )
+            ) {
+              throw new VideoGenProviderError(
+                "The temporary Atlas backdrop for this scene was already reconciled.",
+                409,
+              );
+            }
+            const persisted = persistedRow?.options?.guidedAtlasBackdropAssets?.[cacheKey];
+            if (persisted) {
+              if (persisted.cleanupStartedAt) {
+                throw new VideoGenProviderError(
+                  "The temporary Atlas backdrop for this scene is already being reconciled; retry after cleanup completes.",
+                  409,
+                );
+              }
+              return {
+                libraryRecordId: persisted.libraryRecordId,
+                generationReferenceId: persisted.generationReferenceId,
+              };
+            }
             const url = await objectStorageService.getSignedDownloadURL(
               reference.imagePath,
               job.tenantId,
               15 * 60,
             );
             const created = await createAtlasAsset(url, apiKey);
+            try {
+              await db.transaction(async (tx) => {
+                const [row] = await tx.select({ options: videoGenerationsTable.options })
+                  .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id))
+                  .for("update").limit(1);
+                if (!row?.options) throw new Error(`Video job ${job.id} disappeared while owning its Atlas backdrop.`);
+                const owned = structuredClone(row.options);
+                if (
+                  dependentOperationKeys.some((operationKey) =>
+                    owned.guidedAtlasBackdropCleanupFences?.includes(operationKey)
+                  )
+                ) {
+                  throw new Error(
+                    `Video job ${job.id} reconciled its Atlas backdrop before ownership could be saved.`,
+                  );
+                }
+                owned.guidedAtlasBackdropAssets = {
+                  ...(owned.guidedAtlasBackdropAssets ?? {}),
+                  [cacheKey]: {
+                    version: 1,
+                    libraryRecordId: created.libraryRecordId,
+                    generationReferenceId: created.generationReferenceId,
+                    sourcePath: reference.imagePath,
+                    sourceSha256,
+                    dependentOperationKeys,
+                    createdAt: new Date().toISOString(),
+                  },
+                };
+                await tx.update(videoGenerationsTable).set({ options: owned })
+                  .where(eq(videoGenerationsTable.id, job.id));
+              });
+            } catch (ownershipError) {
+              await deleteAtlasAsset(created.libraryRecordId, apiKey).catch((cleanupError) =>
+                logger.warn(
+                  { cleanupError, libraryRecordId: created.libraryRecordId },
+                  "failed to compensate unowned Atlas backdrop asset",
+                ),
+              );
+              throw ownershipError;
+            }
             try {
               const activated = await waitForAtlasAsset(
                 created.libraryRecordId,
@@ -3981,7 +4162,7 @@ async function produceVideo(
                 generationReferenceId: activated.generationReferenceId,
               };
             } catch (error) {
-              await deleteAtlasAsset(created.libraryRecordId, apiKey).catch(
+              await cleanupGuidedAtlasBackdropAssets(job.id, { allowUnsubmitted: true }).catch(
                 (cleanupError) =>
                   logger.warn(
                     { cleanupError, libraryRecordId: created.libraryRecordId },
@@ -3993,7 +4174,23 @@ async function produceVideo(
           })();
           atlasBackdropAssets.set(cacheKey, pending);
         }
-        return pending;
+        const resolved = await pending;
+        await db.transaction(async (tx) => {
+          const [row] = await tx.select({ options: videoGenerationsTable.options })
+            .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id))
+            .for("update").limit(1);
+          const owned = row?.options?.guidedAtlasBackdropAssets?.[cacheKey];
+          const operationKey = `topic_animation:${sceneIndex}`;
+          if (!row?.options || !owned || owned.dependentOperationKeys.includes(operationKey)) return;
+          const next = structuredClone(row.options);
+          next.guidedAtlasBackdropAssets![cacheKey] = {
+            ...owned,
+            dependentOperationKeys: [...owned.dependentOperationKeys, operationKey],
+          };
+          await tx.update(videoGenerationsTable).set({ options: next })
+            .where(eq(videoGenerationsTable.id, job.id));
+        });
+        return resolved;
       };
       let result;
       try {
@@ -4151,31 +4348,18 @@ async function produceVideo(
             board.visualsSource === "ai_video" ? "image_to_video_animation" : "scene_render",
             error);
         }
+        if (atlasBackdropAssets.size > 0) {
+          await cleanupGuidedAtlasBackdropAssets(job.id, { allowUnsubmitted: true }).catch((cleanupError) =>
+            logger.warn({ cleanupError, jobId: job.id },
+              "failed to reconcile Atlas backdrop assets after render failure"),
+          );
+        }
         throw error;
       }
       if (atlasBackdropAssets.size > 0) {
-        const apiKey = await resolveAtlasAssetsKey();
-        if (apiKey) {
-          const resolved = await Promise.allSettled(atlasBackdropAssets.values());
-          await Promise.all(
-            resolved.flatMap((item) =>
-              item.status === "fulfilled"
-                ? [
-                    deleteAtlasAsset(item.value.libraryRecordId, apiKey).catch(
-                      (cleanupError) =>
-                        logger.warn(
-                          {
-                            cleanupError,
-                            libraryRecordId: item.value.libraryRecordId,
-                          },
-                          "failed to delete completed Atlas backdrop asset",
-                        ),
-                    ),
-                  ]
-                : [],
-            ),
-          );
-        }
+        // renderTopicStoryboard has returned, so this runner will make no more
+        // scene submissions even when a test/legacy provider has no task receipt.
+        await cleanupGuidedAtlasBackdropAssets(job.id, { allowUnsubmitted: true });
       }
       let finalBuffer = result.buffer;
       let presenterEvents: VideoProviderEvent[] = [];

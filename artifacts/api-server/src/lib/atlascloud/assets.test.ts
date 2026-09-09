@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAtlasAsset, deleteAtlasAsset, getAtlasAsset, listAtlasAssets } from "./assets";
+import {
+  createAtlasAsset,
+  deleteAtlasAsset,
+  getAtlasAsset,
+  isAtlasPredictionTerminal,
+  listAtlasAssets,
+} from "./assets";
 import { atlasRegistrationSourceError } from "../characterAssets";
 
 describe("Atlas Cloud fictional-character assets", () => {
@@ -86,6 +92,27 @@ describe("Atlas Cloud fictional-character assets", () => {
     );
     await expect(deleteAtlasAsset(Number.NaN, "secret")).rejects.toThrow(/numeric record id/);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats deletion of an already-absent asset as idempotent", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("missing", { status: 404 })));
+    await expect(deleteAtlasAsset(2094547, "secret")).resolves.toBeUndefined();
+  });
+
+  it("confirms accepted predictions are terminal before allowing cleanup", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { status: "processing" } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { status: "completed" } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { status: "rejected" } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { status: "future-new-state" } })));
+    vi.stubGlobal("fetch", fetch);
+    await expect(isAtlasPredictionTerminal("prediction-1", "secret")).resolves.toBe(false);
+    await expect(isAtlasPredictionTerminal("prediction-1", "secret")).resolves.toBe(true);
+    await expect(isAtlasPredictionTerminal("prediction-1", "secret")).resolves.toBe(true);
+    await expect(isAtlasPredictionTerminal("prediction-1", "secret")).resolves.toBe(false);
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      "https://api.atlascloud.ai/api/v1/model/prediction/prediction-1",
+    );
   });
 
   it("preserves application-code errors instead of relabeling them as JSON errors", async () => {

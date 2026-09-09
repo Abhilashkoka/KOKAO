@@ -97,6 +97,7 @@ const state = vi.hoisted(() => ({
   guidedAtlasAssetCalls: [] as Array<{ characterId: number; includeCharacterSheet?: boolean }>,
   guidedAtlasBackdropCreates: [] as string[],
   guidedAtlasBackdropDeletes: [] as number[],
+  guidedAtlasPredictionTerminal: true,
   renderedOutputBuffer: null as Buffer | null,
   uploadedBodies: [] as Array<{ body: Buffer; contentType: string | null }>,
 }));
@@ -155,6 +156,7 @@ vi.mock("../atlascloud/assets", () => ({
     status: "Active",
     error: null,
   })),
+  isAtlasPredictionTerminal: vi.fn(async () => state.guidedAtlasPredictionTerminal),
   deleteAtlasAsset: vi.fn(async (libraryRecordId: number) => {
     state.guidedAtlasBackdropDeletes.push(libraryRecordId);
   }),
@@ -873,6 +875,8 @@ import { ImageGenProviderError } from "../imageGen";
 import { OpenRouterInputImagePrivacyError } from "./providers/openrouter";
 import { reserveVideoJobWalletTopUp } from "../wallet";
 import {
+  cleanupGuidedAtlasBackdropAssets,
+  providerTaskStoreForJob,
   runVideoGenerationJob,
   isKnownFreeStockTopicRender,
   runVideoRepairJob,
@@ -988,6 +992,7 @@ beforeEach(() => {
   state.guidedAtlasAssetCalls.length = 0;
   state.guidedAtlasBackdropCreates.length = 0;
   state.guidedAtlasBackdropDeletes.length = 0;
+  state.guidedAtlasPredictionTerminal = true;
   state.renderedOutputBuffer = null;
   state.uploadedBodies.length = 0;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
@@ -4264,6 +4269,7 @@ describe("Guided Story preview-only runner", () => {
     ]]);
     expect(state.guidedAtlasBackdropCreates).toHaveLength(1);
     expect(state.guidedAtlasBackdropDeletes).toEqual([901]);
+    expect(saved.options!.guidedAtlasBackdropAssets).toBeNull();
     expect(state.guidedAtlasAssetCalls.map((call) => ({
       characterId: call.characterId,
       includeCharacterSheet: call.includeCharacterSheet,
@@ -4285,6 +4291,101 @@ describe("Guided Story preview-only runner", () => {
     expect(resumedSaved.status, resumedSaved.error ?? undefined).toBe("succeeded");
     expect(state.guidedAtlasAssetCalls).toHaveLength(resolverCallsAfterFirstRender);
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
+  });
+
+  it("retains owned backdrops until accepted Atlas predictions are terminal, then deletes idempotently", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "failed",
+      options: {
+        aspectRatio: "9:16",
+        providerTasks: {
+          "topic_animation:0": {
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/reference-to-video",
+            taskId: "prediction-running",
+            requestId: null,
+            acceptedAt: new Date().toISOString(),
+          },
+        },
+        guidedAtlasBackdropAssets: {
+          backdrop: {
+            version: 1,
+            libraryRecordId: 901,
+            generationReferenceId: "asset-backdrop-901",
+            sourcePath: `/objects/${tenant.tenantId}/backdrop.png`,
+            sourceSha256: "a".repeat(64),
+            dependentOperationKeys: ["topic_animation:0"],
+            createdAt: new Date().toISOString(),
+          },
+        },
+      },
+    });
+
+    state.guidedAtlasPredictionTerminal = false;
+    await expect(cleanupGuidedAtlasBackdropAssets(job.id)).resolves.toBe(0);
+    expect(state.guidedAtlasBackdropDeletes).toEqual([]);
+    expect((await readJob(job.id)).options!.guidedAtlasBackdropAssets).not.toBeNull();
+
+    state.guidedAtlasPredictionTerminal = true;
+    await expect(cleanupGuidedAtlasBackdropAssets(job.id)).resolves.toBe(1);
+    await expect(cleanupGuidedAtlasBackdropAssets(job.id)).resolves.toBe(0);
+    expect(state.guidedAtlasBackdropDeletes).toEqual([901]);
+    const cleaned = await readJob(job.id);
+    expect(cleaned.options!.guidedAtlasBackdropAssets).toBeNull();
+    expect(cleaned.options!.guidedAtlasBackdropCleanupFences).toEqual([
+      "topic_animation:0",
+    ]);
+
+    await db.update(videoGenerationsTable).set({ status: "processing" })
+      .where(eq(videoGenerationsTable.id, job.id));
+    await expect(
+      providerTaskStoreForJob(job.id).markSubmitStarted!(
+        "topic_animation:0",
+        "atlascloud",
+        "bytedance/seedance-2.5/reference-to-video",
+      ),
+    ).rejects.toThrow(/cleanup already claimed/i);
+    expect(
+      (await readJob(job.id)).options!.providerTasks?.["topic_animation:0"]?.taskId,
+    ).toBe("prediction-running");
+  });
+
+  it("retains an owned backdrop while Atlas submission outcome is uncertain", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "failed",
+      options: {
+        aspectRatio: "9:16",
+        providerTasks: {
+          "topic_animation:0": {
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/reference-to-video",
+            taskId: "",
+            requestId: null,
+            acceptedAt: "",
+            submitStartedAt: new Date().toISOString(),
+          },
+        },
+        guidedAtlasBackdropAssets: {
+          backdrop: {
+            version: 1,
+            libraryRecordId: 901,
+            generationReferenceId: "asset-backdrop-901",
+            sourcePath: `/objects/${tenant.tenantId}/backdrop.png`,
+            sourceSha256: "a".repeat(64),
+            dependentOperationKeys: ["topic_animation:0"],
+            createdAt: new Date().toISOString(),
+          },
+        },
+      },
+    });
+
+    await expect(cleanupGuidedAtlasBackdropAssets(job.id)).resolves.toBe(0);
+    expect(state.guidedAtlasBackdropDeletes).toEqual([]);
+    expect((await readJob(job.id)).options!.guidedAtlasBackdropAssets).not.toBeNull();
   });
 
   it.each([

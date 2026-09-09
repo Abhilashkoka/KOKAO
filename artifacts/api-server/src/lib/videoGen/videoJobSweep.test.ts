@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { pool, db, videoGenerationsTable, type VideoStoryboard } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
+  sweepGuidedAtlasBackdropAssets,
   sweepExpiredStoryboards,
   sweepStuckVideoJobs,
   sweepStrandedGuidedStoryCreations,
@@ -17,6 +18,24 @@ import { getCreditBalances, grantCredits } from "../credits";
 import { createTenant, deleteTenant } from "../../test/dbHelpers";
 
 let tenantId: number;
+
+const atlasSweepState = vi.hoisted(() => ({
+  deleted: [] as number[],
+  terminalTaskIds: new Set<string>(),
+}));
+
+vi.mock("../atlascloud/assets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../atlascloud/assets")>();
+  return {
+    ...actual,
+    resolveAtlasAssetsKey: vi.fn(async () => "atlas-test-key"),
+    isAtlasPredictionTerminal: vi.fn(async (taskId: string) =>
+      atlasSweepState.terminalTaskIds.has(taskId)),
+    deleteAtlasAsset: vi.fn(async (libraryRecordId: number) => {
+      atlasSweepState.deleted.push(libraryRecordId);
+    }),
+  };
+});
 
 /** A one-paragraph character plan: four scenes, so four reserved video units. */
 function plan(): VideoStoryboard {
@@ -95,10 +114,101 @@ beforeAll(async () => {
   tenantId = t.tenantId;
 });
 
+beforeEach(() => {
+  atlasSweepState.deleted.length = 0;
+  atlasSweepState.terminalTaskIds.clear();
+});
+
 afterAll(async () => {
   await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.tenantId, tenantId));
   await deleteTenant(tenantId);
   await pool.end();
+});
+
+describe("sweepGuidedAtlasBackdropAssets", () => {
+  it("spares a live pre-submit asset and removes it after the job terminalizes", async () => {
+    const [row] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "quota",
+      options: {
+        aspectRatio: "9:16",
+        guidedAtlasBackdropAssets: {
+          shared: {
+            version: 1,
+            libraryRecordId: 3101,
+            generationReferenceId: "asset-backdrop-3101",
+            sourcePath: `/objects/${tenantId}/backdrop.png`,
+            sourceSha256: "a".repeat(64),
+            dependentOperationKeys: ["topic_animation:0"],
+            createdAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+          },
+        },
+      },
+      updatedAt: new Date(Date.now() - 60 * 60_000),
+    }).returning({ id: videoGenerationsTable.id });
+
+    await expect(sweepGuidedAtlasBackdropAssets()).resolves.toBe(0);
+    expect(atlasSweepState.deleted).toEqual([]);
+
+    await db.update(videoGenerationsTable).set({
+      status: "failed",
+      updatedAt: new Date(Date.now() - 10 * 60_000),
+    }).where(eq(videoGenerationsTable.id, row!.id));
+    await expect(sweepGuidedAtlasBackdropAssets()).resolves.toBe(1);
+    expect(atlasSweepState.deleted).toEqual([3101]);
+    expect((await getJob(row!.id)).options!.guidedAtlasBackdropAssets).toBeNull();
+  });
+
+  it("waits for every accepted prediction sharing a backdrop to become terminal", async () => {
+    const [row] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "topic_to_video",
+      status: "failed",
+      funding: "quota",
+      options: {
+        aspectRatio: "9:16",
+        providerTasks: {
+          "topic_animation:0": {
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/reference-to-video",
+            taskId: "prediction-terminal",
+            requestId: null,
+            acceptedAt: new Date().toISOString(),
+          },
+          "topic_animation:1": {
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/reference-to-video",
+            taskId: "prediction-running",
+            requestId: null,
+            acceptedAt: new Date().toISOString(),
+          },
+        },
+        guidedAtlasBackdropAssets: {
+          shared: {
+            version: 1,
+            libraryRecordId: 3102,
+            generationReferenceId: "asset-backdrop-3102",
+            sourcePath: `/objects/${tenantId}/shared.png`,
+            sourceSha256: "b".repeat(64),
+            dependentOperationKeys: ["topic_animation:0", "topic_animation:1"],
+            createdAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+          },
+        },
+      },
+      updatedAt: new Date(Date.now() - 10 * 60_000),
+    }).returning({ id: videoGenerationsTable.id });
+
+    atlasSweepState.terminalTaskIds.add("prediction-terminal");
+    await expect(sweepGuidedAtlasBackdropAssets()).resolves.toBe(0);
+    expect(atlasSweepState.deleted).toEqual([]);
+
+    atlasSweepState.terminalTaskIds.add("prediction-running");
+    await expect(sweepGuidedAtlasBackdropAssets()).resolves.toBe(1);
+    expect(atlasSweepState.deleted).toEqual([3102]);
+    expect((await getJob(row!.id)).options!.guidedAtlasBackdropAssets).toBeNull();
+  });
 });
 
 describe("sweepExpiredStoryboards", () => {
@@ -155,6 +265,11 @@ describe("sweepStuckVideoJobs", () => {
       "quota",
       VIDEO_JOB_STUCK_TIMEOUT_MS + 60_000,
     );
+    const staleProcessingFreshRestart = await insertRunning(
+      "processing",
+      "quota",
+      VIDEO_JOB_STUCK_TIMEOUT_MS + 60_000,
+    );
     await db
       .update(videoGenerationsTable)
       .set({
@@ -164,6 +279,18 @@ describe("sweepStuckVideoJobs", () => {
         },
       })
       .where(eq(videoGenerationsTable.id, staleFreshRestart));
+    await db
+      .update(videoGenerationsTable)
+      .set({
+        options: {
+          aspectRatio: "9:16",
+          freshRestart: { version: 1, sourceJobId: 12345, childJobId: null },
+        },
+        updatedAt: new Date(
+          Date.now() - VIDEO_JOB_STUCK_TIMEOUT_MS - 60_000,
+        ),
+      })
+      .where(eq(videoGenerationsTable.id, staleProcessingFreshRestart));
     const fresh = await insertRunning("processing", "credit", 1000);
     const done = await insertRunning("succeeded", "quota", VIDEO_JOB_STUCK_TIMEOUT_MS + 60_000);
 
@@ -173,6 +300,7 @@ describe("sweepStuckVideoJobs", () => {
     expect((await getJob(staleCredit)).error).toBe(VIDEO_JOB_INTERRUPTED_ERROR);
     expect((await getJob(staleQueued)).status).toBe("failed");
     expect((await getJob(staleFreshRestart)).status).toBe("queued");
+    expect((await getJob(staleProcessingFreshRestart)).status).toBe("failed");
     expect((await getJob(fresh)).status).toBe("processing");
     expect((await getJob(done)).status).toBe("succeeded");
 

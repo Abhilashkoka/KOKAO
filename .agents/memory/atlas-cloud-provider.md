@@ -62,3 +62,9 @@ An Atlas outfit Asset Library entry does not implicitly carry its separately reg
 **Why:** Sending only the outfit asset to Seedance image-to-video gives the model no direct multi-view character-sheet reference, so identity can drift between independently generated scenes.
 
 **How to apply:** Character-consistent generation must explicitly send both the approved character-sheet reference and the approved outfit reference through a model/request mode that supports multiple references.
+
+Temporary Atlas references shared by several paid operations need durable ownership of every dependent operation before the first submit. Cleanup must claim under the same row lock used to fence submission, leave permanent per-job operation tombstones after deletion, and wait for explicit terminal prediction states.
+
+**Why:** In-memory cleanup loses assets on process death, while age-only sweeping can delete a reference during slow activation. Removing the claim after DELETE lets a stale runner submit a deleted reference, and copying ownership into a child lets either job delete an asset still used by the other.
+
+**How to apply:** Record all not-yet-checkpointed dependents up front. Never copy temporary ownership or its tombstones into recovery, repair, or fresh-restart children. Treat unsubmitted dependencies as cleanup-safe only at a live runner's known terminal boundary or after job terminalization; keep ambiguous submits and unknown states fenced. Reclaim interrupted processing children, and make provider DELETE 404 idempotent.

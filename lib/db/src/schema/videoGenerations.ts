@@ -190,6 +190,19 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Temporary Atlas backdrop references owned by this job until every dependent prediction is terminal. */
+  guidedAtlasBackdropAssets?: Record<string, {
+    version: 1;
+    libraryRecordId: number;
+    generationReferenceId: string;
+    sourcePath: string;
+    sourceSha256: string;
+    dependentOperationKeys: string[];
+    createdAt: string;
+    cleanupStartedAt?: string;
+  }> | null;
+  /** Permanent per-job tombstones preventing stale workers from submitting deleted Atlas backdrops. */
+  guidedAtlasBackdropCleanupFences?: string[] | null;
   /** Lease fencing a numbered Atlas Guided attempt while assets are registered. */
   guidedCreatingLease?: {
     version: 1;
