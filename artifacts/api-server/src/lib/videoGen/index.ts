@@ -46,6 +46,7 @@ import {
 import {
   ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
   ATLASCLOUD_SEEDANCE_25_I2V_MODEL,
+  ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
   generateWithAtlasCloud,
 } from "./providers/atlascloud";
 import { isTransientStatus } from "./retry";
@@ -81,6 +82,7 @@ const NATIVE_SYNCHRONIZED_AUDIO_MODELS = new Set([
   `byteplus/${BYTEPLUS_SEEDANCE_25_MODEL}`,
   `atlascloud/${ATLASCLOUD_SEEDANCE_25_T2V_MODEL}`,
   `atlascloud/${ATLASCLOUD_SEEDANCE_25_I2V_MODEL}`,
+  `atlascloud/${ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL}`,
   "higgsfield/veo3.1/fast",
   "higgsfield/veo3.1/fast/image-to-video",
   "higgsfield/veo3.1",

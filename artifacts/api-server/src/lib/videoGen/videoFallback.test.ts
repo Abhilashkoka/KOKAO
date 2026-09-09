@@ -9,6 +9,7 @@ import {
   setVideoGenSelection,
 } from "./index";
 import { VideoGenProviderError, type VideoGenResult } from "./types";
+import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "./providers/atlascloud";
 
 vi.mock("../aiCost", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../aiCost")>()),
@@ -160,6 +161,9 @@ describe("generateVideo frozen model contract", () => {
       hasNativeSynchronizedAudio("BYTEPLUS", " Dreamina-Seedance-2-5-260628 "),
     ).toBe(true);
     expect(hasNativeSynchronizedAudio("openrouter", "bytedance/seedance-2.5")).toBe(true);
+    expect(
+      hasNativeSynchronizedAudio("atlascloud", ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL),
+    ).toBe(true);
     // Higgsfield's public OpenAPI does not document this route. It must not
     // enter Guided Story's native-audio path under an undocumented remap.
     expect(hasNativeSynchronizedAudio("higgsfield", "bytedance/seedance-2.5")).toBe(false);
