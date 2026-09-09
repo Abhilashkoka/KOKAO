@@ -1068,8 +1068,9 @@ describe("GuidedStoryWorkflow", () => {
     expect(
       screen.getByTestId("guided-intrinsic-lipsync-notice").textContent,
     ).toContain(
-      "Higgsfield renders the visible ensemble and synchronized audio together",
+      "selected provider renders the visible ensemble",
     );
+    expect(screen.getByTestId("checkbox-guided-subtitles").getAttribute("data-state")).toBe("unchecked");
     expect(screen.queryByTestId("checkbox-guided-studio-lipsync")).toBeNull();
     expect(screen.getByTestId("section-guided-attempt-consent")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reapprove Ari" })).toBeTruthy();
@@ -1084,7 +1085,7 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
     await userEvent.click(screen.getByTestId("button-guided-enqueue"));
 
-    expect(state.enqueued).toEqual({ revision: 2, consentGranted: true });
+    expect(state.enqueued).toEqual({ revision: 2, consentGranted: true, subtitles: false });
   });
 
   it("polls an incomplete automatic cast without submitting cast", async () => {

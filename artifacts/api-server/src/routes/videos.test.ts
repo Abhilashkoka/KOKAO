@@ -3123,6 +3123,7 @@ describe("guided story route fail-closed regressions", () => {
       expect(nativeJob.options!.characterLipSync).toBe(false);
       expect(nativeJob.options!.studioLipSync).toBeFalsy();
       expect(nativeJob.options!.guidedStoryIntrinsicLipSync).toBeFalsy();
+      expect(nativeJob.options!.subtitles).toBe(false);
 
       const teluguDraft = await makeDirectDraft();
       const teluguState: GuidedStoryDraftState = {

@@ -787,6 +787,32 @@ describe("composeTopicVideo (real ffmpeg)", () => {
   );
 
   it(
+    "renders Telugu subtitles with an exact Telugu font and libass shaping",
+    async () => {
+      const out = await composeTopicVideo({
+        clips: [await makeTestClip(2)],
+        narrationWav: makeTestWav(3.6),
+        cues: [
+          {
+            text: "మా కల ఇంకా బ్రతికే ఉందా?",
+            startSec: 0,
+            endSec: 3.2,
+          },
+        ],
+        totalDurationSec: 3.65,
+        aspectRatio: "9:16",
+        subtitles: true,
+        subtitleLocale: "te",
+        music: null,
+      });
+
+      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
+      expect(out.length).toBeGreaterThan(1000);
+    },
+    120_000,
+  );
+
+  it(
     "renders dynamic word-group captions",
     async () => {
       const clip = await makeTestClip(2);

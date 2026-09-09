@@ -10,6 +10,7 @@ import { logger } from "../../logger";
 import { VideoGenProviderError, type VideoAspect, type VideoGenReceipt } from "../types";
 import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "../providers/atlascloud";
 import type { PromptVariantKey } from "@workspace/db";
+import type { TargetLocale } from "@workspace/localization";
 import { generateTopicScript, narrationSentenceWordBounds } from "./script";
 import {
   splitIntoSentences,
@@ -126,6 +127,8 @@ export interface TopicVideoParams {
   voice: NarrationVoice;
   stockSource: StockSourceChoice;
   subtitles: boolean;
+  /** Exact Indic locale for shaped subtitle rendering. */
+  subtitleLocale?: TargetLocale;
   /** "classic" sentence subtitles (default) or "dynamic" word-group captions. */
   captionStyle?: "classic" | "dynamic";
   paragraphCount: number;
@@ -769,6 +772,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     totalDurationSec: narration.totalDurationSec,
     aspectRatio: params.aspectRatio,
     subtitles: params.subtitles,
+    subtitleLocale: params.subtitleLocale,
     captionStyle: params.captionStyle ?? "classic",
     accentColor: params.accentColor ?? null,
     watermark: params.watermark ?? null,
@@ -1649,6 +1653,8 @@ export async function renderTopicStoryboard(params: {
   /** Storyboard scenes the optional finishing pass will lip-sync. */
   lipSyncedSceneIds?: ReadonlySet<string>;
   subtitles: boolean;
+  /** Exact Indic locale for shaped subtitle rendering. */
+  subtitleLocale?: TargetLocale;
   captionStyle?: "classic" | "dynamic";
   music?: Buffer | null;
   accentColor?: string | null;
@@ -1916,6 +1922,7 @@ export async function renderTopicStoryboard(params: {
     totalDurationSec: composedDurationSec,
     aspectRatio: params.aspectRatio,
     subtitles: nativeAudio ? false : params.subtitles,
+    subtitleLocale: params.subtitleLocale,
     captionStyle: params.captionStyle ?? "classic",
     accentColor: params.accentColor ?? null,
     watermark: params.watermark ?? null,

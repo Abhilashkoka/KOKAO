@@ -18858,11 +18858,12 @@ export const EnqueueGuidedStoryDraftParams = zod.object({
 })
 
 
-
+export const enqueueGuidedStoryDraftBodySubtitlesDefault = false;
 
 export const EnqueueGuidedStoryDraftBody = zod.object({
   "revision": zod.number().min(1),
   "consentGranted": zod.boolean().describe('Fresh confirmation for this generation attempt when the cast includes saved people or voices.'),
+  "subtitles": zod.boolean().default(enqueueGuidedStoryDraftBodySubtitlesDefault).describe('Explicitly opt in to burned-in subtitles for the final Guided Story video.'),
   "studioLipSync": zod.boolean().optional().describe('Explicitly request optional lip-sync for eligible single-speaker scenes.'),
   "studioLipSyncConsent": zod.boolean().optional().describe('Fresh authorization for the visible likeness and approved voice.')
 })

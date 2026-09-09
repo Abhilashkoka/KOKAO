@@ -8168,6 +8168,7 @@ router.post(
     req.body = {
       engine: "topic_to_video",
       guidedStoryDraftId: row.id,
+      subtitles: parsed.data.subtitles === true,
       studioLipSync: parsed.data.studioLipSync,
       studioLipSyncConsent: parsed.data.studioLipSyncConsent,
     };
@@ -9825,7 +9826,7 @@ async function generateVideoHandler(
           })()
         : null,
     stockSource: defaultValue("stockSource", body.stockSource, "auto"),
-    subtitles: defaultValue("subtitles", body.subtitles, true),
+    subtitles: defaultValue("subtitles", body.subtitles, false),
     captionStyle: requestHas("captionStyle")
       ? body.captionStyle
       : (creativeFragments.captionStyle ??

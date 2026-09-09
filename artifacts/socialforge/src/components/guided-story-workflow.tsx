@@ -266,6 +266,7 @@ export function GuidedStoryWorkflow({
   const [strategy, setStrategy] = useState<"generated" | "saved">("generated");
   const [assignments, setAssignments] = useState<Record<string, Assignment>>({});
   const [consent, setConsent] = useState(false);
+  const [subtitles, setSubtitles] = useState(false);
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
   const [castSaveError, setCastSaveError] = useState<string | null>(null);
   const [enqueueError, setEnqueueError] = useState<string | null>(null);
@@ -331,6 +332,7 @@ export function GuidedStoryWorkflow({
           ...variables,
           data: {
             ...variables.data,
+            subtitles,
             ...(studioLipSyncCapability
               ? {
                   // Guided Story now owns its eligible dialogue shots
@@ -804,17 +806,35 @@ export function GuidedStoryWorkflow({
   const correctionMessage =
     editRequest?.draftId === draft?.id ? editRequest?.correctionMessage : null;
   const studioLipSyncControls = (
-    <div
-      className="space-y-2 rounded-md border p-3"
-      data-testid="guided-intrinsic-lipsync-notice"
-    >
-      <p className="text-sm font-medium">Governed dialogue</p>
-      <p className="text-xs text-muted-foreground">
-        KOKAO compiles the approved cast, blocking, reactions, eyelines, camera,
-        continuity, and exact speaker-owned dialogue into the final governed
-        prompt. The selected provider renders the visible ensemble; KOKAO uses
-        approved-language narration whenever provider-native speech is not safe.
-      </p>
+    <div className="space-y-3">
+      <div
+        className="space-y-2 rounded-md border p-3"
+        data-testid="guided-intrinsic-lipsync-notice"
+      >
+        <p className="text-sm font-medium">Governed dialogue</p>
+        <p className="text-xs text-muted-foreground">
+          KOKAO compiles the approved cast, blocking, reactions, eyelines, camera,
+          continuity, and exact speaker-owned dialogue into the final governed
+          prompt. The selected provider renders the visible ensemble; KOKAO uses
+          approved-language narration whenever provider-native speech is not safe.
+        </p>
+      </div>
+      <div
+        className="flex items-start gap-3 rounded-md border p-3"
+        data-testid="section-guided-subtitles"
+      >
+        <Checkbox
+          checked={subtitles}
+          onCheckedChange={(value) => setSubtitles(value === true)}
+          data-testid="checkbox-guided-subtitles"
+        />
+        <div className="space-y-1">
+          <Label>Show subtitles</Label>
+          <p className="text-xs text-muted-foreground">
+            Optional. Burn the approved story text into the final video in the selected language.
+          </p>
+        </div>
+      </div>
     </div>
   );
   return <div className="space-y-5" data-testid="guided-story-workflow">

@@ -987,7 +987,7 @@ export interface VideoJobOptions {
   characterLipSync?: boolean;
   /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
   stockSource?: string;
-  /** topic_to_video: burn per-sentence subtitles (default true). */
+  /** topic_to_video: burn per-sentence subtitles (default false; explicit opt-in). */
 
   subtitles?: boolean;
   /** topic_to_video: "classic" sentence subtitles or "dynamic" word groups. */

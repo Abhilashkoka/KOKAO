@@ -750,7 +750,7 @@ export function VideoStudioPage() {
     "auto" | "pexels" | "pixabay" | "wikimedia"
   >("auto");
   const [paragraphCount, setParagraphCount] = useState(1);
-  const [subtitles, setSubtitles] = useState(true);
+  const [subtitles, setSubtitles] = useState(false);
   const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">(
     "dynamic",
   );

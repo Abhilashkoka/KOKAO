@@ -1538,8 +1538,7 @@ describe("Video Studio", () => {
 
       expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
 
-      // 5. Disable subtitles and submit the final payload.
-      await user.click(screen.getByTestId("switch-subtitles"));
+      // 5. Subtitles remain off by default in the final payload.
       await user.click(screen.getByTestId("button-generate-video"));
 
       expect(mockState.lastGenerateVars.data).toEqual(
@@ -3179,8 +3178,8 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("select-video-length")).toBeTruthy();
     expect(screen.getByTestId("select-video-voice")).toBeTruthy();
     expect(screen.getByTestId("switch-subtitles")).toBeTruthy();
-    // Caption style is offered while subtitles are on (dynamic is the default).
-    expect(screen.getByTestId("select-caption-style")).toBeTruthy();
+    // Subtitles are opt-in, so style controls stay hidden by default.
+    expect(screen.queryByTestId("select-caption-style")).toBeNull();
     fireEvent.change(screen.getByTestId("input-video-prompt"), {
       target: { value: "5 morning habits that transform your day" },
     });
@@ -3195,7 +3194,7 @@ describe("Video Studio", () => {
       // server resolves the kit's cloned/preset voice.
       voice: undefined,
       stockSource: "auto",
-      subtitles: true,
+      subtitles: false,
       captionStyle: "dynamic",
       paragraphCount: 1,
     });
@@ -3574,12 +3573,13 @@ describe("Video Studio", () => {
     expect((screen.getByTestId("button-analyze-style") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("hides the caption style picker when subtitles are off", async () => {
+  it("keeps caption styles hidden until subtitles are explicitly enabled", async () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(screen.getByTestId("tab-topic-to-video"));
-    await user.click(screen.getByTestId("switch-subtitles"));
     expect(screen.queryByTestId("select-caption-style")).toBeNull();
+    await user.click(screen.getByTestId("switch-subtitles"));
+    expect(screen.getByTestId("select-caption-style")).toBeTruthy();
   });
 
   it("blocks character-mode topic videos until a character is picked", async () => {

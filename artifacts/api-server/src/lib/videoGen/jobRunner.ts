@@ -2649,7 +2649,7 @@ async function produceVideo(
         }
         const composed = await composeCharacterDialogue({
           clips, scenes: composedScenes, fontCandidates: frozenPlan.fontCandidates,
-          subtitles: options.subtitles ?? true,
+          subtitles: options.subtitles ?? false,
           direction: frozenPlan.direction, music,
         });
         let finalBuffer = composed.buffer;
@@ -3248,7 +3248,7 @@ async function produceVideo(
           presenterVideo,
           snapshot,
           aspectRatio,
-          subtitles: options.subtitles ?? true,
+          subtitles: options.subtitles ?? false,
           captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
           accentColor: branding?.accentColor ?? null,
           watermark,
@@ -3851,7 +3851,7 @@ async function produceVideo(
         }
         const final = await composeTopicVideo({
           clips, narrationWav, cues: board.narration.cues, totalDurationSec: board.narration.totalDurationSec,
-          aspectRatio, subtitles: options.subtitles ?? true,
+          aspectRatio, subtitles: options.subtitles ?? false,
           captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
           music: await resolveMusic(job, options, 30, onStage),
           accentColor: branding?.accentColor ?? null, watermark,
@@ -4363,7 +4363,13 @@ async function produceVideo(
         lipSyncedSceneIds: new Set(
           (options.studioLipSync?.plan ?? []).map((scene) => scene.sceneId),
         ),
-        subtitles: options.subtitles ?? true,
+        subtitles: options.subtitles ?? false,
+        subtitleLocale:
+          options.guidedStory?.locale === "te" ||
+          options.guidedStory?.locale === "ta" ||
+          options.guidedStory?.locale === "hi"
+            ? options.guidedStory.locale
+            : undefined,
         captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
         music,
         accentColor: branding?.accentColor ?? null,
@@ -4691,7 +4697,13 @@ async function produceVideo(
       voice: effectiveVoice,
       clonedVoice,
       stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
-      subtitles: options.subtitles ?? true,
+      subtitles: options.subtitles ?? false,
+      subtitleLocale:
+        options.guidedStory?.locale === "te" ||
+        options.guidedStory?.locale === "ta" ||
+        options.guidedStory?.locale === "hi"
+          ? options.guidedStory.locale
+          : undefined,
       captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
       paragraphCount: options.paragraphCount ?? 1,
       templateRuntime: options.templateRuntime ?? null,
@@ -6216,7 +6228,13 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       lipSyncedSceneIds: new Set(
         (options.studioLipSync?.plan ?? []).map((scene) => scene.sceneId),
       ),
-      subtitles: options.subtitles ?? true,
+      subtitles: options.subtitles ?? false,
+      subtitleLocale:
+        options.guidedStory?.locale === "te" ||
+        options.guidedStory?.locale === "ta" ||
+        options.guidedStory?.locale === "hi"
+          ? options.guidedStory.locale
+          : undefined,
       captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
       music,
       accentColor: branding?.accentColor ?? null,

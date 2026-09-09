@@ -6,6 +6,8 @@ import { runFfmpeg, findFontFile, probeDurationSec, encodeBudgetMs } from "../sl
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import type { NarrationCue } from "./narration";
 import { buildCaptionChunks } from "./wordTimings";
+import { localePolicy, toSrt, type TargetLocale } from "@workspace/localization";
+import { resolveExactFont } from "../characterDialogueCompose";
 
 /**
  * Final assembly for the Topic to Video engine, on the same system ffmpeg the
@@ -54,6 +56,8 @@ export interface ComposeInput {
   aspectRatio: VideoAspect;
   /** Burn per-sentence subtitles (skipped if no usable font is installed). */
   subtitles: boolean;
+  /** Indic locale whose exact font and complex-script shaping must be used. */
+  subtitleLocale?: TargetLocale;
   /**
    * "classic" (default): one sentence at a time near the bottom.
    * "dynamic": big 2-3 word groups timed to the narration — the short-form
@@ -291,7 +295,6 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     await writeFile(join(dir, "list.txt"), concatList);
 
     // 2) Final pass: concat scenes, burn subtitles, mix narration + music.
-    const fontFile = input.subtitles ? await findFontFile() : null;
     const dynamicCaptions = input.captionStyle === "dynamic";
     // Dynamic captions are the big short-form style: larger type, heavier
     // stroke, sitting higher so they read as the focal point.
@@ -311,8 +314,38 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         }))
       : input.cues.map((cue) => ({ text: cue.text, startSec: cue.startSec }));
 
+    const localizedFont =
+      input.subtitles && input.subtitleLocale
+        ? await resolveExactFont(localePolicy(input.subtitleLocale).fontCandidates)
+        : null;
+    const fontFile =
+      input.subtitles && !localizedFont ? await findFontFile() : null;
     const videoFilters: string[] = [];
-    if (fontFile) {
+    if (localizedFont) {
+      await writeFile(
+        join(dir, "captions.srt"),
+        toSrt(
+          captionEntries.map((entry, index) => ({
+            index: index + 1,
+            startMs: Math.round(entry.startSec * 1000),
+            endMs: Math.round(
+              (captionEntries[index + 1]?.startSec ?? input.totalDurationSec) * 1000,
+            ),
+            text: wrapSubtitleText(entry.text, maxCharsPerLine),
+          })),
+        ),
+        "utf8",
+      );
+      const escapedFontDir = localizedFont.file
+        .substring(0, localizedFont.file.lastIndexOf("/"))
+        .replace(/\\/g, "\\\\")
+        .replace(/:/g, "\\:");
+      videoFilters.push(
+        `subtitles=captions.srt:fontsdir=${escapedFontDir}:force_style='` +
+          `FontName=${localizedFont.family},FontSize=${fontSize},Outline=2,` +
+          `Alignment=2,MarginV=${Math.round(height / 8)},Spacing=0'`,
+      );
+    } else if (fontFile) {
       for (let i = 0; i < captionEntries.length; i++) {
         const entry = captionEntries[i]!;
         // textfile= sidesteps drawtext's brittle inline-escaping rules (same
