@@ -2813,6 +2813,159 @@ async function upgradeExactLegacyGeneratedCharacter(args: {
   });
 }
 
+type GuidedCastApproval =
+  NonNullable<NonNullable<VideoJobOptions["guidedStory"]>["castApprovals"]>["roles"][string];
+
+async function prepareAtlasGuidedCastMember(args: {
+  tenantId: number;
+  member: GuidedStoryCastSnapshot;
+  approval: GuidedCastApproval | null | undefined;
+  refreshLease?: () => Promise<void>;
+}): Promise<GuidedStoryCastSnapshot> {
+  const { tenantId, member, approval } = args;
+  if (member.characterId == null || member.outfitId == null) {
+    throw new Error(
+      `Role ${member.roleId} has no durable tenant character/outfit linkage. Save and approve the fictional character, then try again.`,
+    );
+  }
+  let [character] = await db.select().from(charactersTable).where(and(
+    eq(charactersTable.id, member.characterId),
+    eq(charactersTable.tenantId, tenantId),
+  )).limit(1);
+  const [outfit] = await db.select().from(characterOutfitsTable).where(and(
+    eq(characterOutfitsTable.id, member.outfitId),
+    eq(characterOutfitsTable.characterId, member.characterId),
+    eq(characterOutfitsTable.tenantId, tenantId),
+  )).limit(1);
+  if (!character || !outfit) {
+    throw new Error(`Role ${member.roleId}'s approved character or outfit was deleted.`);
+  }
+  if (
+    !approval ||
+    character.referenceImagePath !== member.character.referenceImagePath ||
+    outfit.referenceImagePath !== member.outfit?.referenceImagePath ||
+    approval.character.referenceImagePath !== character.referenceImagePath ||
+    approval.outfit.referenceImagePath !== outfit.referenceImagePath
+  ) {
+    throw new Error(
+      `Role ${member.roleId}'s approved character or outfit snapshot changed. Review and approve the exact references again.`,
+    );
+  }
+  const upgradedLegacySnapshot = character.referenceSource === null;
+  if (upgradedLegacySnapshot) {
+    const upgraded = await upgradeExactLegacyGeneratedCharacter({
+      tenantId,
+      characterId: character.id,
+      approvedPath: approval.character.referenceImagePath,
+      approvedSha256: approval.character.sha256,
+    });
+    if (!upgraded) {
+      throw new Error(
+        `Role ${member.roleId} has unknown provenance without exact immutable generated-fictional evidence.`,
+      );
+    }
+    character = upgraded;
+  }
+  const evidence = character.creationEvidence;
+  let provenanceValid =
+    evidence?.version === 1 &&
+    evidence.kind === "guided_story" &&
+    Number.isSafeInteger(evidence.draftId) &&
+    evidence.draftId > 0 &&
+    Number.isSafeInteger(evidence.draftRevision) &&
+    evidence.draftRevision > 0 &&
+    evidence.roleId.trim().length > 0 &&
+    evidence.operationKey.trim().length > 0 &&
+    evidence.provider.trim().length > 0 &&
+    evidence.model.trim().length > 0 &&
+    Number.isFinite(Date.parse(evidence.recordedAt)) &&
+    evidence.sourcePath === character.referenceImagePath &&
+    evidence.sourceSha256 === approval.character.sha256;
+  if (provenanceValid && evidence!.providerOperationId !== null) {
+    const [receipt] = await db.select().from(walletProviderOperationsTable).where(and(
+      eq(walletProviderOperationsTable.id, evidence!.providerOperationId!),
+      eq(walletProviderOperationsTable.tenantId, tenantId),
+    )).limit(1);
+    provenanceValid =
+      receipt?.operationKind === "character_reference" &&
+      receipt.operationKey === evidence!.operationKey &&
+      receipt.provider === evidence!.provider &&
+      receipt.model === evidence!.model &&
+      ["succeeded", "settlement_queued", "settled"].includes(receipt.status);
+  }
+  if (
+    !provenanceValid ||
+    character.referenceSource !== "generated" ||
+    (!upgradedLegacySnapshot && member.referenceSource !== "generated") ||
+    character.bytePlusIdentityId !== null ||
+    outfit.status !== "approved" ||
+    !outfit.identityVerified ||
+    character.referenceSheetStatus !== "approved" ||
+    !character.referenceSheetImagePath ||
+    !character.referenceSheetApprovedSha256
+  ) {
+    throw new Error(
+      `Role ${member.roleId} is not an explicitly generated, approved fictional character with an approved sheet and outfit.`,
+    );
+  }
+  const [portrait, sheet, outfitImage] = await Promise.all([
+    loadReferenceImage(character.referenceImagePath, tenantId),
+    loadReferenceImage(character.referenceSheetImagePath, tenantId),
+    loadReferenceImage(outfit.referenceImagePath, tenantId),
+  ]);
+  if (
+    createHash("sha256").update(portrait.buffer).digest("hex") !== approval.character.sha256 ||
+    createHash("sha256").update(sheet.buffer).digest("hex") !== character.referenceSheetApprovedSha256 ||
+    createHash("sha256").update(outfitImage.buffer).digest("hex") !== approval.outfit.sha256
+  ) {
+    throw new Error(
+      `Role ${member.roleId}'s current character-sheet or outfit bytes no longer match approval.`,
+    );
+  }
+  await args.refreshLease?.();
+  const registered = await registerAtlasCharacterAssets({
+    tenantId,
+    characterId: character.id,
+    outfitId: outfit.id,
+    expectedReferenceSheetPath: character.referenceSheetImagePath,
+    expectedReferenceSheetSha256: character.referenceSheetApprovedSha256,
+    expectedOutfitPath: outfit.referenceImagePath,
+    expectedOutfitSha256: approval.outfit.sha256,
+  });
+  await args.refreshLease?.();
+  const characterReferenceId = selectAtlasGenerationReferenceId(
+    registered.character.atlasAssetReferenceId,
+    registered.character.atlasAssetId,
+  );
+  const outfitReferenceId = selectAtlasGenerationReferenceId(
+    registered.outfit.atlasAssetReferenceId,
+    registered.outfit.atlasAssetId,
+  );
+  if (
+    !registered.character.atlasAssetLibraryId ||
+    !characterReferenceId ||
+    !registered.outfit.atlasAssetLibraryId ||
+    !outfitReferenceId
+  ) {
+    throw new Error(
+      `Role ${member.roleId}'s Atlas assets did not become active.`,
+    );
+  }
+  return {
+    ...member,
+    referenceSource: "generated",
+    requiresAtlasAsset: true,
+    atlasCharacterLibraryId: registered.character.atlasAssetLibraryId,
+    atlasCharacterReferenceId: characterReferenceId,
+    atlasOutfitLibraryId: registered.outfit.atlasAssetLibraryId,
+    atlasApprovedReferenceSheetPath: character.referenceSheetImagePath,
+    atlasApprovedReferenceSheetSha256: character.referenceSheetApprovedSha256,
+    atlasAssetReferenceId: outfitReferenceId,
+    atlasAssetId: outfitReferenceId,
+    atlasAssetStatus: registered.outfit.atlasAssetStatus,
+  };
+}
+
 async function releaseGuidedCastOperation(
   row: GuidedStoryDraft,
   roleId: string,
@@ -9552,197 +9705,13 @@ async function generateVideoHandler(
           registeredCast.push(member);
           continue;
         }
-        if (member.characterId == null || member.outfitId == null) {
-          throw new Error(
-            `Role ${member.roleId} has no durable tenant character/outfit linkage. Save and approve the fictional character, then enqueue again.`,
-          );
-        }
-        let [character] = await db.select().from(charactersTable).where(and(
-          eq(charactersTable.id, member.characterId),
-          eq(charactersTable.tenantId, req.tenantId),
-        )).limit(1);
-        const [outfit] = await db.select().from(characterOutfitsTable).where(and(
-          eq(characterOutfitsTable.id, member.outfitId),
-          eq(characterOutfitsTable.characterId, member.characterId),
-          eq(characterOutfitsTable.tenantId, req.tenantId),
-        )).limit(1);
-        if (!character || !outfit) {
-          throw new Error(`Role ${member.roleId}'s approved character or outfit was deleted.`);
-        }
         const approval = options.guidedStory.castApprovals?.roles[member.roleId];
-        if (
-          !approval ||
-          character.referenceImagePath !== member.character.referenceImagePath ||
-          outfit.referenceImagePath !== member.outfit?.referenceImagePath ||
-          approval.character.referenceImagePath !== character.referenceImagePath ||
-          approval.outfit.referenceImagePath !== outfit.referenceImagePath
-        ) {
-          throw new Error(
-            `Role ${member.roleId}'s approved character or outfit snapshot changed. Review and approve the exact references again.`,
-          );
-        }
-        if (character.referenceSource === null) {
-          const currentBytes = await loadReferenceImage(
-            character.referenceImagePath,
-            req.tenantId,
-          );
-          const currentSha256 = createHash("sha256")
-            .update(currentBytes.buffer)
-            .digest("hex");
-          const classified = await db.transaction(async (tx) => {
-            const [locked] = await tx.select().from(charactersTable).where(and(
-              eq(charactersTable.id, character.id),
-              eq(charactersTable.tenantId, req.tenantId),
-            )).for("update").limit(1);
-            const evidence = locked?.creationEvidence;
-            let exact =
-              locked?.referenceSource === null &&
-              locked.bytePlusIdentityId === null &&
-              locked.referenceImagePath === approval.character.referenceImagePath &&
-              currentSha256 === approval.character.sha256 &&
-              evidence?.version === 1 &&
-              evidence.kind === "guided_story" &&
-              Number.isSafeInteger(evidence.draftId) &&
-              evidence.draftId > 0 &&
-              Number.isSafeInteger(evidence.draftRevision) &&
-              evidence.draftRevision > 0 &&
-              evidence.roleId.trim().length > 0 &&
-              evidence.operationKey.trim().length > 0 &&
-              evidence.provider.trim().length > 0 &&
-              evidence.model.trim().length > 0 &&
-              Number.isFinite(Date.parse(evidence.recordedAt)) &&
-              evidence.sourcePath === locked.referenceImagePath &&
-              evidence.sourceSha256 === currentSha256;
-            if (exact && evidence!.providerOperationId !== null) {
-              const [receipt] = await tx.select().from(walletProviderOperationsTable)
-                .where(and(
-                  eq(walletProviderOperationsTable.id, evidence!.providerOperationId!),
-                  eq(walletProviderOperationsTable.tenantId, req.tenantId),
-                )).limit(1);
-              exact =
-                receipt?.operationKind === "character_reference" &&
-                receipt.operationKey === evidence!.operationKey &&
-                receipt.provider === evidence!.provider &&
-                receipt.model === evidence!.model &&
-                ["succeeded", "settlement_queued", "settled"].includes(receipt.status);
-            }
-            if (!exact) return null;
-            const [upgraded] = await tx.update(charactersTable).set({
-              referenceSource: "generated",
-              updatedAt: new Date(),
-            }).where(and(
-              eq(charactersTable.id, locked!.id),
-              eq(charactersTable.tenantId, req.tenantId),
-              isNull(charactersTable.referenceSource),
-              eq(charactersTable.referenceImagePath, evidence!.sourcePath),
-            )).returning();
-            return upgraded ?? null;
-          });
-          if (!classified) {
-            throw new Error(
-              `Role ${member.roleId} has unknown provenance without exact immutable generated-fictional evidence.`,
-            );
-          }
-          character = classified;
-          member.referenceSource = "generated";
-          member.requiresAtlasAsset = true;
-        }
-        if (
-          character.referenceSource !== "generated" ||
-          member.referenceSource !== "generated" ||
-          character.bytePlusIdentityId !== null ||
-          outfit.status !== "approved" ||
-          !outfit.identityVerified
-        ) {
-          throw new Error(
-            `Role ${member.roleId} is not an explicitly generated, approved fictional character. Uploaded, liveness-verified, unknown, preview, and rejected references cannot use Atlas.`,
-          );
-        }
-        const creationEvidence = character.creationEvidence;
-        let creationReceiptValid =
-          creationEvidence?.version === 1 &&
-          creationEvidence.kind === "guided_story" &&
-          Number.isSafeInteger(creationEvidence.draftId) &&
-          creationEvidence.draftId > 0 &&
-          Number.isSafeInteger(creationEvidence.draftRevision) &&
-          creationEvidence.draftRevision > 0 &&
-          creationEvidence.roleId.trim().length > 0 &&
-          creationEvidence.operationKey.trim().length > 0 &&
-          creationEvidence.provider.trim().length > 0 &&
-          creationEvidence.model.trim().length > 0 &&
-          Number.isFinite(Date.parse(creationEvidence.recordedAt)) &&
-          creationEvidence.sourcePath === character.referenceImagePath &&
-          creationEvidence.sourceSha256 === approval.character.sha256;
-        if (creationReceiptValid && creationEvidence!.providerOperationId !== null) {
-          const [providerReceipt] = await db.select({
-            tenantId: walletProviderOperationsTable.tenantId,
-            operationKey: walletProviderOperationsTable.operationKey,
-            operationKind: walletProviderOperationsTable.operationKind,
-            status: walletProviderOperationsTable.status,
-            provider: walletProviderOperationsTable.provider,
-            model: walletProviderOperationsTable.model,
-          }).from(walletProviderOperationsTable).where(
-            eq(walletProviderOperationsTable.id, creationEvidence!.providerOperationId!),
-          ).limit(1);
-          creationReceiptValid =
-            providerReceipt?.tenantId === req.tenantId &&
-            providerReceipt.operationKey === creationEvidence!.operationKey &&
-            providerReceipt.operationKind === "character_reference" &&
-            ["succeeded", "settlement_queued", "settled"].includes(providerReceipt.status) &&
-            providerReceipt.provider === creationEvidence!.provider &&
-            providerReceipt.model === creationEvidence!.model;
-        }
-        if (!creationReceiptValid) {
-          throw new Error(
-            `Role ${member.roleId}'s character does not have immutable generated-fictional creation evidence matching its approved bytes.`,
-          );
-        }
-        const approvedSheetPath = character.referenceSheetImagePath;
-        if (!approvedSheetPath) {
-          throw new Error(`Role ${member.roleId} has no approved character reference sheet.`);
-        }
-        const approvedSheet = await loadReferenceImage(approvedSheetPath, req.tenantId);
-        const approvedSheetSha256 = createHash("sha256")
-          .update(approvedSheet.buffer)
-          .digest("hex");
-        if (character.referenceSheetApprovedSha256 !== approvedSheetSha256) {
-          throw new Error(
-            `Role ${member.roleId}'s current reference-sheet bytes do not match its durable approval digest. Review and approve the sheet again.`,
-          );
-        }
-        await refreshGuidedCreatingLease();
-        const registered = await registerAtlasCharacterAssets({
+        registeredCast.push(await prepareAtlasGuidedCastMember({
           tenantId: req.tenantId,
-          characterId: character.id,
-          outfitId: outfit.id,
-          expectedReferenceSheetPath: character.referenceSheetImagePath ?? undefined,
-          expectedReferenceSheetSha256: approvedSheetSha256,
-          expectedOutfitPath: outfit.referenceImagePath,
-          expectedOutfitSha256: approval.outfit.sha256,
-        });
-        await refreshGuidedCreatingLease();
-        registeredCast.push({
-          ...member,
-          referenceSource: "generated" as const,
-          requiresAtlasAsset: true,
-          atlasCharacterLibraryId: registered.character.atlasAssetLibraryId,
-          atlasCharacterReferenceId: selectAtlasGenerationReferenceId(
-            registered.character.atlasAssetReferenceId,
-            registered.character.atlasAssetId,
-          ),
-          atlasOutfitLibraryId: registered.outfit.atlasAssetLibraryId,
-          atlasApprovedReferenceSheetPath: approvedSheetPath,
-          atlasApprovedReferenceSheetSha256: approvedSheetSha256,
-          atlasAssetReferenceId: selectAtlasGenerationReferenceId(
-            registered.outfit.atlasAssetReferenceId,
-            registered.outfit.atlasAssetId,
-          ),
-          atlasAssetId: selectAtlasGenerationReferenceId(
-            registered.outfit.atlasAssetReferenceId,
-            registered.outfit.atlasAssetId,
-          ),
-          atlasAssetStatus: registered.outfit.atlasAssetStatus,
-        });
+          member,
+          approval,
+          refreshLease: refreshGuidedCreatingLease,
+        }));
       }
       options.guidedStory = { ...options.guidedStory, cast: registeredCast };
     } catch (error) {
@@ -12773,88 +12742,19 @@ async function prepareFreshRestartOptions(
         continue;
       }
       const approval = guided.castApprovals?.roles[member.roleId];
-      const detail =
-        member.characterId != null
-          ? await getCharacterDetail(tenantId, member.characterId)
-          : null;
-      const outfit = detail ? resolveOutfit(detail, member.outfitId) : null;
-      if (
-        !approval ||
-        !detail ||
-        !outfit ||
-        detail.character.referenceSource !== "generated" ||
-        detail.character.bytePlusIdentityId !== null ||
-        detail.character.referenceSheetStatus !== "approved" ||
-        !detail.character.referenceSheetImagePath ||
-        !detail.character.referenceSheetApprovedSha256 ||
-        outfit.status !== "approved" ||
-        !outfit.identityVerified ||
-        outfit.referenceImagePath !== approval.outfit.referenceImagePath
-      ) {
+      try {
+        cast.push(await prepareAtlasGuidedCastMember({
+          tenantId,
+          member,
+          approval,
+        }));
+      } catch (error) {
+        const detail =
+          error instanceof Error ? error.message : "unknown Atlas asset error";
         throw new FreshRestartInputError(
-          `Guided Story role ${member.roleId} no longer has approved generated character-sheet and outfit inputs for Atlas.`,
+          detail.replace(/^Role /, "Guided Story role "),
         );
       }
-      const [portraitBytes, sheetBytes, outfitBytes] = await Promise.all([
-        loadReferenceImage(detail.character.referenceImagePath, tenantId),
-        loadReferenceImage(detail.character.referenceSheetImagePath, tenantId),
-        loadReferenceImage(outfit.referenceImagePath, tenantId),
-      ]);
-      if (
-        createHash("sha256").update(portraitBytes.buffer).digest("hex") !==
-          approval.character.sha256 ||
-        createHash("sha256").update(sheetBytes.buffer).digest("hex") !==
-          detail.character.referenceSheetApprovedSha256 ||
-        createHash("sha256").update(outfitBytes.buffer).digest("hex") !==
-          approval.outfit.sha256
-      ) {
-        throw new FreshRestartInputError(
-          `Guided Story role ${member.roleId}'s approved Atlas inputs changed before fresh-restart funding.`,
-        );
-      }
-      const registered = await registerAtlasCharacterAssets({
-        tenantId,
-        characterId: detail.character.id,
-        outfitId: outfit.id,
-        expectedReferenceSheetPath: detail.character.referenceSheetImagePath,
-        expectedReferenceSheetSha256:
-          detail.character.referenceSheetApprovedSha256,
-        expectedOutfitPath: outfit.referenceImagePath,
-        expectedOutfitSha256: approval.outfit.sha256,
-      });
-      const characterReferenceId = selectAtlasGenerationReferenceId(
-        registered.character.atlasAssetReferenceId,
-        registered.character.atlasAssetId,
-      );
-      const outfitReferenceId = selectAtlasGenerationReferenceId(
-        registered.outfit.atlasAssetReferenceId,
-        registered.outfit.atlasAssetId,
-      );
-      if (
-        !registered.character.atlasAssetLibraryId ||
-        !characterReferenceId ||
-        !registered.outfit.atlasAssetLibraryId ||
-        !outfitReferenceId
-      ) {
-        throw new FreshRestartInputError(
-          `Guided Story role ${member.roleId}'s Atlas assets did not become active before fresh-restart funding.`,
-        );
-      }
-      cast.push({
-        ...member,
-        referenceSource: "generated" as const,
-        requiresAtlasAsset: true,
-        atlasCharacterLibraryId: registered.character.atlasAssetLibraryId,
-        atlasCharacterReferenceId: characterReferenceId,
-        atlasOutfitLibraryId: registered.outfit.atlasAssetLibraryId,
-        atlasApprovedReferenceSheetPath:
-          detail.character.referenceSheetImagePath,
-        atlasApprovedReferenceSheetSha256:
-          detail.character.referenceSheetApprovedSha256,
-        atlasAssetReferenceId: outfitReferenceId,
-        atlasAssetId: outfitReferenceId,
-        atlasAssetStatus: registered.outfit.atlasAssetStatus,
-      });
     }
     options.guidedStory = { ...guided, cast };
   }
