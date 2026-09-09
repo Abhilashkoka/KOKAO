@@ -3119,8 +3119,8 @@ describe("guided story route fail-closed regressions", () => {
           .where(eq(videoGenerationsTable.id, nativeResponse.body.id))
       )[0]!;
       expect(nativeJob.options!.resolvedVideoModel).toMatchObject({
-        provider: "higgsfield",
-        model: "veo3.1/fast/image-to-video",
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/reference-to-video",
         generateAudio: true,
       });
       expect(nativeJob.options!.guidedStoryRenderFlow).toEqual({
@@ -3131,8 +3131,8 @@ describe("guided story route fail-closed regressions", () => {
       expect(nativeJob.options!.generateAudio).toBe(true);
       expect(nativeJob.options!.guidedStory).toMatchObject({
         videoModel: {
-          provider: "higgsfield",
-          model: "veo3.1/fast/image-to-video",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
         },
       });
       expect(nativeJob.options!.characterLipSync).toBe(false);
@@ -8395,16 +8395,16 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       if (corruption === "missing_checkpoint" && index === 0) return;
       scene.providerCheckpoint = {
         path: `/objects/${tenantId}/video/saved-${index + 1}.mp4`,
-        provider: "higgsfield",
-        model: "veo3.1/fast/image-to-video",
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/reference-to-video",
         durationSec: 5,
         event: {
           eventId:
             corruption === "duplicate_event"
               ? "historical-native-scene"
               : `historical-native-scene-${index + 1}`,
-          provider: "higgsfield",
-          model: "veo3.1/fast/image-to-video",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
           durationSec: 5,
           requestBytes: 100,
           label: `topic_scene:${scene.id}`,
@@ -8415,14 +8415,13 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     });
     const options: VideoJobOptions = {
       aspectRatio: "9:16",
-      modelId: "higgsfield-veo-3.1-fast",
       generateAudio: true,
       providerTasks: Object.fromEntries(
         storyboard.scenes.map((scene, index) => [
           `topic_animation:${index}`,
           {
-            provider: "higgsfield",
-            model: "veo3.1/fast/image-to-video",
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/reference-to-video",
             taskId: `saved-provider-task-${index + 1}`,
             requestId: null,
             acceptedAt: "2026-01-01T00:00:00.000Z",
@@ -8434,10 +8433,10 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       resolvedVideoModel: {
         version: 1,
         source: "explicit",
-        mode: "image",
-        provider: "higgsfield",
-        model: "veo3.1/fast/image-to-video",
-        catalogModelId: "higgsfield-veo-3.1-fast",
+        mode: "text",
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/reference-to-video",
+        catalogModelId: "atlascloud-seedance-2.5-reference",
         durationSec: 5,
         permittedDurationSec: [5],
         resolution: "720p",
@@ -8477,8 +8476,8 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
           displayNumber: null,
           sceneId: null,
           operation: "Checking spoken language",
-          provider: "higgsfield",
-          model: "veo3.1/fast/image-to-video",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
           providerRequestId: null,
           code: "native_audio_dialogue_drift",
           message: "Structured historical native-audio failure.",
@@ -8518,7 +8517,10 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
 
     const serialized = await request(app).get(`/api/ai/video-jobs/${source.id}`);
     expect(serialized.status).toBe(200);
-    expect(serialized.body.retryable).toBe(true);
+    expect(
+      serialized.body.retryable,
+      JSON.stringify(serialized.body),
+    ).toBe(true);
     const response = await request(app)
       .post(`/api/ai/video-jobs/${source.id}/retry`);
 

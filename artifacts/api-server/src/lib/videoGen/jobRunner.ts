@@ -7826,7 +7826,11 @@ async function executeVideoJob(
         logger.error({ err, jobId }, "Failed to reconcile retry-chain video wallet charge");
       }
     }
-    if (walletSettlementCompleted && job.options?.billingPolicyVersion === 2) {
+    if (
+      walletSettlementCompleted &&
+      job.options?.billingPolicyVersion === 2 &&
+      !verificationOnly
+    ) {
       try {
         await reconcileVideoDeliveryBillingManifest(job.id);
       } catch (err) {

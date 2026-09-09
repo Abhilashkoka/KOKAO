@@ -144,6 +144,7 @@ const state = vi.hoisted(() => ({
   dialoguePlateDurations: [] as number[],
   videoCostDurations: [] as Array<{ model: string; durationSec: number }>,
   walletSettlements: [] as Array<{ costPaise: number | null | undefined; provider?: string }>,
+  deliveryReconciliations: [] as number[],
   rawPlateVerifyError: null as unknown,
   dialogueNarrationDurations: [] as number[],
   dialogueLipSyncDurations: [] as number[],
@@ -810,6 +811,10 @@ vi.mock("../wallet", async (importOriginal) => {
     ...actual,
     settleWallet: vi.fn(settle),
     settleWalletDurably: vi.fn(settle),
+    reconcileVideoDeliveryBillingManifest: vi.fn(async (jobId: number) => {
+      state.deliveryReconciliations.push(jobId);
+      return actual.reconcileVideoDeliveryBillingManifest(jobId);
+    }),
     refundFailedVideoJobWallet: vi.fn(async (jobId: number, note: string) => {
       state.walletFailureRefunds.push(jobId);
       return actual.refundFailedVideoJobWallet(jobId, note);
@@ -1068,6 +1073,7 @@ beforeEach(() => {
   state.dialoguePlateDurations.length = 0;
   state.videoCostDurations.length = 0;
   state.walletSettlements.length = 0;
+  state.deliveryReconciliations.length = 0;
   state.rawPlateVerifyError = null;
   state.dialogueNarrationDurations.length = 0;
   state.dialogueLipSyncDurations.length = 0;
@@ -4273,10 +4279,26 @@ describe("Guided Story preview-only runner", () => {
     expect(state.asrCalls).toBe(1);
 
     const providerCallsAfterFirstRender = state.topicCheckpointed.length;
+    const resumedOptions = structuredClone(saved.options!);
+    resumedOptions.billingPolicyVersion = 2;
+    resumedOptions.recovery = {
+      version: 1,
+      chainId: job.id,
+      sourceJobId: job.id,
+      fundedUnits: 0,
+      mode: "resume",
+      state: "queued",
+      reusable: ["saved scene checkpoints"],
+      regenerated: ["local composition and speech verification"],
+      verificationOnly: {
+        version: 1,
+        reason: "indic_cross_script_asr_recheck",
+      },
+    };
     const resumed = await seedJob(tenant.tenantId, {
       engine: "topic_to_video",
       storyboard: saved.storyboard,
-      options: saved.options!,
+      options: resumedOptions,
     });
     await runVideoGenerationJob(resumed.id, "quota");
 
@@ -4285,6 +4307,7 @@ describe("Guided Story preview-only runner", () => {
     expect(resumedSaved.videoPath).toBeTruthy();
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
     expect(state.asrCalls).toBe(2);
+    expect(state.deliveryReconciliations).toEqual([]);
   });
 
   it("blocks verification-only recovery before provider dispatch when a scene checkpoint is missing", async () => {

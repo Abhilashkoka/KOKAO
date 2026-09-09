@@ -12707,6 +12707,7 @@ router.post(
       }
     }
     if (
+      !verificationOnlyRecovery &&
       options.guidedStory &&
       options.resolvedVideoModel?.provider === "atlascloud"
     ) {
@@ -13035,6 +13036,7 @@ router.post(
       : null;
     const fundedResult = await db.transaction(async (tx) => {
       if (
+        !verificationOnlyRecovery &&
         options.guidedStory &&
         options.resolvedVideoModel?.provider === "atlascloud"
       ) {
