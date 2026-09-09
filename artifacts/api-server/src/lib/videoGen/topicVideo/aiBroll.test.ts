@@ -18,7 +18,8 @@ const animateState = vi.hoisted(() => ({
     mode: string;
     durationSec: number;
     generateAudio?: boolean;
-    image: Buffer;
+    image?: Buffer;
+    assetIds?: string[];
   }[],
   failFirst: false,
   alwaysFail: false,
@@ -45,19 +46,20 @@ vi.mock("../index", () => ({
       mode: string;
       durationSec: number;
       generateAudio?: boolean;
-      image: { buffer: Buffer };
+      image?: { buffer: Buffer };
+      assetIds?: string[];
     }) => {
       const queued = animateState.queuedErrors.shift();
       if (queued) {
-        animateState.calls.push({ ...input, image: input.image.buffer });
+        animateState.calls.push({ ...input, image: input.image?.buffer });
         throw queued;
       }
       if (animateState.alwaysFail) throw new Error("provider down");
       if (animateState.failFirst && animateState.calls.length === 0) {
-        animateState.calls.push({ ...input, image: input.image.buffer });
+        animateState.calls.push({ ...input, image: input.image?.buffer });
         throw new Error("transient");
       }
-      animateState.calls.push({ ...input, image: input.image.buffer });
+      animateState.calls.push({ ...input, image: input.image?.buffer });
       return {
         buffer: Buffer.from(`clip-${input.prompt}`),
         provider: "replicate",
@@ -578,7 +580,25 @@ describe("animateBrollStills", () => {
     // Provider clip lengths follow character mode's discrete durations.
     expect(animateState.calls.map((c) => c.durationSec).sort((a, b) => a - b)).toEqual([5, 10]);
     // The animated frame is exactly the approved still, byte for byte.
-    expect(byPrompt.map((c) => c.image.toString())).toEqual(["still-a", "still-b"]);
+    expect(byPrompt.map((c) => c.image?.toString())).toEqual(["still-a", "still-b"]);
+  });
+
+  it("uses Atlas reference assets as text-mode input instead of sending the approved still", async () => {
+    const assetIds = ["asset-sheet-1", "asset-outfit-1"];
+    await animateBrollStills({
+      images: [Buffer.from("approved-still-must-not-be-sent")],
+      visuals: ["@Image1 is Dev. @Image2 is Dev's outfit."],
+      scenes: [scenes[0]!],
+      aspectRatio: "9:16",
+      nativeAudio: true,
+      resolveAssetIds: async () => assetIds,
+    });
+
+    expect(animateState.calls[0]).toMatchObject({
+      mode: "text",
+      assetIds,
+    });
+    expect(animateState.calls[0]?.image).toBeUndefined();
   });
 
   it("sends frozen Seedance prompts unchanged with native audio enabled", async () => {
@@ -685,7 +705,7 @@ describe("animateBrollStills", () => {
     expect(result.clips).toHaveLength(1);
     expect(rejected).toEqual([0]);
     expect(animateState.calls).toHaveLength(2);
-    expect(animateState.calls.map((call) => call.image.toString())).toEqual([
+    expect(animateState.calls.map((call) => call.image?.toString())).toEqual([
       "approved-still",
       "privacy-safe-replacement",
     ]);

@@ -553,7 +553,7 @@ export async function animateSceneKeyframes(params: {
     const attempt = async (): Promise<Buffer> => {
       const assetIds = await params.resolveAssetIds?.(i) ?? [];
       const clip = await generateVideo({
-        mode: "image",
+        mode: assetIds.length ? "text" : "image",
         prompt:
           params.scenePrompts?.[i] ??
           characterScenePrompt({

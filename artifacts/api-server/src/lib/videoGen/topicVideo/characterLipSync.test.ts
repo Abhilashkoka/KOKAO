@@ -82,6 +82,26 @@ async function animate(lipSync: { wav: Buffer } | null) {
 }
 
 describe("character scene lip sync", () => {
+  it("uses Atlas reference assets as text-mode input instead of sending the keyframe", async () => {
+    const { animateSceneKeyframes } = await import("./characterScenes");
+    const assetIds = ["asset-sheet-1", "asset-outfit-1"];
+    await animateSceneKeyframes({
+      keyframes: [KEYFRAMES[0]!],
+      plan: [PLAN[0]!],
+      scenes: [SCENES[0]!],
+      aspectRatio: "9:16",
+      resolveAssetIds: async () => assetIds,
+    });
+
+    expect(generateVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "text",
+        assetIds,
+      }),
+    );
+    expect(generateVideo.mock.calls[0]?.[0]).not.toHaveProperty("image");
+  });
+
   it("gives each shot only its own span of the narration", async () => {
     await animate({ wav: rampTrack(6) });
     expect(lipSyncClip).toHaveBeenCalledTimes(3);
