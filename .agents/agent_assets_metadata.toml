@@ -283,3 +283,87 @@ mtime_ms = 1788855665506
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/5f704f22-e2ce-4600-8296-d87a0f22ec09/e47252f1-25c3-4239-9f26-937f28abbe06"
 storage_version_token = "1788855680919884"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "7lcMJOE5AoHh0rllhl55C"
+uri = "file://exports/job-69001-atlas-package.zip"
+type = "unspecified"
+title = "Job #69001 — Complete Atlas Package"
+description = "ZIP containing the final video, three approved character reference sheets, all three stored prompts, manifest, checksums, and Atlas task/request IDs."
+logical_id = "b1b37f75-4e26-4be0-ba82-0a9e8bd8f019"
+content_hash = "sha256:6857808b152a528c1da7f27afb2b6d9a2c6a57b1d019d33caf03f01dbdb3939e"
+size = 7735440
+mtime_ms = 1788927094007
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/b1b37f75-4e26-4be0-ba82-0a9e8bd8f019/57669380-18e6-4f25-a870-eb8f20a7979f"
+storage_version_token = "1788927105672509"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "5ntKs0vJLxuzbGerizxiI"
+uri = "file://exports/job-69001/job-69001-final-video.mp4"
+type = "video"
+title = "Job #69001 — Final Video"
+description = "The final composed MP4 delivered by completed Job #69001."
+logical_id = "9ab4065d-5f3c-413e-bf47-cc7cb7be5294"
+content_hash = "sha256:ff91aa4e21ff35e1915ab2ac58faab9e6e3d18234daa19a36b7184472708e916"
+size = 4052188
+mtime_ms = 1788927061227
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/9ab4065d-5f3c-413e-bf47-cc7cb7be5294/d7ba45da-4146-41d1-b718-3f3a71b0b030"
+storage_version_token = "1788927107090936"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "ON-dJWh4W7NfDn0XJTYlX"
+uri = "file://exports/job-69001/job-69001-prompts.md"
+type = "text"
+title = "Job #69001 — Three Prompts"
+description = "Readable report containing the three exact stored storyboard prompt strings and their Atlas task/request IDs."
+logical_id = "1eb212ae-b2b9-45ba-a1fc-ba266f9e61e3"
+content_hash = "sha256:2e1f59b4245fe80c352eadce259c4db5ff3261f35267ddd3035793e65d59fc18"
+size = 9091
+mtime_ms = 1788927093739
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/1eb212ae-b2b9-45ba-a1fc-ba266f9e61e3/4ce5159d-fae4-4dab-b4c1-5571856accd7"
+storage_version_token = "1788927108436869"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "cDkz4uZvi6bn8GDE-r5iD"
+uri = "file://exports/job-69001/reference-sheets/aarav-approved-reference-sheet.png"
+type = "image"
+title = "Aarav — Approved Reference Sheet"
+description = "The 1248×832 approved multi-view reference sheet frozen into Job #69001; SHA-256 verified."
+logical_id = "bfabfaed-2f97-47e8-903f-3d5a3be83d30"
+content_hash = "sha256:47241d972723116a72bf9c779797af926b95ffe6ad97cc932c9e8d6caf999410"
+size = 1111491
+mtime_ms = 1788927064595
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/bfabfaed-2f97-47e8-903f-3d5a3be83d30/59015a6a-c189-4ca1-9abf-56cfa0a03e5c"
+storage_version_token = "1788927109883219"
+content_type = "image/png"
+
+[[outputs]]
+id = "d86nX7V8xwpB_fReHIf3Y"
+uri = "file://exports/job-69001/reference-sheets/meera-approved-reference-sheet.png"
+type = "image"
+title = "Meera — Approved Reference Sheet"
+description = "The 1248×832 approved multi-view reference sheet frozen into Job #69001; SHA-256 verified."
+logical_id = "33bc84a0-3eb6-4ba0-b595-278ebb57a1c0"
+content_hash = "sha256:e412bda5148b00d380b87994593b82a8314a390c101cdb9633c8a726235c1646"
+size = 1320418
+mtime_ms = 1788927071583
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/33bc84a0-3eb6-4ba0-b595-278ebb57a1c0/a2de684c-1c42-4234-b34d-4a8804c26dd1"
+storage_version_token = "1788927111267687"
+content_type = "image/png"
+
+[[outputs]]
+id = "sYmFicEX5_XApbWnkpqqN"
+uri = "file://exports/job-69001/reference-sheets/ma-approved-reference-sheet.png"
+type = "image"
+title = "Ma — Approved Reference Sheet"
+description = "The 1248×832 approved multi-view reference sheet frozen into Job #69001; SHA-256 verified."
+logical_id = "fb133b79-d9cf-4423-8f4c-9226099733e9"
+content_hash = "sha256:0e5d99ff595939e573fd43b88959c34b0cdb0fbf70b18d47ca9b004ec9233ef4"
+size = 1291940
+mtime_ms = 1788927068131
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/fb133b79-d9cf-4423-8f4c-9226099733e9/c7cd640c-6250-4d65-aaca-b2f5de571a8c"
+storage_version_token = "1788927112657745"
+content_type = "image/png"

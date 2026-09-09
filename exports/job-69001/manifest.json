@@ -1,0 +1,88 @@
+{
+  "model": {
+    "mode": "image",
+    "model": "bytedance/seedance-2.5/image-to-video",
+    "source": "default",
+    "quality": null,
+    "version": 1,
+    "provider": "atlascloud",
+    "resolution": "1080p",
+    "durationSec": 5,
+    "generateAudio": true,
+    "catalogModelId": "atlascloud-seedance-2.5",
+    "durationPolicy": "nearest",
+    "supportsEndFrame": true,
+    "permittedDurationSec": [
+      5,
+      8,
+      10
+    ]
+  },
+  "scenes": [
+    {
+      "id": "scene_1",
+      "text": "One serious family talk, three very nervous faces.",
+      "visual": "Centered 9:16 living-room group shot, all faces and any on-screen text kept inside the safe centered 1080x1420 area. Aarav stands left clutching a tea cup, Meera stands right hugging a clinic file, and Ma sits center on the sofa studying them. Aarav and Meera exchange one panicked glance, straighten themselves, and go still. Ma lifts one eyebrow, then settles into a waiting pause before scene 2.\nAarav (aarav) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Young Indian husband, anxious but witty.; identity reference /objects/4/uploads/197b79cd-bc98-4c64-a94c-195fed84abd3; outfit reference /objects/4/uploads/197b79cd-bc98-4c64-a94c-195fed84abd3. Meera (meera) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Young Indian wife, hopeful, sharp, and expressive.; identity reference /objects/4/uploads/52f59f54-4700-44aa-8b43-1c9eb0906908; outfit reference /objects/4/uploads/52f59f54-4700-44aa-8b43-1c9eb0906908. Ma (ma) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Aarav's Indian mother, dramatic face but grounded heart.; identity reference /objects/4/uploads/6a04c1d7-32de-4415-ad0b-232bc2cd3d87; outfit reference /objects/4/uploads/6a04c1d7-32de-4415-ad0b-232bc2cd3d87.\nUse the frozen approved default backdrop /objects/4/uploads/8c1f8d23-df1f-44a1-816c-97b4af90dfb6. Backdrop direction: Create the primary shared location for the Guided Story \"Baby Loading, Family Buffering\".\nA young Indian couple nervously tells Ma about IVF, but her unexpectedly practical response turns the moment into a warm comedy beat.\nScene 1: Centered 9:16 living-room group shot, all faces and any on-screen text kept inside the safe centered 1080x1420 area. Aarav stands left clutching a tea cup, Meera stands right hugging a clinic file, and Ma sits center on the sofa studying them. Aarav and Meera exchange one panicked glance, straighten themselves, and go still. Ma lifts one eyebrow, then settles into a waiting pause before scene 2.\nScene 2: Same shared frame, slightly tighter. Aarav leans forward and speaks carefully. Meera stays beside him, nodding once with a tense half-smile. Ma remains seated center, listening closely, her tapping finger stopping as the news lands.\nScene 3: Shared reaction shot without breaking visibility. Ma rises center, widens her eyes for one beat, then softens. She.... Preserve this location unless an explicitly scene-only background correction is requested.\n\nCompose for 9:16. Keep faces and text inside the centered 1080x1420 area.",
+      "durationSec": 4,
+      "renderVisual": null
+    },
+    {
+      "id": "scene_2",
+      "text": "Ma, we're trying IVF. Doctor help, not family pressure help.",
+      "visual": "Same shared frame, slightly tighter. Aarav leans forward and speaks carefully. Meera stays beside him, nodding once with a tense half-smile. Ma remains seated center, listening closely, her tapping finger stopping as the news lands.\nAarav (aarav) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Young Indian husband, anxious but witty.; identity reference /objects/4/uploads/197b79cd-bc98-4c64-a94c-195fed84abd3; outfit reference /objects/4/uploads/197b79cd-bc98-4c64-a94c-195fed84abd3. Meera (meera) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Young Indian wife, hopeful, sharp, and expressive.; identity reference /objects/4/uploads/52f59f54-4700-44aa-8b43-1c9eb0906908; outfit reference /objects/4/uploads/52f59f54-4700-44aa-8b43-1c9eb0906908. Ma (ma) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Aarav's Indian mother, dramatic face but grounded heart.; identity reference /objects/4/uploads/6a04c1d7-32de-4415-ad0b-232bc2cd3d87; outfit reference /objects/4/uploads/6a04c1d7-32de-4415-ad0b-232bc2cd3d87.\nUse the frozen approved default backdrop /objects/4/uploads/8c1f8d23-df1f-44a1-816c-97b4af90dfb6. Backdrop direction: Create the primary shared location for the Guided Story \"Baby Loading, Family Buffering\".\nA young Indian couple nervously tells Ma about IVF, but her unexpectedly practical response turns the moment into a warm comedy beat.\nScene 1: Centered 9:16 living-room group shot, all faces and any on-screen text kept inside the safe centered 1080x1420 area. Aarav stands left clutching a tea cup, Meera stands right hugging a clinic file, and Ma sits center on the sofa studying them. Aarav and Meera exchange one panicked glance, straighten themselves, and go still. Ma lifts one eyebrow, then settles into a waiting pause before scene 2.\nScene 2: Same shared frame, slightly tighter. Aarav leans forward and speaks carefully. Meera stays beside him, nodding once with a tense half-smile. Ma remains seated center, listening closely, her tapping finger stopping as the news lands.\nScene 3: Shared reaction shot without breaking visibility. Ma rises center, widens her eyes for one beat, then softens. She.... Preserve this location unless an explicitly scene-only background correction is requested.\n\nCompose for 9:16. Keep faces and text inside the centered 1080x1420 area.",
+      "durationSec": 4.5,
+      "renderVisual": null
+    },
+    {
+      "id": "scene_3",
+      "text": "Bas? Do IVF. I'll pressure the plants, not you.",
+      "visual": "Shared reaction shot without breaking visibility. Ma rises center, widens her eyes for one beat, then softens. She takes Meera's clinic file, pats it gently, and points at both of them with affectionate authority. Aarav and Meera relax into relieved smiles. End on all three smiling together.\nAarav (aarav) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Young Indian husband, anxious but witty.; identity reference /objects/4/uploads/197b79cd-bc98-4c64-a94c-195fed84abd3; outfit reference /objects/4/uploads/197b79cd-bc98-4c64-a94c-195fed84abd3. Meera (meera) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Young Indian wife, hopeful, sharp, and expressive.; identity reference /objects/4/uploads/52f59f54-4700-44aa-8b43-1c9eb0906908; outfit reference /objects/4/uploads/52f59f54-4700-44aa-8b43-1c9eb0906908. Ma (ma) wears Original fictional wardrobe suited to comedy. Preserve all wardrobe details specified by the approved role description: Aarav's Indian mother, dramatic face but grounded heart.; identity reference /objects/4/uploads/6a04c1d7-32de-4415-ad0b-232bc2cd3d87; outfit reference /objects/4/uploads/6a04c1d7-32de-4415-ad0b-232bc2cd3d87.\nUse the frozen approved default backdrop /objects/4/uploads/8c1f8d23-df1f-44a1-816c-97b4af90dfb6. Backdrop direction: Create the primary shared location for the Guided Story \"Baby Loading, Family Buffering\".\nA young Indian couple nervously tells Ma about IVF, but her unexpectedly practical response turns the moment into a warm comedy beat.\nScene 1: Centered 9:16 living-room group shot, all faces and any on-screen text kept inside the safe centered 1080x1420 area. Aarav stands left clutching a tea cup, Meera stands right hugging a clinic file, and Ma sits center on the sofa studying them. Aarav and Meera exchange one panicked glance, straighten themselves, and go still. Ma lifts one eyebrow, then settles into a waiting pause before scene 2.\nScene 2: Same shared frame, slightly tighter. Aarav leans forward and speaks carefully. Meera stays beside him, nodding once with a tense half-smile. Ma remains seated center, listening closely, her tapping finger stopping as the news lands.\nScene 3: Shared reaction shot without breaking visibility. Ma rises center, widens her eyes for one beat, then softens. She.... Preserve this location unless an explicitly scene-only background correction is requested.\n\nCompose for 9:16. Keep faces and text inside the centered 1080x1420 area.",
+      "durationSec": 6.2,
+      "renderVisual": null
+    }
+  ],
+  "videoPath": "/objects/4/uploads/a4d29bed-88bf-471c-affe-ae5052df4a12",
+  "providerTasks": {
+    "topic_animation:0": {
+      "model": "bytedance/seedance-2.5/image-to-video",
+      "taskId": "e5cab8d6e874480e8da5fc546f20f73b",
+      "provider": "atlascloud",
+      "requestId": "a6eca1bf-f00e-46e6-8347-a9ff755a6e45",
+      "acceptedAt": "2026-09-08T15:01:35.221Z"
+    },
+    "topic_animation:1": {
+      "model": "bytedance/seedance-2.5/image-to-video",
+      "taskId": "cc922215d2b0425c9967af673b1471a1",
+      "provider": "atlascloud",
+      "requestId": "d0046bd6-a730-4302-a610-34027fff98bc",
+      "acceptedAt": "2026-09-08T15:23:48.142Z"
+    },
+    "topic_animation:2": {
+      "model": "bytedance/seedance-2.5/image-to-video",
+      "taskId": "6ac69636111e4129b9892b0d05f1ba43",
+      "provider": "atlascloud",
+      "requestId": "127837fa-2406-4403-bb18-19acf97a4cc0",
+      "acceptedAt": "2026-09-08T15:01:35.505Z"
+    }
+  },
+  "referenceSheets": [
+    {
+      "name": "Aarav",
+      "path": "/objects/4/uploads/724c0af0-3e64-459e-80d7-11f2934c5b20",
+      "roleId": "aarav",
+      "sha256": "47241d972723116a72bf9c779797af926b95ffe6ad97cc932c9e8d6caf999410"
+    },
+    {
+      "name": "Ma",
+      "path": "/objects/4/uploads/c1ebf61d-f565-4edc-8b27-a589e1e7ce92",
+      "roleId": "ma",
+      "sha256": "0e5d99ff595939e573fd43b88959c34b0cdb0fbf70b18d47ca9b004ec9233ef4"
+    },
+    {
+      "name": "Meera",
+      "path": "/objects/4/uploads/1014f9b5-8a13-48e2-b215-251682c17081",
+      "roleId": "meera",
+      "sha256": "e412bda5148b00d380b87994593b82a8314a390c101cdb9633c8a726235c1646"
+    }
+  ]
+}
