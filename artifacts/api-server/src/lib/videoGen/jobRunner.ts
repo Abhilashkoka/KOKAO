@@ -6520,7 +6520,7 @@ function usesGuidedProviderSpeechOptions(options: VideoJobOptions | null | undef
   return Boolean(
     options?.guidedStoryRenderFlow?.version === 1 &&
     options.guidedStoryRenderFlow.mode === "direct_video" &&
-    options.guidedStory?.locale === "en" &&
+    options.guidedStory?.locale != null &&
     resolved?.generateAudio === true &&
     hasNativeSynchronizedAudio(resolved.provider, resolved.model),
   );

@@ -9953,7 +9953,7 @@ async function generateVideoHandler(
       const useAtlasGuidedReferences =
         options.guidedStory != null && requestedProvider === "atlascloud";
       const useGuidedProviderNativeAudio =
-        options.guidedStory?.locale === "en";
+        options.guidedStory != null;
       const resolvedVideoModel = await resolveVideoModelSnapshot({
         mode: useAtlasGuidedReferences ? "text" : resolvedMode,
         modelId: useAtlasGuidedReferences
@@ -10224,7 +10224,6 @@ async function generateVideoHandler(
 
   if (
     options.guidedStory &&
-    options.guidedStory.locale === "en" &&
     options.resolvedVideoModel?.generateAudio === true &&
     hasNativeSynchronizedAudio(
       options.resolvedVideoModel.provider,
@@ -10238,9 +10237,8 @@ async function generateVideoHandler(
     options.characterLipSync = false;
     options.studioLipSync = null;
   } else if (options.guidedStory && options.resolvedVideoModel) {
-    // Native audio capability is not a language guarantee. Keep localized
-    // Guided speech on KOKAO's frozen-locale narration path rather than asking
-    // the video provider to improvise Telugu/Hindi/Tamil dialogue.
+    // Only models without the explicit synchronized-audio capability use
+    // KOKAO's separate frozen-voice narration and finishing path.
     options.resolvedVideoModel = {
       ...options.resolvedVideoModel,
       generateAudio: false,
@@ -13133,7 +13131,7 @@ async function prepareFreshRestartOptions(
   const options = freshRestartOptions(source);
   const frozen = options.resolvedVideoModel;
   const useGuidedProviderNativeAudio =
-    options.guidedStory?.locale === "en";
+    options.guidedStory != null;
   if (
     options.guidedStoryRenderFlow?.mode === "direct_video" &&
     options.guidedStory &&

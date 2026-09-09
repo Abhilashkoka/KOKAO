@@ -3171,12 +3171,10 @@ describe("guided story route fail-closed regressions", () => {
       expect(teluguJob.options!.resolvedVideoModel).toMatchObject({
         provider: "higgsfield",
         model: "veo3.1/fast/image-to-video",
-        generateAudio: false,
+        generateAudio: true,
       });
-      expect(teluguJob.options!.generateAudio).toBe(false);
-      expect(teluguJob.options!.guidedStoryIntrinsicLipSync).toMatchObject({
-        locale: "te",
-      });
+      expect(teluguJob.options!.generateAudio).toBe(true);
+      expect(teluguJob.options!.guidedStoryIntrinsicLipSync).toBeUndefined();
 
       // The gate is capability-based rather than vendor-based: official
       // Seedance on BytePlus follows the same direct native-dialogue path.
