@@ -508,6 +508,34 @@ describe("preflightVideoJob", () => {
     expect(issue).toBeNull();
   });
 
+  it("accepts Atlas reference-to-video as the text-mode contract for direct Guided Story", async () => {
+    process.env.ATLASCLOUD_API_KEY = "test-atlas-key";
+
+    const issue = await preflightVideoJob(
+      "topic_to_video",
+      options({
+        visualsSource: "character",
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
+          catalogModelId: "atlascloud-seedance-2.5-reference",
+          mode: "text",
+          durationSec: 5,
+          permittedDurationSec: [5],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: true,
+        },
+      }),
+    );
+
+    expect(issue).toBeNull();
+  });
+
   it("rejects a direct Guided Story frozen to an unsupported provider before funding", async () => {
     process.env.HIGGSFIELD_API_KEY = "test-higgsfield-key";
 

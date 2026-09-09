@@ -38,6 +38,7 @@ import {
 import { isVideoModelPriced } from "../aiCost";
 import { effectiveVideoModel } from "./index";
 import { videoPriceCriteria } from "./pricing";
+import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "./providers/atlascloud";
 
 /**
  * Dependency preflight for video jobs.
@@ -146,6 +147,17 @@ function modeForVideoJob(
   engine: string,
   options: VideoJobOptions | null,
 ): "text" | "image" {
+  if (
+    engine === "topic_to_video" &&
+    options?.guidedStoryRenderFlow?.mode === "direct_video" &&
+    options.resolvedVideoModel?.provider === "atlascloud" &&
+    options.resolvedVideoModel.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
+  ) {
+    // Atlas references are attached as Asset Library IDs rather than a single
+    // source image, so this catalog route intentionally uses the text-mode
+    // request contract even though it is reference-guided video generation.
+    return "text";
+  }
   return (
     (engine === "text_to_video" && options?.characterId == null) ||
     (engine === "dialogue_lip_sync" && !options?.characterDialogue)
