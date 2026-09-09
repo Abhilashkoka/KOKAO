@@ -1,0 +1,7 @@
+jobId,tenantId,status,rawProviderCostPaise,targetChargePaise,reservationIds,unknownEvidence,walletAction
+69001,4,pending_cost,,,"46969;46971;46973","backdrop provenance;script receipt;historical delivery completeness","none — exact aggregate cost unavailable"
+69706,4,pending_cost,,,"47466;47468","backdrop provenance;script receipt;historical delivery completeness","none — exact aggregate cost unavailable"
+69716,4,pending_cost,,,"47494","backdrop provenance;script receipt;historical delivery completeness","none — exact aggregate cost unavailable"
+69717,4,pending_cost,,,"47514","backdrop provenance;script receipt;historical delivery completeness","none — exact aggregate cost unavailable"
+69771,4,unsupported,,,,"failed source attempt is not a completed delivery","none"
+69772,4,pending_cost,,,"47543;47546","backdrop provenance;script receipt;narration receipt;historical delivery completeness","none — exact aggregate cost unavailable"

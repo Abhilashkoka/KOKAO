@@ -117,6 +117,8 @@ const STOCK_FALLBACK_LIMIT = 2;
 
 export interface TopicVideoParams {
   tenantId: number;
+  /** Owning durable video job; absent only for pre-job preparation. */
+  videoJobId?: number;
   topic: string;
   /** Exact human-approved guided-story transcript; bypasses script rewriting. */
   approvedScript?: string | null;
@@ -514,6 +516,7 @@ function scenesWithinRuntimeBounds(
  */
 async function writeAndVoiceScript(params: {
   tenantId: number;
+  videoJobId?: number;
   topic: string;
   approvedScript?: string | null;
   voice: NarrationVoice;
@@ -573,7 +576,9 @@ async function writeAndVoiceScript(params: {
   params.onStage?.("Voicing the narration");
   const spoken = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
-    billing: { tenantId: params.tenantId, refKind: "topicVideo" },
+    billing: params.videoJobId == null
+      ? { tenantId: params.tenantId, refKind: "topicVideo" }
+      : { tenantId: params.tenantId, refKind: "videoJob", refId: `${params.videoJobId}:0` },
   });
   const narration = params.templateRuntime
     ? capNarrationCompleteCues(spoken, params.templateRuntime.maxDurationSeconds)
@@ -603,6 +608,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
 
   const { tenantAiModel, model, searchTerms, verificationFindings, narration } = await writeAndVoiceScript({
     tenantId: params.tenantId,
+    videoJobId: params.videoJobId,
     topic,
     approvedScript: params.approvedScript ?? null,
     voice: params.voice,
@@ -902,6 +908,8 @@ const NARRATION_TIMELINE_LOCKED = true;
 
 export interface StoryboardPlanParams {
   tenantId: number;
+  /** Owning durable video job; absent only for pre-job draft work. */
+  videoJobId?: number;
   topic: string;
   /** Lip-sync character scenes; framing is chosen to keep faces syncable. */
   characterLipSync?: boolean;
@@ -976,6 +984,7 @@ export async function planTopicStoryboard(
     let base = guidedStoryStoryboard(params.guidedStory);
     const narration = await synthesizeGuidedNarration({
       tenantId: params.tenantId,
+      videoJobId: params.videoJobId,
       cast: params.guidedStory.cast,
       script: params.guidedStory.script,
       locale: params.guidedStory.locale,
@@ -1129,6 +1138,7 @@ export async function planTopicStoryboard(
 
   const { tenantAiModel, model, narration, verificationFindings } = await writeAndVoiceScript({
     tenantId: params.tenantId,
+    videoJobId: params.videoJobId,
     topic,
     approvedScript: params.approvedScript ?? null,
     voice: params.voice,
@@ -1262,6 +1272,8 @@ export async function planTopicStoryboard(
 
 export async function synthesizeGuidedNarration(params: {
   tenantId: number;
+  /** Owning durable video job; absent only for pre-job draft work. */
+  videoJobId?: number;
   cast: GuidedStoryCastSnapshot[];
   script: NonNullable<VideoJobOptions["guidedStory"]>["script"];
   locale?: string;
@@ -1273,7 +1285,20 @@ export async function synthesizeGuidedNarration(params: {
   const castByRole = new Map(params.cast.map((member) => [member.roleId, member]));
   const lines = params.script.scenes.flatMap((scene) => scene.lines);
   const spoken: Array<{ line: typeof lines[number]; wav: ReturnType<typeof parseWav> }> = [];
-  for (const line of lines) {
+  const billingReceipts: Array<{
+    lineId: string;
+    rawProviderCostPaise: number | null;
+    provider: string;
+    model: string;
+    reservationId: number | null;
+  }> = [];
+  for (const [cueIndex, line] of lines.entries()) {
+    const lineBilling: Omit<(typeof billingReceipts)[number], "lineId"> & {
+      exact: boolean;
+    } = {
+      exact: false, rawProviderCostPaise: null, provider: "stock",
+      model: String(params.fallbackVoice), reservationId: null,
+    };
     const member = line.ownerRoleId ? castByRole.get(line.ownerRoleId) : null;
     // Ownerless narration uses the selected stock narrator. Every owned line
     // uses that role's immutable provider voice and fails closed if unavailable.
@@ -1293,8 +1318,9 @@ export async function synthesizeGuidedNarration(params: {
         requireClonedVoice: Boolean(clonedVoice),
         billing: {
           tenantId: params.tenantId,
-          refKind: "guidedStoryLine",
-          refId: line.id,
+          refKind: params.videoJobId == null ? "guidedStoryLine" : "videoJob",
+          refId: params.videoJobId == null ? line.id : `${params.videoJobId}:${cueIndex}`,
+          onReceipt: (receipt) => { Object.assign(lineBilling, receipt, { exact: true }); },
         },
         // Guided Story freezes one of its approved locales and must use v3:
         // v2 cannot speak Telugu and does not accept language_code.
@@ -1307,6 +1333,21 @@ export async function synthesizeGuidedNarration(params: {
         `Guided Story voice stage failed for line ${line.id}: ${detail}`,
       );
     }
+    billingReceipts.push(lineBilling.exact
+      ? {
+          lineId: line.id,
+          rawProviderCostPaise: lineBilling.rawProviderCostPaise,
+          provider: lineBilling.provider,
+          model: lineBilling.model,
+          reservationId: lineBilling.reservationId,
+        }
+      : {
+          lineId: line.id,
+          rawProviderCostPaise: result.costPaise ?? null,
+          provider: result.provider ?? "stock",
+          model: result.model ?? String(voice),
+          reservationId: null,
+        });
     spoken.push({ line, wav: parseWav(result.wav) });
   }
   const first = spoken[0]?.wav;
@@ -1327,13 +1368,26 @@ export async function synthesizeGuidedNarration(params: {
     item.wav.pcm.copy(pcm, start, 0, Math.min(item.wav.pcm.length, allowed));
   }
   const wav = buildWav(first.format, pcm);
+  const audioPath = await params.upload(wav, "audio/wav");
+  const artifactHash = createHash("sha256").update(wav).digest("hex");
   return {
-    audioPath: await params.upload(wav, "audio/wav"),
+    audioPath,
     totalDurationSec: totalMs / 1000,
     provider: "guided-cast",
     model: "per-role-snapshots",
     accountingMode: "independently_settled",
     costPaise: null,
+    receipts: billingReceipts.map((receipt) => ({
+      stableIdentity: `guided-narration:${receipt.lineId}:${receipt.reservationId}`,
+      cueIdentity: receipt.lineId,
+      rawProviderCostPaise: receipt.rawProviderCostPaise,
+      provider: receipt.provider,
+      model: receipt.model,
+      reservationId: receipt.reservationId,
+      artifactPath: audioPath,
+      artifactHash,
+      unmetered: false,
+    })),
     cues: lines.map((line) => ({
       text: line.text,
       startSec: line.startMs / 1000,
@@ -1346,6 +1400,7 @@ export async function synthesizeGuidedNarration(params: {
  * by a planning-only Character Story board. */
 export async function prepareCharacterStoryStoryboard(params: {
   tenantId: number;
+  videoJobId?: number;
   storyboard: VideoStoryboard;
   characterId: number;
   selectedOutfitId: number;
@@ -1394,7 +1449,9 @@ export async function prepareCharacterStoryStoryboard(params: {
     }
     const narration = await synthesizeNarration(sentences, params.voice, {
       clonedVoice: params.clonedVoice ?? null,
-      billing: { tenantId: params.tenantId, refKind: "videoStoryboard" },
+      billing: params.videoJobId == null
+        ? { tenantId: params.tenantId, refKind: "videoStoryboard" }
+        : { tenantId: params.tenantId, refKind: "videoJob", refId: `${params.videoJobId}:0` },
     });
     const cueDurations = sceneDurations(narration.cues, narration.totalDurationSec);
     const audioPath = await params.upload(narration.wav, "audio/wav");
@@ -1508,6 +1565,7 @@ function normalizeNarrationText(text: string): string {
  */
 export async function refreshEditedNarration(params: {
   tenantId?: number;
+  videoJobId?: number;
   storyboard: VideoStoryboard;
   voice: NarrationVoice;
   clonedVoice?: ClonedVoiceRef | null;
@@ -1540,7 +1598,9 @@ export async function refreshEditedNarration(params: {
     clonedVoice: params.clonedVoice ?? null,
     billing:
       params.tenantId !== undefined
-        ? { tenantId: params.tenantId, refKind: "videoStoryboard" }
+        ? params.videoJobId == null
+          ? { tenantId: params.tenantId, refKind: "videoStoryboard" }
+          : { tenantId: params.tenantId, refKind: "videoJob", refId: `${params.videoJobId}:0` }
         : null,
   });
   const durations = sceneDurations(recorded.cues, recorded.totalDurationSec);

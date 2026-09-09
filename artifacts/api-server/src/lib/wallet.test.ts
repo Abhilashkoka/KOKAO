@@ -6,6 +6,8 @@ import {
   walletProviderOperationsTable,
   walletSettlementRetriesTable,
   walletSettingsTable,
+  videoDeliveryBillingManifestsTable,
+  videoDeliveryBillingItemsTable,
   aiSpendSettingsTable,
   featureFlagsTable,
   tenantsTable,
@@ -45,12 +47,20 @@ import {
   listVideoWalletReconciliationReport,
   getVideoJobWalletChargesPaise,
   reconcileVideoJobWalletCost,
+  freezeVideoDeliveryBillingManifest,
+  inspectVideoDeliveryBillingManifest,
   reservationFromRow,
   trueUpModel,
   sweepStuckPendingTrueUps,
   reconcilePendingModel,
   startTrueUpRetrySweep,
   stopTrueUpRetrySweep,
+  buildVideoDeliveryBillingItems,
+  materializeHistoricalGuidedDeliveryBilling,
+  finalizeVideoDeliveryBillingAndSuccess,
+  reconcileVideoDeliveryBillingManifest,
+  sweepReadyVideoDeliveryManifests,
+  allVideoBillingChainReservationIds,
   initTrueUpFailCounts,
   resetTrueUpFailCounts,
   WALLET_TRUEUP_FAIL_ALERT_THRESHOLD,
@@ -122,6 +132,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(videoDeliveryBillingItemsTable).where(
+    sql`${videoDeliveryBillingItemsTable.manifestId} in (select id from video_delivery_billing_manifests where tenant_id = ${tenantId})`,
+  );
+  await db.delete(videoDeliveryBillingManifestsTable).where(eq(videoDeliveryBillingManifestsTable.tenantId, tenantId));
   await db
     .delete(walletProviderOperationsTable)
     .where(eq(walletProviderOperationsTable.tenantId, tenantId));
@@ -139,6 +153,10 @@ afterAll(async () => {
 
 beforeEach(async () => {
   vi.restoreAllMocks();
+  await db.delete(videoDeliveryBillingItemsTable).where(
+    sql`${videoDeliveryBillingItemsTable.manifestId} in (select id from video_delivery_billing_manifests where tenant_id = ${tenantId})`,
+  );
+  await db.delete(videoDeliveryBillingManifestsTable).where(eq(videoDeliveryBillingManifestsTable.tenantId, tenantId));
   await db
     .delete(walletProviderOperationsTable)
     .where(eq(walletProviderOperationsTable.tenantId, tenantId));
@@ -433,6 +451,551 @@ describe("reserve / settle / refund", () => {
       expect(rows.filter((row) => row.kind === "refund")).toHaveLength(1);
       expect((await db.select().from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, job.id)))[0]?.spendPaise).toBe(0);
+    } finally {
+      await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id));
+    }
+  });
+});
+
+describe("v2 delivery billing manifests", () => {
+  it("collects confirmed exact videoJob operations without namespace collisions", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId, engine: "topic_to_video", status: "processing", funding: "wallet",
+      options: { billingPolicyVersion: 2, aspectRatio: "16:9" },
+    }).returning();
+    const exactReservation = await reserveWallet(tenantId, "caption");
+    const failedLineReservation = await reserveWallet(tenantId, "caption");
+    const collisionReservations = await Promise.all([
+      reserveWallet(tenantId, "caption"),
+      reserveWallet(tenantId, "caption"),
+      reserveWallet(tenantId, "caption"),
+      reserveWallet(tenantId, "caption"),
+    ]);
+    const exact = await beginWalletProviderOperation({
+      tenantId, reservation: exactReservation!, operationKind: "brand_voice_tts",
+      settlement: { kind: "caption", costPaise: 10, refKind: "videoJob", refId: `${job.id}:0` },
+    });
+    const failedLine = await beginWalletProviderOperation({
+      tenantId, reservation: failedLineReservation!,
+      operationKind: "brand_voice_tts",
+      settlement: {
+        kind: "caption", costPaise: 10, refKind: "videoJob",
+        refId: `${job.id}:1`,
+      },
+    });
+    const refs = [
+      { refKind: "guidedStoryReference", refId: String(job.id) },
+      { refKind: "videoJob", refId: `${job.id}:0:1` },
+      { refKind: "videoJob", refId: `${job.id}:cue` },
+      { refKind: "videoJob", refId: `${job.id}0:0` },
+    ];
+    const collisions = await Promise.all(refs.map((ref, index) =>
+      beginWalletProviderOperation({
+        tenantId, reservation: collisionReservations[index]!,
+        operationKind: "brand_voice_tts",
+        settlement: { kind: "caption", costPaise: 10, ...ref },
+      })));
+    await confirmWalletProviderOperationSucceeded(exact.id, {
+      costPaise: 10,
+      providerCredits: "0.10000000",
+    });
+    await settleWalletProviderOperationDurably(exact.id);
+    await markWalletProviderOperationFailed(failedLine.id, new Error("line 1 failed"));
+    await Promise.all(collisions.map((collision) =>
+      confirmWalletProviderOperationSucceeded(collision.id, { costPaise: 10 })));
+    const result = await allVideoBillingChainReservationIds(job);
+    expect(result.reservationIds).toContain(exactReservation!.id);
+    expect(result.reservationIds).not.toContain(failedLineReservation!.id);
+    for (const reservation of collisionReservations) {
+      expect(result.reservationIds).not.toContain(reservation!.id);
+    }
+    const recoveryManifest = await freezeVideoDeliveryBillingManifest({
+      tenantId,
+      completedJobId: job.id,
+      chainId: result.chainId,
+      idempotencyKey: `partial-guided-recovery:${job.id}`,
+      internalFinalization: true,
+      reservationIds: result.reservationIds,
+      items: [{
+        operationIdentity: `guided-narration:${job.id}:0`,
+        kind: "narration",
+        rawProviderCostPaise: 10,
+        providerReservationId: exactReservation!.id,
+        independentlySettled: true,
+        inclusionReason: "successful line before later Guided narration failure",
+      }],
+    });
+    expect(recoveryManifest.reservationIds).toContain(exactReservation!.id);
+  });
+
+  it("allocates a reusable settled input to only its first delivery", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const shared = await reserveWallet(tenantId, "caption");
+    const firstVideo = await reserveWallet(tenantId, "video");
+    const secondVideo = await reserveWallet(tenantId, "video");
+    const [first, second] = await db.insert(videoGenerationsTable).values([
+      { tenantId, engine: "topic_to_video", status: "processing", funding: "wallet",
+        options: { billingPolicyVersion: 2, aspectRatio: "16:9" } },
+      { tenantId, engine: "topic_to_video", status: "processing", funding: "wallet",
+        options: { billingPolicyVersion: 2, aspectRatio: "16:9" } },
+    ]).returning();
+    const input = {
+      operationIdentity: "shared-script-operation",
+      kind: "script",
+      rawProviderCostPaise: 100,
+      providerReservationId: shared!.id,
+      independentlySettled: true,
+      inclusionReason: "accepted script",
+    };
+    await finalizeVideoDeliveryBillingAndSuccess({
+      tenantId, jobId: first!.id, items: [
+        input,
+        { operationIdentity: `video:${first!.id}`, kind: "video_event",
+          rawProviderCostPaise: 50, inclusionReason: "delivered video" },
+      ],
+      reservationIds: [shared!.id, firstVideo!.id], terminal: {},
+    });
+    await finalizeVideoDeliveryBillingAndSuccess({
+      tenantId, jobId: second!.id, items: [
+        input,
+        { operationIdentity: `video:${second!.id}`, kind: "video_event",
+          rawProviderCostPaise: 60, inclusionReason: "delivered video" },
+      ],
+      reservationIds: [shared!.id, secondVideo!.id], terminal: {},
+    });
+    const reused = await inspectVideoDeliveryBillingManifest(second!.id);
+    expect(reused!.manifest.rawProviderCostPaise).toBe(60);
+    expect(reused!.manifest.reservationIds).not.toContain(shared!.id);
+    expect(reused!.items.find((item) => item.operationIdentity === input.operationIdentity))
+      .toMatchObject({
+        rawProviderCostPaise: 0,
+        providerReservationId: null,
+        unmetered: true,
+      });
+  });
+
+  it("atomically freezes aggregate cost with one fee and replays succeeded jobs", async () => {
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "wallet",
+      options: { billingPolicyVersion: 2, aspectRatio: "16:9" },
+    }).returning();
+    const items = ["script", "portrait", "reference_sheet", "video_event"].map(
+      (kind, index) => ({
+        operationIdentity: `${kind}:${index}`,
+        kind,
+        rawProviderCostPaise: (index + 1) * 100,
+        inclusionReason: "test delivered",
+      }),
+    );
+    try {
+      const manifest = await finalizeVideoDeliveryBillingAndSuccess({
+        tenantId,
+        jobId: job.id,
+        items,
+        reservationIds: [],
+        terminal: { videoPath: `/objects/${tenantId}/test.mp4` },
+      });
+      expect(manifest.rawProviderCostPaise).toBe(1_000);
+      expect(manifest.targetChargePaise).toBe(1_200);
+      expect((await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job.id)))[0]?.status).toBe("succeeded");
+      expect((await finalizeVideoDeliveryBillingAndSuccess({
+        tenantId,
+        jobId: job.id,
+        items,
+        reservationIds: [],
+        terminal: { videoPath: `/objects/${tenantId}/test.mp4` },
+      })).id).toBe(manifest.id);
+    } finally {
+      await db.delete(videoDeliveryBillingItemsTable).where(
+        sql`${videoDeliveryBillingItemsTable.manifestId} in (select id from video_delivery_billing_manifests where completed_job_id = ${job.id})`,
+      );
+      await db.delete(videoDeliveryBillingManifestsTable)
+        .where(eq(videoDeliveryBillingManifestsTable.completedJobId, job.id));
+      await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id));
+    }
+  });
+
+  it("dry-runs a legacy Guided job as pending without mutating wallet", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 5_000 });
+    const reservation = await reserveWallet(tenantId, "video");
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "topic_to_video",
+      status: "succeeded",
+      funding: "wallet",
+      walletReservationId: reservation!.id,
+      walletReservedPaise: reservation!.amountPaise,
+      walletReservedUnits: reservation!.units,
+      videoPath: `/objects/${tenantId}/legacy.mp4`,
+      options: {
+        aspectRatio: "16:9",
+        guidedStory: {
+          draftId: 7,
+          draftRevision: 3,
+          scriptApprovedAt: new Date().toISOString(),
+          platform: {},
+          script: {},
+          cast: [],
+        },
+      } as any,
+    }).returning();
+    try {
+      const before = await getWalletBalancePaise(tenantId);
+      const dryRun = await materializeHistoricalGuidedDeliveryBilling(job.id);
+      expect(dryRun.status).toBe("pending_cost");
+      expect(dryRun.reservationIds).toContain(reservation!.id);
+      expect(dryRun.items.some((item) => item.operationIdentity === `legacy-guided-video:${job.id}`)).toBe(true);
+      expect(await getWalletBalancePaise(tenantId)).toBe(before);
+    } finally {
+      await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id));
+    }
+  });
+
+  it("keeps distinct no-id events and deduplicates only stable ids", () => {
+    const job = {
+      id: 991,
+      options: {
+        billingPolicyVersion: 2,
+        acceptedInputs: [{
+          stableIdentity: "script:991",
+          operationIdentity: "script:991",
+          kind: "script",
+          rawProviderCostPaise: 10,
+          provider: "p",
+          model: "m",
+          operationId: null,
+          reservationId: null,
+          artifactPath: null,
+          artifactHash: null,
+        }],
+        guidedStory: { draftId: 1, draftRevision: 1 },
+      },
+    } as any;
+    const items = buildVideoDeliveryBillingItems(job, [
+      { eventId: "same", provider: "p", model: "m", durationSec: 1, label: "x", costPaise: 5 },
+      { eventId: "same", provider: "p", model: "m", durationSec: 1, label: "x", costPaise: 5 },
+      { provider: "p", model: "m", durationSec: 1, label: "x", costPaise: 7 },
+      { provider: "p", model: "m", durationSec: 1, label: "x", costPaise: 8 },
+    ]);
+    expect(items.filter((item) => item.kind === "video_event")).toHaveLength(3);
+    expect(items.some((item) => item.rawProviderCostPaise === null && item.kind === "backdrop")).toBe(false);
+  });
+
+  it("includes accounted recovery events once and turns conflicting IDs pending", () => {
+    const job = {
+      id: 992,
+      funding: "wallet",
+      options: {
+        billingPolicyVersion: 2,
+        renderCheckpoint: {
+          providerEvents: [{
+            eventId: "source-event",
+            provider: "replicate",
+            model: "source-model",
+            durationSec: 5,
+            requestBytes: 1,
+            label: "source",
+            costPaise: 100,
+            accounted: true,
+          }],
+        },
+      },
+    } as any;
+    const included = buildVideoDeliveryBillingItems(job);
+    expect(included.filter((item) => item.operationIdentity === "source-event")).toHaveLength(1);
+    const conflict = buildVideoDeliveryBillingItems(job, [
+      { eventId: "source-event", provider: "replicate", model: "source-model",
+        durationSec: 5, label: "source", costPaise: 100 },
+      { eventId: "source-event", provider: "replicate", model: "different",
+        durationSec: 5, label: "source", costPaise: 101 },
+      { eventId: "source-event", provider: "replicate", model: "source-model",
+        durationSec: 5, label: "source", costPaise: 100 },
+    ]);
+    expect(conflict.find((item) => item.operationIdentity === "source-event")?.rawProviderCostPaise).toBeNull();
+  });
+
+  it("uses live events without duplicating checkpoint collections", () => {
+    const items = buildVideoDeliveryBillingItems({
+      id: 994,
+      funding: "wallet",
+      options: {
+        billingPolicyVersion: 2,
+        renderCheckpoint: {
+          providerEvents: [{
+            eventId: "same-event", provider: "replicate", model: "old",
+            durationSec: 1, label: "checkpoint", costPaise: 999,
+          }],
+        },
+      },
+    } as any, [{
+      eventId: "same-event", provider: "replicate", model: "live",
+      durationSec: 2, label: "live", costPaise: 123,
+    }]);
+    expect(items.filter((item) => item.operationIdentity === "same-event")).toHaveLength(1);
+    expect(items.find((item) => item.operationIdentity === "same-event"))
+      .toMatchObject({ model: "live", rawProviderCostPaise: 123 });
+  });
+
+  it("marks identical no-ID receipts from ambiguous sources unknown", () => {
+    const event = {
+      provider: "replicate", model: "model", durationSec: 1,
+      label: "render", costPaise: 100,
+    };
+    const items = buildVideoDeliveryBillingItems({
+      id: 9941, funding: "wallet", options: { billingPolicyVersion: 2 },
+    } as any, [event, { ...event, accounted: true }] as any);
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: "video_event_completeness",
+      rawProviderCostPaise: null,
+    }));
+    expect(items.filter((item) =>
+      item.kind === "video_event" && item.rawProviderCostPaise === 100)).toHaveLength(0);
+  });
+
+  it("adds an unknown sentinel for delivered narration without a receipt", () => {
+    const items = buildVideoDeliveryBillingItems({
+      id: 995,
+      funding: "wallet",
+      options: { billingPolicyVersion: 2 },
+      storyboard: {
+        narration: {
+          audioPath: "/objects/1/narration.mp3",
+          totalDurationSec: 1,
+          cues: [],
+        },
+        scenes: [],
+      },
+    } as any);
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: "narration",
+      artifactPath: "/objects/1/narration.mp3",
+      rawProviderCostPaise: null,
+    }));
+  });
+
+  it("requires immutable coverage for every frozen external narration cue", () => {
+    const items = buildVideoDeliveryBillingItems({
+      id: 996,
+      funding: "wallet",
+      options: {
+        billingPolicyVersion: 2,
+        expectedExternalNarrationCueIdentities: ["line-a", "line-b"],
+        guidedStory: {
+          script: { scenes: [{ lines: [{ id: "line-a" }, { id: "line-b" }] }] },
+        },
+      },
+      storyboard: {
+        narration: {
+          audioPath: "/objects/1/narration.wav",
+          totalDurationSec: 1,
+          cues: [],
+          receipts: [{
+            stableIdentity: "narration:line-a",
+            cueIdentity: "line-a",
+            rawProviderCostPaise: 100,
+            provider: "elevenlabs",
+            model: "v3",
+            reservationId: 44,
+            artifactPath: "/objects/1/narration.wav",
+            artifactHash: "abc",
+          }],
+        },
+        scenes: [],
+      },
+    } as any);
+    expect(items).toContainEqual(expect.objectContaining({
+      operationIdentity: "narration-missing:996:line-b",
+      rawProviderCostPaise: null,
+    }));
+  });
+
+  it("does not require external narration for native-audio video delivery", () => {
+    const items = buildVideoDeliveryBillingItems({
+      id: 997, funding: "wallet",
+      options: {
+        billingPolicyVersion: 2,
+        expectedExternalNarrationCueIdentities: [],
+      },
+    } as any, [{
+      eventId: "native-video", provider: "replicate", model: "native-audio",
+      durationSec: 4, label: "render", costPaise: 200,
+    }]);
+    expect(items.every((item) => item.rawProviderCostPaise !== null)).toBe(true);
+    expect(items.some((item) => item.kind === "narration_completeness")).toBe(false);
+  });
+
+  it("accepts exact intrinsic narration scene receipts", () => {
+    const receipt = {
+      stableIdentity: "narration:scene-1", cueIdentity: "scene-1",
+      rawProviderCostPaise: 80, provider: "elevenlabs", model: "v3",
+      reservationId: 45, artifactPath: "/objects/1/scene-1.wav",
+      artifactHash: "hash",
+    };
+    const items = buildVideoDeliveryBillingItems({
+      id: 998, funding: "wallet",
+      options: {
+        billingPolicyVersion: 2,
+        expectedExternalNarrationCueIdentities: ["scene-1"],
+        guidedStoryIntrinsicLipSync: {
+          checkpoint: { scenes: [{ sceneId: "scene-1", audioPath: receipt.artifactPath,
+            narrationReceipt: receipt }] },
+        },
+      },
+    } as any, [{
+      eventId: "video", provider: "replicate", model: "sync",
+      durationSec: 2, label: "render", costPaise: 100,
+    }]);
+    expect(items.every((item) => item.rawProviderCostPaise !== null)).toBe(true);
+    expect(items.some((item) => item.kind === "narration_completeness")).toBe(false);
+  });
+
+  it("keeps mixed known and unknown external narration pending", () => {
+    const makeReceipt = (cueIdentity: string, rawProviderCostPaise: number | null) => ({
+      stableIdentity: `narration:${cueIdentity}`, cueIdentity,
+      rawProviderCostPaise, provider: "elevenlabs", model: "v3",
+      reservationId: rawProviderCostPaise === null ? null : 46,
+      artifactPath: `/objects/1/${cueIdentity}.wav`, artifactHash: "hash",
+    });
+    const items = buildVideoDeliveryBillingItems({
+      id: 999, funding: "wallet",
+      options: {
+        billingPolicyVersion: 2,
+        expectedExternalNarrationCueIdentities: ["known", "stock"],
+      },
+      storyboard: {
+        narration: {
+          audioPath: "/objects/1/mixed.wav", totalDurationSec: 2, cues: [],
+          receipts: [makeReceipt("known", 70), makeReceipt("stock", null)],
+        },
+        scenes: [],
+      },
+    } as any);
+    expect(items.find((item) => item.operationIdentity === "narration:stock")
+      ?.rawProviderCostPaise).toBeNull();
+  });
+
+  it("includes every unique Guided backdrop override with unknown sentinels", () => {
+    const items = buildVideoDeliveryBillingItems({
+      id: 993,
+      funding: "wallet",
+      options: {
+        billingPolicyVersion: 2,
+        guidedStory: {
+          draftId: 1,
+          draftRevision: 1,
+          backdrops: {
+            default: { imagePath: "/default.png", imageSha256: "a" },
+            sceneOverrides: {
+              one: { imagePath: "/override.png", imageSha256: "b" },
+              two: { imagePath: "/override.png", imageSha256: "b" },
+            },
+          },
+        },
+      },
+    } as any);
+    const backdrops = items.filter((item) => item.kind === "backdrop");
+    expect(backdrops).toHaveLength(2);
+    expect(backdrops.every((item) => item.rawProviderCostPaise === null)).toBe(true);
+  });
+
+  it("sweeps an unresolved video hold and transactionally true-ups a reserve shortfall", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 200_000 });
+    const reservation = await reserveWallet(tenantId, "video");
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId, engine: "topic_to_video", status: "processing", funding: "wallet",
+      walletReservationId: reservation!.id,
+      walletReservedPaise: reservation!.amountPaise,
+      walletReservedUnits: reservation!.units,
+      options: { billingPolicyVersion: 2, aspectRatio: "16:9" },
+    }).returning();
+    try {
+      const manifest = await finalizeVideoDeliveryBillingAndSuccess({
+        tenantId,
+        jobId: job.id,
+        items: [{
+          operationIdentity: `video:${job.id}`,
+          kind: "video_event",
+          rawProviderCostPaise: reservation!.amountPaise * 2,
+          inclusionReason: "delivered",
+        }],
+        reservationIds: [reservation!.id],
+        terminal: { videoPath: `/objects/${tenantId}/shortfall.mp4` },
+      });
+      expect(manifest.status).toBe("ready");
+      expect(await sweepReadyVideoDeliveryManifests()).toBeGreaterThanOrEqual(1);
+      const [a, b] = await Promise.all([
+        reconcileVideoDeliveryBillingManifest(job.id),
+        reconcileVideoDeliveryBillingManifest(job.id),
+      ]);
+      expect(a.manifest.status).toBe("settled");
+      expect(b.appliedPaise).toBe(0);
+      const [saved] = await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job.id));
+      expect(saved!.spendPaise).toBe(manifest.targetChargePaise);
+    } finally {
+      await db.delete(videoDeliveryBillingItemsTable).where(
+        sql`${videoDeliveryBillingItemsTable.manifestId} in (select id from video_delivery_billing_manifests where completed_job_id = ${job.id})`,
+      );
+      await db.delete(videoDeliveryBillingManifestsTable)
+        .where(eq(videoDeliveryBillingManifestsTable.completedJobId, job.id));
+      await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id));
+    }
+  });
+
+  it("freezes unknown costs as pending and replays canonically", async () => {
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId, engine: "test", status: "succeeded", funding: "wallet",
+      options: { aspectRatio: "16:9" },
+    }).returning({ id: videoGenerationsTable.id });
+    try {
+      const item = {
+        operationIdentity: "op-a", kind: "image", provider: "p", model: "m",
+        rawProviderCostPaise: null, inclusionReason: "delivered",
+        artifactPath: "/a", artifactHash: "h", sourceMetadata: { z: 1, a: 2 },
+      };
+      const first = await freezeVideoDeliveryBillingManifest({
+        tenantId, completedJobId: job.id, chainId: job.id,
+        idempotencyKey: `test-${job.id}`, items: [item], reservationIds: [],
+      });
+      expect(first.status).toBe("pending_cost");
+      const replay = await freezeVideoDeliveryBillingManifest({
+        tenantId, completedJobId: job.id, chainId: job.id,
+        idempotencyKey: `test-${job.id}`, items: [{ ...item, sourceMetadata: { a: 2, z: 1 } }],
+        reservationIds: [],
+      });
+      expect(replay.id).toBe(first.id);
+      expect((await inspectVideoDeliveryBillingManifest(job.id))?.items).toHaveLength(1);
+    } finally {
+      await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id));
+    }
+  });
+
+  it("atomically succeeds a v2 job with an unknown-cost pending manifest", async () => {
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId, engine: "test", status: "processing", funding: "wallet",
+      options: { billingPolicyVersion: 2, aspectRatio: "16:9" },
+    }).returning();
+    try {
+      const manifest = await finalizeVideoDeliveryBillingAndSuccess({
+        tenantId,
+        jobId: job.id,
+        items: [{
+          operationIdentity: `unknown:${job.id}`,
+          kind: "video_event",
+          rawProviderCostPaise: null,
+          inclusionReason: "provider receipt has no frozen raw cost",
+        }],
+        reservationIds: [],
+        terminal: { videoPath: `/objects/${tenantId}/unknown.mp4` },
+      });
+      expect(manifest.status).toBe("pending_cost");
+      expect((await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job.id)))[0]?.status).toBe("succeeded");
     } finally {
       await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id));
     }

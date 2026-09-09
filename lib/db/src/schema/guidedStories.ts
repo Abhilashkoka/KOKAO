@@ -55,6 +55,22 @@ export interface GuidedStoryScript {
   warnings: string[];
 }
 
+/** Immutable server-authored receipt for a paid Guided input. */
+export interface GuidedStoryBillingReceipt {
+  version: 2;
+  operationIdentity: string;
+  kind: "script" | "portrait" | "reference_sheet" | "outfit" | "backdrop";
+  provider: string | null;
+  model: string | null;
+  rawProviderCostPaise: number | null;
+  operationId: number | null;
+  reservationId: number | null;
+  artifactPath: string | null;
+  artifactHash: string | null;
+  unmetered?: boolean;
+  recordedAt: string;
+}
+
 export interface GuidedStoryCastSnapshot {
   roleId: string;
   source: "saved" | "generated";
@@ -103,6 +119,18 @@ export interface GuidedStoryCastSnapshot {
     provider: string;
     model: string;
     operationId: number | null;
+    rawProviderCostPaise?: number | null;
+    reservationId?: number | null;
+    artifactHash?: string | null;
+    sheet?: {
+      path: string;
+      provider: string;
+      model: string;
+      operationId: number | null;
+      rawProviderCostPaise: number | null;
+      reservationId: number | null;
+      artifactHash: string;
+    } | null;
   } | null;
 }
 
@@ -141,6 +169,13 @@ export interface GuidedStoryBackdropReference {
   fingerprint: string;
   revision: number;
   approvedAt: string | null;
+  /** Server-authored provenance only; never populated from client billing claims. */
+  provenance?: {
+    kind: "provider" | "uploaded" | "local";
+    operationIdentity: string | null;
+    rawProviderCostPaise: number | null;
+    artifactSha256: string | null;
+  } | null;
 }
 
 /** The default plate plus explicit, independently-approved scene assignments. */
@@ -220,6 +255,13 @@ export interface GuidedStoryDraftState {
 
   script: GuidedStoryScript | null;
 
+  /** Present only on v2 drafts; legacy drafts remain marker-absent. */
+  billingReceipts?: {
+    version: 2;
+    script?: GuidedStoryBillingReceipt | null;
+    assets: Record<string, GuidedStoryBillingReceipt>;
+  };
+
   scriptApprovedAt: string | null;
 
   userRoleId: string | null;
@@ -285,6 +327,9 @@ export interface GuidedStoryDraftState {
       units: number;
     } | null;
     operationId?: number | null;
+     rawProviderCostPaise?: number | null;
+     reservationId?: number | null;
+     artifactHash?: string | null;
     provider?: string;
     model?: string;
     imageBase64?: string;
@@ -329,6 +374,9 @@ export interface GuidedStoryDraftState {
         units: number;
       } | null;
       operationId?: number | null;
+       rawProviderCostPaise?: number | null;
+       reservationId?: number | null;
+       artifactHash?: string | null;
       provider?: string;
       model?: string;
       imageBase64?: string;
@@ -412,6 +460,9 @@ export interface GuidedStoryReferenceOperation {
     units: number;
   } | null;
   providerOperationId?: number | null;
+  rawProviderCostPaise?: number | null;
+  reservationId?: number | null;
+  artifactHash?: string | null;
   provider?: string | null;
   model?: string | null;
   providerStartedAt?: string | null;

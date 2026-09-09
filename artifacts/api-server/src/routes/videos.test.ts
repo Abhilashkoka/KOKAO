@@ -4316,6 +4316,19 @@ describe("guided story route fail-closed regressions", () => {
         JSON.stringify(current!.state.castOperations),
       ).toHaveLength(2);
       expect(current!.state.castOperations).toEqual({});
+      expect(
+        Object.values(current!.state.billingReceipts?.assets ?? {})
+          .filter((receipt) => receipt.kind === "reference_sheet"),
+      ).toHaveLength(2);
+      expect(
+        current!.state.cast.every((member) =>
+          !member.generatedAsset?.sheet ||
+          Object.values(current!.state.billingReceipts?.assets ?? {}).some((receipt) =>
+            receipt.artifactPath === member.generatedAsset!.sheet!.path &&
+            receipt.artifactHash === member.generatedAsset!.sheet!.artifactHash
+          )
+        ),
+      ).toBe(true);
     }, { timeout: 10_000 });
 
     expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(3);
@@ -5892,6 +5905,25 @@ describe("guided story route fail-closed regressions", () => {
       scriptGeneration: null,
       castOperations: {},
       storyboardJobId: null,
+      billingReceipts: {
+        version: 2,
+        script: null,
+        assets: {
+          stale: {
+            version: 2,
+            operationIdentity: "stale-generated-portrait",
+            kind: "portrait",
+            provider: "replicate",
+            model: "old",
+            rawProviderCostPaise: 25,
+            operationId: null,
+            reservationId: null,
+            artifactPath: cast[0]!.character.referenceImagePath,
+            artifactHash: "stale",
+            recordedAt: approvedAt,
+          },
+        },
+      },
     };
     const [draft] = await db.insert(guidedStoryDraftsTable).values({
       tenantId: tenant.tenantId,
@@ -6058,6 +6090,7 @@ describe("guided story route fail-closed regressions", () => {
       .where(eq(guidedStoryDraftsTable.id, draft!.id));
     expect(savedDraft!.revision).toBe(4);
     expect(savedDraft!.state.cast[0]!.characterId).toBe(character!.id);
+    expect(savedDraft!.state.billingReceipts?.assets).toEqual({});
 
     const unknownStart = await request(app)
       .put(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)

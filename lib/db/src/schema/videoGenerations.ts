@@ -15,6 +15,7 @@ import type {
   GuidedStoryLocale,
   GuidedStoryScript,
   GuidedStoryImageModelSnapshot,
+  GuidedStoryBillingReceipt,
 } from "./guidedStories";
 
 /**
@@ -125,6 +126,18 @@ export interface GuidedStoryDialogueReplaySnapshot {
 }
 
 /** Durable line-level replay progress; additive on replay storyboards only. */
+export interface VideoNarrationReceipt {
+  stableIdentity: string;
+  cueIdentity: string;
+  rawProviderCostPaise: number | null;
+  provider: string;
+  model: string;
+  reservationId: number | null;
+  artifactPath: string;
+  artifactHash: string | null;
+  unmetered?: boolean;
+}
+
 export interface GuidedStoryDialogueReplayCheckpoint {
   version: 1;
   operationId: string;
@@ -154,6 +167,7 @@ export interface GuidedStoryDialogueReplayCheckpoint {
     provider: string;
     model: string;
     eventId?: string;
+    narrationReceipt?: VideoNarrationReceipt;
     /** Owner lines retain the approved-still animation and lip-sync receipts. */
     platePath?: string;
     animationEvent?: {
@@ -190,6 +204,11 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** v2 immutable delivery billing contract; marker-absent rows are legacy. */
+  billingPolicyVersion?: 2;
+  acceptedInputs?: Array<GuidedStoryBillingReceipt & {
+    stableIdentity: string;
+  }>;
   /** Temporary Atlas backdrop references owned by this job until every dependent prediction is terminal. */
   guidedAtlasBackdropAssets?: Record<string, {
     version: 1;
@@ -269,6 +288,7 @@ export interface VideoJobOptions {
           | "complete"
           | "skipped";
         audioPath?: string;
+        narrationReceipt?: VideoNarrationReceipt;
         platePath?: string;
         outputPath?: string;
         skipReason?: string;
@@ -299,6 +319,11 @@ export interface VideoJobOptions {
       }>;
     };
   } | null;
+  /**
+   * Exact external-TTS cues frozen by execution. An empty array explicitly
+   * proves that narration was native to the video provider.
+   */
+  expectedExternalNarrationCueIdentities?: string[];
   /**
    * Immutable server-resolved optional finishing contract. Dedicated
    * lip_sync/dialogue_lip_sync jobs never carry this snapshot.
@@ -1433,6 +1458,8 @@ export interface VideoStoryboard {
       unitWeight?: number;
       accountingMode?: "aggregate" | "unmetered" | "independently_settled";
     };
+    receipt?: VideoNarrationReceipt;
+    receipts?: VideoNarrationReceipt[];
   } | null;
   /**
    * Non-spoken verification markers removed from the generated script before

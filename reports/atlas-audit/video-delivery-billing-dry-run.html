@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>KOKAO historical delivery billing dry-run</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0b1020; color: #e8ecf7; }
+    body { margin: 0; padding: 40px 24px; }
+    main { max-width: 1120px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 5vw, 48px); }
+    p { color: #aab4cc; line-height: 1.6; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin: 28px 0; }
+    .metric, .card { background: #121a2f; border: 1px solid #263252; border-radius: 16px; }
+    .metric { padding: 18px; }
+    .metric strong { display: block; font-size: 28px; color: #fff; }
+    .metric span { color: #9aa6c0; }
+    .card { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 850px; }
+    th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid #263252; vertical-align: top; }
+    th { color: #9fb6ff; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    .pending { color: #ffd479; font-weight: 700; }
+    .unsupported { color: #aab4cc; font-weight: 700; }
+    .ok { color: #86efac; font-weight: 700; }
+    code { color: #c7d2fe; }
+    a { color: #9fb6ff; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Historical delivery billing dry-run</h1>
+  <p>Mandatory policy: aggregate exact raw provider costs for every delivered video and accepted input, apply the frozen platform markup once, then credit previously collected component payments. Estimates are prohibited.</p>
+  <div class="summary">
+    <div class="metric"><strong>5</strong><span>completed jobs pending exact cost</span></div>
+    <div class="metric"><strong>1</strong><span>failed source attempt unsupported</span></div>
+    <div class="metric"><strong>0</strong><span>wallet adjustments posted</span></div>
+    <div class="metric"><strong class="ok">Unchanged</strong><span>5,768 ledger rows; net −2,705,953 paise</span></div>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>Job</th><th>Status</th><th>Reservations found</th><th>Missing immutable evidence</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td>#69001</td><td class="pending">pending_cost</td><td><code>46969, 46971, 46973</code></td><td>Backdrop provenance; script receipt; complete historical membership proof</td><td>None</td></tr>
+        <tr><td>#69706</td><td class="pending">pending_cost</td><td><code>47466, 47468</code></td><td>Backdrop provenance; script receipt; complete historical membership proof</td><td>None</td></tr>
+        <tr><td>#69716</td><td class="pending">pending_cost</td><td><code>47494</code></td><td>Backdrop provenance; script receipt; complete historical membership proof</td><td>None</td></tr>
+        <tr><td>#69717</td><td class="pending">pending_cost</td><td><code>47514</code></td><td>Backdrop provenance; script receipt; complete historical membership proof</td><td>None</td></tr>
+        <tr><td>#69771</td><td class="unsupported">unsupported</td><td>—</td><td>Failed source attempt, not a completed delivery</td><td>None</td></tr>
+        <tr><td>#69772</td><td class="pending">pending_cost</td><td><code>47543, 47546</code></td><td>Backdrop provenance; script receipt; narration receipt; complete historical membership proof</td><td>None</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The read-only run began and ended with 5,768 wallet-ledger rows, a net ledger amount of −2,705,953 paise, and zero manifests for these jobs. No wallet or manifest mutation occurred. Download the <a href="video-delivery-billing-dry-run.csv">CSV evidence</a>.</p>
+</main>
+</body>
+</html>

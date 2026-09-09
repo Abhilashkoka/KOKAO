@@ -13,6 +13,8 @@ import {
   characterOutfitsTable,
   guidedStoryDraftsTable,
   walletProviderOperationsTable,
+  walletLedgerTable,
+  imageGenerationsTable,
   storyboardPreviewsAreGenerated,
   type CreativeDirection,
   type VideoJobOptions,
@@ -259,6 +261,7 @@ import {
   transcribeAudio,
 } from "../lib/asr";
 import {
+  computeImageCostPaise,
   computeVideoCostPaise,
   computeTextCostPaise,
   findModelPrice,
@@ -515,6 +518,14 @@ type BillableScriptResult = {
   costPaise: number | null;
 };
 
+type BillableScriptSettlementMeta = {
+  operationId: number | null;
+  reservationId: number | null;
+  provider: string;
+  model: string;
+  rawProviderCostPaise: number | null;
+};
+
 class StaleBillableScriptOperationError extends Error {
   constructor(readonly providerCostSettled = false) {
     super("The draft changed while AI work was in progress.");
@@ -530,7 +541,10 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
   >;
   perform: () => Promise<T>;
   /** Runs after provider completion, before success persistence or settlement. */
-  beforeSettlement?: (result: T) => Promise<boolean>;
+  beforeSettlement?: (
+    result: T,
+    meta?: BillableScriptSettlementMeta,
+  ) => Promise<boolean>;
   /**
    * Records and settles confirmed provider work even when the following
    * persistence CAS loses a race. The caller still receives a stale error.
@@ -542,19 +556,29 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
   result: T;
   funding: "wallet" | "unmetered";
   chargedPaise: number | null;
+  operationId: number | null;
+  reservationId: number | null;
 } | null> {
   if (!(await isWalletFunded(args.req.tenantId))) {
     if (args.onFundingReady && !(await args.onFundingReady("unmetered"))) {
       throw new StaleBillableScriptOperationError();
     }
     const result = await args.perform();
-    if (args.beforeSettlement && !(await args.beforeSettlement(result))) {
+    if (args.beforeSettlement && !(await args.beforeSettlement(result, {
+      operationId: null,
+      reservationId: null,
+      provider: result.provider,
+      model: result.model,
+      rawProviderCostPaise: result.costPaise,
+    }))) {
       throw new StaleBillableScriptOperationError();
     }
     return {
       result,
       funding: "unmetered",
       chargedPaise: null,
+      operationId: null,
+      reservationId: null,
     };
   }
 
@@ -606,7 +630,13 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
         if (
           !args.settleProviderSuccessBeforePersistence &&
           args.beforeSettlement &&
-          !(await args.beforeSettlement(result))
+          !(await args.beforeSettlement(result, {
+            operationId: null,
+            reservationId: reservation.id,
+            provider: selectedTextGen.provider,
+            model: selectedTextGen.model,
+            rawProviderCostPaise: result.costPaise,
+          }))
         ) {
           throw new StaleBillableScriptOperationError();
         }
@@ -623,7 +653,13 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     const persistenceWon =
       !args.settleProviderSuccessBeforePersistence ||
       !args.beforeSettlement ||
-      (await args.beforeSettlement(executed.value));
+       (await args.beforeSettlement(executed.value, {
+         operationId: executed.operationId,
+         reservationId: reservation.id,
+         provider: executed.value.provider,
+         model: executed.value.model,
+         rawProviderCostPaise: executed.value.costPaise,
+       }));
     const target = await actualChargePaise({
       kind: "caption",
       costPaise: executed.value.costPaise,
@@ -644,6 +680,8 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
       result: executed.value,
       funding: "wallet",
       chargedPaise: settled?.chargedPaise ?? target.paise,
+      operationId: executed.operationId,
+      reservationId: reservation.id,
     };
   } catch (error) {
     if (
@@ -1739,6 +1777,101 @@ function serializeGuidedReferenceOperation(
     ...publicOperation
   } = operation;
   return publicOperation;
+}
+
+function guidedAcceptedBillingInputs(
+  state: GuidedStoryDraftState,
+  draftId: number,
+  revision: number,
+): NonNullable<VideoJobOptions["acceptedInputs"]> {
+  const receipts = Object.values(state.billingReceipts?.assets ?? {});
+  const accepted: NonNullable<VideoJobOptions["acceptedInputs"]> = [];
+  const script = state.billingReceipts?.script;
+  const unknown = (
+    identity: string,
+    kind: "script" | "portrait" | "reference_sheet" | "outfit" | "backdrop",
+    artifactPath: string | null = null,
+    artifactHash: string | null = null,
+  ) => ({
+    version: 2 as const, stableIdentity: identity, operationIdentity: identity,
+    kind, provider: null, model: null, rawProviderCostPaise: null,
+    operationId: null, reservationId: null, artifactPath, artifactHash,
+    recordedAt: new Date().toISOString(),
+  });
+  accepted.push(script
+    ? { ...script, stableIdentity: script.operationIdentity }
+    : unknown(`guided-script:${draftId}:${revision}`, "script"));
+  for (const member of state.cast) {
+    const assets = [
+      ...(member.generatedAsset ? [{
+        kind: "portrait" as const, path: member.generatedAsset.path,
+        hash: member.generatedAsset.artifactHash ?? null,
+      }] : []),
+      ...(member.generatedAsset?.sheet ? [{
+        kind: "reference_sheet" as const, path: member.generatedAsset.sheet.path,
+        hash: member.generatedAsset.sheet.artifactHash,
+      }] : []),
+      ...(member.outfit?.referenceImagePath &&
+          (member.referenceSource === "generated" || receipts.some((receipt) =>
+            receipt.kind === "outfit" &&
+            receipt.artifactPath === member.outfit?.referenceImagePath)) &&
+          member.outfit.referenceImagePath !== member.generatedAsset?.path
+        ? [{ kind: "outfit" as const, path: member.outfit.referenceImagePath, hash: null }]
+        : []),
+    ];
+    for (const asset of assets) {
+      const receipt = receipts.find((candidate) =>
+        (asset.hash && candidate.artifactHash === asset.hash) ||
+        candidate.artifactPath === asset.path);
+      const identity = `guided-${asset.kind}-unknown:${member.roleId}:${asset.hash ?? asset.path}`;
+      accepted.push(receipt
+        ? { ...receipt, stableIdentity: receipt.operationIdentity }
+        : unknown(identity, asset.kind, asset.path, asset.hash));
+    }
+  }
+  const backdrops = [
+    state.visualChoices?.backdrops?.default,
+    ...Object.values(state.visualChoices?.backdrops?.sceneOverrides ?? {}),
+  ].filter((item): item is NonNullable<typeof item> => item != null);
+  const seenBackdrop = new Set<string>();
+  for (const backdrop of backdrops) {
+    const key = backdrop.imageSha256 ?? backdrop.imagePath;
+    if (seenBackdrop.has(key)) continue;
+    seenBackdrop.add(key);
+    const receipt = receipts.find((candidate) =>
+      candidate.kind === "backdrop" &&
+      ((backdrop.imageSha256 && candidate.artifactHash === backdrop.imageSha256) ||
+        candidate.artifactPath === backdrop.imagePath));
+    if (receipt) {
+      accepted.push({ ...receipt, stableIdentity: receipt.operationIdentity });
+      continue;
+    }
+    const provenance = backdrop.provenance;
+    const identity = provenance?.operationIdentity ?? `guided-backdrop-unknown:${key}`;
+    accepted.push({
+      ...unknown(identity, "backdrop", backdrop.imagePath, backdrop.imageSha256 ?? null),
+      rawProviderCostPaise:
+        provenance?.kind === "provider" ? provenance.rawProviderCostPaise : null,
+    });
+  }
+  return accepted;
+}
+
+function guidedAcceptedArtifactPaths(
+  state: GuidedStoryDraftState,
+  cast: GuidedStoryCastSnapshot[] = state.cast,
+): Set<string> {
+  return new Set([
+    ...cast.flatMap((member) => [
+      member.character.referenceImagePath,
+      member.outfit?.referenceImagePath,
+      member.generatedAsset?.path,
+      member.generatedAsset?.sheet?.path,
+    ]),
+    state.visualChoices?.backdrops?.default?.imagePath,
+    ...Object.values(state.visualChoices?.backdrops?.sceneOverrides ?? {})
+      .map((backdrop) => backdrop.imagePath),
+  ].filter((path): path is string => Boolean(path)));
 }
 
 class UnsupportedGeneratedReferenceImageError extends Error {}
@@ -3784,6 +3917,8 @@ router.post(
     const activeBrand = setup.brandKitId
       ? await loadActivePayload(req.tenantId, setup.brandKitId)
       : null;
+    let scriptReceipt: GuidedStoryDraftState["billingReceipts"] = undefined;
+    let persistedScriptRow: GuidedStoryDraft | null = null;
     let billed: {
       result: Awaited<ReturnType<typeof generateGuidedStoryScript>>;
       funding: "wallet" | "unmetered";
@@ -3794,6 +3929,8 @@ router.post(
         req,
         tenantModel: tenant.aiModel,
         operationKind: "video_script_draft",
+        operationKey: `guided-script:${claimed.id}:${claimed.revision}`,
+        settleProviderSuccessBeforePersistence: true,
         perform: () =>
           generateGuidedStoryScript({
             tenantId: req.tenantId,
@@ -3810,12 +3947,48 @@ router.post(
                 ].join(", ")
               : null,
           }),
+        beforeSettlement: async (result, meta) => {
+          const receipt = {
+            version: 2 as const,
+            operationIdentity: `guided-script:${claimed.id}:${claimed.revision}`,
+            kind: "script" as const,
+            provider: meta?.provider ?? result.provider,
+            model: meta?.model ?? result.model,
+            rawProviderCostPaise: meta?.rawProviderCostPaise ?? result.costPaise,
+            operationId: meta?.operationId ?? null,
+            reservationId: meta?.reservationId ?? null,
+            artifactPath: null,
+            artifactHash: createHash("sha256")
+              .update(JSON.stringify(result.script))
+              .digest("hex"),
+            recordedAt: new Date().toISOString(),
+          };
+          scriptReceipt = {
+            version: 2,
+            script: receipt,
+            assets: claimed.state.billingReceipts?.assets ?? {},
+          };
+          const nextState = invalidateGuidedStoryDownstream(
+            claimed.state,
+            result.script,
+          );
+          const persisted = await saveGuidedState(claimed, claimed.revision, {
+            ...nextState,
+            script: result.script,
+            billingReceipts: scriptReceipt,
+            scriptGeneration: null,
+          });
+          persistedScriptRow = persisted;
+          return Boolean(persisted);
+        },
       });
     } catch (error) {
-      await saveGuidedState(claimed, claimed.revision, {
-        ...claimed.state,
-        scriptGeneration: null,
-      });
+      if (!persistedScriptRow) {
+        await saveGuidedState(claimed, claimed.revision, {
+          ...claimed.state,
+          scriptGeneration: null,
+        });
+      }
       throw error;
     }
     if (!billed) {
@@ -3847,11 +4020,7 @@ router.post(
         "Guided story script usage recording failed",
       );
     });
-    const saved = await saveGuidedState(
-      claimed,
-      claimed.revision,
-      invalidateGuidedStoryDownstream(claimed.state, billed.result.script),
-    );
+    const saved = persistedScriptRow;
     if (!saved) {
       res
         .status(409)
@@ -4819,6 +4988,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 operationId,
                 provider,
                 model,
+            rawProviderCostPaise: await computeImageCostPaise({
+              provider,
+              model,
+              inputTokens: generated.usage?.inputTokens,
+              outputTokens: generated.usage?.outputTokens,
+            }).catch(() => null),
                 // Temporary durable handoff: retries upload these exact paid bytes
                 // and never invoke the provider a second time on any funding rail.
                 imageBase64: paidBuffer.toString("base64"),
@@ -5242,6 +5417,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                   operationId: walletSheet?.operationId ?? null,
                   provider: sheet.provider,
                   model: sheet.model,
+                  rawProviderCostPaise: await computeImageCostPaise({
+                    provider: sheet.provider,
+                    model: sheet.model,
+                    inputTokens: sheet.usage?.inputTokens,
+                    outputTokens: sheet.usage?.outputTokens,
+                  }).catch(() => null),
                   imageBase64: sheet.buffer.toString("base64"),
                   imageByteLength: sheet.buffer.length,
                   updatedAt: new Date().toISOString(),
@@ -5273,6 +5454,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 ...sheetOperation,
                 status: "uploaded",
                 path: sheetPath,
+                artifactHash: createHash("sha256").update(sheetBuffer).digest("hex"),
                 updatedAt: new Date().toISOString(),
               });
             }
@@ -5348,6 +5530,9 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             continue;
           }
         }
+        // checkpointSheet advances row independently; construct the accepted
+        // asset from that latest durable receipt rather than the pre-sheet copy.
+        operation = row.state.castOperations[role.id] ?? operation;
         cast.push({
           roleId: role.id,
           source: "generated",
@@ -5380,6 +5565,22 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             provider,
             model,
             operationId,
+            rawProviderCostPaise: operation.rawProviderCostPaise ?? null,
+            reservationId: operation.walletReservation?.id ?? null,
+            artifactHash: sourceSha256,
+            sheet: (() => {
+              const sheet = operation.sheetOperation;
+              if (!sheet?.path || !sheet.provider || !sheet.model || !sheet.artifactHash) return null;
+              return {
+                path: sheet.path,
+                provider: sheet.provider,
+                model: sheet.model,
+                operationId: sheet.operationId ?? null,
+                rawProviderCostPaise: sheet.rawProviderCostPaise ?? null,
+                reservationId: sheet.walletReservation?.id ?? null,
+                artifactHash: sheet.artifactHash,
+              };
+            })(),
           },
         });
       }
@@ -5410,6 +5611,85 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
       duplicateAssignmentConfirmed: duplicates,
       castOperations: linkedJob ? row.state.castOperations : {},
       storyboardJobId: row.state.storyboardJobId,
+      billingReceipts: {
+        version: 2,
+        script: row.state.billingReceipts?.script ?? null,
+        assets: {
+          ...Object.fromEntries(
+            Object.entries(row.state.billingReceipts?.assets ?? {}).filter(([, receipt]) =>
+              receipt.kind === "backdrop" &&
+              Boolean(receipt.artifactPath &&
+                guidedAcceptedArtifactPaths(row!.state, cast).has(receipt.artifactPath))),
+          ),
+          ...Object.fromEntries(cast.flatMap((member) => {
+            const asset = member.generatedAsset;
+            const entries: Array<[string, any]> = [];
+            if (asset) entries.push([asset.operationId
+              ? `portrait:${asset.operationId}`
+              : `portrait:${member.roleId}`, {
+                version: 2 as const,
+                operationIdentity: asset.operationId
+                  ? `guided-portrait:${asset.operationId}`
+                  : `guided-portrait:${member.roleId}`,
+                kind: "portrait" as const,
+                provider: asset.provider,
+                model: asset.model,
+                rawProviderCostPaise: asset.rawProviderCostPaise ?? null,
+                operationId: asset.operationId,
+                reservationId: asset.reservationId ?? null,
+                artifactPath: asset.path,
+                artifactHash: asset.artifactHash ?? null,
+                recordedAt: new Date().toISOString(),
+              }]);
+            if (asset?.sheet) entries.push([asset.sheet.operationId
+              ? `sheet:${asset.sheet.operationId}`
+              : `sheet:${member.roleId}`, {
+                version: 2 as const,
+                operationIdentity: asset.sheet.operationId
+                  ? `guided-sheet:${asset.sheet.operationId}`
+                  : `guided-sheet:${member.roleId}`,
+                kind: "reference_sheet" as const,
+                provider: asset.sheet.provider,
+                model: asset.sheet.model,
+                rawProviderCostPaise: asset.sheet.rawProviderCostPaise,
+                operationId: asset.sheet.operationId,
+                reservationId: asset.sheet.reservationId,
+                artifactPath: asset.sheet.path,
+                artifactHash: asset.sheet.artifactHash,
+                recordedAt: new Date().toISOString(),
+              }]);
+            const acceptedOutfitPath = member.outfit?.referenceImagePath;
+            const outfitOperation = Object.values(
+              row!.state.referenceOperations ?? {},
+            ).find((candidate) =>
+              candidate.roleId === member.roleId &&
+              candidate.kind === "outfit" &&
+              candidate.source === "generated" &&
+              candidate.status === "finalized" &&
+              candidate.path === acceptedOutfitPath
+            );
+            if (outfitOperation && acceptedOutfitPath) {
+              entries.push([`outfit:${outfitOperation.id}`, {
+                version: 2 as const,
+                operationIdentity: `guided-outfit:${outfitOperation.id}`,
+                kind: "outfit" as const,
+                provider: outfitOperation.provider ?? null,
+                model: outfitOperation.model ?? null,
+                rawProviderCostPaise: outfitOperation.rawProviderCostPaise ?? null,
+                operationId: outfitOperation.providerOperationId ?? null,
+                reservationId:
+                  outfitOperation.reservationId ??
+                  outfitOperation.walletReservation?.id ??
+                  null,
+                artifactPath: acceptedOutfitPath,
+                artifactHash: outfitOperation.artifactHash ?? null,
+                recordedAt: new Date().toISOString(),
+              }]);
+            }
+            return entries;
+          })),
+        },
+      },
     });
     if (!saved) {
       res
@@ -5433,6 +5713,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           ...storyboard,
           narration: await synthesizeGuidedNarration({
             tenantId: req.tenantId,
+            videoJobId: linkedJob.id,
             cast,
             script,
             locale: guidedSnapshot.locale,
@@ -5445,7 +5726,11 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
       await db
         .update(videoGenerationsTable)
         .set({
-          options: { ...linkedJob.options, guidedStory: guidedSnapshot },
+          options: {
+            ...linkedJob.options,
+            guidedStory: guidedSnapshot,
+            acceptedInputs: guidedAcceptedBillingInputs(saved.state, saved.id, saved.revision),
+          },
           storyboard,
           updatedAt: new Date(),
         })
@@ -6147,6 +6432,16 @@ router.put(
         member.roleId === roleId ? nextMember : member,
       );
       const revision = draft.revision + 1;
+      const acceptedPaths = guidedAcceptedArtifactPaths(draft.state, cast);
+      const billingReceipts: GuidedStoryDraftState["billingReceipts"] = {
+        version: 2,
+        script: draft.state.billingReceipts?.script ?? null,
+        assets: Object.fromEntries(
+          Object.entries(draft.state.billingReceipts?.assets ?? {})
+            .filter(([, receipt]) =>
+              Boolean(receipt.artifactPath && acceptedPaths.has(receipt.artifactPath))),
+        ),
+      };
       const nextSnapshot = {
         ...snapshot,
         draftRevision: revision,
@@ -6169,6 +6464,7 @@ router.put(
             duplicateAssignmentConfirmed: guidedCastHasDuplicates(cast),
             castOperations: {},
             inlineReferenceOperations: {},
+            billingReceipts,
           },
           updatedAt: now,
         })
@@ -6188,6 +6484,11 @@ router.put(
             ...job.options,
             aspectRatio: job.options?.aspectRatio ?? snapshot.platform.aspectRatio,
             guidedStory: nextSnapshot,
+            acceptedInputs: guidedAcceptedBillingInputs(
+              { ...draft.state, cast, billingReceipts },
+              draft.id,
+              revision,
+            ),
             guidedPreviewRender: null,
             guidedReferenceOperations: null,
           },
@@ -6777,11 +7078,21 @@ router.post(
         generated = executed?.value ?? await generate();
         providerOperationId = executed?.operationId ?? null;
         const imageContentType = generatedReferenceImageContentType(generated.buffer);
+        const rawProviderCostPaise = await computeImageCostPaise({
+          provider: generated.provider,
+          model: generated.model,
+          inputTokens: generated.usage?.inputTokens,
+          outputTokens: generated.usage?.outputTokens,
+        }).catch(() => null);
+        const artifactHash = createHash("sha256").update(generated.buffer).digest("hex");
         const providerSaved = await persist({
           checkpoint: "provider_succeeded",
           provider: generated.provider,
           model: generated.model,
           providerOperationId,
+          rawProviderCostPaise,
+          reservationId: funding.reservation?.id ?? null,
+          artifactHash,
           imageBase64: generated.buffer.toString("base64"),
           imageByteLength: generated.buffer.length,
           imageContentType,
@@ -6868,6 +7179,11 @@ router.post(
                 provider: generated.provider,
                 model: generated.model,
                 operationId: providerOperationId,
+                rawProviderCostPaise:
+                  row.state.referenceOperations?.[operationId]?.rawProviderCostPaise ?? null,
+                reservationId: funding.reservation?.id ?? null,
+                artifactHash:
+                  row.state.referenceOperations?.[operationId]?.artifactHash ?? null,
               },
               consentGranted: false,
             }
@@ -7137,11 +7453,36 @@ router.post(
                   : item,
               ]),
       );
+      const acceptedPaths = guidedAcceptedArtifactPaths(draft.state, cast);
+      const acceptedReceipts = Object.fromEntries(
+        Object.entries(draft.state.billingReceipts?.assets ?? {})
+          .filter(([, receipt]) => Boolean(receipt.artifactPath && acceptedPaths.has(receipt.artifactPath))),
+      );
+      if (operation.source === "generated" && operation.path && acceptedPaths.has(operation.path)) {
+        acceptedReceipts[`reference:${operation.id}`] = {
+          version: 2,
+          operationIdentity: `guided-reference:${operation.id}`,
+          kind: operation.kind === "character" ? "portrait" : "outfit",
+          provider: operation.provider ?? null,
+          model: operation.model ?? null,
+          rawProviderCostPaise: operation.rawProviderCostPaise ?? null,
+          operationId: operation.providerOperationId ?? null,
+          reservationId: operation.reservationId ?? operation.walletReservation?.id ?? null,
+          artifactPath: operation.path,
+          artifactHash: operation.artifactHash ?? null,
+          recordedAt: finalizedAt,
+        };
+      }
       const nextState: GuidedStoryDraftState = {
         ...draft.state,
         cast,
         castApprovals: null,
         referenceOperations,
+        billingReceipts: {
+          version: 2,
+          script: draft.state.billingReceipts?.script ?? null,
+          assets: acceptedReceipts,
+        },
       };
       if (editingBeforeStoryboard) {
         const [savedDraft] = await tx.update(guidedStoryDraftsTable).set({
@@ -7179,6 +7520,7 @@ router.post(
           ...job.options,
           guidedStory: snapshot,
           guidedPreviewRender: null,
+          acceptedInputs: guidedAcceptedBillingInputs(nextState, draft.id, nextRevision),
         },
         storyboard,
         error: null,
@@ -7252,6 +7594,55 @@ router.put(
         ? currentBackdrops.sceneOverrides[sceneId]
         : currentBackdrops.default;
       const referenceRevision = (previousReference?.revision ?? 0) + 1;
+      const matchedImages = await tx.select().from(imageGenerationsTable).where(and(
+        eq(imageGenerationsTable.tenantId, req.tenantId),
+        eq(imageGenerationsTable.status, "succeeded"),
+        eq(imageGenerationsTable.imagePath, input.imagePath),
+      ));
+      let provenance: NonNullable<NonNullable<
+        GuidedStoryDraftState["visualChoices"]
+      >["backdrops"]>["default"] extends infer _T
+        ? { kind: "provider" | "uploaded" | "local"; operationIdentity: string | null; rawProviderCostPaise: number | null; artifactSha256: string | null }
+        : never = {
+          kind: "uploaded",
+          operationIdentity: null,
+          rawProviderCostPaise: null,
+          artifactSha256: backdropImageSha256,
+        };
+      let backdropReservationId: number | null = null;
+      let backdropProvider: string | null = null;
+      let backdropModel: string | null = null;
+      if (matchedImages.length === 1 && matchedImages[0]!.walletReservationId) {
+        const reservationId = matchedImages[0]!.walletReservationId!;
+        const [providerReceipt] = await tx.select({
+          providerCostPaise: walletProviderOperationsTable.providerCostPaise,
+        }).from(walletProviderOperationsTable).where(and(
+          eq(walletProviderOperationsTable.tenantId, req.tenantId),
+          eq(walletProviderOperationsTable.reservationId, reservationId),
+          eq(walletProviderOperationsTable.status, "settled"),
+          isNotNull(walletProviderOperationsTable.providerCostPaise),
+        )).limit(1);
+        const [ledgerReceipt] = await tx.select({
+          providerCostPaise: walletLedgerTable.providerCostPaise,
+        }).from(walletLedgerTable).where(and(
+          eq(walletLedgerTable.tenantId, req.tenantId),
+          eq(walletLedgerTable.reservationId, reservationId),
+          eq(walletLedgerTable.kind, "settle"),
+          isNotNull(walletLedgerTable.providerCostPaise),
+        )).limit(1);
+        const exactCost = providerReceipt?.providerCostPaise ?? ledgerReceipt?.providerCostPaise;
+        if (exactCost != null) provenance = {
+          kind: "provider",
+          operationIdentity: `image-generation:${matchedImages[0]!.id}`,
+          rawProviderCostPaise: exactCost,
+          artifactSha256: backdropImageSha256,
+        };
+        if (exactCost != null) {
+          backdropReservationId = reservationId;
+          backdropProvider = matchedImages[0]!.provider;
+          backdropModel = matchedImages[0]!.model;
+        }
+      }
        const fingerprint = guidedBackdropFingerprint({
          prompt: input.prompt,
          imagePath: input.imagePath,
@@ -7267,6 +7658,7 @@ router.put(
         fingerprint,
         revision: referenceRevision,
         approvedAt: null,
+        provenance,
       };
       const nextBackdrops = {
         version: 1 as const,
@@ -7313,7 +7705,40 @@ router.put(
         : null;
       const [saved] = await tx.update(guidedStoryDraftsTable).set({
         revision: nextRevision,
-        state: { ...draft.state, castApprovals, visualChoices: nextVisuals },
+        state: {
+          ...draft.state,
+          castApprovals,
+          visualChoices: nextVisuals,
+          billingReceipts: {
+            version: 2,
+            script: draft.state.billingReceipts?.script ?? null,
+            assets: {
+              ...Object.fromEntries(Object.entries(
+                draft.state.billingReceipts?.assets ?? {},
+              ).filter(([, receipt]) =>
+                receipt.kind !== "backdrop" ||
+                Boolean(receipt.artifactPath &&
+                  guidedAcceptedArtifactPaths({
+                    ...draft.state,
+                    visualChoices: nextVisuals,
+                  }).has(receipt.artifactPath)))),
+              [`backdrop:${fingerprint}`]: {
+                version: 2 as const,
+                operationIdentity:
+                  provenance.operationIdentity ?? `guided-backdrop-unknown:${fingerprint}`,
+                kind: "backdrop" as const,
+                provider: backdropProvider,
+                model: backdropModel,
+                rawProviderCostPaise: provenance.rawProviderCostPaise,
+                operationId: null,
+                reservationId: backdropReservationId,
+                artifactPath: input.imagePath,
+                artifactHash: backdropImageSha256,
+                recordedAt: new Date().toISOString(),
+              },
+            },
+          },
+        },
         updatedAt: new Date(),
       }).where(and(
         eq(guidedStoryDraftsTable.id, draft.id),
@@ -7353,6 +7778,11 @@ router.put(
                backdrops: nextBackdrops,
             },
             guidedPreviewRender: null,
+            acceptedInputs: guidedAcceptedBillingInputs(
+              saved.state,
+              saved.id,
+              saved.revision,
+            ),
           },
           updatedAt: new Date(),
         }).where(eq(videoGenerationsTable.id, job.id));
@@ -9165,6 +9595,16 @@ async function generateVideoHandler(
     return;
   }
   const options: VideoJobOptions = {
+    ...(guidedDraft
+      ? {
+          billingPolicyVersion: 2 as const,
+          acceptedInputs: guidedAcceptedBillingInputs(
+            guidedDraft.state,
+            guidedDraft.id,
+            guidedDraft.revision,
+          ),
+        }
+      : {}),
     // Presence is never interpreted as direct rendering. Only this exact
     // immutable versioned value opts a newly approved Guided Story out of the
     // historical storyboard-preview/review pipeline.

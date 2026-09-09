@@ -395,3 +395,31 @@ mtime_ms = 1788949697139
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/f94126cc-f012-408a-b031-9c7ad3fc8ee9/2866a808-182e-43d2-9886-5c5d6141b510"
 storage_version_token = "1788949750830197"
 content_type = "text/csv"
+
+[[outputs]]
+id = "4mryH2lx6321WbF8rpCJl"
+uri = "file://reports/atlas-audit/video-delivery-billing-dry-run.html"
+type = "text"
+title = "Historical delivery billing dry-run"
+description = "Read-only evidence report for the six audited Guided Story jobs. Five completed deliveries remain pending exact cost; no wallet adjustment was posted."
+logical_id = "0eed54c2-2f5b-49d6-95e4-cff4536c3edb"
+content_hash = "sha256:d612c7bbd1ef17432bfaac3d1ca0a7e3666996c130368bf77d0583d8e90639d5"
+size = 3802
+mtime_ms = 1788961682769
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/0eed54c2-2f5b-49d6-95e4-cff4536c3edb/f5fd873a-fafc-48ca-bed8-4984d3460f25"
+storage_version_token = "1788961757801455"
+content_type = "text/html"
+
+[[outputs]]
+id = "bgXbIArrEf5uTFDZcdiCu"
+uri = "file://reports/atlas-audit/video-delivery-billing-dry-run.csv"
+type = "table"
+title = "Historical delivery billing dry-run CSV"
+description = "Machine-readable job statuses, reservation IDs, missing evidence, and wallet action decisions."
+logical_id = "a6762027-9a4b-44fa-bcc4-5a862c0b8cac"
+content_hash = "sha256:756589c18575547c90241153e7fc3a6111c0ca71384767c629fa2a4b8366a19e"
+size = 953
+mtime_ms = 1788961670357
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/a6762027-9a4b-44fa-bcc4-5a862c0b8cac/01acc31d-ff4c-4b7c-a834-1b8f00bded42"
+storage_version_token = "1788961759238958"
+content_type = "text/csv"

@@ -487,6 +487,12 @@ async function narrateWithBrandVoice(
                     ),
                   );
                 }
+                billing.onReceipt?.({
+                  rawProviderCostPaise: providerCostPaise,
+                  provider: clonedVoice.provider,
+                  model: speechConfig.modelId,
+                  reservationId: reservation.id,
+                });
                 const speech = operation.value;
                 void recordUsage(billing.tenantId, "caption", {
                   funding: "wallet",
@@ -602,6 +608,12 @@ export interface BrandVoiceNarrationBilling {
   tenantId: number;
   refKind?: string | null;
   refId?: string | null;
+  onReceipt?: (receipt: {
+    rawProviderCostPaise: number | null;
+    provider: string;
+    model: string;
+    reservationId: number;
+  }) => void;
 }
 
 /**

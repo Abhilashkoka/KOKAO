@@ -9,7 +9,10 @@ import {
   index,
   jsonb,
   numeric,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { videoGenerationsTable } from "./videoGenerations";
 
 /**
  * Prepaid RUPEE wallet: a money balance per tenant, topped up via Razorpay and
@@ -278,3 +281,99 @@ export const walletSettingsTable = pgTable("wallet_settings", {
 });
 
 export type WalletSettings = typeof walletSettingsTable.$inferSelect;
+
+/** Immutable v2 delivery billing snapshot.  The service freezes membership
+ * and the fee before any ledger correction is attempted. */
+export const videoDeliveryBillingManifestsTable = pgTable(
+  "video_delivery_billing_manifests",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull(),
+    completedJobId: integer("completed_job_id").notNull()
+      .references(() => videoGenerationsTable.id, { onDelete: "cascade" }),
+    chainId: integer("chain_id").notNull(),
+    policyVersion: integer("policy_version").notNull().default(2),
+    status: text("status").notNull().default("pending_cost"),
+    feePercent: integer("fee_percent").notNull(),
+    rawProviderCostPaise: integer("raw_provider_cost_paise"),
+    targetChargePaise: integer("target_charge_paise"),
+    previouslyChargedPaise: integer("previously_charged_paise"),
+    appliedPaise: integer("applied_paise"),
+    correctionReservationId: integer("correction_reservation_id"),
+    reservationIds: jsonb("reservation_ids").$type<number[]>().notNull().default([]),
+    idempotencyKey: text("idempotency_key").notNull(),
+    idempotencyVersion: integer("idempotency_version").notNull().default(2),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    frozenAt: timestamp("frozen_at", { withTimezone: true }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("video_delivery_billing_completed_job_unique").on(t.completedJobId),
+    uniqueIndex("video_delivery_billing_idempotency_unique").on(t.tenantId, t.idempotencyKey),
+    index("video_delivery_billing_tenant_idx").on(t.tenantId, t.createdAt),
+    check("video_delivery_billing_policy_v2_check", sql`${t.policyVersion} = 2`),
+    check("video_delivery_billing_fee_check", sql`${t.feePercent} >= 0 AND ${t.feePercent} <= 1000`),
+  ],
+);
+
+export type VideoDeliveryBillingManifest =
+  typeof videoDeliveryBillingManifestsTable.$inferSelect;
+
+export const videoDeliveryBillingItemsTable = pgTable(
+  "video_delivery_billing_items",
+  {
+    id: serial("id").primaryKey(),
+    manifestId: integer("manifest_id").notNull()
+      .references(() => videoDeliveryBillingManifestsTable.id, { onDelete: "cascade" }),
+    operationIdentity: text("operation_identity").notNull(),
+    kind: text("kind").notNull(),
+    provider: text("provider"),
+    model: text("model"),
+    rawProviderCostPaise: integer("raw_provider_cost_paise"),
+    providerReservationId: integer("provider_reservation_id"),
+    providerRequestId: text("provider_request_id"),
+    providerResultId: text("provider_result_id"),
+    artifactPath: text("artifact_path"),
+    artifactHash: text("artifact_hash"),
+    inclusionReason: text("inclusion_reason").notNull(),
+    independentlySettled: boolean("independently_settled").notNull().default(false),
+    unmetered: boolean("unmetered").notNull().default(false),
+    sourceMetadata: jsonb("source_metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("video_delivery_billing_item_identity_unique").on(
+      t.manifestId,
+      t.operationIdentity,
+    ),
+    index("video_delivery_billing_item_manifest_idx").on(t.manifestId),
+    check("video_delivery_billing_item_identity_check", sql`length(trim(${t.operationIdentity})) > 0`),
+    check("video_delivery_billing_item_cost_check", sql`${t.rawProviderCostPaise} IS NULL OR ${t.rawProviderCostPaise} >= 0`),
+  ],
+);
+
+export type VideoDeliveryBillingItem = typeof videoDeliveryBillingItemsTable.$inferSelect;
+
+/** First-delivery ownership of reusable independently-settled inputs. */
+export const videoDeliveryInputClaimsTable = pgTable(
+  "video_delivery_input_claims",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull(),
+    operationIdentity: text("operation_identity").notNull(),
+    manifestId: integer("manifest_id").notNull()
+      .references(() => videoDeliveryBillingManifestsTable.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("video_delivery_input_claim_tenant_operation_unique")
+      .on(t.tenantId, t.operationIdentity),
+    index("video_delivery_input_claim_manifest_idx").on(t.manifestId),
+    check("video_delivery_input_claim_identity_check",
+      sql`length(trim(${t.operationIdentity})) > 0`),
+  ],
+);

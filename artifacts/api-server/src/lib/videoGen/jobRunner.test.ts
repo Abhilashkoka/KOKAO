@@ -9,7 +9,73 @@ import {
   allowsGeneratedStoryboardPrivacyRecovery,
   hasDeferredTemplateFunding,
   topicStoryboardEligible,
+  normalizeLiveVideoProviderEvents,
+  applyNormalizedVideoEventCosts,
+  mergeLiveAndCheckpointProviderEvents,
 } from "./jobRunner";
+import { buildVideoDeliveryBillingItems } from "../wallet";
+
+it("preserves conflicting stable receipts for delivery while deduping metering", () => {
+  const normalized = normalizeLiveVideoProviderEvents([
+    { eventId: "same", provider: "p", model: "m", durationSec: 1, requestBytes: 1, label: "a", costPaise: 100 },
+    { eventId: "same", provider: "p", model: "m", durationSec: 1, requestBytes: 1, label: "a", costPaise: 200 },
+    { eventId: "same", provider: "p", model: "m", durationSec: 1, requestBytes: 1, label: "a", costPaise: 100 },
+  ]);
+  expect(normalized.meteredEvents).toHaveLength(1);
+  expect(normalized.deliveryEvents.map((event) => event.costPaise)).toEqual([100, 200, 100]);
+});
+
+it("normalizes costs per original occurrence and preserves explicit null", () => {
+  const noIdA = { provider: "p", model: "m", durationSec: 1, requestBytes: 1, label: "a", costPaise: 0 };
+  const noIdB = { provider: "p", model: "m", durationSec: 2, requestBytes: 2, label: "b", costPaise: null };
+  const normalized = normalizeLiveVideoProviderEvents([noIdA, noIdB]);
+  expect(applyNormalizedVideoEventCosts(
+    normalized.deliveryEvents,
+    normalized.meteredEvents,
+    [null, 25],
+  ).map((event) => event.costPaise)).toEqual([null, 25]);
+});
+
+it("does not duplicate a live no-ID receipt from its current checkpoint copy", () => {
+  const live = {
+    provider: "p", model: "m", durationSec: 1, requestBytes: 1,
+    label: "render", costPaise: 100,
+  };
+  const assembled = mergeLiveAndCheckpointProviderEvents(
+    [live],
+    [{ ...live }],
+  );
+  expect(assembled.filter((event) => event.costPaise === 100)).toHaveLength(1);
+  expect(normalizeLiveVideoProviderEvents(assembled).meteredEvents).toHaveLength(1);
+});
+
+it("dedupes equivalent cross-source stable receipts and retains material conflicts", () => {
+  const live = {
+    eventId: "stable", provider: "p", model: "m", durationSec: 1,
+    requestBytes: 10, label: "render", costPaise: 100,
+    criteria: { inputMode: "non_video" as const },
+  };
+  const equivalent = mergeLiveAndCheckpointProviderEvents([live], [{ ...live }]);
+  expect(equivalent).toHaveLength(1);
+  expect(buildVideoDeliveryBillingItems({
+    id: 9001, funding: "wallet", options: { billingPolicyVersion: 2 },
+  } as any, equivalent)).toContainEqual(expect.objectContaining({
+    operationIdentity: "stable", rawProviderCostPaise: 100,
+  }));
+
+  const conflicting = mergeLiveAndCheckpointProviderEvents(
+    [live],
+    [{ ...live, costPaise: 200 }],
+  );
+  expect(conflicting).toHaveLength(2);
+  expect(buildVideoDeliveryBillingItems({
+    id: 9002, funding: "wallet", options: { billingPolicyVersion: 2 },
+  } as any, conflicting)).toContainEqual(expect.objectContaining({
+    operationIdentity: "stable",
+    kind: "video_event_conflict",
+    rawProviderCostPaise: null,
+  }));
+});
 
 /**
  * The storyboard pause, as the runner actually executes it. The three engines

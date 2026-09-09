@@ -255,6 +255,27 @@ async function purgeSyntheticTestTenants(client: pg.Client): Promise<void> {
 
   await client.query("BEGIN");
   try {
+    await client.query(
+      `DELETE FROM video_delivery_input_claims
+       WHERE manifest_id IN (
+         SELECT id FROM video_delivery_billing_manifests
+         WHERE tenant_id = ANY($1::int[])
+       )`,
+      [tenantIds],
+    );
+    await client.query(
+      `DELETE FROM video_delivery_billing_items
+        WHERE manifest_id IN (
+          SELECT id FROM video_delivery_billing_manifests
+           WHERE tenant_id = ANY($1::int[])
+        )`,
+      [tenantIds],
+    );
+    await client.query(
+      `DELETE FROM video_delivery_billing_manifests
+        WHERE tenant_id = ANY($1::int[])`,
+      [tenantIds],
+    );
     for (const [table, column] of [
       ["connected_accounts", "tenant_id"],
       ["ad_account_connections", "tenant_id"],

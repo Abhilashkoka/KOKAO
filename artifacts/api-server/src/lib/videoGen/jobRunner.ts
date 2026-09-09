@@ -43,6 +43,10 @@ import {
   videoJobWalletReservations,
   settleWalletDurably,
   settleWalletProviderOperationDurably,
+  buildVideoDeliveryBillingItems,
+  reconcileVideoDeliveryBillingManifest,
+  finalizeVideoDeliveryBillingAndSuccess,
+  allVideoBillingChainReservationIds,
   type WalletReservation,
 } from "../wallet";
 import { logger } from "../logger";
@@ -267,6 +271,117 @@ interface VideoProviderEvent {
   videoTokens?: number;
 }
 
+export function normalizeLiveVideoProviderEvents(events: VideoProviderEvent[]): {
+  deliveryEvents: VideoProviderEvent[];
+  meteredEvents: VideoProviderEvent[];
+} {
+  const seen = new Set<string>();
+  return {
+    deliveryEvents: [...events],
+    meteredEvents: events.filter((event) => {
+      if (event.accounted) return false;
+      const id = event.eventId?.trim();
+      if (!id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    }),
+  };
+}
+
+function canonicalNoIdVideoEvent(event: VideoProviderEvent): string {
+  return JSON.stringify([
+    event.provider, event.model, event.durationSec, event.requestBytes,
+    event.label, event.costPaise,
+  ]);
+}
+
+function canonicalImmutableValue(value: unknown): string {
+  const normalize = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === "object") {
+      return Object.fromEntries(Object.entries(item as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, child]) => [key, normalize(child)]));
+    }
+    return item;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+function immutableVideoReceiptEqual(a: VideoProviderEvent, b: VideoProviderEvent): boolean {
+  return a.provider === b.provider &&
+    a.model === b.model &&
+    a.durationSec === b.durationSec &&
+    a.requestBytes === b.requestBytes &&
+    a.label === b.label &&
+    canonicalImmutableValue(a.criteria ?? null) === canonicalImmutableValue(b.criteria ?? null) &&
+    a.costPaise === b.costPaise &&
+    a.providerReportedActualUsd === b.providerReportedActualUsd &&
+    a.videoTokens === b.videoTokens;
+}
+
+/**
+ * Combines source-aware receipts before billing. A live result owns the
+ * current attempt; unaccounted checkpoint copies of that result are stale
+ * persistence evidence, while accounted recovery receipts are separate work.
+ */
+export function mergeLiveAndCheckpointProviderEvents(
+  liveEvents: VideoProviderEvent[],
+  checkpointEvents: VideoProviderEvent[],
+): VideoProviderEvent[] {
+  if (liveEvents.length === 0) return [...checkpointEvents];
+  const liveById = new Map<string, VideoProviderEvent[]>();
+  for (const event of liveEvents) {
+    const id = event.eventId?.trim();
+    if (id) liveById.set(id, [...(liveById.get(id) ?? []), event]);
+  }
+  const liveNoIds = new Set(liveEvents
+    .filter((event) => !event.eventId?.trim())
+    .map(canonicalNoIdVideoEvent));
+  return [
+    ...liveEvents,
+    ...checkpointEvents.filter((event) => {
+      if (event.accounted) return true;
+      const id = event.eventId?.trim();
+      return id
+        ? !(liveById.get(id) ?? []).some((live) => immutableVideoReceiptEqual(live, event))
+        : !liveNoIds.has(canonicalNoIdVideoEvent(event));
+    }),
+  ];
+}
+
+export function applyNormalizedVideoEventCosts(
+  deliveryEvents: VideoProviderEvent[],
+  meteredEvents: VideoProviderEvent[],
+  costs: Array<number | null>,
+): VideoProviderEvent[] {
+  const computedById = new Map(meteredEvents.flatMap((event, index) =>
+    event.eventId?.trim() ? [[event.eventId.trim(), costs[index] ?? null] as const] : []));
+  const groups = new Map<string, VideoProviderEvent[]>();
+  for (const event of deliveryEvents) {
+    const id = event.eventId?.trim();
+    if (id) groups.set(id, [...(groups.get(id) ?? []), event]);
+  }
+  return deliveryEvents.map((event) => {
+    const id = event.eventId?.trim();
+    const meteredIndex = meteredEvents.indexOf(event);
+    const exactGroup = id && (groups.get(id) ?? []).every((candidate) =>
+      candidate.provider === event.provider &&
+      candidate.model === event.model &&
+      candidate.durationSec === event.durationSec &&
+      candidate.costPaise === event.costPaise);
+    return {
+      ...event,
+      costPaise: id
+        ? exactGroup && (event.costPaise === null || event.costPaise <= 0) && computedById.has(id)
+          ? computedById.get(id)!
+          : event.costPaise
+        : meteredIndex >= 0 ? costs[meteredIndex]! : event.costPaise,
+    };
+  });
+}
+
 function jobVideoPriceCriteria(job: VideoGeneration, hasReferenceVideo = false): VideoPriceCriteria {
   // Provider dispatch reads these fields from the immutable snapshot. Receipt
   // pricing must do the same: a default-resolved job has modelId=null, so
@@ -304,13 +419,15 @@ function durableCheckpointEvents(options: VideoGeneration["options"]): VideoProv
 /** Mark only settled intrinsic receipts before a failed job can be recovered. */
 export function markGuidedStoryIntrinsicEventsAccounted(
   options: VideoJobOptions,
-  labels: ReadonlySet<string>,
+  eventIds: ReadonlySet<string>,
 ): void {
   for (const scene of options.guidedStoryIntrinsicLipSync?.checkpoint?.scenes ?? []) {
-    if (scene.animationEvent && labels.has(scene.animationEvent.label)) {
+    if (scene.animationEvent &&
+        eventIds.has(scene.animationEvent.eventId?.trim() || scene.animationEvent.label)) {
       scene.animationEvent.accounted = true;
     }
-    if (scene.lipSyncEvent && labels.has(scene.lipSyncEvent.label)) {
+    if (scene.lipSyncEvent &&
+        eventIds.has(scene.lipSyncEvent.eventId?.trim() || scene.lipSyncEvent.label)) {
       scene.lipSyncEvent.accounted = true;
     }
   }
@@ -1270,6 +1387,12 @@ async function speakLocalizedBrandVoiceCue(args: {
   text: string;
   modelId?: "eleven_multilingual_v2" | "eleven_v3";
   languageCode?: string;
+  onReceipt?: (receipt: {
+    rawProviderCostPaise: number | null;
+    reservationId: number;
+    provider: string;
+    model: string;
+  }) => void;
 }): Promise<Buffer> {
   const modelId = args.modelId ?? "eleven_multilingual_v2";
   // Do this before balance checks or reservations. A capability mismatch is
@@ -1377,6 +1500,12 @@ async function speakLocalizedBrandVoiceCue(args: {
         ),
       );
     }
+    args.onReceipt?.({
+      rawProviderCostPaise: providerCostPaise,
+      reservationId: reservation.id,
+      provider: args.voice.provider,
+      model: modelId,
+    });
     void recordUsage(args.tenantId, "caption", {
       funding: "wallet",
       provider: args.voice.provider,
@@ -1989,6 +2118,10 @@ async function produceVideo(
             continue;
           }
           await save("synthesizing", line.lineId);
+          const narrationBilling: {
+            rawProviderCostPaise: number | null; reservationId: number | null;
+            provider: string | null; model: string | null;
+          } = { rawProviderCostPaise: null, reservationId: null, provider: null, model: null };
           // Each exact snapshot line is deliberately a separate TTS operation.
           const narration = receipt?.audioPath
             ? (await loadTenantObject(
@@ -2000,6 +2133,7 @@ async function produceVideo(
                       tenantId: job.tenantId, jobId: job.id, cueIndex: index,
                       voice: { provider: "elevenlabs", voiceId: line.speaker.voice.providerVoiceId },
                       text: line.text, modelId: "eleven_v3", languageCode: "te",
+                      onReceipt: (value) => { Object.assign(narrationBilling, value); },
                     })
                   // The child options retain the source's frozen stock
                   // narrator selection. Ownerless replay never picks a role.
@@ -2013,9 +2147,22 @@ async function produceVideo(
             throw new VideoGenProviderError(`Saved Guided Story line ${line.lineId} audio no longer matches its frozen slot.`);
           }
           if (!receipt) {
-            receipt = { lineId: line.lineId, audioPath: await uploadToStorage(job.tenantId, narration, "audio/wav"),
+            const audioPath = await uploadToStorage(job.tenantId, narration, "audio/wav");
+            receipt = { lineId: line.lineId, audioPath,
               durationMs: Math.round(measuredSec * 1000), provider: line.speaker.type === "role" ? "elevenlabs" : "stock",
-              model: line.speaker.type === "role" ? "eleven_v3" : "stock" };
+              model: line.speaker.type === "role" ? "eleven_v3" : "stock",
+              narrationReceipt: {
+                stableIdentity: `guided-dialogue-replay-narration:${job.id}:${line.lineId}`,
+                cueIdentity: line.lineId,
+                rawProviderCostPaise: narrationBilling.rawProviderCostPaise,
+                provider: narrationBilling.provider ?? "stock",
+                model: narrationBilling.model ?? "stock",
+                reservationId: narrationBilling.reservationId,
+                artifactPath: audioPath,
+                artifactHash: createHash("sha256").update(narration).digest("hex"),
+                unmetered: false,
+              },
+            };
             replayLines.push(receipt);
           }
           await save("composing", line.lineId);
@@ -3300,7 +3447,7 @@ async function produceVideo(
       }
       const drafted = await planTopicStoryboard({
         characterSnapshot: options.characterSnapshot,
-        tenantId: job.tenantId, topic: job.prompt ?? "", aspectRatio, voice: effectiveVoice, clonedVoice,
+        tenantId: job.tenantId, videoJobId: job.id, topic: job.prompt ?? "", aspectRatio, voice: effectiveVoice, clonedVoice,
         paragraphCount: options.paragraphCount ?? 1, templateRuntime: options.templateRuntime ?? null,
         visualsSource: "ai_video", characterId: null, outfitId: null, wardrobeNotes: null,
         brandVoice: branding?.voiceHint ?? null, referenceStyle: compiledReferenceStyle,
@@ -3405,6 +3552,7 @@ async function produceVideo(
         }
         const refreshed = await refreshEditedNarration({
           tenantId: job.tenantId,
+          videoJobId: job.id,
           storyboard: board,
           voice: effectiveVoice,
           clonedVoice,
@@ -3761,6 +3909,7 @@ async function produceVideo(
         }
         board = await prepareCharacterStoryStoryboard({
           tenantId: job.tenantId,
+          videoJobId: job.id,
           storyboard: board,
           characterId: options.characterId,
           selectedOutfitId: options.outfitId ?? 0,
@@ -3999,6 +4148,7 @@ async function produceVideo(
         }
         const narration = await synthesizeGuidedNarration({
           tenantId: job.tenantId,
+          videoJobId: job.id,
           cast: guidedSnapshot.cast,
           script: guidedSnapshot.script,
           locale: guidedSnapshot.locale,
@@ -4016,6 +4166,7 @@ async function produceVideo(
       // a render retry must resume from the recording it will actually use.
       const refreshed = directGuidedNativeAudio ? null : await refreshEditedNarration({
         tenantId: job.tenantId,
+        videoJobId: job.id,
         storyboard: board,
         voice: effectiveVoice,
         clonedVoice,
@@ -4456,6 +4607,7 @@ async function produceVideo(
       let storyboard = await planTopicStoryboard({
         characterSnapshot: options.characterSnapshot,
         tenantId: job.tenantId,
+        videoJobId: job.id,
         topic: job.prompt ?? "",
         approvedScript: options.guidedStory
           ? options.guidedStory.script.scenes
@@ -4528,6 +4680,7 @@ async function produceVideo(
     const music = await resolveMusic(job, options, 30, onStage);
     const result = await generateTopicVideo({
       tenantId: job.tenantId,
+      videoJobId: job.id,
       topic: job.prompt ?? "",
       aspectRatio,
       voice: effectiveVoice,
@@ -6116,8 +6269,7 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       durationSec,
       providerEvents: [],
     };
-    await setJob(jobId, {
-      status: "succeeded",
+    const repairTerminal = {
       options: succeededOptions,
       videoPath,
       thumbnailPath,
@@ -6127,8 +6279,36 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       spendPaise: 0,
       stage: null,
       error: null,
-    });
+    };
+    if (succeededOptions.billingPolicyVersion === 2) {
+      const deliveryJob = { ...claimed, options: succeededOptions } as VideoGeneration;
+      const acceptedReservationIds = (succeededOptions.acceptedInputs ?? [])
+        .map((item) => item.reservationId).filter((id): id is number => id != null);
+      const { chainId, reservationIds } =
+        await allVideoBillingChainReservationIds(deliveryJob, acceptedReservationIds);
+      await finalizeVideoDeliveryBillingAndSuccess({
+        tenantId: claimed.tenantId,
+        jobId,
+        chainId,
+        items: buildVideoDeliveryBillingItems(
+          deliveryJob,
+          [],
+        ),
+        reservationIds: [
+          ...reservationIds,
+        ],
+        terminal: repairTerminal,
+      });
+    } else {
+      await setJob(jobId, { ...repairTerminal, status: "succeeded" });
+    }
   } catch (error) {
+    const [terminal] = await db.select({ status: videoGenerationsTable.status })
+      .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).limit(1);
+    if (terminal?.status === "succeeded") {
+      logger.warn({ err: error, jobId }, "Ignoring post-commit repair finalization error");
+      return;
+    }
     const failedOptions = structuredClone(
       claimed.options ?? { aspectRatio: "9:16" as const },
     );
@@ -6467,6 +6647,10 @@ async function finishGuidedStoryIntrinsicDialogue(
 
     try {
       onStage(`Voicing Guided Story scene ${planned.sceneId}`);
+      const narrationBilling: {
+        rawProviderCostPaise: number | null; reservationId: number | null;
+        provider: string | null; model: string | null;
+      } = { rawProviderCostPaise: null, reservationId: null, provider: null, model: null };
       const narration = existing.audioPath
         ? (await loadTenantObject(
             existing.audioPath, job.tenantId, MAX_NARRATION_BYTES,
@@ -6489,12 +6673,25 @@ async function finishGuidedStoryIntrinsicDialogue(
                   text: planned.text,
                   modelId: "eleven_v3",
                   languageCode: snapshot.locale,
+                  onReceipt: (value) => { Object.assign(narrationBilling, value); },
                 }),
             Math.round(durationSec * 1000),
           );
       if (!existing.audioPath) {
+        const audioPath = await uploadToStorage(job.tenantId, narration, "audio/wav");
         await update({
-          audioPath: await uploadToStorage(job.tenantId, narration, "audio/wav"),
+          audioPath,
+          narrationReceipt: {
+            stableIdentity: `guided-intrinsic-narration:${job.id}:${planned.sceneId}`,
+            cueIdentity: planned.sceneId,
+            rawProviderCostPaise: narrationBilling.rawProviderCostPaise,
+            provider: narrationBilling.provider ?? "stock",
+            model: narrationBilling.model ?? "stock",
+            reservationId: narrationBilling.reservationId,
+            artifactPath: audioPath,
+            artifactHash: createHash("sha256").update(narration).digest("hex"),
+            unmetered: false,
+          },
         });
       }
       const approved = await loadTenantObject(
@@ -6979,8 +7176,7 @@ async function executeVideoJob(
         .where(eq(videoGenerationsTable.id, jobId))
         .limit(1)
     )[0];
-    completedProviderEvents = [
-      ...completedProviderEvents,
+    const currentCheckpointEvents = [
       ...durableCheckpointEvents(currentCheckpointRow?.options),
       ...(job.options?.guidedStoryDialogueReplay
         ? []
@@ -6990,9 +7186,11 @@ async function executeVideoJob(
             ...previewCheckpointEvents(scene.previewCheckpoint),
           ],
         ) ?? []),
-    ].filter((event, index, all) =>
-      all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
-    ).filter((event) => event.accounted !== true);
+    ];
+    completedProviderEvents = mergeLiveAndCheckpointProviderEvents(
+      completedProviderEvents,
+      currentCheckpointEvents,
+    );
 
     // The storyboard pause. Nothing is metered and nothing is refunded: the
     // reservation stays reserved against the render the user is about to
@@ -7081,14 +7279,7 @@ async function executeVideoJob(
       buffer = finished.buffer;
       completedStudioLipSyncOutputPath = finished.outputPath;
       if (finished.events.length > 0) {
-        completedProviderEvents = [
-          ...completedProviderEvents,
-          ...finished.events,
-        ].filter((event, index, all) =>
-          all.findIndex((candidate) =>
-            candidate.eventId === event.eventId && candidate.label === event.label
-          ) === index
-        );
+        completedProviderEvents = [...completedProviderEvents, ...finished.events];
       }
       clipDurationSec = (
         await verifyRenderedVideo(buffer, {
@@ -7164,17 +7355,10 @@ async function executeVideoJob(
     // Local-only work (for example a slideshow without AI music) correctly
     // leaves this empty and is represented by supplemental zero-cost units.
     const providerEventsRaw = completedProviderEvents;
-    // Frozen scene labels are durable operation keys. Defensive de-duping keeps
-    // a resume/checkpoint merge from recording any paid visual or lip-sync work
-    // twice while retaining distinct legacy events.
-    const seenProviderEvents = new Set<string>();
-    const providerEvents = providerEventsRaw.filter((event) => {
-      if (event.accounted) return false;
-      const key = `${event.provider}\0${event.model}\0${event.label}`;
-      if (seenProviderEvents.has(key)) return false;
-      seenProviderEvents.add(key);
-      return true;
-    });
+    // Only a provider-issued/stored event ID is a durable billing identity.
+    // Legacy events without one remain distinct even when their labels match.
+    const normalizedProviderEvents = normalizeLiveVideoProviderEvents(providerEventsRaw);
+    const providerEvents = normalizedProviderEvents.meteredEvents;
     const eventCosts = await Promise.all(providerEvents.map(async (event) => {
       const computed =
         event.costPaise ??
@@ -7206,7 +7390,7 @@ async function executeVideoJob(
       if (primary) reservations.push(primary);
     }
     const reservation = reservations[0] ?? null;
-    if (reservation && costPaise === null) {
+    if (reservation && costPaise === null && job.options?.billingPolicyVersion !== 2) {
       throw new VideoGenNotConfiguredError(
         "A completed video provider event has no authoritative price, so this wallet job cannot be finalized.",
       );
@@ -7250,7 +7434,10 @@ async function executeVideoJob(
         spendPaise = null;
       }
     }
-    await setJob(jobId, {
+    // Guided v2 freezes the delivered membership before exposing success. The
+    // freeze is deliberately best-effort with respect to wallet movement:
+    // unknown costs remain actionable and can never turn success into failure.
+    const terminalFields = {
       status: "succeeded",
       spendPaise,
       videoPath,
@@ -7263,7 +7450,51 @@ async function executeVideoJob(
       // Persist the localized_dub result snapshot atomically with the status
       // flip so clients see consistent data the moment the job succeeds.
       ...(localizedResult != null ? { localizedResult } : {}),
-    });
+    };
+    let deliveryManifest: Awaited<ReturnType<typeof finalizeVideoDeliveryBillingAndSuccess>> | null = null;
+    if (job.options?.billingPolicyVersion === 2) {
+      const deliveryEvents = applyNormalizedVideoEventCosts(
+        normalizedProviderEvents.deliveryEvents,
+        providerEvents,
+        eventCosts,
+      );
+      const [latestDeliveryJob] = await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job.id)).limit(1);
+      const latestJob = latestDeliveryJob ?? job;
+      const expectedExternalNarrationCueIdentities =
+        latestJob.options?.expectedExternalNarrationCueIdentities ?? [
+          ...(latestJob.options?.guidedStoryIntrinsicLipSync?.checkpoint?.scenes ?? [])
+            .filter((scene) => scene.narrationReceipt || scene.audioPath)
+            .map((scene) => scene.sceneId),
+          ...(latestJob.storyboard?.dialogueReplayCheckpoint?.lines ?? [])
+            .map((line) => line.lineId),
+          ...(latestJob.storyboard?.narration?.receipts ?? [])
+            .map((receipt) => receipt.cueIdentity),
+        ];
+      const frozenOptions = {
+        ...(latestJob.options ?? { aspectRatio: "9:16" as const }),
+        expectedExternalNarrationCueIdentities:
+          [...new Set(expectedExternalNarrationCueIdentities)],
+      };
+      const deliveryJob: VideoGeneration = { ...latestJob, options: frozenOptions };
+      const acceptedReservationIds = (job.options.acceptedInputs ?? [])
+        .map((item) => item.reservationId).filter((id): id is number => id != null);
+      const { chainId, reservationIds } =
+        await allVideoBillingChainReservationIds(deliveryJob, acceptedReservationIds);
+      const items = buildVideoDeliveryBillingItems(deliveryJob, deliveryEvents);
+      deliveryManifest = await finalizeVideoDeliveryBillingAndSuccess({
+        tenantId: job.tenantId,
+        jobId: job.id,
+        chainId,
+        items,
+        reservationIds: [
+          ...reservationIds,
+        ],
+        terminal: { ...terminalFields, options: frozenOptions },
+      });
+    } else {
+      await setJob(jobId, terminalFields);
+    }
     if (job.options?.studioLipSync) {
       const recovered = job.options.recovery?.sourceJobId != null;
       recordStudioLipSyncEvent({
@@ -7299,9 +7530,12 @@ async function executeVideoJob(
     let walletSettlementCompleted = reservation === null;
     if (reservation) {
       try {
-        const finalChargePaise = await exactChargePaise(costPaise);
+        const finalChargePaise =
+          deliveryManifest && costPaise !== null
+            ? Math.round(costPaise * (100 + deliveryManifest.feePercent) / 100)
+            : await exactChargePaise(costPaise);
         const totalReservedPaise = reservations.reduce((sum, item) => sum + item.amountPaise, 0);
-        if (totalReservedPaise < finalChargePaise) {
+        if (totalReservedPaise < finalChargePaise && job.options?.billingPolicyVersion !== 2) {
           throw new Error(
             `Video job ${job.id} reserved ${totalReservedPaise} paise but requires ${finalChargePaise} paise`,
           );
@@ -7342,12 +7576,20 @@ async function executeVideoJob(
     if (
       walletSettlementCompleted &&
       (reservation !== null || isRetryChainCompletion) &&
-      (job.options?.characterDialogue || job.options?.recovery)
+      (job.options?.characterDialogue || job.options?.recovery) &&
+      job.options?.billingPolicyVersion !== 2
     ) {
       try {
         await reconcileVideoJobWalletCost(job.id);
       } catch (err) {
         logger.error({ err, jobId }, "Failed to reconcile retry-chain video wallet charge");
+      }
+    }
+    if (walletSettlementCompleted && job.options?.billingPolicyVersion === 2) {
+      try {
+        await reconcileVideoDeliveryBillingManifest(job.id);
+      } catch (err) {
+        logger.error({ err, jobId }, "Guided v2 delivery reconciliation remains actionable");
       }
     }
     for (let i = 0; i < providerEvents.length; i++) {
@@ -7373,6 +7615,12 @@ async function executeVideoJob(
       });
     }
   } catch (error) {
+    const [terminal] = await db.select({ status: videoGenerationsTable.status })
+      .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).limit(1);
+    if (terminal?.status === "succeeded") {
+      logger.warn({ err: error, jobId }, "Ignoring post-commit video finalization error");
+      return;
+    }
     logger.error({ err: error, jobId }, "Video generation job failed");
     const partialWork = error instanceof PartialVideoProviderWorkError ? error : null;
     const latestCheckpointRow = (
@@ -7420,9 +7668,10 @@ async function executeVideoJob(
       // accounted=true. They are reusable checkpoints, not new provider work,
       // so a failed child must never record or settle them again.
       .filter((event) => event.accounted !== true)
-      .filter((event, index, all) =>
-        all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
-      );
+      .filter((event, index, all) => {
+        const id = event.eventId?.trim();
+        return !id || all.findIndex((candidate) => candidate.eventId?.trim() === id) === index;
+      });
     const surfacedError = partialWork?.cause ?? error;
     const message =
       surfacedError instanceof ImageGenProviderError
@@ -7522,38 +7771,43 @@ async function executeVideoJob(
       }
       if (failedOptions && partialEvents.length > 0) {
         failedOptions = structuredClone(failedOptions);
-        const labels = new Set(partialEvents.map((event) => event.label));
+        const eventIds = new Set<string>(
+          partialEvents.map((event) => event.eventId?.trim() || event.label)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const included = (event: VideoProviderEvent) =>
+          eventIds.has(event.eventId?.trim() || event.label);
         if (failedOptions.characterDialogue) {
           for (const scene of failedOptions.characterDialogue.scenes) {
-            if (scene.checkpoint?.visualEvent && labels.has(scene.checkpoint.visualEvent.label)) {
+            if (scene.checkpoint?.visualEvent && included(scene.checkpoint.visualEvent)) {
               scene.checkpoint.visualEvent.accounted = true;
             }
-            if (scene.checkpoint?.lipSyncEvent && labels.has(scene.checkpoint.lipSyncEvent.label)) {
+            if (scene.checkpoint?.lipSyncEvent && included(scene.checkpoint.lipSyncEvent)) {
               scene.checkpoint.lipSyncEvent.accounted = true;
             }
           }
           const musicEvent = failedOptions.characterDialogue.musicCheckpoint?.event;
-          if (musicEvent && labels.has(musicEvent.label)) musicEvent.accounted = true;
+          if (musicEvent && included(musicEvent)) musicEvent.accounted = true;
         }
         for (const event of failedOptions.presenterBroll?.providerEvents ?? []) {
-          if (labels.has(event.label)) event.accounted = true;
+          if (included(event)) event.accounted = true;
         }
         const presenterMusicEvent = failedOptions.presenterMusicCheckpoint?.event;
-        if (presenterMusicEvent && labels.has(presenterMusicEvent.label)) {
+        if (presenterMusicEvent && included(presenterMusicEvent)) {
           presenterMusicEvent.accounted = true;
         }
         for (const event of failedOptions.renderCheckpoint?.providerEvents ?? []) {
-          if (labels.has(event.label)) event.accounted = true;
+          if (included(event)) event.accounted = true;
         }
         const studioLipSyncEvent = failedOptions.studioLipSync?.checkpoint?.event;
-        if (studioLipSyncEvent && labels.has(studioLipSyncEvent.label)) {
+        if (studioLipSyncEvent && included(studioLipSyncEvent)) {
           studioLipSyncEvent.accounted = true;
         }
         for (const scene of failedOptions.studioLipSync?.checkpoint?.scenes ?? []) {
-          if (scene.event && labels.has(scene.event.label)) scene.event.accounted = true;
+          if (scene.event && included(scene.event)) scene.event.accounted = true;
         }
-        markGuidedStoryIntrinsicEventsAccounted(failedOptions, labels);
-        if (failedOptions.musicCheckpoint?.event && labels.has(failedOptions.musicCheckpoint.event.label)) {
+        markGuidedStoryIntrinsicEventsAccounted(failedOptions, eventIds);
+        if (failedOptions.musicCheckpoint?.event && included(failedOptions.musicCheckpoint.event)) {
           failedOptions.musicCheckpoint.event.accounted = true;
         }
         if (failedStoryboard) {
@@ -7564,13 +7818,13 @@ async function executeVideoJob(
             )) {
               if (
                 line.animationEvent &&
-                labels.has(line.animationEvent.label)
+                included(line.animationEvent)
               ) {
                 line.animationEvent.accounted = true;
               }
               if (
                 line.lipSyncEvent &&
-                labels.has(line.lipSyncEvent.label)
+                included(line.lipSyncEvent)
               ) {
                 line.lipSyncEvent.accounted = true;
               }
@@ -7578,9 +7832,9 @@ async function executeVideoJob(
           }
           for (const scene of failedStoryboard.scenes) {
             const event = scene.providerCheckpoint?.event;
-            if (event && labels.has(event.label)) event.accounted = true;
+            if (event && included(event)) event.accounted = true;
             for (const previewEvent of previewCheckpointEvents(scene.previewCheckpoint)) {
-              if (labels.has(previewEvent.label)) previewEvent.accounted = true;
+              if (included(previewEvent)) previewEvent.accounted = true;
             }
           }
         }

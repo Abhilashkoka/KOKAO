@@ -28,6 +28,9 @@ import {
   listVideoWalletReconciliationReport,
   listWalletSettlementRetries,
   reconcilePendingModel,
+  reconcileVideoDeliveryBillingManifest,
+  materializeHistoricalGuidedDeliveryBilling,
+  freezeVideoDeliveryBillingManifest,
   trueUpModel,
 } from "../lib/wallet";
 import { eq, sql, asc, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
@@ -5869,6 +5872,83 @@ router.get("/admin/wallet/settlement-retries", async (_req: Request, res: Respon
  */
 router.get("/admin/wallet/video-reconciliation", async (_req: Request, res: Response) => {
   res.json(await listVideoWalletReconciliationReport());
+});
+
+router.get("/admin/wallet/video-reconciliation/:completedJobId/dry-run", async (req, res) => {
+  const jobId = Number(req.params.completedJobId);
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+    res.status(400).json({ error: "completedJobId must be a positive integer" });
+    return;
+  }
+  res.json(await materializeHistoricalGuidedDeliveryBilling(jobId));
+});
+
+/** Freeze a historical manifest only; wallet reconciliation remains explicit. */
+router.post("/admin/wallet/video-reconciliation/materialize", async (req, res) => {
+  const parsed = z.object({ completedJobId: z.number().int().positive() }).strict().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "completedJobId must be a positive integer" });
+    return;
+  }
+  try {
+    const dryRun = await materializeHistoricalGuidedDeliveryBilling(parsed.data.completedJobId);
+    if (dryRun.status === "unsupported") {
+      res.status(409).json(dryRun);
+      return;
+    }
+    const manifest = await freezeVideoDeliveryBillingManifest({
+      tenantId: dryRun.tenantId,
+      completedJobId: dryRun.jobId,
+      chainId: dryRun.chainId,
+      idempotencyKey: `video-delivery-v2:${dryRun.jobId}`,
+      items: dryRun.items,
+      reservationIds: dryRun.reservationIds,
+    });
+    await recordAdminAction({
+      action: "video_delivery_billing_reconcile",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: dryRun.tenantId,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `completedJobId:${dryRun.jobId};manifestId:${manifest.id}`,
+    });
+    res.json({ dryRun, manifest });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Historical manifest freeze failed";
+    res.status(/conflict|unsupported|succeeded/i.test(message) ? 409 : 400).json({ error: message });
+  }
+});
+
+/** Reconcile one explicit immutable v2 delivery manifest. */
+router.post("/admin/wallet/video-reconciliation/reconcile", async (req: Request, res: Response) => {
+  const parsed = z.object({ completedJobId: z.number().int().positive() }).strict().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "completedJobId must be a positive integer" });
+    return;
+  }
+  try {
+    const result = await reconcileVideoDeliveryBillingManifest(parsed.data.completedJobId);
+    req.log.info({ completedJobId: parsed.data.completedJobId, appliedPaise: result.appliedPaise }, "Manual video delivery billing reconcile");
+    try {
+      await recordAdminAction({
+        action: "video_delivery_billing_reconcile",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `completedJobId:${parsed.data.completedJobId};appliedPaise:${result.appliedPaise}`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write video delivery reconcile audit log");
+    }
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Video delivery reconcile failed";
+    const conflict = /pending|balance|unknown|settled/i.test(message);
+    res.status(conflict ? 409 : 400).json({ error: message });
+  }
 });
 
 /**
