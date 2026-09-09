@@ -1380,7 +1380,7 @@ router.delete("/characters/identities/:identityId", async (req: Request, res: Re
       return;
     }
     res.status(204).end();
-    deleteBytePlusIdentityAssetsInBackground(result.assetGroupId);
+    deleteBytePlusIdentityAssetsInBackground(result.cleanupQueued);
   } catch (error) {
     if (hasDatabaseErrorCode(error, "23503")) {
       res.status(409).json({

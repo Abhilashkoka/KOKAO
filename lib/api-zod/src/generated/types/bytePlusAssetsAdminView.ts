@@ -8,10 +8,12 @@
 import type { BytePlusAssetCharacter } from './bytePlusAssetCharacter';
 import type { BytePlusAssetsAdminViewKeySource } from './bytePlusAssetsAdminViewKeySource';
 import type { BytePlusIdentity } from './bytePlusIdentity';
+import type { BytePlusIdentityCleanupDiagnostics } from './bytePlusIdentityCleanupDiagnostics';
 
 export interface BytePlusAssetsAdminView {
   /** @nullable */
   keySource: BytePlusAssetsAdminViewKeySource;
+  identityCleanup: BytePlusIdentityCleanupDiagnostics;
   identities: BytePlusIdentity[];
   characters: BytePlusAssetCharacter[];
 }

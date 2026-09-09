@@ -1,6 +1,6 @@
 import { db, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { boundedProviderFetch, errorDetail } from "../aiProviderFetch";
+import { boundedProviderExchange } from "../aiProviderFetch";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import {
   signBytePlusAssetsRequest,
@@ -12,6 +12,13 @@ const DEFAULT_HOST = "ark.ap-southeast-1.byteplusapi.com";
 const DEFAULT_REGION = "ap-southeast-1";
 const API_VERSION = "2024-01-01";
 const FETCH_TIMEOUT_MS = 30_000;
+
+function fetchTimeoutMs(): number {
+  const configured = Number(process.env.ARK_ASSETS_FETCH_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : FETCH_TIMEOUT_MS;
+}
 
 interface StoredKey {
   accessKeyId: string;
@@ -92,29 +99,40 @@ async function call<T>(
     body: JSON.stringify(payload),
     credentials,
   });
-  const response = await boundedProviderFetch(
+  return boundedProviderExchange(
     signed.url,
     { method: "POST", headers: signed.headers, body: signed.body, redirect: "manual" },
-    FETCH_TIMEOUT_MS,
+    fetchTimeoutMs(),
     () => new BytePlusAssetsError(`BytePlus ModelArk ${action} timed out.`),
+    async (response) => {
+      const raw = await response.text();
+      let body: Envelope<T> | null = null;
+      try {
+        body = JSON.parse(raw) as Envelope<T>;
+      } catch {
+        body = null;
+      }
+      const upstream = body?.ResponseMetadata?.Error;
+      if (!response.ok) {
+        throw new BytePlusAssetsError(
+          `BytePlus ModelArk ${action} failed (${response.status}): ${
+            upstream?.Message ?? upstream?.Code ?? raw.slice(0, 300)
+          }`,
+          response.status,
+          upstream?.Code,
+        );
+      }
+      if (!body) throw new BytePlusAssetsError(`BytePlus ModelArk ${action} returned invalid JSON.`);
+      if (upstream?.Code || upstream?.Message) {
+        throw new BytePlusAssetsError(
+          `BytePlus ModelArk ${action} failed: ${upstream.Message ?? upstream.Code}`,
+          response.status,
+          upstream.Code,
+        );
+      }
+      return (body.Result ?? body) as T;
+    },
   );
-  if (!response.ok) {
-    throw new BytePlusAssetsError(
-      `BytePlus ModelArk ${action} failed (${response.status}): ${await errorDetail(response)}`,
-      response.status,
-    );
-  }
-  const body = await response.json().catch(() => null) as Envelope<T> | null;
-  if (!body) throw new BytePlusAssetsError(`BytePlus ModelArk ${action} returned invalid JSON.`);
-  const upstream = body.ResponseMetadata?.Error;
-  if (upstream?.Code || upstream?.Message) {
-    throw new BytePlusAssetsError(
-      `BytePlus ModelArk ${action} failed: ${upstream.Message ?? upstream.Code}`,
-      response.status,
-      upstream.Code,
-    );
-  }
-  return (body.Result ?? body) as T;
 }
 
 export async function createAssetGroup(

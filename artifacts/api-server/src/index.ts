@@ -53,6 +53,10 @@ import {
   resumeInterruptedGuidedPreviewRenders,
   resumeInterruptedGuidedSceneCorrections,
 } from "./lib/videoGen/jobRunner";
+import {
+  startBytePlusIdentityCleanupSweep,
+  stopBytePlusIdentityCleanupSweep,
+} from "./lib/bytePlusIdentityCleanup";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -186,6 +190,7 @@ const server: Server = app.listen(port, (err) => {
   // markup, and save it as the AI-cost conversion rate.
   startFxRateSweep();
   startSeedancePricingSweep();
+  startBytePlusIdentityCleanupSweep();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -203,6 +208,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopVideoJobSweep();
     stopFxRateSweep();
     stopSeedancePricingSweep();
+    stopBytePlusIdentityCleanupSweep();
     stopTrueUpRetrySweep();
     stopWalletSettlementRetrySweep();
     stopWalletProviderRecovery();

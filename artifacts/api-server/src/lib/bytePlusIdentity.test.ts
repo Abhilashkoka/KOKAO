@@ -3,9 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   status: "pending",
   tokenHash: "",
+  tokenEncrypted: null as string | null,
   resolveCalls: 0,
   deleteGroupCalls: [] as string[],
+  cleanupCalls: [] as Array<{
+    sourceIdentityId: number;
+    sourceAttemptId: string;
+    assetGroupId?: string;
+    verificationTokenEncrypted?: string;
+  }>,
   finalizeMissing: false,
+  tokenPersistenceMissing: false,
   signedData: "",
 }));
 
@@ -29,11 +37,25 @@ vi.mock("./byteplus/assets", () => ({
     state.deleteGroupCalls.push(id);
   },
 }));
+vi.mock("./bytePlusIdentityCleanup", () => ({
+  enqueueBytePlusIdentityCleanup: async (args: {
+    sourceIdentityId: number;
+    sourceAttemptId: string;
+    assetGroupId?: string;
+    verificationTokenEncrypted?: string;
+  }) => {
+    state.cleanupCalls.push(args);
+    return 1;
+  },
+  sweepBytePlusIdentityCleanups: async () => 1,
+}));
 vi.mock("@workspace/db", async (original) => {
   const actual = await original<typeof import("@workspace/db")>();
   const row = () => ({
-    id: 11, tenantId: 7, label: "Person", assetGroupId: state.status === "verified" ? "group-1" : null,
-    status: state.status, verificationTokenHash: state.tokenHash, resultCode: null, error: null,
+    id: 11, tenantId: 7, label: "Person", verificationAttemptId: "attempt-11",
+    assetGroupId: state.status === "verified" ? "group-1" : null,
+    status: state.status, verificationTokenHash: state.tokenHash, verificationTokenEncrypted: null,
+    resultCode: null, error: null,
     verifiedAt: null, createdAt: new Date(), updatedAt: new Date(),
   });
   const update = () => ({
@@ -42,9 +64,13 @@ vi.mock("@workspace/db", async (original) => {
         where() {
           const canClaim =
             (values.status !== "completing" || state.status === "pending") &&
-            !(values.status === "verified" && state.finalizeMissing);
+            !(values.status === "verified" && state.finalizeMissing) &&
+            !(typeof values.verificationTokenHash === "string" && state.tokenPersistenceMissing);
           if (canClaim) {
             if (typeof values.verificationTokenHash === "string") state.tokenHash = values.verificationTokenHash;
+            if (typeof values.verificationTokenEncrypted === "string" || values.verificationTokenEncrypted === null) {
+              state.tokenEncrypted = values.verificationTokenEncrypted as string | null;
+            }
             if (typeof values.status === "string") state.status = values.status;
           }
           const result = canClaim ? [row()] : [];
@@ -88,9 +114,12 @@ describe("BytePlus liveness token binding", () => {
     process.env.SESSION_SECRET = "test-session-secret";
     state.status = "pending";
     state.tokenHash = "";
+    state.tokenEncrypted = null;
     state.resolveCalls = 0;
     state.deleteGroupCalls = [];
+    state.cleanupCalls = [];
     state.finalizeMissing = false;
+    state.tokenPersistenceMissing = false;
     state.signedData = "";
   });
 
@@ -121,6 +150,7 @@ describe("BytePlus liveness token binding", () => {
     });
     expect(first.ok).toBe(true);
     expect(state.resolveCalls).toBe(1);
+    expect(state.tokenEncrypted).toBeNull();
     const replay = await completeBytePlusIdentityVerification({
       state: "signed-state", bytedToken: "exact-token", resultCode: "10000",
     });
@@ -154,6 +184,28 @@ describe("BytePlus liveness token binding", () => {
     });
 
     expect(result).toMatchObject({ ok: false, reason: "identity_deleted" });
-    expect(state.deleteGroupCalls).toEqual(["group-1"]);
+    expect(state.cleanupCalls).toEqual([{
+      sourceIdentityId: 11,
+      sourceAttemptId: "attempt-11",
+      assetGroupId: "group-1",
+      tenantId: 7,
+    }]);
+  });
+
+  it("does not return a verification URL when token persistence loses a delete race", async () => {
+    state.tokenPersistenceMissing = true;
+
+    await expect(startBytePlusIdentityVerification({
+      tenantId: 7,
+      label: "Person",
+      callbackBaseUrl: "https://app.example/cb",
+    })).rejects.toThrow(/removed before it could start/i);
+
+    expect(state.cleanupCalls).toHaveLength(1);
+    expect(state.cleanupCalls[0]).toMatchObject({
+      sourceIdentityId: 11,
+      verificationTokenEncrypted: expect.any(String),
+    });
+    expect(state.cleanupCalls[0]!.verificationTokenEncrypted).not.toContain("exact-token");
   });
 });

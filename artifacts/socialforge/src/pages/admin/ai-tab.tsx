@@ -5572,6 +5572,36 @@ function BytePlusAssetsCard() {
                 </Button>
               )}
             </div>
+            {data?.identityCleanup && (
+              <div
+                className="rounded-md border p-3 text-sm"
+                data-testid="byteplus-identity-cleanup-diagnostics"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">Deleted identity cleanup</span>
+                  <Badge variant={data.identityCleanup.outstanding > 0 ? "destructive" : "secondary"}>
+                    {data.identityCleanup.outstanding} outstanding
+                  </Badge>
+                  {data.identityCleanup.exhausted > 0 && (
+                    <Badge variant="destructive">
+                      {data.identityCleanup.exhausted} retry exhausted
+                    </Badge>
+                  )}
+                  {data.identityCleanup.unsupported > 0 && (
+                    <Badge variant="outline">
+                      {data.identityCleanup.unsupported} unsupported
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-1 text-muted-foreground">
+                  {data.identityCleanup.pending} pending, {data.identityCleanup.processing} processing,{" "}
+                  {data.identityCleanup.succeeded} completed
+                  {data.identityCleanup.oldestOutstandingAt
+                    ? ` — oldest outstanding ${new Date(data.identityCleanup.oldestOutstandingAt).toLocaleString()}`
+                    : ""}
+                </div>
+              </div>
+            )}
             <form
               className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
               onSubmit={(event) => {

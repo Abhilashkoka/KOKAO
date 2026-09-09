@@ -18,6 +18,7 @@ import {
   charactersTable,
   characterOutfitsTable,
   bytePlusIdentitiesTable,
+  bytePlusIdentityCleanupsTable,
 } from "@workspace/db";
 import {
   getWalletConfig,
@@ -359,8 +360,31 @@ async function serializeBytePlusAssets() {
     : [];
   const identities = await db.select().from(bytePlusIdentitiesTable)
     .orderBy(asc(bytePlusIdentitiesTable.id));
+  const cleanupRows = await db.select({
+    status: bytePlusIdentityCleanupsTable.status,
+    count: sql<number>`count(*)::int`,
+  }).from(bytePlusIdentityCleanupsTable)
+    .groupBy(bytePlusIdentityCleanupsTable.status);
+  const [oldestOutstanding] = await db.select({
+    createdAt: bytePlusIdentityCleanupsTable.createdAt,
+  }).from(bytePlusIdentityCleanupsTable)
+    .where(inArray(bytePlusIdentityCleanupsTable.status, ["pending", "processing"]))
+    .orderBy(asc(bytePlusIdentityCleanupsTable.createdAt))
+    .limit(1);
+  const cleanupByStatus = Object.fromEntries(cleanupRows.map((row) => [row.status, row.count]));
+  const outstandingRows = cleanupRows.filter((row) =>
+    row.status === "pending" || row.status === "processing");
   return {
     keySource: await getBytePlusAssetsKeySource(),
+    identityCleanup: {
+      outstanding: outstandingRows.reduce((total, row) => total + row.count, 0),
+      pending: cleanupByStatus.pending ?? 0,
+      processing: cleanupByStatus.processing ?? 0,
+      succeeded: cleanupByStatus.succeeded ?? 0,
+      unsupported: cleanupByStatus.unsupported ?? 0,
+      exhausted: cleanupByStatus.exhausted ?? 0,
+      oldestOutstandingAt: oldestOutstanding?.createdAt.toISOString() ?? null,
+    },
     identities: identities.map((identity) => ({
       id: identity.id,
       label: identity.label,

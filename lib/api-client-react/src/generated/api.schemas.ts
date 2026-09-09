@@ -8347,9 +8347,27 @@ export const BytePlusAssetsAdminViewKeySource = {
   env: 'env',
 } as const;
 
+export interface BytePlusIdentityCleanupDiagnostics {
+  /** @minimum 0 */
+  outstanding: number;
+  /** @minimum 0 */
+  pending: number;
+  /** @minimum 0 */
+  processing: number;
+  /** @minimum 0 */
+  succeeded: number;
+  /** @minimum 0 */
+  unsupported: number;
+  /** @minimum 0 */
+  exhausted: number;
+  /** @nullable */
+  oldestOutstandingAt: string | null;
+}
+
 export interface BytePlusAssetsAdminView {
   /** @nullable */
   keySource: BytePlusAssetsAdminViewKeySource;
+  identityCleanup: BytePlusIdentityCleanupDiagnostics;
   identities: BytePlusIdentity[];
   characters: BytePlusAssetCharacter[];
 }

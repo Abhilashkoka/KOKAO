@@ -33,6 +33,32 @@ export async function boundedProviderFetch(
   }
 }
 
+/**
+ * Fetch and consume the response under one deadline. Use this when a provider
+ * may send headers promptly but stall while streaming its JSON/error body.
+ */
+export async function boundedProviderExchange<T>(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  onTimeout: () => Error,
+  consume: (response: Response) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return await consume(response);
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw onTimeout();
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Short upstream error detail for logs/messages without dumping whole bodies. */
 export async function errorDetail(res: Response): Promise<string> {
   return (await res.text().catch(() => "")).slice(0, 300);

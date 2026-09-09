@@ -21082,15 +21082,28 @@ components:
           items: { $ref: "#/components/schemas/BytePlusAssetOutfit" }
     BytePlusAssetsAdminView:
       type: object
-      required: [keySource, identities, characters]
+      required: [keySource, identityCleanup, identities, characters]
       properties:
         keySource: { type: ["string", "null"], enum: [database, env, null] }
+        identityCleanup:
+          $ref: "#/components/schemas/BytePlusIdentityCleanupDiagnostics"
         identities:
           type: array
           items: { $ref: "#/components/schemas/BytePlusIdentity" }
         characters:
           type: array
           items: { $ref: "#/components/schemas/BytePlusAssetCharacter" }
+    BytePlusIdentityCleanupDiagnostics:
+      type: object
+      required: [outstanding, pending, processing, succeeded, unsupported, exhausted, oldestOutstandingAt]
+      properties:
+        outstanding: { type: integer, minimum: 0 }
+        pending: { type: integer, minimum: 0 }
+        processing: { type: integer, minimum: 0 }
+        succeeded: { type: integer, minimum: 0 }
+        unsupported: { type: integer, minimum: 0 }
+        exhausted: { type: integer, minimum: 0 }
+        oldestOutstandingAt: { type: ["string", "null"], format: date-time }
     AtlasCloudAssetCharacter:
       type: object
       required: [id, tenantId, name, assetGroupId, referenceSource, eligible, outfits]

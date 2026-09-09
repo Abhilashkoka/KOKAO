@@ -1,21 +1,26 @@
 import {
   db,
   bytePlusIdentitiesTable,
+  bytePlusIdentityCleanupsTable,
   charactersTable,
   type BytePlusIdentity,
 } from "@workspace/db";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { signOAuthState, verifySignedOAuthState } from "./oauthState";
 import {
   BYTEPLUS_TOKEN_TTL_MS,
   BYTEPLUS_VERIFY_SUCCESS_CODE,
   createLivenessVerification,
-  deleteAssetGroup,
   resolveBytePlusAssetsCredentials,
   resolveLivenessAssetGroup,
 } from "./byteplus/assets";
 import { logger } from "./logger";
+import { encryptJson } from "./secretCrypto";
+import {
+  enqueueBytePlusIdentityCleanup,
+  sweepBytePlusIdentityCleanups,
+} from "./bytePlusIdentityCleanup";
 
 export function signBytePlusIdentityState(
   tenantId: number,
@@ -67,7 +72,8 @@ export async function startBytePlusIdentityVerification(args: {
 }): Promise<{ identity: BytePlusIdentity; verificationUrl: string; retried: boolean }> {
   const credentials = await resolveBytePlusAssetsCredentials();
   if (!credentials) throw new Error("BytePlus Asset Library is not configured.");
-  const { identity, retried } = await db.transaction(async (tx) => {
+  const verificationAttemptId = randomUUID();
+  const { identity, retried, cleanupQueued } = await db.transaction(async (tx) => {
     // A row lock cannot serialize the first two inserts because no row exists yet.
     // Lock this tenant/label pair before reading so repeated clicks have one winner.
     await tx.execute(sql`select pg_advisory_xact_lock(${args.tenantId}, hashtext(${args.label}))`);
@@ -79,8 +85,9 @@ export async function startBytePlusIdentityVerification(args: {
       const [created] = await tx.insert(bytePlusIdentitiesTable).values({
         tenantId: args.tenantId,
         label: args.label,
+        verificationAttemptId,
       }).returning();
-      return { identity: created!, retried: false };
+      return { identity: created!, retried: false, cleanupQueued: false };
     }
     if (existing.status !== "failed") {
       const activeStatus = existing.status === "verified" ? "verified" : "pending";
@@ -91,9 +98,22 @@ export async function startBytePlusIdentityVerification(args: {
           : "Verification is already active for this person. Finish the current check before starting another.",
       );
     }
+    const cleanupQueued = Boolean(existing.verificationTokenEncrypted);
+    if (existing.verificationTokenEncrypted) {
+      await tx.insert(bytePlusIdentityCleanupsTable).values({
+        tenantId: args.tenantId,
+        sourceIdentityId: existing.id,
+        sourceAttemptId: existing.verificationAttemptId ?? `legacy:${existing.id}`,
+        verificationTokenEncrypted: existing.verificationTokenEncrypted,
+      }).onConflictDoNothing({
+        target: bytePlusIdentityCleanupsTable.sourceAttemptId,
+      });
+    }
     const [reclaimed] = await tx.update(bytePlusIdentitiesTable).set({
       status: "pending",
+      verificationAttemptId,
       verificationTokenHash: null,
+      verificationTokenEncrypted: null,
       assetGroupId: null,
       resultCode: null,
       error: null,
@@ -102,8 +122,12 @@ export async function startBytePlusIdentityVerification(args: {
       eq(bytePlusIdentitiesTable.id, existing.id),
       eq(bytePlusIdentitiesTable.status, "failed"),
     )).returning();
-    return { identity: reclaimed!, retried: true };
+    return { identity: reclaimed!, retried: true, cleanupQueued };
   });
+  if (cleanupQueued) {
+    void sweepBytePlusIdentityCleanups().catch((error) =>
+      logger.warn({ err: error }, "Prior BytePlus identity attempt cleanup could not start"));
+  }
   try {
     const state = signBytePlusIdentityState(
       args.tenantId,
@@ -114,11 +138,32 @@ export async function startBytePlusIdentityVerification(args: {
       `${args.callbackBaseUrl}/${encodeURIComponent(state)}`,
       credentials,
     );
-    await db.update(bytePlusIdentitiesTable).set({
+    const verificationTokenEncrypted = encryptJson({ token: session.bytedToken });
+    const [persisted] = await db.update(bytePlusIdentitiesTable).set({
       verificationTokenHash: tokenHash(session.bytedToken),
-    }).where(and(eq(bytePlusIdentitiesTable.id, identity!.id), eq(bytePlusIdentitiesTable.status, "pending")));
+      verificationTokenEncrypted,
+    }).where(and(
+      eq(bytePlusIdentitiesTable.id, identity!.id),
+      eq(bytePlusIdentitiesTable.status, "pending"),
+      eq(bytePlusIdentitiesTable.verificationAttemptId, verificationAttemptId),
+    )).returning({ id: bytePlusIdentitiesTable.id });
+    if (!persisted) {
+      await enqueueBytePlusIdentityCleanup({
+        tenantId: args.tenantId,
+        sourceIdentityId: identity!.id,
+        sourceAttemptId: verificationAttemptId,
+        verificationTokenEncrypted,
+      });
+      void sweepBytePlusIdentityCleanups().catch((error) =>
+        logger.warn({ err: error }, "Deleted BytePlus verification cleanup could not start"));
+      throw new Error("Identity verification was removed before it could start.");
+    }
     return {
-      identity: { ...identity, verificationTokenHash: tokenHash(session.bytedToken) },
+      identity: {
+        ...identity,
+        verificationTokenHash: tokenHash(session.bytedToken),
+        verificationTokenEncrypted,
+      },
       verificationUrl: session.verificationUrl,
       retried,
     };
@@ -182,6 +227,7 @@ export async function completeBytePlusIdentityVerification(args: {
       .set({
         assetGroupId,
         status: "verified",
+        verificationTokenEncrypted: null,
         resultCode: args.resultCode,
         error: null,
         verifiedAt: new Date(),
@@ -195,12 +241,14 @@ export async function completeBytePlusIdentityVerification(args: {
       )
       .returning({ id: bytePlusIdentitiesTable.id });
     if (!finalized) {
-      await deleteAssetGroup(assetGroupId, credentials).catch((error) =>
-        logger.warn(
-          { err: error, assetGroupId },
-          "BytePlus identity was removed during verification; compensating asset cleanup failed",
-        ),
-      );
+      await enqueueBytePlusIdentityCleanup({
+        tenantId: state.tenantId,
+        sourceIdentityId: identity.id,
+        sourceAttemptId: identity.verificationAttemptId ?? `legacy:${identity.id}`,
+        assetGroupId,
+      });
+      void sweepBytePlusIdentityCleanups().catch((error) =>
+        logger.warn({ err: error }, "BytePlus identity compensating cleanup could not start"));
       return {
         ok: false,
         identityId: identity.id,
@@ -235,7 +283,7 @@ export async function getBytePlusIdentity(
 }
 
 export type DeleteBytePlusIdentityResult =
-  | { outcome: "deleted"; assetGroupId: string | null }
+  | { outcome: "deleted"; cleanupQueued: boolean }
   | { outcome: "not_found" }
   | { outcome: "attached"; characterNames: string[] };
 
@@ -273,6 +321,29 @@ export async function deleteBytePlusIdentity(
       };
     }
 
+    const cleanupRequired = Boolean(identity.assetGroupId || identity.verificationTokenEncrypted);
+    if (cleanupRequired) {
+      await tx.insert(bytePlusIdentityCleanupsTable).values({
+        tenantId,
+        sourceIdentityId: identity.id,
+        sourceAttemptId: identity.verificationAttemptId ?? `legacy:${identity.id}`,
+        assetGroupId: identity.assetGroupId,
+        verificationTokenEncrypted: identity.assetGroupId
+          ? null
+          : identity.verificationTokenEncrypted,
+      }).onConflictDoUpdate({
+        target: bytePlusIdentityCleanupsTable.sourceAttemptId,
+        set: {
+          assetGroupId: identity.assetGroupId,
+          verificationTokenEncrypted: identity.assetGroupId
+            ? null
+            : identity.verificationTokenEncrypted,
+          status: "pending",
+          nextAttemptAt: new Date(),
+          completedAt: null,
+        },
+      });
+    }
     await tx
       .delete(bytePlusIdentitiesTable)
       .where(
@@ -281,22 +352,12 @@ export async function deleteBytePlusIdentity(
           eq(bytePlusIdentitiesTable.tenantId, tenantId),
         ),
       );
-    return { outcome: "deleted", assetGroupId: identity.assetGroupId };
+    return { outcome: "deleted", cleanupQueued: cleanupRequired };
   });
 }
 
-export function deleteBytePlusIdentityAssetsInBackground(assetGroupId: string | null): void {
-  if (!assetGroupId) return;
-  void (async () => {
-    try {
-      const credentials = await resolveBytePlusAssetsCredentials();
-      if (!credentials) return;
-      await deleteAssetGroup(assetGroupId, credentials);
-    } catch (error) {
-      logger.warn(
-        { err: error, assetGroupId },
-        "BytePlus identity asset-group cleanup failed",
-      );
-    }
-  })();
+export function deleteBytePlusIdentityAssetsInBackground(cleanupQueued: boolean): void {
+  if (!cleanupQueued) return;
+  void sweepBytePlusIdentityCleanups().catch((error) =>
+    logger.warn({ err: error }, "BytePlus identity asset-group cleanup could not start"));
 }

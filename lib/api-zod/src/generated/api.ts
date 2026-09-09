@@ -3672,8 +3672,31 @@ export const CompleteBytePlusIdentityVerificationResponse = zod.void()
 /**
  * @summary Get BytePlus Asset Library configuration and registration status
  */
+export const getAdminBytePlusAssetsResponseIdentityCleanupOutstandingMin = 0;
+
+export const getAdminBytePlusAssetsResponseIdentityCleanupPendingMin = 0;
+
+export const getAdminBytePlusAssetsResponseIdentityCleanupProcessingMin = 0;
+
+export const getAdminBytePlusAssetsResponseIdentityCleanupSucceededMin = 0;
+
+export const getAdminBytePlusAssetsResponseIdentityCleanupUnsupportedMin = 0;
+
+export const getAdminBytePlusAssetsResponseIdentityCleanupExhaustedMin = 0;
+
+
+
 export const GetAdminBytePlusAssetsResponse = zod.object({
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identityCleanup": zod.object({
+  "outstanding": zod.number().min(getAdminBytePlusAssetsResponseIdentityCleanupOutstandingMin),
+  "pending": zod.number().min(getAdminBytePlusAssetsResponseIdentityCleanupPendingMin),
+  "processing": zod.number().min(getAdminBytePlusAssetsResponseIdentityCleanupProcessingMin),
+  "succeeded": zod.number().min(getAdminBytePlusAssetsResponseIdentityCleanupSucceededMin),
+  "unsupported": zod.number().min(getAdminBytePlusAssetsResponseIdentityCleanupUnsupportedMin),
+  "exhausted": zod.number().min(getAdminBytePlusAssetsResponseIdentityCleanupExhaustedMin),
+  "oldestOutstandingAt": zod.coerce.date().nullable()
+}),
   "identities": zod.array(zod.object({
   "id": zod.number(),
   "label": zod.string(),
@@ -3714,8 +3737,31 @@ export const SetAdminBytePlusAssetsKeyBody = zod.object({
   "secretAccessKey": zod.string().min(1)
 })
 
+export const setAdminBytePlusAssetsKeyResponseIdentityCleanupOutstandingMin = 0;
+
+export const setAdminBytePlusAssetsKeyResponseIdentityCleanupPendingMin = 0;
+
+export const setAdminBytePlusAssetsKeyResponseIdentityCleanupProcessingMin = 0;
+
+export const setAdminBytePlusAssetsKeyResponseIdentityCleanupSucceededMin = 0;
+
+export const setAdminBytePlusAssetsKeyResponseIdentityCleanupUnsupportedMin = 0;
+
+export const setAdminBytePlusAssetsKeyResponseIdentityCleanupExhaustedMin = 0;
+
+
+
 export const SetAdminBytePlusAssetsKeyResponse = zod.object({
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identityCleanup": zod.object({
+  "outstanding": zod.number().min(setAdminBytePlusAssetsKeyResponseIdentityCleanupOutstandingMin),
+  "pending": zod.number().min(setAdminBytePlusAssetsKeyResponseIdentityCleanupPendingMin),
+  "processing": zod.number().min(setAdminBytePlusAssetsKeyResponseIdentityCleanupProcessingMin),
+  "succeeded": zod.number().min(setAdminBytePlusAssetsKeyResponseIdentityCleanupSucceededMin),
+  "unsupported": zod.number().min(setAdminBytePlusAssetsKeyResponseIdentityCleanupUnsupportedMin),
+  "exhausted": zod.number().min(setAdminBytePlusAssetsKeyResponseIdentityCleanupExhaustedMin),
+  "oldestOutstandingAt": zod.coerce.date().nullable()
+}),
   "identities": zod.array(zod.object({
   "id": zod.number(),
   "label": zod.string(),
@@ -3747,8 +3793,31 @@ export const SetAdminBytePlusAssetsKeyResponse = zod.object({
 /**
  * @summary Clear the stored BytePlus Assets API access-key pair
  */
+export const clearAdminBytePlusAssetsKeyResponseIdentityCleanupOutstandingMin = 0;
+
+export const clearAdminBytePlusAssetsKeyResponseIdentityCleanupPendingMin = 0;
+
+export const clearAdminBytePlusAssetsKeyResponseIdentityCleanupProcessingMin = 0;
+
+export const clearAdminBytePlusAssetsKeyResponseIdentityCleanupSucceededMin = 0;
+
+export const clearAdminBytePlusAssetsKeyResponseIdentityCleanupUnsupportedMin = 0;
+
+export const clearAdminBytePlusAssetsKeyResponseIdentityCleanupExhaustedMin = 0;
+
+
+
 export const ClearAdminBytePlusAssetsKeyResponse = zod.object({
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identityCleanup": zod.object({
+  "outstanding": zod.number().min(clearAdminBytePlusAssetsKeyResponseIdentityCleanupOutstandingMin),
+  "pending": zod.number().min(clearAdminBytePlusAssetsKeyResponseIdentityCleanupPendingMin),
+  "processing": zod.number().min(clearAdminBytePlusAssetsKeyResponseIdentityCleanupProcessingMin),
+  "succeeded": zod.number().min(clearAdminBytePlusAssetsKeyResponseIdentityCleanupSucceededMin),
+  "unsupported": zod.number().min(clearAdminBytePlusAssetsKeyResponseIdentityCleanupUnsupportedMin),
+  "exhausted": zod.number().min(clearAdminBytePlusAssetsKeyResponseIdentityCleanupExhaustedMin),
+  "oldestOutstandingAt": zod.coerce.date().nullable()
+}),
   "identities": zod.array(zod.object({
   "id": zod.number(),
   "label": zod.string(),
@@ -3787,8 +3856,31 @@ export const RegisterAdminBytePlusCharacterAssetsParams = zod.object({
   "characterId": zod.coerce.number().min(1)
 })
 
+export const registerAdminBytePlusCharacterAssetsResponseIdentityCleanupOutstandingMin = 0;
+
+export const registerAdminBytePlusCharacterAssetsResponseIdentityCleanupPendingMin = 0;
+
+export const registerAdminBytePlusCharacterAssetsResponseIdentityCleanupProcessingMin = 0;
+
+export const registerAdminBytePlusCharacterAssetsResponseIdentityCleanupSucceededMin = 0;
+
+export const registerAdminBytePlusCharacterAssetsResponseIdentityCleanupUnsupportedMin = 0;
+
+export const registerAdminBytePlusCharacterAssetsResponseIdentityCleanupExhaustedMin = 0;
+
+
+
 export const RegisterAdminBytePlusCharacterAssetsResponse = zod.object({
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable(),
+  "identityCleanup": zod.object({
+  "outstanding": zod.number().min(registerAdminBytePlusCharacterAssetsResponseIdentityCleanupOutstandingMin),
+  "pending": zod.number().min(registerAdminBytePlusCharacterAssetsResponseIdentityCleanupPendingMin),
+  "processing": zod.number().min(registerAdminBytePlusCharacterAssetsResponseIdentityCleanupProcessingMin),
+  "succeeded": zod.number().min(registerAdminBytePlusCharacterAssetsResponseIdentityCleanupSucceededMin),
+  "unsupported": zod.number().min(registerAdminBytePlusCharacterAssetsResponseIdentityCleanupUnsupportedMin),
+  "exhausted": zod.number().min(registerAdminBytePlusCharacterAssetsResponseIdentityCleanupExhaustedMin),
+  "oldestOutstandingAt": zod.coerce.date().nullable()
+}),
   "identities": zod.array(zod.object({
   "id": zod.number(),
   "label": zod.string(),

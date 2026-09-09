@@ -214,6 +214,7 @@ export * from './bytePlusAssetsAdminView';
 export * from './bytePlusAssetsAdminViewKeySource';
 export * from './bytePlusAssetsKeyInput';
 export * from './bytePlusIdentity';
+export * from './bytePlusIdentityCleanupDiagnostics';
 export * from './bytePlusIdentityConflict';
 export * from './bytePlusIdentityConflictStatus';
 export * from './bytePlusIdentityInput';

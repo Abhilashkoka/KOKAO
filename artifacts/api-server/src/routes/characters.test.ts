@@ -228,7 +228,16 @@ vi.mock("../lib/byteplus/assets", async (importOriginal) => {
       verificationUrl: "https://verify.example/liveness",
       bytedToken: "test-byted-token",
     })),
+    resolveLivenessAssetGroup: vi.fn(async () => "resolved-liveness-group"),
     deleteAssetGroup: vi.fn(async () => undefined),
+  };
+});
+
+vi.mock("../lib/bytePlusIdentityCleanup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/bytePlusIdentityCleanup")>();
+  return {
+    ...actual,
+    sweepBytePlusIdentityCleanups: vi.fn(async () => 0),
   };
 });
 
@@ -240,6 +249,7 @@ import {
   creditBalancesTable,
   creditLedgerTable,
   bytePlusIdentitiesTable,
+  bytePlusIdentityCleanupsTable,
   presetCharactersTable,
   presetOutfitDerivativesTable,
 } from "@workspace/db";
@@ -250,6 +260,7 @@ import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 import { PRESET_CHARACTER_SEEDS } from "../lib/presetCharacters";
+import { encryptJson } from "../lib/secretCrypto";
 
 const logMock = {
   info: vi.fn(),
@@ -316,6 +327,9 @@ function errorLogged(substring: string): boolean {
 
 afterAll(async () => {
   for (const tenant of createdTenants) {
+    await db
+      .delete(bytePlusIdentityCleanupsTable)
+      .where(eq(bytePlusIdentityCleanupsTable.tenantId, tenant.tenantId));
     await db
       .delete(presetOutfitDerivativesTable)
       .where(eq(presetOutfitDerivativesTable.tenantId, tenant.tenantId));
@@ -478,6 +492,8 @@ describe("POST /api/characters", () => {
       tenantId: tenant.tenantId,
       label: "Retry Maya",
       status: "failed",
+      verificationAttemptId: `failed-attempt-${tenant.tenantId}`,
+      verificationTokenEncrypted: encryptJson({ token: "old-failed-token" }),
       error: "Liveness was not confirmed.",
       resultCode: "failed",
     }).returning();
@@ -492,6 +508,14 @@ describe("POST /api/characters", () => {
       retryable: false,
       retried: true,
     });
+    const [oldCleanup] = await db.select().from(bytePlusIdentityCleanupsTable).where(
+      eq(bytePlusIdentityCleanupsTable.sourceAttemptId, `failed-attempt-${tenant.tenantId}`),
+    );
+    expect(oldCleanup).toMatchObject({
+      tenantId: tenant.tenantId,
+      sourceIdentityId: failed!.id,
+    });
+    expect(oldCleanup?.verificationTokenEncrypted).not.toBe("old-failed-token");
 
     const repeated = await request(app)
       .post("/api/characters/identities")
@@ -783,6 +807,35 @@ describe("DELETE /api/characters/identities/:identityId", () => {
     ).toBe(404);
   });
 
+  it("durably queues cleanup when deletion races an active verification", async () => {
+    const tenant = await newTenant();
+    const [identity] = await db.insert(bytePlusIdentitiesTable).values({
+      tenantId: tenant.tenantId,
+      label: "Active verification removal",
+      status: "completing",
+      verificationAttemptId: `active-attempt-${tenant.tenantId}`,
+      verificationTokenHash: "hashed-token",
+      verificationTokenEncrypted: encryptJson({ token: "active-callback-token" }),
+    }).returning();
+
+    const removed = await request(app).delete(
+      `/api/characters/identities/${identity!.id}`,
+    );
+
+    expect(removed.status).toBe(204);
+    expect(await db.select().from(bytePlusIdentitiesTable).where(
+      eq(bytePlusIdentitiesTable.id, identity!.id),
+    )).toHaveLength(0);
+    const [cleanup] = await db.select().from(bytePlusIdentityCleanupsTable).where(
+      eq(bytePlusIdentityCleanupsTable.sourceAttemptId, `active-attempt-${tenant.tenantId}`),
+    );
+    expect(cleanup).toMatchObject({
+      tenantId: tenant.tenantId,
+    });
+    expect(["pending", "processing", "succeeded"]).toContain(cleanup!.status);
+    expect(cleanup?.verificationTokenEncrypted).not.toBe("active-callback-token");
+  });
+
   it("does not orphan a character attached to a verified identity", async () => {
     const tenant = await newTenant();
     const [identity] = await db
@@ -819,13 +872,14 @@ describe("DELETE /api/characters/identities/:identityId", () => {
 
   it("removes an unattached verified identity", async () => {
     const tenant = await newTenant();
+    const assetGroupId = `unused-verified-group-${tenant.tenantId}`;
     const [identity] = await db
       .insert(bytePlusIdentitiesTable)
       .values({
         tenantId: tenant.tenantId,
         label: "Unused verified person",
         status: "verified",
-        assetGroupId: "unused-verified-group",
+        assetGroupId,
         verifiedAt: new Date(),
       })
       .returning();
@@ -838,6 +892,13 @@ describe("DELETE /api/characters/identities/:identityId", () => {
     expect(await db.select().from(bytePlusIdentitiesTable).where(
       eq(bytePlusIdentitiesTable.id, identity!.id),
     )).toHaveLength(0);
+    const [cleanup] = await db.select().from(bytePlusIdentityCleanupsTable).where(
+      eq(bytePlusIdentityCleanupsTable.assetGroupId, assetGroupId),
+    );
+    expect(cleanup).toMatchObject({
+      tenantId: tenant.tenantId,
+      assetGroupId,
+    });
   });
 });
 

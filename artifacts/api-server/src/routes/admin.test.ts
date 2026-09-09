@@ -46,6 +46,7 @@ import {
   db,
   adminAuditLogsTable,
   appCredentialsTable,
+  bytePlusIdentityCleanupsTable,
   videoGenerationsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -162,6 +163,39 @@ describe("BytePlus video job diagnostics", () => {
       await db.delete(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, job!.id));
       await deleteTenant(regular.tenantId);
+      await deleteTenant(owner.tenantId);
+    }
+  });
+});
+
+describe("BytePlus deleted-identity cleanup diagnostics", () => {
+  it("shows aggregate outstanding work without exposing provider asset ids", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    const providerAssetId = `sensitive-group-${randomUUID()}`;
+    const [cleanup] = await db.insert(bytePlusIdentityCleanupsTable).values({
+      tenantId: owner.tenantId,
+      sourceIdentityId: owner.tenantId,
+      sourceAttemptId: `admin-test-${owner.tenantId}`,
+      assetGroupId: providerAssetId,
+    }).returning();
+    try {
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+      const response = await request(app).get("/api/admin/byteplus-assets");
+
+      expect(response.status).toBe(200);
+      expect(response.body.identityCleanup).toMatchObject({
+        outstanding: expect.any(Number),
+        pending: expect.any(Number),
+        processing: expect.any(Number),
+        succeeded: expect.any(Number),
+        unsupported: expect.any(Number),
+        exhausted: expect.any(Number),
+      });
+      expect(response.body.identityCleanup.outstanding).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(response.body.identityCleanup)).not.toContain(providerAssetId);
+    } finally {
+      await db.delete(bytePlusIdentityCleanupsTable)
+        .where(eq(bytePlusIdentityCleanupsTable.id, cleanup!.id));
       await deleteTenant(owner.tenantId);
     }
   });
