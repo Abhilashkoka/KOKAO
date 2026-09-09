@@ -137,7 +137,7 @@ describe("generateVideo exact-provider behavior", () => {
       submitStartedAt: string;
       taskId: string;
     }>();
-    const store = {
+    const store = () => ({
       load: vi.fn(async () => null),
       save: vi.fn(async () => {}),
       markSubmitStarted: vi.fn(async (operationKey: string, provider: string, model: string) => {
@@ -148,16 +148,15 @@ describe("generateVideo exact-provider behavior", () => {
           taskId: "",
         });
       }),
-      clearSubmitStarted,
       isSubmitUncertain: vi.fn(async (operationKey: string, provider: string, model: string) => {
         const receipt = durable.get(operationKey);
         return receipt?.provider === provider && receipt.model === model &&
           Boolean(receipt.submitStartedAt) && !receipt.taskId;
       }),
-    };
+    });
     const atlasParams = {
       ...params,
-      operationKey: "scene:atlas-rejected",
+      operationKey: "scene:atlas-one",
       resolvedVideoModel: {
         ...params.resolvedVideoModel,
         provider: "atlascloud",

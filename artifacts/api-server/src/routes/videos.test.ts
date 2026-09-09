@@ -3114,6 +3114,59 @@ describe("guided story route fail-closed regressions", () => {
       expect(nativeJob.options!.studioLipSync).toBeFalsy();
       expect(nativeJob.options!.guidedStoryIntrinsicLipSync).toBeFalsy();
 
+      const teluguDraft = await makeDirectDraft();
+      const teluguState: GuidedStoryDraftState = {
+        ...teluguDraft.state,
+        setup: { ...teluguDraft.state.setup!, locale: "te" },
+        script: {
+          ...teluguDraft.state.script!,
+          title: "మన కథ",
+          logline: "మన కుటుంబం కలిసి ముందుకు సాగుతుంది.",
+          roles: teluguDraft.state.script!.roles.map((role) => ({
+            ...role,
+            name: "అనన్య",
+            description: "కుటుంబానికి అండగా నిలిచే ధైర్యమైన మహిళ.",
+          })),
+          scenes: teluguDraft.state.script!.scenes.map((scene) => ({
+            ...scene,
+            lines: scene.lines.map((line) => ({
+              ...line,
+              text: "మనం కలిసి ముందుకు సాగుదాం.",
+              romanizedPronunciation: "manam kalisi munduku sagudam.",
+              englishTranslation: "Let us move forward together.",
+            })),
+          })),
+        },
+      };
+      const [savedTeluguDraft] = await db
+        .update(guidedStoryDraftsTable)
+        .set({ state: teluguState })
+        .where(eq(guidedStoryDraftsTable.id, teluguDraft.id))
+        .returning();
+      const teluguResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${savedTeluguDraft!.id}/enqueue`)
+        .send({ revision: savedTeluguDraft!.revision, consentGranted: true });
+      expect(teluguResponse.status, teluguResponse.body.error).toBe(201);
+      const teluguJob = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, teluguResponse.body.id))
+      )[0]!;
+      expect(teluguJob.options!.guidedStoryRenderFlow).toEqual({
+        version: 1,
+        mode: "direct_video",
+      });
+      expect(teluguJob.options!.resolvedVideoModel).toMatchObject({
+        provider: "higgsfield",
+        model: "veo3.1/fast/image-to-video",
+        generateAudio: false,
+      });
+      expect(teluguJob.options!.generateAudio).toBe(false);
+      expect(teluguJob.options!.guidedStoryIntrinsicLipSync).toMatchObject({
+        locale: "te",
+      });
+
       // The gate is capability-based rather than vendor-based: official
       // Seedance on BytePlus follows the same direct native-dialogue path.
       await setVideoGenSelection({

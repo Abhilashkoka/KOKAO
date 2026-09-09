@@ -4103,6 +4103,7 @@ describe("Guided Story preview-only runner", () => {
   it("direct-render marker skips the legacy storyboard review pause", async () => {
     const tenant = await newTenant();
     const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    snapshot.locale = "en";
     state.guidedInitialBoard = guidedStoryStoryboard(snapshot);
     state.topicPlanMode = "ai";
     state.guidedPreviewGenerationEnabled = true;
@@ -4117,6 +4118,20 @@ describe("Guided Story preview-only runner", () => {
         guidedStory: snapshot,
         guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
         generateAudio: true,
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "image",
+          provider: "higgsfield",
+          model: "veo3.1/fast/image-to-video",
+          catalogModelId: "higgsfield-veo-3.1-fast",
+          durationSec: 5,
+          permittedDurationSec: [5],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
       },
     });
 

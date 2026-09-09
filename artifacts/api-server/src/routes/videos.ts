@@ -9345,6 +9345,8 @@ async function generateVideoHandler(
         requestedModel?.provider ?? (await getVideoGenSelection()).provider;
       const useAtlasGuidedReferences =
         options.guidedStory != null && requestedProvider === "atlascloud";
+      const useGuidedProviderNativeAudio =
+        options.guidedStory?.locale === "en";
       const resolvedVideoModel = await resolveVideoModelSnapshot({
         mode: useAtlasGuidedReferences ? "text" : resolvedMode,
         modelId: useAtlasGuidedReferences
@@ -9353,11 +9355,14 @@ async function generateVideoHandler(
         durationSec: options.durationSec ?? 5,
         resolution: options.resolution,
         quality: options.quality,
-        generateAudio: useAtlasGuidedReferences ? true : options.generateAudio,
+        generateAudio: options.guidedStory
+          ? useGuidedProviderNativeAudio
+          : options.generateAudio,
         permittedDurationSec: compositeVideoDurations(body.engine, options),
       });
       options.resolvedVideoModel =
         options.guidedStory &&
+        useGuidedProviderNativeAudio &&
         hasNativeSynchronizedAudio(
           resolvedVideoModel.provider,
           resolvedVideoModel.model,
@@ -9366,6 +9371,7 @@ async function generateVideoHandler(
           : resolvedVideoModel;
       if (options.guidedStory) {
         if (
+          useGuidedProviderNativeAudio &&
           !hasNativeSynchronizedAudio(
             resolvedVideoModel.provider,
             resolvedVideoModel.model,
@@ -9793,6 +9799,7 @@ async function generateVideoHandler(
 
   if (
     options.guidedStory &&
+    options.guidedStory.locale === "en" &&
     options.resolvedVideoModel?.generateAudio === true &&
     hasNativeSynchronizedAudio(
       options.resolvedVideoModel.provider,
@@ -9805,6 +9812,16 @@ async function generateVideoHandler(
     options.generateAudio = true;
     options.characterLipSync = false;
     options.studioLipSync = null;
+  } else if (options.guidedStory && options.resolvedVideoModel) {
+    // Native audio capability is not a language guarantee. Keep localized
+    // Guided speech on KOKAO's frozen-locale narration path rather than asking
+    // the video provider to improvise Telugu/Hindi/Tamil dialogue.
+    options.resolvedVideoModel = {
+      ...options.resolvedVideoModel,
+      generateAudio: false,
+    };
+    options.generateAudio = false;
+    options.characterLipSync = false;
   }
 
   // New Guided Story jobs automatically freeze the safe single-speaker shots.
@@ -12682,13 +12699,28 @@ async function prepareFreshRestartOptions(
 ): Promise<VideoJobOptions> {
   const options = freshRestartOptions(source);
   const frozen = options.resolvedVideoModel;
-  const needsCurrentNativeAudioModel =
+  const useGuidedProviderNativeAudio =
+    options.guidedStory?.locale === "en";
+  if (
+    options.guidedStoryRenderFlow?.mode === "direct_video" &&
+    options.guidedStory &&
+    frozen &&
+    !useGuidedProviderNativeAudio
+  ) {
+    options.resolvedVideoModel = { ...frozen, generateAudio: false };
+    options.generateAudio = false;
+    options.characterLipSync = false;
+    options.studioLipSync = null;
+    return options;
+  }
+  const needsCurrentGuidedModel =
     options.guidedStoryRenderFlow?.mode === "direct_video" &&
     options.guidedStory != null &&
     (!frozen ||
-      !hasNativeSynchronizedAudio(frozen.provider, frozen.model));
+      (useGuidedProviderNativeAudio &&
+        !hasNativeSynchronizedAudio(frozen.provider, frozen.model)));
 
-  if (!needsCurrentNativeAudioModel) return options;
+  if (!needsCurrentGuidedModel) return options;
 
   // A fresh restart keeps the approved story inputs, not an obsolete provider
   // contract. Resolve and freeze the current platform selection before
@@ -12703,12 +12735,15 @@ async function prepareFreshRestartOptions(
     durationSec: options.durationSec ?? 5,
     resolution: options.resolution,
     quality: options.quality,
-    generateAudio: true,
+    generateAudio: useGuidedProviderNativeAudio,
     permittedDurationSec: compositeVideoDurations(source.engine, options),
   });
   options.modelId = null;
-  options.resolvedVideoModel = { ...resolved, generateAudio: true };
-  options.generateAudio = true;
+  options.resolvedVideoModel = {
+    ...resolved,
+    generateAudio: useGuidedProviderNativeAudio,
+  };
+  options.generateAudio = useGuidedProviderNativeAudio;
   options.characterLipSync = false;
   options.studioLipSync = null;
   options.guidedStory = {

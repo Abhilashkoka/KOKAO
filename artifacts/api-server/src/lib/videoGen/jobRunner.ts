@@ -3985,7 +3985,13 @@ async function produceVideo(
       const directGuidedNativeAudio =
         board.mode === "guided_story" &&
         options.guidedStoryRenderFlow?.version === 1 &&
-        options.guidedStoryRenderFlow.mode === "direct_video";
+        options.guidedStoryRenderFlow.mode === "direct_video" &&
+        options.guidedStory?.locale === "en" &&
+        options.resolvedVideoModel?.generateAudio === true &&
+        hasNativeSynchronizedAudio(
+          options.resolvedVideoModel.provider,
+          options.resolvedVideoModel.model,
+        );
       if (board.mode === "guided_story" && !board.narration && !directGuidedNativeAudio) {
         const guidedSnapshot = options.guidedStory;
         if (!guidedSnapshot) {
