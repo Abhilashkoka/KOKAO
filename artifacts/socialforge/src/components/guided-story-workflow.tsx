@@ -271,6 +271,7 @@ export function GuidedStoryWorkflow({
   const [castSaveError, setCastSaveError] = useState<string | null>(null);
   const [enqueueError, setEnqueueError] = useState<string | null>(null);
   const [scriptGenerationError, setScriptGenerationError] = useState<string | null>(null);
+  const [scriptRegenerationReason, setScriptRegenerationReason] = useState<string | null>(null);
   const [runtimeGuidance, setRuntimeGuidance] = useState<string | null>(null);
   const [setupSaveError, setSetupSaveError] = useState<string | null>(null);
   const [scriptApprovalError, setScriptApprovalError] = useState<string | null>(null);
@@ -515,6 +516,7 @@ export function GuidedStoryWorkflow({
     setCastSaveError(null);
     setEnqueueError(null);
     setScriptGenerationError(null);
+    setScriptRegenerationReason(null);
     setRuntimeGuidance(null);
     setSetupSaveError(null);
     setScriptApprovalError(null);
@@ -542,25 +544,66 @@ export function GuidedStoryWorkflow({
   const requestScriptGeneration = (
     sourceDraft: GuidedStoryDraft,
     onSettled?: () => void,
+    automaticRetry = false,
   ) => {
     setScriptGenerationError(null);
     generateScript.mutate(
       { draftId: sourceDraft.id, data: { revision: sourceDraft.revision } },
       {
-        onSuccess: setAuthoritativeDraft,
+        onSuccess: (next) => {
+          setScriptRegenerationReason(null);
+          setAuthoritativeDraft(next);
+          onSettled?.();
+        },
         onError: (error) => {
           const message = apiErrorMessage(
             error,
             "Could not generate this script. Please try again.",
           );
+          const body = (error as { data?: unknown } | null)?.data;
+          const code =
+            body && typeof body === "object"
+              ? (body as Record<string, unknown>).code
+              : null;
+          const nativeScriptInvalid =
+            code === "guided_script_native_script_invalid" ||
+            /Romanized|native (?:Hindi|Telugu|Tamil) script/i.test(message);
+          if (!automaticRetry && nativeScriptInvalid) {
+            setScriptRegenerationReason(
+              "The first script used Romanized text instead of the selected language’s native script. KOKAO is regenerating it automatically.",
+            );
+            void queryClient
+              .refetchQueries({
+                queryKey: getGetGuidedStoryDraftQueryKey(sourceDraft.id),
+                exact: true,
+              })
+              .then(() => {
+                const latest =
+                  queryClient.getQueryData<GuidedStoryDraft>(
+                    getGetGuidedStoryDraftQueryKey(sourceDraft.id),
+                  ) ?? sourceDraft;
+                requestScriptGeneration(latest, onSettled, true);
+              })
+              .catch(() => {
+                setScriptRegenerationReason(null);
+                setScriptGenerationError(
+                  "The script used Romanized text and could not be regenerated automatically. Please try again.",
+                );
+                onSettled?.();
+              });
+            return;
+          }
           void queryClient
             .refetchQueries({
               queryKey: getGetGuidedStoryDraftQueryKey(sourceDraft.id),
               exact: true,
             })
-            .finally(() => setScriptGenerationError(message));
+            .finally(() => {
+              setScriptRegenerationReason(null);
+              setScriptGenerationError(message);
+              onSettled?.();
+            });
         },
-        onSettled,
       },
     );
   };
@@ -925,7 +968,7 @@ export function GuidedStoryWorkflow({
             </div>
           )}
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending || generateScript.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save & regenerate script" : "Generate script"}</Button>
-        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before final generation."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before final generation."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start final governed prompt/Higgsfield generation. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} /></>}
+        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptRegenerationReason={scriptRegenerationReason} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before final generation."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before final generation."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start final governed prompt/Higgsfield generation. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} /></>}
       </CardContent>
     </Card>
   </div>;
@@ -1015,7 +1058,7 @@ function StoryFlow(props: any) {
     (voice: GuidedStoryVoiceCatalogItem) =>
       voice.provider === "elevenlabs" && voice.brandKitId === null,
   ).length;
-  if (step === "script") return <>{estimate}{props.scriptGenerationError && <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert" data-testid="error-guided-script-generation">{props.scriptGenerationError}</p>}<div className="flex flex-wrap items-center gap-3"><Button type="button" onClick={props.onGenerate} disabled={props.pending} aria-busy={props.pending} data-testid="button-guided-generate-script">{props.pending ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Generating script…</> : props.scriptGenerationError ? "Retry script generation" : "Generate script"}</Button>{props.pending && <span className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-script-generation">Creating your scenes and dialogue. This can take a moment.</span>}</div></>;
+  if (step === "script") return <>{estimate}{props.scriptGenerationError && <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert" data-testid="error-guided-script-generation">{props.scriptGenerationError}</p>}<div className="flex flex-wrap items-center gap-3"><Button type="button" onClick={props.onGenerate} disabled={props.pending} aria-busy={props.pending} data-testid="button-guided-generate-script">{props.pending ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />{props.scriptRegenerationReason ? "Regenerating script…" : "Generating script…"}</> : props.scriptGenerationError ? "Retry script generation" : "Generate script"}</Button>{props.pending && <span className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-script-generation">{props.scriptRegenerationReason ?? "Creating your scenes and dialogue. This can take a moment."}</span>}</div></>;
   if (step === "review" || props.scriptEditorOpen) return <>{estimate}{voiceLanguageNote}<ScriptReview {...props} /></>;
   if (step === "ready") return <>
     {estimate}

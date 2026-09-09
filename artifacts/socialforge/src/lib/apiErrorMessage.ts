@@ -17,6 +17,12 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
       }
     }
   }
-  if (typeof data === "string" && data.trim() !== "") return data.trim();
+  if (typeof data === "string" && data.trim() !== "") {
+    const value = data.trim();
+    // Express' default error handler returns an HTML document. Never expose
+    // that document or its server stack trace in the product UI.
+    if (/^<!doctype html>|^<html[\s>]/i.test(value)) return fallback;
+    return value;
+  }
   return fallback;
 }

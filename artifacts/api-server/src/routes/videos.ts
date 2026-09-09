@@ -4001,6 +4001,17 @@ router.post(
           scriptGeneration: null,
         });
       }
+      if (error instanceof VideoGenProviderError) {
+        const nativeScriptInvalid =
+          /Romanized|native (?:Hindi|Telugu|Tamil) script/i.test(error.message);
+        res.status(error.status ?? 422).json({
+          error: error.message,
+          ...(nativeScriptInvalid
+            ? { code: "guided_script_native_script_invalid" }
+            : {}),
+        });
+        return;
+      }
       throw error;
     }
     if (!billed) {

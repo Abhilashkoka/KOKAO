@@ -12,7 +12,7 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; requestedDraftIds: number[]; draftRefetches: number; existingJob: any; created: any; generatedScripts: number; generationError: unknown; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; customizationRequest: any; customizationError: unknown; referenceSheetReview: any; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; requestedDraftIds: number[]; draftRefetches: number; existingJob: any; created: any; generatedScripts: number; generationError: unknown; generationErrors: unknown[]; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; customizationRequest: any; customizationError: unknown; referenceSheetReview: any; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   requestedDraftIds: [],
   draftRefetches: 0,
@@ -20,6 +20,7 @@ const state: { draft: any; requestedDraftIds: number[]; draftRefetches: number; 
   created: null,
   generatedScripts: 0,
   generationError: null,
+  generationErrors: [],
   cast: null,
   castError: null,
   approvalError: null,
@@ -108,10 +109,11 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useGenerateGuidedStoryDraftScript: mutation(() => {
       state.generatedScripts += 1;
-      if (state.generationError) {
-        const latestDraft = (state.generationError as any).latestDraft;
+      const generationError = state.generationErrors.shift() ?? state.generationError;
+      if (generationError) {
+        const latestDraft = (generationError as any).latestDraft;
         if (latestDraft) state.draft = latestDraft;
-        throw state.generationError;
+        throw generationError;
       }
       state.draft = {
         ...state.draft,
@@ -363,7 +365,7 @@ function renderWorkflow(options: {
   };
 }
 
-beforeEach(() => { vi.useRealTimers(); state.draft = undefined; state.requestedDraftIds = []; state.draftRefetches = 0; state.created = null; state.generatedScripts = 0; state.generationError = null; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.customizationRequest = null; state.customizationError = null; state.referenceSheetReview = null; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { vi.useRealTimers(); state.draft = undefined; state.requestedDraftIds = []; state.draftRefetches = 0; state.created = null; state.generatedScripts = 0; state.generationError = null; state.generationErrors = []; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.customizationRequest = null; state.customizationError = null; state.referenceSheetReview = null; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("starts a new story without deleting the previously restored draft", async () => {
@@ -636,6 +638,26 @@ describe("GuidedStoryWorkflow", () => {
 
     expect(state.updated).toMatchObject({ revision: 8 });
     expect(screen.queryByTestId("error-guided-setup-save")).toBeNull();
+  });
+
+  it("automatically regenerates a localized script rejected for Romanized speech", async () => {
+    state.draft = draft({ revision: 7, script: null, scriptApprovedAt: null });
+    state.generationErrors = [{
+      data: {
+        code: "guided_script_native_script_invalid",
+        error:
+          "1 spoken line appears to be Romanized for Telugu. Telugu dialogue must use native Telugu script.",
+      },
+      latestDraft: draft({ revision: 8, script: null, scriptApprovedAt: null }),
+    }];
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(await screen.findByTestId("button-guided-generate-script"));
+
+    await waitFor(() => expect(state.generatedScripts).toBe(2));
+    expect(await screen.findByTestId("guided-script-summary")).toBeTruthy();
+    expect(screen.queryByTestId("error-guided-script-generation")).toBeNull();
   });
 
   it("uses the server language catalog as the authoritative story-language selector", async () => {

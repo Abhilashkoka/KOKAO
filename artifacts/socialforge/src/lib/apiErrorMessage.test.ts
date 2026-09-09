@@ -45,6 +45,18 @@ describe("apiErrorMessage", () => {
     );
   });
 
+  it("never exposes an HTML server error or stack trace", () => {
+    expect(
+      apiErrorMessage(
+        new FakeApiError(
+          500,
+          "<!DOCTYPE html><html><body><pre>Error: private stack</pre></body></html>",
+        ),
+        "Please try again.",
+      ),
+    ).toBe("Please try again.");
+  });
+
   it("falls back when there is no usable message", () => {
     expect(apiErrorMessage(new FakeApiError(500, null), "fallback")).toBe("fallback");
     expect(apiErrorMessage(new FakeApiError(400, { error: "   " }), "fallback")).toBe(
