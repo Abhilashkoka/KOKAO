@@ -8417,6 +8417,18 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       aspectRatio: "9:16",
       modelId: "higgsfield-veo-3.1-fast",
       generateAudio: true,
+      providerTasks: Object.fromEntries(
+        storyboard.scenes.map((scene, index) => [
+          `topic_animation:${index}`,
+          {
+            provider: "higgsfield",
+            model: "veo3.1/fast/image-to-video",
+            taskId: `saved-provider-task-${index + 1}`,
+            requestId: null,
+            acceptedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ]),
+      ),
       guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
       guidedStory,
       resolvedVideoModel: {

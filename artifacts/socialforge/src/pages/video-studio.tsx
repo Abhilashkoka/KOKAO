@@ -2282,6 +2282,13 @@ export function VideoStudioPage() {
     activeJob.errorHistory?.some(
       (entry) => entry.code === "atlas_output_download_failed",
     ) === true;
+  const nativeAudioVerificationRecovery =
+    activeJob?.status === "failed" &&
+    activeJob.retryable &&
+    [
+      "native_audio_wrong_language",
+      "native_audio_dialogue_drift",
+    ].includes(activeJob.errorHistory?.at(-1)?.code ?? "");
   const guidedStoryCorrectionMessage = (() => {
     const error = activeJob?.error ?? "";
     if (/backdrop|background|location|reference image/i.test(error)) {
@@ -7154,7 +7161,8 @@ export function VideoStudioPage() {
                     )}
                   </div>
                 ) : activeJob.guidedStoryDraftId &&
-                  !atlasOutputDownloadRecovery ? (
+                  !atlasOutputDownloadRecovery &&
+                  !nativeAudioVerificationRecovery ? (
                   <div className="rounded-lg border-2 border-amber-500/70 bg-amber-50/70 p-3 dark:bg-amber-950/20">
                     <p className="text-sm font-medium">
                       Required action
@@ -7235,6 +7243,8 @@ export function VideoStudioPage() {
                     <p className="text-sm font-medium">
                       {atlasOutputDownloadRecovery
                         ? "Atlas videos are ready to recover"
+                        : nativeAudioVerificationRecovery
+                        ? "Recheck the saved video"
                         : activeJob.privacyRecoveryCapability?.eligible
                         ? `Regenerate scene ${activeJob.privacyRecoveryCapability.sceneId} safely and resume`
                         : activeJob.recovery?.mode === "resume"
@@ -7244,6 +7254,8 @@ export function VideoStudioPage() {
                     <p className="text-xs text-muted-foreground">
                       {atlasOutputDownloadRecovery
                         ? "Retry downloading the existing Atlas results, then continue final composition. KOKAO will not submit another paid Atlas generation request."
+                        : nativeAudioVerificationRecovery
+                        ? "Reuse all completed scenes and recheck the spoken language before final composition. KOKAO will not submit another paid video-generation request or reserve your wallet."
                         : activeJob.privacyRecoveryCapability?.eligible
                         ? "Create one anonymous, fictional keyframe for only the affected generated scene, preserve completed narration and scenes, then resume."
                         : activeJob.privacyRecoveryCapability?.reason
@@ -7301,6 +7313,8 @@ export function VideoStudioPage() {
                                   title:
                                     atlasOutputDownloadRecovery
                                       ? "Atlas download recovery started"
+                                      : nativeAudioVerificationRecovery
+                                      ? "Saved-video verification started"
                                       : job.recovery?.mode === "resume"
                                       ? "Resume started"
                                       : "Retry started",
@@ -7333,6 +7347,8 @@ export function VideoStudioPage() {
                         )}
                         {atlasOutputDownloadRecovery
                           ? "Retry Atlas downloads"
+                          : nativeAudioVerificationRecovery
+                          ? "Recheck saved video"
                           : activeJob.recovery?.mode === "resume"
                           ? activeJob.privacyRecoveryCapability?.eligible
                             ? "Regenerate affected scene & resume"

@@ -86,3 +86,9 @@ Atlas billing exposes exact UTC daily/model cost and usage buckets plus current 
 **Why:** A live account audit could exactly reconcile whole model/day buckets, but individual task amounts had to remain estimates even after polling every known prediction ID.
 
 **How to apply:** Compare each bucket's request count with durable accepted task IDs. Label bucket totals as exact and any per-task allocation as estimated; never invent IDs for unmatched requests or present an allocated share as an Atlas receipt.
+
+Accepted `providerTasks` entries are durable submission fences, not evidence that work is still pending. A completed scene can legitimately retain both its task ID and its accounted checkpoint.
+
+**Why:** Treating any retained Atlas task ID as unfinished hid verification-only recovery even though every paid scene had completed and was safely reusable.
+
+**How to apply:** Determine remaining work from accounted checkpoints and recovery inventory. If task records must be validated, require a one-to-one operation-key/provider/model mapping to those checkpoints; reject unknown or unmatched tasks rather than rejecting all task IDs.

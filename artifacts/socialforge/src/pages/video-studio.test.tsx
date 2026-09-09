@@ -2303,6 +2303,72 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("button-start-over-video")).toBeTruthy();
     });
 
+    it("shows a saved-video recheck instead of rebuild guidance for retryable native-audio failures", async () => {
+      mockState.activeJob = {
+        id: 73303,
+        engine: "topic_to_video",
+        status: "failed",
+        prompt: "Frozen Guided Story",
+        error:
+          "The video provider spoke the wrong language (detected ta; expected te).",
+        retryable: true,
+        recovery: {
+          mode: "resume",
+          chainId: 73303,
+          sourceJobId: 73303,
+          reusable: ["4 completed guided scenes"],
+          regenerated: ["final composition and upload"],
+        },
+        units: 0,
+        guidedStoryDraftId: 5101,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        errorHistory: [
+          {
+            jobId: 73303,
+            jobNumber: 73303,
+            scope: "job",
+            sceneNumber: null,
+            displayNumber: null,
+            operation: "Checking spoken language",
+            occurredAt: "2026-09-09T19:53:42.383Z",
+            sceneId: null,
+            provider: "atlascloud",
+            model: "bytedance/seedance-2.5/reference-to-video",
+            providerRequestId: null,
+            code: "native_audio_wrong_language",
+            message: "The video provider spoke the wrong language.",
+            attempt: 1,
+            recoveryAttempt: 0,
+            outcome: "stopped",
+            fingerprint: "native-audio-wrong-language",
+          },
+        ],
+        createdAt: "2026-09-09T19:50:00.000Z",
+        updatedAt: "2026-09-09T19:53:42.383Z",
+      };
+      renderPage();
+      const user = userEvent.setup();
+
+      expect(screen.getByText("Recheck the saved video")).toBeTruthy();
+      expect(
+        screen.getByText(/will not submit another paid video-generation request/i),
+      ).toBeTruthy();
+      expect(
+        screen.queryByTestId("button-edit-failed-guided-story"),
+      ).toBeNull();
+
+      const action = screen.getByTestId("button-retry-video");
+      expect(action.textContent).toContain("Recheck saved video");
+      await user.click(action);
+      expect(mockState.retriedJobIds).toEqual([73303]);
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Saved-video verification started",
+        }),
+      );
+    });
+
     it("shows durable scene and job errors, then fresh-restarts into the new job", async () => {
       mockState.activeJob = {
         id: 1082,

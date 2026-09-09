@@ -1073,13 +1073,27 @@ function historicalIndicNativeAudioRecheckEligible(
     board.scenes.length === 0 ||
     options.guidedStoryIntrinsicLipSync != null ||
     options.studioLipSync != null ||
-    Object.keys(options.providerTasks ?? {}).length > 0 ||
     !Number.isFinite(inventory.units) ||
     !Number.isInteger(inventory.units) ||
     inventory.units !== 0
   ) {
     return false;
   }
+  const hasUnmatchedProviderTask = Object.entries(
+    options.providerTasks ?? {},
+  ).some(([operationKey, task]) => {
+    const match = /^topic_animation:(\d+)$/.exec(operationKey);
+    const scene = match ? board.scenes[Number(match[1])] : null;
+    const event = scene?.providerCheckpoint?.event;
+    return (
+      !scene ||
+      !event ||
+      !task.taskId?.trim() ||
+      task.provider !== event.provider ||
+      task.model !== event.model
+    );
+  });
+  if (hasUnmatchedProviderTask) return false;
   const eventIds = new Set<string>();
   return board.scenes.every((scene) => {
     const checkpoint = scene.providerCheckpoint;
