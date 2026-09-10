@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { verifyWebhookSignature, fetchRazorpayOrder } from "../lib/razorpay";
 import { grantCredits } from "../lib/credits";
+import { topUpCreditAccount } from "../lib/creditAccounts";
 import { grantMonthlyCreditsSafely } from "../lib/monthlyCreditGrant";
 import { applyPlanBillingMode, getPlan } from "../lib/plans";
 import { recordInvoice } from "../lib/invoices";
@@ -237,6 +238,9 @@ async function handlePaymentCaptured(
     creditPackId: pack.id,
     note: `${pack.name} (webhook)`,
   });
+  // Same order key as the browser verify path, so whichever lands first
+  // credits and the other is a no-op.
+  await topUpCreditAccount(tenantId, pack, `rzp:${orderId}`);
   if (granted) {
     req.log.info({ tenantId, packId, orderId }, "Credited pack via webhook backstop");
     await recordInvoice({

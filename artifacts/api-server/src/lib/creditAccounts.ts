@@ -400,6 +400,30 @@ export async function totalOutstandingCredits(): Promise<number> {
   return Number(row?.milli ?? 0) / MILLI;
 }
 
+/**
+ * Credit a paid pack into the balance.
+ *
+ * The gateway order id is the idempotency key, so a verification racing the
+ * webhook backstop — which is normal, both fire on the same payment — credits
+ * exactly once. A pack with no `credits` set is a legacy three-bucket pack and
+ * this is a no-op, which is what lets one pack list serve both rails during
+ * the changeover.
+ */
+export async function topUpCreditAccount(
+  tenantId: number,
+  pack: { id: number; name: string; credits: number },
+  orderKey: string,
+): Promise<void> {
+  if (!pack.credits || pack.credits <= 0) return;
+  await grantCredits({
+    tenantId,
+    credits: pack.credits,
+    kind: "purchase",
+    idempotencyKey: `pack:${orderKey}`,
+    note: pack.name,
+  });
+}
+
 /** Serializer for a CreditAccount row, for admin listings. */
 export function serializeAccount(row: CreditAccount): CreditBalance {
   return toBalance({

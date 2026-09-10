@@ -32323,6 +32323,7 @@ export const AdminListCreditPacksResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "pricePaise": zod.number(),
+  "credits": zod.number().optional().describe('Credits this pack adds to the workspace balance. The single-currency replacement for the three buckets below, which keep working until every workspace has migrated.'),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
@@ -32338,6 +32339,9 @@ export const AdminListCreditPacksResponse = zod.array(AdminListCreditPacksRespon
 export const adminCreateCreditPackBodyNameMax = 80;
 
 
+export const adminCreateCreditPackBodyCreditsMin = 0;
+export const adminCreateCreditPackBodyCreditsMax = 1000000;
+
 export const adminCreateCreditPackBodyCaptionCreditsMin = 0;
 
 export const adminCreateCreditPackBodyImageCreditsMin = 0;
@@ -32349,6 +32353,7 @@ export const adminCreateCreditPackBodyVideoCreditsMin = 0;
 export const AdminCreateCreditPackBody = zod.object({
   "name": zod.string().min(1).max(adminCreateCreditPackBodyNameMax),
   "pricePaise": zod.number().min(1),
+  "credits": zod.number().min(adminCreateCreditPackBodyCreditsMin).max(adminCreateCreditPackBodyCreditsMax).optional().describe('Credits added to the workspace balance (default 0).'),
   "captionCredits": zod.number().min(adminCreateCreditPackBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminCreateCreditPackBodyImageCreditsMin),
   "videoCredits": zod.number().min(adminCreateCreditPackBodyVideoCreditsMin).optional().describe('AI video credits included in this pack (default 0).'),
@@ -32359,6 +32364,7 @@ export const AdminCreateCreditPackResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "pricePaise": zod.number(),
+  "credits": zod.number().optional().describe('Credits this pack adds to the workspace balance. The single-currency replacement for the three buckets below, which keep working until every workspace has migrated.'),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
@@ -32378,6 +32384,9 @@ export const AdminUpdateCreditPackParams = zod.object({
 export const adminUpdateCreditPackBodyNameMax = 80;
 
 
+export const adminUpdateCreditPackBodyCreditsMin = 0;
+export const adminUpdateCreditPackBodyCreditsMax = 1000000;
+
 export const adminUpdateCreditPackBodyCaptionCreditsMin = 0;
 
 export const adminUpdateCreditPackBodyImageCreditsMin = 0;
@@ -32389,6 +32398,7 @@ export const adminUpdateCreditPackBodyVideoCreditsMin = 0;
 export const AdminUpdateCreditPackBody = zod.object({
   "name": zod.string().min(1).max(adminUpdateCreditPackBodyNameMax),
   "pricePaise": zod.number().min(1),
+  "credits": zod.number().min(adminUpdateCreditPackBodyCreditsMin).max(adminUpdateCreditPackBodyCreditsMax).optional().describe('Credits added to the workspace balance (default 0).'),
   "captionCredits": zod.number().min(adminUpdateCreditPackBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminUpdateCreditPackBodyImageCreditsMin),
   "videoCredits": zod.number().min(adminUpdateCreditPackBodyVideoCreditsMin).optional().describe('AI video credits included in this pack (default 0).'),
@@ -32399,6 +32409,7 @@ export const AdminUpdateCreditPackResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "pricePaise": zod.number(),
+  "credits": zod.number().optional().describe('Credits this pack adds to the workspace balance. The single-currency replacement for the three buckets below, which keep working until every workspace has migrated.'),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
@@ -32419,6 +32430,7 @@ export const AdminDeleteCreditPackResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "pricePaise": zod.number(),
+  "credits": zod.number().optional().describe('Credits this pack adds to the workspace balance. The single-currency replacement for the three buckets below, which keep working until every workspace has migrated.'),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
@@ -32730,6 +32742,7 @@ export const BillingGetOverviewResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "pricePaise": zod.number(),
+  "credits": zod.number().optional().describe('Credits this pack adds to the workspace balance. The single-currency replacement for the three buckets below, which keep working until every workspace has migrated.'),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),

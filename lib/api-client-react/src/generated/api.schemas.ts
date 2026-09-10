@@ -943,6 +943,8 @@ export interface CreditPack {
   id: number;
   name: string;
   pricePaise: number;
+  /** Credits this pack adds to the workspace balance. The single-currency replacement for the three buckets below, which keep working until every workspace has migrated. */
+  credits?: number;
   captionCredits: number;
   imageCredits: number;
   /** AI video credits included in this pack. */
@@ -959,6 +961,12 @@ export interface CreditPackInput {
   name: string;
   /** @minimum 1 */
   pricePaise: number;
+  /**
+     * Credits added to the workspace balance (default 0).
+     * @minimum 0
+     * @maximum 1000000
+     */
+  credits?: number;
   /** @minimum 0 */
   captionCredits: number;
   /** @minimum 0 */

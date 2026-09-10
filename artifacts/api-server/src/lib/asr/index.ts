@@ -1,6 +1,7 @@
 import { db, asrSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../logger";
+import { meter } from "../meter";
 import { recordProviderFailure, recordProviderSuccess, orderByHealth } from "../providerHealth";
 import { isFeatureEnabled } from "../featureFlags";
 import { rankProviders } from "../providerScore";
@@ -248,6 +249,17 @@ async function runAsrProvider(
  * bad ten minutes at one vendor should not lose it.
  */
 export async function transcribeAudio(input: TranscribeInput): Promise<TranscriptionResult> {
+  return meter(
+    input.meterTenantId ? { tenantId: input.meterTenantId } : null,
+    "transcription",
+    input.durationSec ?? 0,
+    () => transcribeAudioUnmetered(input),
+  );
+}
+
+async function transcribeAudioUnmetered(
+  input: TranscribeInput,
+): Promise<TranscriptionResult> {
   const id = await getSelectedAsrProviderId();
   const def = getProviderDef(id) ?? getProviderDef(DEFAULT_ASR_PROVIDER)!;
 

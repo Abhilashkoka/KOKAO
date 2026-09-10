@@ -306,6 +306,7 @@ import {
   planGuidedStoryDialogueReplay,
   planGuidedStoryIntrinsicDialogue,
 } from "../lib/videoGen/guidedStory";
+import { refuseIfShortOfCredits } from "../lib/creditPreflight";
 
 const router: IRouter = Router();
 const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
@@ -8343,6 +8344,25 @@ async function generateVideoHandler(
     return;
   }
   let body = parsed.data;
+
+  // Quote the WHOLE job before anything is spent. The meter refuses individual
+  // calls it cannot pay for, but discovering that at scene three leaves a
+  // half-rendered job and a confused user. No-op unless the meter is
+  // enforcing, and it fails open — a preflight problem must never block a
+  // generation the money side would have allowed.
+  if (
+    await refuseIfShortOfCredits(res, req.tenantId, {
+      durationSec: body.durationSec ?? 5,
+      // The body carries flat fields, not a VideoJobOptions; paragraphCount is
+      // what drives scene count for the character and b-roll engines.
+      sceneCount: Math.max(1, (body.paragraphCount ?? 1) * 4),
+      resolution: body.resolution ?? null,
+      narrated: body.engine === "topic_to_video",
+    })
+  ) {
+    return;
+  }
+
   let guidedDraft: GuidedStoryDraft | null = null;
   let guidedDraftLocale: ReturnType<typeof normalizeGuidedStoryLocale> = null;
   if (body.guidedStoryDraftId != null) {

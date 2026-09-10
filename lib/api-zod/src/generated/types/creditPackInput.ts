@@ -14,6 +14,12 @@ export interface CreditPackInput {
   name: string;
   /** @minimum 1 */
   pricePaise: number;
+  /**
+     * Credits added to the workspace balance (default 0).
+     * @minimum 0
+     * @maximum 1000000
+     */
+  credits?: number;
   /** @minimum 0 */
   captionCredits: number;
   /** @minimum 0 */

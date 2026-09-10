@@ -10,6 +10,8 @@ export interface CreditPack {
   id: number;
   name: string;
   pricePaise: number;
+  /** Credits this pack adds to the workspace balance. The single-currency replacement for the three buckets below, which keep working until every workspace has migrated. */
+  credits?: number;
   captionCredits: number;
   imageCredits: number;
   /** AI video credits included in this pack. */

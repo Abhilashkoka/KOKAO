@@ -6,6 +6,7 @@ import { OPENAI_BUILTIN_MODEL } from "./imageGen/providers/openaiBuiltin";
 import { loadReferenceImage, ReferenceImageError } from "./referenceGuide";
 import { applyMadeWithWatermark } from "./watermark";
 import { getPlan } from "./plans";
+import { meter } from "./meter";
 import { isFeatureEnabled } from "./featureFlags";
 import { uploadBufferToStorage } from "./storageUpload";
 import { buildImageCostMeta } from "./aiCost";
@@ -149,12 +150,14 @@ export async function performImageEdit(input: ImageEditInput): Promise<ImageEdit
 
   let response;
   try {
-    response = await openai.images.edit({
-      model: OPENAI_BUILTIN_MODEL,
-      image: imageFile,
-      mask: maskFile,
-      prompt: input.prompt,
-    });
+    response = await meter({ tenantId: input.tenantId }, "image_edit", 1, () =>
+      openai.images.edit({
+        model: OPENAI_BUILTIN_MODEL,
+        image: imageFile,
+        mask: maskFile,
+        prompt: input.prompt,
+      }),
+    );
   } catch (error) {
     if (isModerationBlocked(error)) {
       throw new ImageEditModerationError(

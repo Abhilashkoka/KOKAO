@@ -207,6 +207,8 @@ function LimitSuggestion({
 interface CreditPackDraft {
   name: string;
   priceRupees: string;
+  /** Credits added to the workspace balance. The single-currency amount. */
+  credits: string;
   captionCredits: string;
   imageCredits: string;
   active: boolean;
@@ -215,6 +217,7 @@ interface CreditPackDraft {
 const EMPTY_PACK: CreditPackDraft = {
   name: "",
   priceRupees: "",
+  credits: "0",
   captionCredits: "0",
   imageCredits: "0",
   active: true,
@@ -242,6 +245,7 @@ function CreditPacksCard() {
           next[p.id] = {
             name: p.name,
             priceRupees: String(p.pricePaise / 100),
+            credits: String(p.credits ?? 0),
             captionCredits: String(p.captionCredits),
             imageCredits: String(p.imageCredits),
             active: p.active,
@@ -259,29 +263,35 @@ function CreditPacksCard() {
 
   const parsePack = (draft: CreditPackDraft) => {
     const price = Number(draft.priceRupees);
+    const credits = Number(draft.credits);
     const captions = Number(draft.captionCredits);
     const images = Number(draft.imageCredits);
     if (
       !draft.name.trim() ||
       !Number.isFinite(price) ||
       price <= 0 ||
+      !Number.isInteger(credits) ||
+      credits < 0 ||
       !Number.isInteger(captions) ||
       captions < 0 ||
       !Number.isInteger(images) ||
       images < 0 ||
-      (captions === 0 && images === 0)
+      // A pack must add something. Credits alone is the modern shape; the two
+      // legacy buckets keep older packs valid through the changeover.
+      (credits === 0 && captions === 0 && images === 0)
     ) {
       toast({
         variant: "destructive",
         title: "Check the fields",
         description:
-          "A pack needs a name, a positive price in rupees, and at least one caption or image credit.",
+          "A pack needs a name, a positive price in rupees, and at least one credit — either the balance credits or a legacy caption/image bucket.",
       });
       return null;
     }
     return {
       name: draft.name.trim(),
       pricePaise: Math.round(price * 100),
+      credits,
       captionCredits: captions,
       imageCredits: images,
       active: draft.active,
@@ -349,6 +359,20 @@ function CreditPacksCard() {
                       onChange={(e) => setField("priceRupees", e.target.value)}
                       placeholder="e.g. 499"
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Credits</label>
+                    <Input
+                      value={draft.credits}
+                      onChange={(e) => setField("credits", e.target.value)}
+                      placeholder="e.g. 350"
+                      data-testid="input-pack-credits"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Added to the workspace credit balance. The two fields
+                      below are the legacy buckets, kept working until every
+                      workspace has migrated.
+                    </p>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-2">

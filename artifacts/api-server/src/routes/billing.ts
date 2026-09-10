@@ -60,6 +60,7 @@ import { billingProfilesTable } from "@workspace/db";
 import { UpdateBillingProfileBody } from "@workspace/api-zod";
 import { recordServerEvent } from "../lib/analytics";
 import { getCreditBalances, grantCredits, listCreditHistory } from "../lib/credits";
+import { topUpCreditAccount } from "../lib/creditAccounts";
 import { notifyUpgradeRequested } from "../lib/notifications";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 
@@ -191,6 +192,7 @@ router.get("/billing", async (req: Request, res: Response) => {
         id: p.id,
         name: p.name,
         pricePaise: p.pricePaise,
+        credits: p.credits,
         captionCredits: p.captionCredits,
         imageCredits: p.imageCredits,
         videoCredits: p.videoCredits,
@@ -900,6 +902,9 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
         creditPackId: pack.id,
         note: pack.name,
       });
+      // Same purchase, new rail. Keyed on the gateway order so a replayed
+      // verification credits exactly once, exactly like the legacy grant.
+      await topUpCreditAccount(req.tenantId, pack, `cf:${cashfreeOrderId}`);
       await recordInvoice({
         tenantId: req.tenantId,
         kind: "credit_pack",
@@ -991,6 +996,7 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
       creditPackId: pack.id,
       note: pack.name,
     });
+    await topUpCreditAccount(req.tenantId, pack, `rzp:${razorpayOrderId}`);
     await recordInvoice({
       tenantId: req.tenantId,
       kind: "credit_pack",

@@ -14125,6 +14125,12 @@ components:
           type: string
         pricePaise:
           type: integer
+        credits:
+          type: integer
+          description: >-
+            Credits this pack adds to the workspace balance. The
+            single-currency replacement for the three buckets below, which keep
+            working until every workspace has migrated.
         captionCredits:
           type: integer
         imageCredits:
@@ -14147,6 +14153,11 @@ components:
         pricePaise:
           type: integer
           minimum: 1
+        credits:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          description: Credits added to the workspace balance (default 0).
         captionCredits:
           type: integer
           minimum: 0

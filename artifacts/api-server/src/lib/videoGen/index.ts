@@ -1206,3 +1206,4 @@ function isHdResolution(resolution?: string | null): boolean {
   const value = match ? Number(match[1]) : NaN;
   return Number.isFinite(value) && value >= 720;
 }
+

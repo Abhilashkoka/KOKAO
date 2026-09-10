@@ -52,6 +52,15 @@ export const creditPacksTable = pgTable("credit_packs", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   pricePaise: integer("price_paise").notNull(),
+  /**
+   * Credits this pack adds to the workspace balance, in whole credits.
+   *
+   * The single-currency replacement for the three buckets below. A pack with
+   * `credits > 0` tops up the credit account; the legacy columns keep working
+   * until every workspace has migrated, so one pack can serve both rails
+   * during the changeover rather than forcing a flag day.
+   */
+  credits: integer("credits").notNull().default(0),
   captionCredits: integer("caption_credits").notNull().default(0),
   imageCredits: integer("image_credits").notNull().default(0),
   videoCredits: integer("video_credits").notNull().default(0),

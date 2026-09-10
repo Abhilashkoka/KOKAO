@@ -4506,6 +4506,7 @@ function serializeCreditPack(p: typeof creditPacksTable.$inferSelect) {
     id: p.id,
     name: p.name,
     pricePaise: p.pricePaise,
+    credits: p.credits,
     captionCredits: p.captionCredits,
     imageCredits: p.imageCredits,
     videoCredits: p.videoCredits,
@@ -4564,6 +4565,7 @@ router.post("/admin/credit-packs", async (req: Request, res: Response) => {
       .values({
         name: parsed.data.name.trim(),
         pricePaise: parsed.data.pricePaise,
+        credits: parsed.data.credits ?? 0,
         captionCredits: parsed.data.captionCredits,
         imageCredits: parsed.data.imageCredits,
         videoCredits: parsed.data.videoCredits ?? 0,
@@ -4612,6 +4614,7 @@ router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
       .set({
         name: parsed.data.name.trim(),
         pricePaise: parsed.data.pricePaise,
+        credits: parsed.data.credits ?? previous.credits,
         captionCredits: parsed.data.captionCredits,
         imageCredits: parsed.data.imageCredits,
         videoCredits: parsed.data.videoCredits ?? previous.videoCredits,

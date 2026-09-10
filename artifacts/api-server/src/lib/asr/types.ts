@@ -6,6 +6,14 @@ export interface TranscribeInput {
   mimeType: string;
   filename: string;
   /**
+   * Who to bill this transcription to, and how many seconds of audio it is.
+   * Omitted means "not billable to a workspace" — the meter is a pass-through.
+   * `/ai/transcribe` was explicitly an unmetered helper before this; real ASR
+   * spend with no record is exactly the gap the meter exists to close.
+   */
+  meterTenantId?: number | null;
+  durationSec?: number | null;
+  /**
    * Ask the provider for per-segment timestamps as well as text.
    *
    * Off by default: the original caller is a voice-note dictation button that
