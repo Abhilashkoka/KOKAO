@@ -134,6 +134,11 @@ import {
 } from "lucide-react";
 import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import { WalletCard } from "./wallet-card";
+import {
+  CreditRatesCard,
+  CreditMeterReportCard,
+  CreditMigrationCard,
+} from "./credit-rates-card";
 import { ModelPriceImportDialog } from "./model-price-import-dialog";
 
 const ASR_KEY_PAGES: Record<string, string> = {
@@ -5675,6 +5680,9 @@ export function AiTab() {
       <DesignSkillCard />
       <AiSpendCard />
       {flags.wallet && <WalletCard />}
+      <CreditRatesCard />
+      <CreditMeterReportCard />
+      <CreditMigrationCard />
       {flags.aiCostTracking && (
         <>
           <AiCostCard />

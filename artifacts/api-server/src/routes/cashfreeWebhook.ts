@@ -18,6 +18,7 @@ import { grantCredits } from "../lib/credits";
 import { creditWalletTopup } from "../lib/wallet";
 import { applyPlanBillingMode, getPlan } from "../lib/plans";
 import { recordInvoice } from "../lib/invoices";
+import { grantMonthlyCreditsSafely } from "../lib/monthlyCreditGrant";
 import { recordServerEvent } from "../lib/analytics";
 
 /**
@@ -253,6 +254,15 @@ async function handleSubscriptionEvent(
         totalPaise: pricePaise,
       });
     }
+    // The paid cycle's credit allowance, keyed on the same cycle identity as
+    // the invoice so a redelivered webhook grants exactly once. Failing here
+    // must never fail the webhook: a non-2xx makes Cashfree retry a payment
+    // that already succeeded.
+    await grantMonthlyCreditsSafely({
+      tenantId: sub.tenantId,
+      planId: sub.planId,
+      periodEnd: periodEnd?.toISOString() ?? "activation",
+    });
   } else if (status === "CANCELLED" || status === "COMPLETED") {
     // Downgrade to Free only once the paid period has actually ended.
     if (periodEnd && periodEnd.getTime() > Date.now()) {

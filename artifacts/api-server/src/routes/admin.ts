@@ -214,6 +214,8 @@ import {
   AdminCreatePromoCodesBody,
   AdminUpdatePromoCodeBody,
   AdminUpdateSignupCreditSettingsBody,
+  AdminUpdateCreditRatesBody,
+  AdminGrantCreditAccountBody,
   AdminUpdateWalletSettingsBody,
   AdminUpdateTenantBillingModeBody,
   AdminAdjustTenantWalletBody,
@@ -293,6 +295,20 @@ import {
   getSignupCreditSettings,
   updateSignupCreditSettings,
 } from "../lib/signupCredits";
+import {
+  listCreditRates,
+  upsertCreditRate,
+  deleteCreditRate,
+  getMeterMode,
+  setMeterMode,
+} from "../lib/creditRates";
+import { meterReport } from "../lib/meter";
+import { planCreditMigration, runCreditMigration } from "../lib/creditMigration";
+import {
+  grantCredits as grantAccountCredits,
+  peekCreditBalance,
+  listCreditHistory as listAccountCreditHistory,
+} from "../lib/creditAccounts";
 import {
   getAiCostConfig,
   setAiCostConfig,
@@ -4966,6 +4982,189 @@ router.put(
     res.json(updated);
   },
 );
+
+// ---------------------------------------------------------------------------
+// Credit rate card, meter and balances (superadmin)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /admin/credit-rates — the rate card plus the platform meter mode.
+ *
+ * This is the screen that replaces per-plan quotas. Instead of "how many
+ * images does this plan include", a superadmin sets what one image, one
+ * caption, one second of video, one second of voice and one second of lip sync
+ * COST in credits, and every workspace draws from the same card.
+ */
+router.get("/admin/credit-rates", async (_req: Request, res: Response) => {
+  res.json({ mode: await getMeterMode(), rates: await listCreditRates() });
+});
+
+/**
+ * PUT /admin/credit-rates — replace the card and the meter mode (audited).
+ *
+ * Rows are upserted by key and rows the payload omits are deleted, so the
+ * admin screen saves the whole table in one call and a removed cost centre
+ * actually disappears. Historical meter events keep the key and price they
+ * were recorded with, so deleting a rate never rewrites the past.
+ */
+router.put("/admin/credit-rates", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateCreditRatesBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const keys = parsed.data.rates.map((r) => r.key);
+  if (new Set(keys).size !== keys.length) {
+    res.status(400).json({ error: "Rate keys must be unique" });
+    return;
+  }
+  const before = { mode: await getMeterMode(), rates: await listCreditRates() };
+
+  await setMeterMode(parsed.data.mode);
+  for (const rate of parsed.data.rates) {
+    await upsertCreditRate({
+      key: rate.key,
+      label: rate.label,
+      unit: rate.unit,
+      credits: rate.credits,
+      active: rate.active,
+      sortOrder: rate.sortOrder ?? 0,
+      notes: rate.notes ?? null,
+    });
+  }
+  const submitted = new Set(keys);
+  for (const existing of before.rates) {
+    if (!submitted.has(existing.key)) await deleteCreditRate(existing.key);
+  }
+
+  const after = { mode: await getMeterMode(), rates: await listCreditRates() };
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    try {
+      await recordAdminAction({
+        action: "credit_rates_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: JSON.stringify(before),
+        newValue: JSON.stringify(after),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write credit-rates audit log");
+    }
+  }
+  res.json(after);
+});
+
+/**
+ * GET /admin/credit-meter-report — what the meter recorded, grouped by rate,
+ * provider and model.
+ *
+ * The report to hold against a provider invoice. Read the failed-call column
+ * first: those are calls the provider charged for that no other part of KOKAO
+ * records, because `recordUsage` only fires on success. The provider token and
+ * USD columns are what make the comparison exact rather than plausible.
+ */
+router.get("/admin/credit-meter-report", async (req: Request, res: Response) => {
+  const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
+  res.json(await meterReport(days));
+});
+
+/**
+ * POST /admin/tenants/:id/credit-account — grant or remove credits (audited).
+ *
+ * Granted credits expire; use `expiresInDays` to say when. Omitting it means
+ * they never lapse, which is the right choice for a goodwill grant that stands
+ * in for a purchase.
+ */
+router.post("/admin/tenants/:id/credit-account", async (req: Request, res: Response) => {
+  const tenantId = Number(req.params.id);
+  if (!Number.isInteger(tenantId)) {
+    res.status(400).json({ error: "Invalid tenant" });
+    return;
+  }
+  const parsed = AdminGrantCreditAccountBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await peekCreditBalance(tenantId);
+  const balance = await grantAccountCredits({
+    tenantId,
+    credits: parsed.data.credits,
+    kind: "grant_admin",
+    expiresInDays: parsed.data.expiresInDays ?? null,
+    note: parsed.data.note ?? null,
+  });
+  try {
+    await recordAdminAction({
+      action: "credit_account_grant",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: tenantId,
+      targetEmail: null,
+      oldValue: JSON.stringify(before),
+      newValue: JSON.stringify(balance),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write credit-grant audit log");
+  }
+  res.json(balance);
+});
+
+/** GET /admin/tenants/:id/credit-account — balance and recent history. */
+router.get("/admin/tenants/:id/credit-account", async (req: Request, res: Response) => {
+  const tenantId = Number(req.params.id);
+  if (!Number.isInteger(tenantId)) {
+    res.status(400).json({ error: "Invalid tenant" });
+    return;
+  }
+  res.json({
+    balance: await peekCreditBalance(tenantId),
+    history: await listAccountCreditHistory(tenantId, 50),
+  });
+});
+
+/**
+ * GET /admin/credit-migration — what every workspace WOULD receive. Writes
+ * nothing. Always run this before the POST and read the totals.
+ */
+router.get("/admin/credit-migration", async (_req: Request, res: Response) => {
+  const rows = await planCreditMigration();
+  res.json({
+    rows,
+    totalCredits: rows.reduce((sum, r) => sum + r.credits, 0),
+    workspaces: rows.length,
+  });
+});
+
+/**
+ * POST /admin/credit-migration — convert every workspace onto credits.
+ *
+ * Idempotent: a workspace that already has an account is skipped, so a partial
+ * run can simply be repeated. Conversion rounds up and lands in the
+ * never-expiring bucket, because these people bought under different terms.
+ */
+router.post("/admin/credit-migration", async (req: Request, res: Response) => {
+  const result = await runCreditMigration();
+  try {
+    await recordAdminAction({
+      action: "credit_account_grant",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: JSON.stringify({
+        workspaces: result.migrated.length,
+        totalCreditsGranted: result.totalCreditsGranted,
+      }),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write credit-migration audit log");
+  }
+  res.json(result);
+});
 
 /** GET /admin/promo-metrics — totals plus per-campaign and per-plan splits. */
 router.get("/admin/promo-metrics", async (_req: Request, res: Response) => {

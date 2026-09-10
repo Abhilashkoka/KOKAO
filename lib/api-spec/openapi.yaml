@@ -12385,6 +12385,235 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /credits:
+    get:
+      operationId: getCredits
+      tags: [billing]
+      summary: This workspace's credit balance, meter mode and recent history
+      responses:
+        "200":
+          description: Credit balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditWallet"
+  /credits/quote:
+    get:
+      operationId: quoteCredits
+      tags: [billing]
+      summary: What a generation will cost in credits, before it starts
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+          description: A rate key (image, caption, ...) or "video" for a whole job.
+        - name: quantity
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: durationSec
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: sceneCount
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: resolution
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: narrated
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: lipSync
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Credit quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditQuote"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/credit-rates:
+    get:
+      operationId: adminGetCreditRates
+      tags: [admin]
+      summary: Get the credit rate card and meter mode (superadmin only)
+      responses:
+        "200":
+          description: Credit rate card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditRateCard"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateCreditRates
+      tags: [admin]
+      summary: Replace the credit rate card and meter mode (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditRateCardInput"
+      responses:
+        "200":
+          description: Updated rate card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditRateCard"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/credit-meter-report:
+    get:
+      operationId: adminGetCreditMeterReport
+      tags: [admin]
+      summary: What the credit meter recorded, by rate, provider and model (superadmin only)
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        "200":
+          description: Meter report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMeterReport"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tenants/{id}/credit-account:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: adminGetTenantCredits
+      tags: [admin]
+      summary: One workspace's credit balance and history (superadmin only)
+      responses:
+        "200":
+          description: Balance and history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditAccountView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminGrantCreditAccount
+      tags: [admin]
+      summary: Grant or remove credits for one workspace (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditAccountGrantInput"
+      responses:
+        "200":
+          description: Updated balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditBalance"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/credit-migration:
+    get:
+      operationId: adminPlanCreditMigration
+      tags: [admin]
+      summary: Dry run - what every workspace would receive on migration (superadmin only)
+      responses:
+        "200":
+          description: Migration plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMigrationPlan"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminRunCreditMigration
+      tags: [admin]
+      summary: Convert every workspace onto credits (superadmin only, idempotent)
+      responses:
+        "200":
+          description: Migration result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMigrationResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ads/settings:
     get:
       operationId: adminGetAdsSettings
@@ -14216,6 +14445,281 @@ components:
           type: integer
           minimum: 0
           maximum: 100000
+    CreditRate:
+      type: object
+      description: >-
+        One line of the credit rate card: how many credits a single unit of a
+        billable action costs. The anchor is 1 credit = 1 second of
+        standard-resolution video; every other rate is set relative to it.
+      required: [key, label, unit, credits, active, sortOrder]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+          enum: [item, second]
+        credits:
+          type: number
+        active:
+          type: boolean
+        sortOrder:
+          type: integer
+        notes:
+          type: ["string", "null"]
+    CreditRateCard:
+      type: object
+      required: [mode, rates]
+      properties:
+        mode:
+          type: string
+          enum: [off, shadow, enforce]
+          description: >-
+            shadow records every metered provider call and charges nothing;
+            enforce also debits the workspace balance; off disables the meter.
+        rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditRate"
+    CreditRateInput:
+      type: object
+      required: [key, label, unit, credits, active]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z0-9_]+$"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        unit:
+          type: string
+          enum: [item, second]
+        credits:
+          type: number
+          minimum: 0
+          maximum: 100000
+        active:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        notes:
+          type: ["string", "null"]
+          maxLength: 500
+    CreditRateCardInput:
+      type: object
+      required: [mode, rates]
+      properties:
+        mode:
+          type: string
+          enum: [off, shadow, enforce]
+        rates:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CreditRateInput"
+    CreditMeterReportRow:
+      type: object
+      required: [rateKey, calls, failedCalls, quantity, credits]
+      properties:
+        rateKey:
+          type: string
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        calls:
+          type: integer
+        failedCalls:
+          type: integer
+          description: >-
+            Calls the provider billed for that then failed. Nothing else in the
+            app records these, because usage is only written on success.
+        quantity:
+          type: number
+        credits:
+          type: number
+        providerTokens:
+          type: ["number", "null"]
+          description: Output tokens the provider reported, when it reports any.
+        providerUsd:
+          type: ["number", "null"]
+          description: Actual USD the provider reported, when it reports any.
+    CreditMeterReport:
+      type: object
+      required: [since, mode, totalCalls, failedCalls, totalCredits, rows]
+      properties:
+        since:
+          type: string
+          format: date-time
+        mode:
+          type: string
+        totalCalls:
+          type: integer
+        failedCalls:
+          type: integer
+        totalCredits:
+          type: number
+        totalProviderTokens:
+          type: ["number", "null"]
+        totalProviderUsd:
+          type: ["number", "null"]
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditMeterReportRow"
+    CreditBalance:
+      type: object
+      required: [purchased, granted, total]
+      properties:
+        purchased:
+          type: number
+          description: Paid-for credits. Never expire.
+        granted:
+          type: number
+          description: Allowance and bonus credits, which do expire.
+        total:
+          type: number
+        grantedExpiresAt:
+          type: ["string", "null"]
+    CreditHistoryEntry:
+      type: object
+      required: [id, kind, credits, balanceAfter, createdAt]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+        credits:
+          type: number
+        balanceAfter:
+          type: number
+        rateKey:
+          type: ["string", "null"]
+        refKind:
+          type: ["string", "null"]
+        refId:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+    CreditWallet:
+      type: object
+      required: [purchased, granted, total, mode, history]
+      properties:
+        purchased:
+          type: number
+        granted:
+          type: number
+        total:
+          type: number
+        grantedExpiresAt:
+          type: ["string", "null"]
+        mode:
+          type: string
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditHistoryEntry"
+    CreditAccountView:
+      type: object
+      required: [balance, history]
+      properties:
+        balance:
+          $ref: "#/components/schemas/CreditBalance"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditHistoryEntry"
+    CreditAccountGrantInput:
+      type: object
+      required: [credits]
+      properties:
+        credits:
+          type: number
+          minimum: -1000000
+          maximum: 1000000
+          description: Negative removes credits. Never drives a bucket below zero.
+        expiresInDays:
+          type: ["integer", "null"]
+          minimum: 1
+          maximum: 3650
+          description: Omit for a grant that never expires.
+        note:
+          type: ["string", "null"]
+          maxLength: 500
+    CreditQuoteLine:
+      type: object
+      required: [rateKey, quantity, credits]
+      properties:
+        rateKey:
+          type: string
+        quantity:
+          type: number
+        credits:
+          type: number
+    CreditQuote:
+      type: object
+      required: [credits, lines, balance, balanceAfter, sufficient]
+      properties:
+        credits:
+          type: number
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditQuoteLine"
+        balance:
+          type: number
+        balanceAfter:
+          type: number
+        sufficient:
+          type: boolean
+    CreditMigrationRow:
+      type: object
+      required: [tenantId, plan, source, detail, credits]
+      properties:
+        tenantId:
+          type: integer
+        plan:
+          type: string
+        source:
+          type: string
+          enum: [quota, credit, wallet]
+        detail:
+          type: string
+        credits:
+          type: number
+    CreditMigrationPlan:
+      type: object
+      required: [rows, totalCredits, workspaces]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditMigrationRow"
+        totalCredits:
+          type: number
+        workspaces:
+          type: integer
+    CreditMigrationResult:
+      type: object
+      required: [migrated, skipped, totalCreditsGranted]
+      properties:
+        migrated:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditMigrationRow"
+        skipped:
+          type: integer
+        totalCreditsGranted:
+          type: number
     CreditLedgerEntry:
       type: object
       required: [id, kind, captionDelta, imageDelta, note, createdAt]

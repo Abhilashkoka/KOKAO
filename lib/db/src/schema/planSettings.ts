@@ -36,6 +36,11 @@ export const planSettingsTable = pgTable("plan_settings", {
   // (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet).
   // Applied on plan change unless the tenant has a manual billing-mode
   // override (tenants.billingModeOverriddenAt).
+  // Monthly credit allowance granted on each paid period for workspaces on
+  // this plan, in whole credits. 0 = no allowance (the workspace buys credits
+  // or is granted them by hand). Replaces the captions/images/videos quota
+  // triple once billing_mode is retired.
+  monthlyCredits: integer("monthly_credits").notNull().default(0),
   billingMode: text("billing_mode").notNull().default("quota"),
   brandKits: integer("brand_kits").notNull(),
   scheduledPosts: integer("scheduled_posts").notNull(),

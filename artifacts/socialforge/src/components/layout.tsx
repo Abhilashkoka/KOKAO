@@ -29,6 +29,7 @@ import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
 import { WalletBalancePill } from "@/components/wallet-balance";
+import { CreditBalancePill } from "@/components/credit-balance";
 import { GenerationIndicator } from "@/components/generation-indicator";
 import { IdleLogoutWarning } from "@/hooks/use-idle-logout";
 import { useBrand } from "@/lib/brand";
@@ -141,6 +142,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-3">
           <GenerationIndicator />
           <WalletBalancePill />
+          <CreditBalancePill />
           <UserButton />
           <Sheet>
             <SheetTrigger asChild>
@@ -180,6 +182,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="mt-auto shrink-0 space-y-3 border-t border-border px-2 pt-6">
           <GenerationIndicator />
           <WalletBalancePill />
+          <CreditBalancePill />
           <div className="flex items-center gap-3">
             <UserButton showName />
           </div>

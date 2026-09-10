@@ -37,6 +37,7 @@ import type {
   AdminGamificationPlan,
   AdminGetAiCostCampaignsParams,
   AdminGetAiCostReportParams,
+  AdminGetCreditMeterReportParams,
   AdminGrantCredits200,
   AdminListAuditLogsParams,
   AdminListTextGenModelPricingParams,
@@ -161,8 +162,18 @@ import type {
   CreateCustomAiProviderRequest,
   CreateVisualAssetRequest,
   CreativeDirectionConflictEnvelope,
+  CreditAccountGrantInput,
+  CreditAccountView,
+  CreditBalance,
+  CreditMeterReport,
+  CreditMigrationPlan,
+  CreditMigrationResult,
   CreditPack,
   CreditPackInput,
+  CreditQuote,
+  CreditRateCard,
+  CreditRateCardInput,
+  CreditWallet,
   CustomAiProviderTestResponse,
   CustomAiProvidersView,
   DataConsumptionAnalytics,
@@ -333,6 +344,7 @@ import type {
   PushTokenInput,
   PushTokenResult,
   PushTokenUnregisterInput,
+  QuoteCreditsParams,
   RazorpayAppCredentialInput,
   RazorpayAppCredentialStatus,
   RedeemPromoInput,
@@ -33408,6 +33420,693 @@ export const useAdminUpdateSignupCreditSettings = <TError = ErrorType<ErrorEnvel
         TContext
       > => {
       return useMutation(getAdminUpdateSignupCreditSettingsMutationOptions(options));
+    }
+
+export const getGetCreditsUrl = () => {
+
+
+
+
+  return `/api/credits`
+}
+
+/**
+ * @summary This workspace's credit balance, meter mode and recent history
+ */
+export const getCredits = async ( options?: RequestInit): Promise<CreditWallet> => {
+
+  return customFetch<CreditWallet>(getGetCreditsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCreditsQueryKey = () => {
+    return [
+    `/api/credits`
+    ] as const;
+    }
+
+
+export const getGetCreditsQueryOptions = <TData = Awaited<ReturnType<typeof getCredits>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCredits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCreditsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCredits>>> = ({ signal }) => getCredits({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCredits>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCreditsQueryResult = NonNullable<Awaited<ReturnType<typeof getCredits>>>
+export type GetCreditsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary This workspace's credit balance, meter mode and recent history
+ */
+
+export function useGetCredits<TData = Awaited<ReturnType<typeof getCredits>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCredits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCreditsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getQuoteCreditsUrl = (params: QuoteCreditsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/credits/quote?${stringifiedParams}` : `/api/credits/quote`
+}
+
+/**
+ * @summary What a generation will cost in credits, before it starts
+ */
+export const quoteCredits = async (params: QuoteCreditsParams, options?: RequestInit): Promise<CreditQuote> => {
+
+  return customFetch<CreditQuote>(getQuoteCreditsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getQuoteCreditsQueryKey = (params?: QuoteCreditsParams,) => {
+    return [
+    `/api/credits/quote`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getQuoteCreditsQueryOptions = <TData = Awaited<ReturnType<typeof quoteCredits>>, TError = ErrorType<ErrorEnvelope>>(params: QuoteCreditsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof quoteCredits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getQuoteCreditsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof quoteCredits>>> = ({ signal }) => quoteCredits(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof quoteCredits>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type QuoteCreditsQueryResult = NonNullable<Awaited<ReturnType<typeof quoteCredits>>>
+export type QuoteCreditsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary What a generation will cost in credits, before it starts
+ */
+
+export function useQuoteCredits<TData = Awaited<ReturnType<typeof quoteCredits>>, TError = ErrorType<ErrorEnvelope>>(
+ params: QuoteCreditsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof quoteCredits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getQuoteCreditsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetCreditRatesUrl = () => {
+
+
+
+
+  return `/api/admin/credit-rates`
+}
+
+/**
+ * @summary Get the credit rate card and meter mode (superadmin only)
+ */
+export const adminGetCreditRates = async ( options?: RequestInit): Promise<CreditRateCard> => {
+
+  return customFetch<CreditRateCard>(getAdminGetCreditRatesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetCreditRatesQueryKey = () => {
+    return [
+    `/api/admin/credit-rates`
+    ] as const;
+    }
+
+
+export const getAdminGetCreditRatesQueryOptions = <TData = Awaited<ReturnType<typeof adminGetCreditRates>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetCreditRatesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetCreditRates>>> = ({ signal }) => adminGetCreditRates({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditRates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetCreditRatesQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetCreditRates>>>
+export type AdminGetCreditRatesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the credit rate card and meter mode (superadmin only)
+ */
+
+export function useAdminGetCreditRates<TData = Awaited<ReturnType<typeof adminGetCreditRates>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetCreditRatesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateCreditRatesUrl = () => {
+
+
+
+
+  return `/api/admin/credit-rates`
+}
+
+/**
+ * @summary Replace the credit rate card and meter mode (superadmin only)
+ */
+export const adminUpdateCreditRates = async (creditRateCardInput: CreditRateCardInput, options?: RequestInit): Promise<CreditRateCard> => {
+
+  return customFetch<CreditRateCard>(getAdminUpdateCreditRatesUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creditRateCardInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateCreditRatesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditRates>>, TError,{data: BodyType<CreditRateCardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditRates>>, TError,{data: BodyType<CreditRateCardInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateCreditRates'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateCreditRates>>, {data: BodyType<CreditRateCardInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateCreditRates(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateCreditRatesMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateCreditRates>>>
+    export type AdminUpdateCreditRatesMutationBody = BodyType<CreditRateCardInput>
+    export type AdminUpdateCreditRatesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Replace the credit rate card and meter mode (superadmin only)
+ */
+export const useAdminUpdateCreditRates = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditRates>>, TError,{data: BodyType<CreditRateCardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateCreditRates>>,
+        TError,
+        {data: BodyType<CreditRateCardInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateCreditRatesMutationOptions(options));
+    }
+
+export const getAdminGetCreditMeterReportUrl = (params?: AdminGetCreditMeterReportParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/credit-meter-report?${stringifiedParams}` : `/api/admin/credit-meter-report`
+}
+
+/**
+ * @summary What the credit meter recorded, by rate, provider and model (superadmin only)
+ */
+export const adminGetCreditMeterReport = async (params?: AdminGetCreditMeterReportParams, options?: RequestInit): Promise<CreditMeterReport> => {
+
+  return customFetch<CreditMeterReport>(getAdminGetCreditMeterReportUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetCreditMeterReportQueryKey = (params?: AdminGetCreditMeterReportParams,) => {
+    return [
+    `/api/admin/credit-meter-report`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminGetCreditMeterReportQueryOptions = <TData = Awaited<ReturnType<typeof adminGetCreditMeterReport>>, TError = ErrorType<ErrorEnvelope>>(params?: AdminGetCreditMeterReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditMeterReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetCreditMeterReportQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetCreditMeterReport>>> = ({ signal }) => adminGetCreditMeterReport(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditMeterReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetCreditMeterReportQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetCreditMeterReport>>>
+export type AdminGetCreditMeterReportQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary What the credit meter recorded, by rate, provider and model (superadmin only)
+ */
+
+export function useAdminGetCreditMeterReport<TData = Awaited<ReturnType<typeof adminGetCreditMeterReport>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: AdminGetCreditMeterReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditMeterReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetCreditMeterReportQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetTenantCreditsUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/credit-account`
+}
+
+/**
+ * @summary One workspace's credit balance and history (superadmin only)
+ */
+export const adminGetTenantCredits = async (id: number, options?: RequestInit): Promise<CreditAccountView> => {
+
+  return customFetch<CreditAccountView>(getAdminGetTenantCreditsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetTenantCreditsQueryKey = (id: number,) => {
+    return [
+    `/api/admin/tenants/${id}/credit-account`
+    ] as const;
+    }
+
+
+export const getAdminGetTenantCreditsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetTenantCredits>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTenantCredits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetTenantCreditsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetTenantCredits>>> = ({ signal }) => adminGetTenantCredits(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetTenantCredits>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetTenantCreditsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetTenantCredits>>>
+export type AdminGetTenantCreditsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary One workspace's credit balance and history (superadmin only)
+ */
+
+export function useAdminGetTenantCredits<TData = Awaited<ReturnType<typeof adminGetTenantCredits>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTenantCredits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetTenantCreditsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGrantCreditAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/credit-account`
+}
+
+/**
+ * @summary Grant or remove credits for one workspace (superadmin only)
+ */
+export const adminGrantCreditAccount = async (id: number,
+    creditAccountGrantInput: CreditAccountGrantInput, options?: RequestInit): Promise<CreditBalance> => {
+
+  return customFetch<CreditBalance>(getAdminGrantCreditAccountUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creditAccountGrantInput)
+  }
+);}
+
+
+
+
+export const getAdminGrantCreditAccountMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminGrantCreditAccount>>, TError,{id: number;data: BodyType<CreditAccountGrantInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminGrantCreditAccount>>, TError,{id: number;data: BodyType<CreditAccountGrantInput>}, TContext> => {
+
+const mutationKey = ['adminGrantCreditAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminGrantCreditAccount>>, {id: number;data: BodyType<CreditAccountGrantInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminGrantCreditAccount(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminGrantCreditAccountMutationResult = NonNullable<Awaited<ReturnType<typeof adminGrantCreditAccount>>>
+    export type AdminGrantCreditAccountMutationBody = BodyType<CreditAccountGrantInput>
+    export type AdminGrantCreditAccountMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Grant or remove credits for one workspace (superadmin only)
+ */
+export const useAdminGrantCreditAccount = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminGrantCreditAccount>>, TError,{id: number;data: BodyType<CreditAccountGrantInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminGrantCreditAccount>>,
+        TError,
+        {id: number;data: BodyType<CreditAccountGrantInput>},
+        TContext
+      > => {
+      return useMutation(getAdminGrantCreditAccountMutationOptions(options));
+    }
+
+export const getAdminPlanCreditMigrationUrl = () => {
+
+
+
+
+  return `/api/admin/credit-migration`
+}
+
+/**
+ * @summary Dry run - what every workspace would receive on migration (superadmin only)
+ */
+export const adminPlanCreditMigration = async ( options?: RequestInit): Promise<CreditMigrationPlan> => {
+
+  return customFetch<CreditMigrationPlan>(getAdminPlanCreditMigrationUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminPlanCreditMigrationQueryKey = () => {
+    return [
+    `/api/admin/credit-migration`
+    ] as const;
+    }
+
+
+export const getAdminPlanCreditMigrationQueryOptions = <TData = Awaited<ReturnType<typeof adminPlanCreditMigration>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminPlanCreditMigration>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminPlanCreditMigrationQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminPlanCreditMigration>>> = ({ signal }) => adminPlanCreditMigration({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminPlanCreditMigration>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminPlanCreditMigrationQueryResult = NonNullable<Awaited<ReturnType<typeof adminPlanCreditMigration>>>
+export type AdminPlanCreditMigrationQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Dry run - what every workspace would receive on migration (superadmin only)
+ */
+
+export function useAdminPlanCreditMigration<TData = Awaited<ReturnType<typeof adminPlanCreditMigration>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminPlanCreditMigration>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminPlanCreditMigrationQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminRunCreditMigrationUrl = () => {
+
+
+
+
+  return `/api/admin/credit-migration`
+}
+
+/**
+ * @summary Convert every workspace onto credits (superadmin only, idempotent)
+ */
+export const adminRunCreditMigration = async ( options?: RequestInit): Promise<CreditMigrationResult> => {
+
+  return customFetch<CreditMigrationResult>(getAdminRunCreditMigrationUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminRunCreditMigrationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRunCreditMigration>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRunCreditMigration>>, TError,void, TContext> => {
+
+const mutationKey = ['adminRunCreditMigration'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRunCreditMigration>>, void> = () => {
+
+
+          return  adminRunCreditMigration(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRunCreditMigrationMutationResult = NonNullable<Awaited<ReturnType<typeof adminRunCreditMigration>>>
+
+    export type AdminRunCreditMigrationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Convert every workspace onto credits (superadmin only, idempotent)
+ */
+export const useAdminRunCreditMigration = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRunCreditMigration>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminRunCreditMigration>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminRunCreditMigrationMutationOptions(options));
     }
 
 export const getAdminGetAdsSettingsUrl = () => {

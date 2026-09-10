@@ -3,6 +3,7 @@ import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
+import { meter } from "../../meter";
 import type { ImageGenResult } from "../../imageGen/types";
 import { generateVideo } from "../index";
 import { isTransientStatus } from "../retry";
@@ -440,12 +441,18 @@ export async function generateSceneKeyframes(params: {
         reference,
         entry.shotSize,
       );
+    // Metered per ATTEMPT, not per scene. A keyframe that fails and retries is
+    // two images the provider bills for, and the distinctness rerun below can
+    // add two more — counting only the surviving one is precisely how this
+    // spend went missing before.
+    const metered = () =>
+      meter({ tenantId: params.tenantId, refKind: "videoJob" }, "image", 1, attempt);
     let result: ImageGenResult;
     try {
-      result = await attempt();
+      result = await metered();
     } catch (err) {
       logger.warn({ err, scene: i }, "character keyframe generation failed; retrying once");
-      result = await attempt();
+      result = await metered();
     }
     // Persistence/upload failures occur after acknowledged provider work and
     // must never be mistaken for a provider rejection eligible for a rerun.

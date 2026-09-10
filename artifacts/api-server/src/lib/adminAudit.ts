@@ -34,6 +34,8 @@ export type AdminAuditAction =
   | "seat_request_deny"
   | "support_request_resolved"
   | "credit_pack_change"
+  | "credit_rates_change"
+  | "credit_account_grant"
   | "credit_grant"
   | "promo_code_change"
   | "ai_spend_settings_change"

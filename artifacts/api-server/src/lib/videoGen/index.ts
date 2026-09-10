@@ -8,6 +8,7 @@ import {
   recordProviderSuccess,
 } from "../providerHealth";
 import { isVideoModelPriced } from "../aiCost";
+import { meter, type MeterContext } from "../meter";
 import type { VideoJobOptions, VideoPriceCriteria } from "@workspace/db";
 import { videoPriceCriteria } from "./pricing";
 import {
@@ -936,39 +937,48 @@ export interface VideoGenFailoverDeps {
  * Permanent failures — a prompt the safety filter rejected, a missing key —
  * fail immediately, because another model or provider would reject them too.
  */
-export async function generateVideo(
-  params: {
-    mode: VideoGenMode;
-    prompt: string;
-    aspectRatio: VideoAspect;
-    durationSec: number;
-    image?: SourceImage;
-    assetIds?: string[];
-    /** Never fail over when a substitute would ignore a verified identity. */
-    identityLocked?: boolean;
-    /** Optional last frame, on models that interpolate between two stills. */
-    endImage?: SourceImage;
-    /** Deterministic sampling seed; omitted means "the provider's choice". */
-    seed?: number | null;
-    /**
-     * A catalog model this job explicitly picked (lib/videoGen/modelCatalog.ts).
-     * When set it overrides the platform selection for this job only: its
-     * provider serves the request and its slug heads the model chain. Absent
-     * means the admin's platform selection, exactly as before per-generation
-     * model choice existed.
-     */
-    modelId?: string | null;
-    /** Required immutable enqueue-time provider/model contract. */
-    resolvedVideoModel?: ResolvedVideoModelSnapshot | null;
-    resolution?: string | null;
-    quality?: string | null;
-    generateAudio?: boolean | null;
-    providerTaskId?: string | null;
-    providerRequestId?: string | null;
-    onProviderTaskAccepted?: VideoGenInput["onProviderTaskAccepted"];
-    /** Stable identity for one paid operation within a durable video job. */
-    operationKey?: string;
-  },
+export interface GenerateVideoParams {
+  mode: VideoGenMode;
+  prompt: string;
+  aspectRatio: VideoAspect;
+  durationSec: number;
+  image?: SourceImage;
+  assetIds?: string[];
+  /** Never fail over when a substitute would ignore a verified identity. */
+  identityLocked?: boolean;
+  /** Optional last frame, on models that interpolate between two stills. */
+  endImage?: SourceImage;
+  /** Deterministic sampling seed; omitted means "the provider's choice". */
+  seed?: number | null;
+  /**
+   * A catalog model this job explicitly picked (lib/videoGen/modelCatalog.ts).
+   * When set it overrides the platform selection for this job only: its
+   * provider serves the request and its slug heads the model chain. Absent
+   * means the admin's platform selection, exactly as before per-generation
+   * model choice existed.
+   */
+  modelId?: string | null;
+  /** Required immutable enqueue-time provider/model contract. */
+  resolvedVideoModel?: ResolvedVideoModelSnapshot | null;
+  resolution?: string | null;
+  quality?: string | null;
+  generateAudio?: boolean | null;
+  providerTaskId?: string | null;
+  providerRequestId?: string | null;
+  onProviderTaskAccepted?: VideoGenInput["onProviderTaskAccepted"];
+  /** Stable identity for one paid operation within a durable video job. */
+  operationKey?: string;
+  /**
+   * Who to bill this clip's seconds to. Omitted means "not billable to a
+   * workspace" — a superadmin playground run or a health probe — and the
+   * meter is a pass-through. Every caller generating on behalf of a tenant
+   * should pass it.
+   */
+  meterCtx?: MeterContext | null;
+}
+
+async function generateVideoUnmetered(
+  params: GenerateVideoParams,
   deps: VideoGenFailoverDeps = {},
 ): Promise<VideoGenResult> {
   const snapshot = params.resolvedVideoModel;
@@ -1153,4 +1163,46 @@ export async function generateVideo(
     }
     throw error;
   }
+}
+
+/**
+ * Generate a video and meter what it cost.
+ *
+ * The meter sits HERE, at the provider boundary, rather than at the route that
+ * asked for a video — so a clip generated deep inside a multi-scene job, a
+ * clip that fails and is retried, and a clip a QA gate later rejects are all
+ * counted. Those are the seconds the provider bills and that nothing upstream
+ * has ever recorded. Failover is deliberately inside the metered span: a clip
+ * served by a substitute provider still costs real money.
+ *
+ * The rate key follows RESOLUTION, because that is what actually drives cost.
+ * Atlas bills Seedance by output token and a 720p clip can produce many times
+ * the tokens of a 480p one of the same length, so pricing every second the
+ * same would hide the largest cost lever in the pipeline. The provider's own
+ * token and USD figures are recorded alongside, so the rate card can be
+ * reconciled against the invoice rather than trusted.
+ */
+export async function generateVideo(
+  params: GenerateVideoParams,
+  deps: VideoGenFailoverDeps = {},
+): Promise<VideoGenResult> {
+  const hd = isHdResolution(params.resolution);
+  return meter(
+    params.meterCtx ?? null,
+    hd ? "video_hd" : "video",
+    params.durationSec,
+    () => generateVideoUnmetered(params, deps),
+    (result) => ({
+      tokens: result.videoTokens ?? null,
+      usd: result.providerReportedActualUsd ?? null,
+    }),
+  );
+}
+
+/** 720p and above bills as HD. Unknown resolutions bill at the base rate. */
+function isHdResolution(resolution?: string | null): boolean {
+  if (!resolution) return false;
+  const match = /(\d{3,4})\s*[pP]?/.exec(resolution);
+  const value = match ? Number(match[1]) : NaN;
+  return Number.isFinite(value) && value >= 720;
 }

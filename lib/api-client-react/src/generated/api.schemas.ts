@@ -1194,6 +1194,241 @@ export interface SignupCreditSettingsInput {
   videoCredits: number;
 }
 
+export type CreditRateUnit = typeof CreditRateUnit[keyof typeof CreditRateUnit];
+
+
+export const CreditRateUnit = {
+  item: 'item',
+  second: 'second',
+} as const;
+
+/**
+ * One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.
+ */
+export interface CreditRate {
+  key: string;
+  label: string;
+  unit: CreditRateUnit;
+  credits: number;
+  active: boolean;
+  sortOrder: number;
+  /** @nullable */
+  notes?: string | null;
+}
+
+/**
+ * shadow records every metered provider call and charges nothing; enforce also debits the workspace balance; off disables the meter.
+ */
+export type CreditRateCardMode = typeof CreditRateCardMode[keyof typeof CreditRateCardMode];
+
+
+export const CreditRateCardMode = {
+  off: 'off',
+  shadow: 'shadow',
+  enforce: 'enforce',
+} as const;
+
+export interface CreditRateCard {
+  /** shadow records every metered provider call and charges nothing; enforce also debits the workspace balance; off disables the meter. */
+  mode: CreditRateCardMode;
+  rates: CreditRate[];
+}
+
+export type CreditRateInputUnit = typeof CreditRateInputUnit[keyof typeof CreditRateInputUnit];
+
+
+export const CreditRateInputUnit = {
+  item: 'item',
+  second: 'second',
+} as const;
+
+export interface CreditRateInput {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     * @pattern ^[a-z0-9_]+$
+     */
+  key: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  label: string;
+  unit: CreditRateInputUnit;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  credits: number;
+  active: boolean;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  sortOrder?: number;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  notes?: string | null;
+}
+
+export type CreditRateCardInputMode = typeof CreditRateCardInputMode[keyof typeof CreditRateCardInputMode];
+
+
+export const CreditRateCardInputMode = {
+  off: 'off',
+  shadow: 'shadow',
+  enforce: 'enforce',
+} as const;
+
+export interface CreditRateCardInput {
+  mode: CreditRateCardInputMode;
+  /** @maxItems 200 */
+  rates: CreditRateInput[];
+}
+
+export interface CreditMeterReportRow {
+  rateKey: string;
+  /** @nullable */
+  provider?: string | null;
+  /** @nullable */
+  model?: string | null;
+  calls: number;
+  /** Calls the provider billed for that then failed. Nothing else in the app records these, because usage is only written on success. */
+  failedCalls: number;
+  quantity: number;
+  credits: number;
+  /**
+     * Output tokens the provider reported, when it reports any.
+     * @nullable
+     */
+  providerTokens?: number | null;
+  /**
+     * Actual USD the provider reported, when it reports any.
+     * @nullable
+     */
+  providerUsd?: number | null;
+}
+
+export interface CreditMeterReport {
+  since: string;
+  mode: string;
+  totalCalls: number;
+  failedCalls: number;
+  totalCredits: number;
+  /** @nullable */
+  totalProviderTokens?: number | null;
+  /** @nullable */
+  totalProviderUsd?: number | null;
+  rows: CreditMeterReportRow[];
+}
+
+export interface CreditBalance {
+  /** Paid-for credits. Never expire. */
+  purchased: number;
+  /** Allowance and bonus credits, which do expire. */
+  granted: number;
+  total: number;
+  /** @nullable */
+  grantedExpiresAt?: string | null;
+}
+
+export interface CreditHistoryEntry {
+  id: number;
+  kind: string;
+  credits: number;
+  balanceAfter: number;
+  /** @nullable */
+  rateKey?: string | null;
+  /** @nullable */
+  refKind?: string | null;
+  /** @nullable */
+  refId?: string | null;
+  /** @nullable */
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface CreditWallet {
+  purchased: number;
+  granted: number;
+  total: number;
+  /** @nullable */
+  grantedExpiresAt?: string | null;
+  mode: string;
+  history: CreditHistoryEntry[];
+}
+
+export interface CreditAccountView {
+  balance: CreditBalance;
+  history: CreditHistoryEntry[];
+}
+
+export interface CreditAccountGrantInput {
+  /**
+     * Negative removes credits. Never drives a bucket below zero.
+     * @minimum -1000000
+     * @maximum 1000000
+     */
+  credits: number;
+  /**
+     * Omit for a grant that never expires.
+     * @minimum 1
+     * @maximum 3650
+     * @nullable
+     */
+  expiresInDays?: number | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  note?: string | null;
+}
+
+export interface CreditQuoteLine {
+  rateKey: string;
+  quantity: number;
+  credits: number;
+}
+
+export interface CreditQuote {
+  credits: number;
+  lines: CreditQuoteLine[];
+  balance: number;
+  balanceAfter: number;
+  sufficient: boolean;
+}
+
+export type CreditMigrationRowSource = typeof CreditMigrationRowSource[keyof typeof CreditMigrationRowSource];
+
+
+export const CreditMigrationRowSource = {
+  quota: 'quota',
+  credit: 'credit',
+  wallet: 'wallet',
+} as const;
+
+export interface CreditMigrationRow {
+  tenantId: number;
+  plan: string;
+  source: CreditMigrationRowSource;
+  detail: string;
+  credits: number;
+}
+
+export interface CreditMigrationPlan {
+  rows: CreditMigrationRow[];
+  totalCredits: number;
+  workspaces: number;
+}
+
+export interface CreditMigrationResult {
+  migrated: CreditMigrationRow[];
+  skipped: number;
+  totalCreditsGranted: number;
+}
+
 export interface CreditLedgerEntry {
   id: number;
   kind: string;
@@ -12906,6 +13141,27 @@ connectionId: AdsConnectionIdParameter;
  * Reporting date range (defaults to last_30d).
  */
 datePreset?: AdsDatePresetParameter;
+};
+
+export type QuoteCreditsParams = {
+/**
+ * A rate key (image, caption, ...) or "video" for a whole job.
+ */
+action: string;
+quantity?: number;
+durationSec?: number;
+sceneCount?: number;
+resolution?: string;
+narrated?: boolean;
+lipSync?: boolean;
+};
+
+export type AdminGetCreditMeterReportParams = {
+/**
+ * @minimum 1
+ * @maximum 365
+ */
+days?: number;
 };
 
 export type WalletVerifyRecharge200 = {

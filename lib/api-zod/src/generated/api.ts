@@ -34503,6 +34503,244 @@ export const AdminUpdateSignupCreditSettingsResponse = zod.object({
 
 
 /**
+ * @summary This workspace's credit balance, meter mode and recent history
+ */
+export const GetCreditsResponse = zod.object({
+  "purchased": zod.number(),
+  "granted": zod.number(),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish(),
+  "mode": zod.string(),
+  "history": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.string(),
+  "credits": zod.number(),
+  "balanceAfter": zod.number(),
+  "rateKey": zod.string().nullish(),
+  "refKind": zod.string().nullish(),
+  "refId": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary What a generation will cost in credits, before it starts
+ */
+export const QuoteCreditsQueryParams = zod.object({
+  "action": zod.coerce.string().describe('A rate key (image, caption, ...) or \"video\" for a whole job.'),
+  "quantity": zod.coerce.number().optional(),
+  "durationSec": zod.coerce.number().optional(),
+  "sceneCount": zod.coerce.number().optional(),
+  "resolution": zod.coerce.string().optional(),
+  "narrated": zod.coerce.boolean().optional(),
+  "lipSync": zod.coerce.boolean().optional()
+})
+
+export const QuoteCreditsResponse = zod.object({
+  "credits": zod.number(),
+  "lines": zod.array(zod.object({
+  "rateKey": zod.string(),
+  "quantity": zod.number(),
+  "credits": zod.number()
+})),
+  "balance": zod.number(),
+  "balanceAfter": zod.number(),
+  "sufficient": zod.boolean()
+})
+
+
+/**
+ * @summary Get the credit rate card and meter mode (superadmin only)
+ */
+export const AdminGetCreditRatesResponse = zod.object({
+  "mode": zod.enum(['off', 'shadow', 'enforce']).describe('shadow records every metered provider call and charges nothing; enforce also debits the workspace balance; off disables the meter.'),
+  "rates": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "unit": zod.enum(['item', 'second']),
+  "credits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number(),
+  "notes": zod.string().nullish()
+}).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.'))
+})
+
+
+/**
+ * @summary Replace the credit rate card and meter mode (superadmin only)
+ */
+export const adminUpdateCreditRatesBodyRatesItemKeyMax = 64;
+
+
+export const adminUpdateCreditRatesBodyRatesItemKeyRegExp = new RegExp('^[a-z0-9_]+$');
+export const adminUpdateCreditRatesBodyRatesItemLabelMax = 120;
+
+export const adminUpdateCreditRatesBodyRatesItemCreditsMin = 0;
+export const adminUpdateCreditRatesBodyRatesItemCreditsMax = 100000;
+
+export const adminUpdateCreditRatesBodyRatesItemSortOrderMin = 0;
+export const adminUpdateCreditRatesBodyRatesItemSortOrderMax = 100000;
+
+export const adminUpdateCreditRatesBodyRatesItemNotesMax = 500;
+
+export const adminUpdateCreditRatesBodyRatesMax = 200;
+
+
+
+export const AdminUpdateCreditRatesBody = zod.object({
+  "mode": zod.enum(['off', 'shadow', 'enforce']),
+  "rates": zod.array(zod.object({
+  "key": zod.string().min(1).max(adminUpdateCreditRatesBodyRatesItemKeyMax).regex(adminUpdateCreditRatesBodyRatesItemKeyRegExp),
+  "label": zod.string().min(1).max(adminUpdateCreditRatesBodyRatesItemLabelMax),
+  "unit": zod.enum(['item', 'second']),
+  "credits": zod.number().min(adminUpdateCreditRatesBodyRatesItemCreditsMin).max(adminUpdateCreditRatesBodyRatesItemCreditsMax),
+  "active": zod.boolean(),
+  "sortOrder": zod.number().min(adminUpdateCreditRatesBodyRatesItemSortOrderMin).max(adminUpdateCreditRatesBodyRatesItemSortOrderMax).optional(),
+  "notes": zod.string().max(adminUpdateCreditRatesBodyRatesItemNotesMax).nullish()
+})).max(adminUpdateCreditRatesBodyRatesMax)
+})
+
+export const AdminUpdateCreditRatesResponse = zod.object({
+  "mode": zod.enum(['off', 'shadow', 'enforce']).describe('shadow records every metered provider call and charges nothing; enforce also debits the workspace balance; off disables the meter.'),
+  "rates": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "unit": zod.enum(['item', 'second']),
+  "credits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number(),
+  "notes": zod.string().nullish()
+}).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.'))
+})
+
+
+/**
+ * @summary What the credit meter recorded, by rate, provider and model (superadmin only)
+ */
+export const adminGetCreditMeterReportQueryDaysDefault = 30;
+export const adminGetCreditMeterReportQueryDaysMax = 365;
+
+
+
+export const AdminGetCreditMeterReportQueryParams = zod.object({
+  "days": zod.coerce.number().min(1).max(adminGetCreditMeterReportQueryDaysMax).default(adminGetCreditMeterReportQueryDaysDefault)
+})
+
+export const AdminGetCreditMeterReportResponse = zod.object({
+  "since": zod.coerce.date(),
+  "mode": zod.string(),
+  "totalCalls": zod.number(),
+  "failedCalls": zod.number(),
+  "totalCredits": zod.number(),
+  "totalProviderTokens": zod.number().nullish(),
+  "totalProviderUsd": zod.number().nullish(),
+  "rows": zod.array(zod.object({
+  "rateKey": zod.string(),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "calls": zod.number(),
+  "failedCalls": zod.number().describe('Calls the provider billed for that then failed. Nothing else in the app records these, because usage is only written on success.'),
+  "quantity": zod.number(),
+  "credits": zod.number(),
+  "providerTokens": zod.number().nullish().describe('Output tokens the provider reported, when it reports any.'),
+  "providerUsd": zod.number().nullish().describe('Actual USD the provider reported, when it reports any.')
+}))
+})
+
+
+/**
+ * @summary One workspace's credit balance and history (superadmin only)
+ */
+export const AdminGetTenantCreditsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminGetTenantCreditsResponse = zod.object({
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+}),
+  "history": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.string(),
+  "credits": zod.number(),
+  "balanceAfter": zod.number(),
+  "rateKey": zod.string().nullish(),
+  "refKind": zod.string().nullish(),
+  "refId": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Grant or remove credits for one workspace (superadmin only)
+ */
+export const AdminGrantCreditAccountParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminGrantCreditAccountBodyCreditsMin = -1000000;
+export const adminGrantCreditAccountBodyCreditsMax = 1000000;
+
+export const adminGrantCreditAccountBodyExpiresInDaysMax = 3650;
+
+export const adminGrantCreditAccountBodyNoteMax = 500;
+
+
+
+export const AdminGrantCreditAccountBody = zod.object({
+  "credits": zod.number().min(adminGrantCreditAccountBodyCreditsMin).max(adminGrantCreditAccountBodyCreditsMax).describe('Negative removes credits. Never drives a bucket below zero.'),
+  "expiresInDays": zod.number().min(1).max(adminGrantCreditAccountBodyExpiresInDaysMax).nullish().describe('Omit for a grant that never expires.'),
+  "note": zod.string().max(adminGrantCreditAccountBodyNoteMax).nullish()
+})
+
+export const AdminGrantCreditAccountResponse = zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Dry run - what every workspace would receive on migration (superadmin only)
+ */
+export const AdminPlanCreditMigrationResponse = zod.object({
+  "rows": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "plan": zod.string(),
+  "source": zod.enum(['quota', 'credit', 'wallet']),
+  "detail": zod.string(),
+  "credits": zod.number()
+})),
+  "totalCredits": zod.number(),
+  "workspaces": zod.number()
+})
+
+
+/**
+ * @summary Convert every workspace onto credits (superadmin only, idempotent)
+ */
+export const AdminRunCreditMigrationResponse = zod.object({
+  "migrated": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "plan": zod.string(),
+  "source": zod.enum(['quota', 'credit', 'wallet']),
+  "detail": zod.string(),
+  "credits": zod.number()
+})),
+  "skipped": zod.number(),
+  "totalCreditsGranted": zod.number()
+})
+
+
+/**
  * @summary Get the global ads module switch and per-platform credential readiness (superadmin only)
  */
 export const AdminGetAdsSettingsResponse = zod.object({

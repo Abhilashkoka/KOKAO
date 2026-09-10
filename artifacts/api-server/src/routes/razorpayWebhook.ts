@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { verifyWebhookSignature, fetchRazorpayOrder } from "../lib/razorpay";
 import { grantCredits } from "../lib/credits";
+import { grantMonthlyCreditsSafely } from "../lib/monthlyCreditGrant";
 import { applyPlanBillingMode, getPlan } from "../lib/plans";
 import { recordInvoice } from "../lib/invoices";
 import { recordServerEvent } from "../lib/analytics";
@@ -104,6 +105,15 @@ async function handleSubscriptionEvent(
         totalPaise: pricePaise,
       });
     }
+    // The paid period's credit allowance. Keyed on the same cycle identity as
+    // the invoice above, so a redelivered webhook grants exactly once — and
+    // failing here never fails the webhook, because a non-2xx would make the
+    // gateway retry a payment that already succeeded.
+    await grantMonthlyCreditsSafely({
+      tenantId: sub.tenantId,
+      planId: sub.planId,
+      periodEnd: cycleKey,
+    });
     // Server-side revenue analytics.
     void recordServerEvent({
       name: "subscription_renewed",

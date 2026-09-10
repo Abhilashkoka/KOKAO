@@ -15,6 +15,7 @@ import { getPlan } from "./plans";
 import { getTextGenClient } from "./textGen";
 import { buildTasteGuidance } from "./tasteMemory";
 import { buildImageCostMeta } from "./aiCost";
+import { meter } from "./meter";
 import type { UsageMeta } from "./usage";
 import { logger } from "./logger";
 
@@ -178,9 +179,11 @@ export async function performImageGeneration(
     usage: imageUsage,
     fallbackStep,
     routingReason,
-  } = await generateImage(prompt, input.size, input.referenceImage ?? undefined, {
-    selectionPolicy: input.selectionPolicy,
-  });
+  } = await meter({ tenantId: input.tenantId }, "image", 1, () =>
+    generateImage(prompt, input.size, input.referenceImage ?? undefined, {
+      selectionPolicy: input.selectionPolicy,
+    }),
+  );
 
   // Plans with the watermark switch ON get a "Made with KOKAO.in" stamp,
   // subject to the platform-wide "freeWatermark" kill switch (default-ON: a
