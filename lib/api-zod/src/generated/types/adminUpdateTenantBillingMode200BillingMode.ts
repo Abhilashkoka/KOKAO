@@ -12,4 +12,5 @@ export type AdminUpdateTenantBillingMode200BillingMode = typeof AdminUpdateTenan
 export const AdminUpdateTenantBillingMode200BillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;

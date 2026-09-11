@@ -3,9 +3,11 @@ import { requireTenant } from "../middlewares/requireTenant";
 import {
   peekCreditBalance,
   listCreditHistory,
+  isCreditFunded,
 } from "../lib/creditAccounts";
 import { quoteVideoJobCredits, quoteActionCredits } from "../lib/creditQuote";
 import { getMeterMode } from "../lib/creditRates";
+import { grantUnbilledPlanCreditsSafely } from "../lib/monthlyCreditGrant";
 
 /**
  * Tenant-facing credit surface: what the workspace has, what it spent, and
@@ -23,12 +25,20 @@ router.use(requireTenant);
 
 /** GET /credits — balance, meter mode, and recent history. */
 router.get("/credits", async (req: Request, res: Response) => {
-  const [balance, history, mode] = await Promise.all([
+  // Free plans have no gateway to grant their allowance on, so it is granted
+  // here, lazily, once per calendar month. Idempotent, and best-effort: the
+  // balance still reads correctly if it fails.
+  await grantUnbilledPlanCreditsSafely(req.tenantId);
+  const [balance, history, mode, funded] = await Promise.all([
     peekCreditBalance(req.tenantId),
     listCreditHistory(req.tenantId, 50),
     getMeterMode(),
+    isCreditFunded(req.tenantId),
   ]);
-  res.json({ ...balance, mode, history });
+  // `funded` is the server's own answer to "is this balance what pays for my
+  // work right now", so the UI never has to recombine the meter mode and the
+  // workspace's rail and risk disagreeing with what the backend enforces.
+  res.json({ ...balance, mode, funded, history });
 });
 
 /**

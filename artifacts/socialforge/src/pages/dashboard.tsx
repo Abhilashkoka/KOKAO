@@ -1,8 +1,9 @@
 import { useGetMe, useListContent, useListSchedules } from "@workspace/api-client-react";
+import { useCreditFunding } from "@/components/credit-balance";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers, Wand2 } from "lucide-react";
+import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers, Wand2, Coins } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { isInteractiveTarget } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ export function DashboardPage() {
     isError: meFailed,
     refetch: refetchMe,
   } = useGetMe();
+  const { creditFunded, credits } = useCreditFunding();
   const {
     data: content,
     isLoading: contentLoading,
@@ -88,6 +90,24 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {creditFunded ? (
+          <Card className="shadow-sm border-border overflow-hidden relative" data-testid="card-dashboard-credits">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-10 -mt-10 blur-2xl pointer-events-none" />
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Coins className="h-4 w-4 text-primary" /> Credits
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-4xl font-bold tracking-tight mb-2 tabular-nums">
+                {(credits?.total ?? 0).toFixed((credits?.total ?? 0) < 10 ? 1 : 0)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Spent on whatever you generate — video, images, captions, voice.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
         <Card className="shadow-sm border-border overflow-hidden relative">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-10 -mt-10 blur-2xl pointer-events-none" />
           <CardHeader className="pb-2">
@@ -107,6 +127,7 @@ export function DashboardPage() {
             )}
           </CardContent>
         </Card>
+        )}
 
         <Card className="shadow-sm border-border overflow-hidden relative">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-10 -mt-10 blur-2xl pointer-events-none" />
@@ -117,7 +138,9 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-4xl font-bold tracking-tight mb-2">{me?.usage.images}</div>
-            {me?.limits.images !== -1 ? (
+            {creditFunded ? (
+              <p className="text-xs text-muted-foreground">This month</p>
+            ) : me?.limits.images !== -1 ? (
               <div className="space-y-2">
                 <Progress value={(me?.usage.images || 0) / (me?.limits.images || 1) * 100} className="h-2" />
                 <p className="text-xs text-muted-foreground">{(me?.limits.images ?? 0) - (me?.usage.images || 0)} remaining this month</p>

@@ -21,6 +21,7 @@ import { TeamSettings } from "@/components/team-settings";
 import { AppBrandingSettings } from "@/components/app-branding-settings";
 import { TasteMemorySettings } from "@/components/taste-memory-settings";
 import { BillingSettings } from "@/components/billing-settings";
+import { CreditUsageCard, useCreditFunding } from "@/components/credit-balance";
 import { ConsentSettings } from "@/components/consent-settings";
 import { useFeatureFlags } from "@/lib/features";
 import { useSearch } from "wouter";
@@ -46,6 +47,7 @@ export function SettingsPage() {
   const search = useSearch();
   const requestedTab = new URLSearchParams(search).get("tab");
   const { data: me, isLoading: meLoading } = useGetMe();
+  const { creditFunded } = useCreditFunding();
   const { data: modelChoices } = useListAiModels();
   const { data: plans, isLoading: plansLoading } = useListPlans();
   const updateSettings = useUpdateSettings();
@@ -172,6 +174,9 @@ export function SettingsPage() {
             </CardFooter>
           </Card>
 
+          {creditFunded ? (
+            <CreditUsageCard />
+          ) : (
           <Card className="border-border shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-primary" /> Usage Limits</CardTitle>
@@ -198,6 +203,7 @@ export function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+          )}
         </div>
 
         {featureFlags.billing && (

@@ -47,4 +47,9 @@ export interface PlanUpdateInput {
   watermark?: boolean;
   /** Default billing mode for workspaces landing on this plan. Omitted = keep the plan's current setting. */
   billingMode?: PlanUpdateInputBillingMode;
+  /**
+     * Credits granted at the start of every paid period. Omitted = keep the plan's current allowance.
+     * @minimum 0
+     */
+  monthlyCredits?: number;
 }

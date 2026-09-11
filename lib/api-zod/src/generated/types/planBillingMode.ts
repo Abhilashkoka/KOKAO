@@ -7,7 +7,7 @@
  */
 
 /**
- * Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.
+ * Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs), "wallet" (prepaid rupee wallet), or "credits" (one metered credit balance). A manual per-tenant billing-mode choice always wins.
  */
 export type PlanBillingMode = typeof PlanBillingMode[keyof typeof PlanBillingMode];
 
@@ -15,4 +15,5 @@ export type PlanBillingMode = typeof PlanBillingMode[keyof typeof PlanBillingMod
 export const PlanBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;

@@ -1,4 +1,5 @@
 import { WalletBalancePill } from "@/components/wallet-balance";
+import { useCreditFunding } from "@/components/credit-balance";
 import { useEffect, useRef, useState } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useForm } from "react-hook-form";
@@ -98,6 +99,7 @@ import {
   Image as ImageIcon,
   Save,
   Lightbulb,
+  Coins,
   Link2,
   Layers,
   Globe,
@@ -369,6 +371,7 @@ function PlatformFitPreview({ src }: { src: string }) {
 function StudioHeader() {
   const { data: me } = useGetMe();
   const { flags } = useFeatureFlags();
+  const { creditFunded, credits } = useCreditFunding();
   const captionsLeft =
     me && me.limits.captions !== -1
       ? Math.max(0, me.limits.captions - me.usage.captions)
@@ -401,7 +404,35 @@ function StudioHeader() {
           platform.
         </p>
       </div>
-      {me && (
+      {me && creditFunded && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm"
+          data-testid="credit-countdown"
+        >
+          {/* One balance funds everything, so three per-action counters would
+              be three views of the same number. Show it once, with the only
+              other thing worth knowing: what is unlimited. */}
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
+              (credits?.total ?? 0) <= 0
+                ? "bg-destructive/10 text-destructive"
+                : "bg-primary/10 text-primary"
+            }`}
+            data-testid="credit-remaining"
+          >
+            <Coins className="h-3.5 w-3.5" />
+            {`${(credits?.total ?? 0).toFixed((credits?.total ?? 0) < 10 ? 1 : 0)} credits left`}
+          </span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
+            data-testid="quota-helpers"
+          >
+            <Lightbulb className="h-3.5 w-3.5" />
+            Ideas, research &amp; briefs: unlimited
+          </span>
+        </div>
+      )}
+      {me && !creditFunded && (
         <div
           className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm"
           data-testid="quota-countdown"

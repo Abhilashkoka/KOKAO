@@ -15,6 +15,7 @@ import {
   useAdminUpdateCreditPack,
   useAdminDeleteCreditPack,
   getAdminListCreditPacksQueryKey,
+  useAdminGetCreditRates,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -33,6 +34,13 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
 
 interface PlanDraft {
@@ -48,7 +56,35 @@ interface PlanDraft {
   teamSeats: string;
   features: string;
   watermark: boolean;
-  billingMode: "quota" | "wallet";
+  billingMode: PlanBillingMode;
+  /** Credits granted at the start of every paid period. "0" = no allowance. */
+  monthlyCredits: string;
+}
+
+type PlanBillingMode = "quota" | "wallet" | "credits";
+
+const BILLING_MODES: { value: PlanBillingMode; label: string; detail: string }[] = [
+  {
+    value: "quota",
+    label: "Monthly quota",
+    detail:
+      "Counted allowances per action, topped up by legacy caption/image packs.",
+  },
+  {
+    value: "wallet",
+    label: "Prepaid wallet",
+    detail: "Pay per generation from a prepaid rupee balance.",
+  },
+  {
+    value: "credits",
+    label: "Credits",
+    detail:
+      "One credit balance for every action, refilled by the monthly allowance below.",
+  },
+];
+
+function asBillingMode(value: unknown): PlanBillingMode {
+  return value === "wallet" || value === "credits" ? value : "quota";
 }
 
 function parseLimit(value: string): number | null {
@@ -64,10 +100,27 @@ function limitToInput(n: number): string {
   return n === -1 ? "unlimited" : String(n);
 }
 
-const LIMIT_FIELDS: { key: keyof Pick<PlanDraft, "captions" | "images" | "videos" | "brandKits" | "scheduledPosts">; label: string }[] = [
+type LimitField = {
+  key: keyof Pick<
+    PlanDraft,
+    "captions" | "images" | "videos" | "brandKits" | "scheduledPosts"
+  >;
+  label: string;
+};
+
+/**
+ * The three AI allowances the credit balance replaces. Hidden while a plan is
+ * on credits — they still enforce for quota and wallet plans, so the values
+ * are kept rather than cleared and reappear intact if the plan moves back.
+ */
+const AI_QUOTA_FIELDS: LimitField[] = [
   { key: "captions", label: "AI captions / month" },
   { key: "images", label: "AI images / month" },
   { key: "videos", label: "AI videos / month" },
+];
+
+/** Structural limits. Not funded by credits, so every mode still shows them. */
+const STRUCTURAL_FIELDS: LimitField[] = [
   { key: "brandKits", label: "Brand kits" },
   { key: "scheduledPosts", label: "Scheduled posts" },
 ];
@@ -86,6 +139,7 @@ const EMPTY_NEW_PLAN: PlanDraft = {
   features: "",
   watermark: false,
   billingMode: "quota",
+  monthlyCredits: "0",
 };
 interface SpendRates {
   captionCostPaise: number;
@@ -555,12 +609,101 @@ function CreditPacksCard() {
     </Card>
   );
 }
+
+interface RateCardRow {
+  key: string;
+  unit: "item" | "second";
+  credits: number;
+  active: boolean;
+}
+
+/**
+ * What a monthly allowance actually buys.
+ *
+ * A credit figure on its own is not something anyone can price against — "500
+ * credits" means nothing without the rate card beside it. Showing the same
+ * number in the units a plan is actually sold on lets the allowance and the
+ * price be set in one glance, and makes the fungibility explicit: it is not
+ * 500s of video AND 166 images, it is whichever mix they use.
+ */
+function AllowanceEstimate({
+  credits,
+  rates,
+  testIdSuffix,
+}: {
+  credits: string;
+  rates: RateCardRow[] | undefined;
+  testIdSuffix: string;
+}) {
+  const n = Number(credits.trim());
+  if (!Number.isFinite(n) || n <= 0 || !rates?.length) return null;
+
+  const priceFor = (key: string) => {
+    const r = rates.find((x) => x.key === key && x.active);
+    return r && r.credits > 0 ? r.credits : null;
+  };
+
+  const parts: string[] = [];
+  const video = priceFor("video");
+  if (video) parts.push(`${Math.floor(n / video)}s of video`);
+  const image = priceFor("image");
+  if (image) parts.push(`${Math.floor(n / image)} images`);
+  const caption = priceFor("caption");
+  if (caption) parts.push(`${Math.floor(n / caption)} captions`);
+  if (!parts.length) return null;
+
+  return (
+    <p
+      className="text-xs text-muted-foreground"
+      data-testid={`text-allowance-estimate-${testIdSuffix}`}
+    >
+      About {parts.join(" · ")} at the current rate card — whichever mix they
+      use, not all three.
+    </p>
+  );
+}
+
+function BillingModeField({
+  value,
+  onChange,
+  testIdSuffix,
+}: {
+  value: PlanBillingMode;
+  onChange: (next: PlanBillingMode) => void;
+  testIdSuffix: string;
+}) {
+  const active =
+    BILLING_MODES.find((m) => m.value === value) ?? BILLING_MODES[0]!;
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">Billing mode</label>
+      <Select value={value} onValueChange={(v) => onChange(asBillingMode(v))}>
+        <SelectTrigger data-testid={`select-billing-mode-${testIdSuffix}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {BILLING_MODES.map((m) => (
+            <SelectItem key={m.value} value={m.value}>
+              {m.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        {active.detail} A manual choice on the Tenants tab still wins.
+      </p>
+    </div>
+  );
+}
+
 function PlansCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: plans, isLoading } = useListPlans();
   const { data: spendRates, isFetched: spendRatesLoaded } =
     useAdminGetAiSpendSettings();
+  const { data: creditRateCard } = useAdminGetCreditRates();
+  const creditRates = creditRateCard?.rates as RateCardRow[] | undefined;
   const updatePlan = useAdminUpdatePlan();
   const createPlan = useAdminCreatePlan();
   const deletePlan = useAdminDeletePlan();
@@ -589,6 +732,8 @@ function PlansCard() {
     };
     const teamSeatsTrimmed = draft.teamSeats.trim();
     const teamSeats = teamSeatsTrimmed === "" ? 0 : Number(teamSeatsTrimmed);
+    const creditsTrimmed = draft.monthlyCredits.trim();
+    const monthlyCredits = creditsTrimmed === "" ? 0 : Number(creditsTrimmed);
     const priceRupeesTrimmed = draft.priceRupees.trim();
     const priceRupees = priceRupeesTrimmed === "" ? null : Number(priceRupeesTrimmed);
     const yearlyTrimmed = draft.priceRupeesYearly.trim();
@@ -599,6 +744,8 @@ function PlansCard() {
       Object.values(limits).some((v) => v === null) ||
       !Number.isInteger(teamSeats) ||
       teamSeats < 0 ||
+      !Number.isInteger(monthlyCredits) ||
+      monthlyCredits < 0 ||
       (priceRupees !== null && (!Number.isFinite(priceRupees) || priceRupees <= 0)) ||
       (priceRupeesYearly !== null &&
         (!Number.isFinite(priceRupeesYearly) || priceRupeesYearly <= 0))
@@ -607,7 +754,7 @@ function PlansCard() {
         variant: "destructive",
         title: "Check the fields",
         description:
-          'Limits must be whole numbers, or "unlimited". Team seats must be 0 or more. Name and price are required. The chargeable price must be a positive number (or blank for not sold online).',
+          'Limits must be whole numbers, or "unlimited". Team seats and monthly credits must be 0 or more. Name and price are required. The chargeable price must be a positive number (or blank for not sold online).',
       });
       return null;
     }
@@ -628,6 +775,7 @@ function PlansCard() {
       teamSeats,
       watermark: draft.watermark,
       billingMode: draft.billingMode,
+      monthlyCredits,
       limits: {
         captions: limits.captions!,
         images: limits.images!,
@@ -718,7 +866,8 @@ function PlansCard() {
             teamSeats: String(p.teamSeats ?? 0),
             features: p.features.join("\n"),
             watermark: p.watermark ?? false,
-            billingMode: p.billingMode === "wallet" ? "wallet" : "quota",
+            billingMode: asBillingMode(p.billingMode),
+            monthlyCredits: String(p.monthlyCredits ?? 0),
           };
         }
       }
@@ -851,24 +1000,56 @@ function PlansCard() {
                       placeholder="e.g. 9990 — blank = no yearly option"
                     />
                   </div>
-                  <LimitSuggestion
-                    priceRupees={draft.priceRupees}
-                    rates={spendRates}
-                    ratesLoaded={spendRatesLoaded}
-                    testIdSuffix={p.id}
-                    onApply={(v) =>
-                      setDrafts((prev) => ({
-                        ...prev,
-                        [p.id]: {
-                          ...prev[p.id]!,
-                          captions: limitToInput(v.captions),
-                          images: limitToInput(v.images),
-                          videos: limitToInput(v.videos),
-                        },
-                      }))
-                    }
-                  />
-                  {LIMIT_FIELDS.map((f) => (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Credits / month
+                    </label>
+                    <Input
+                      value={draft.monthlyCredits}
+                      onChange={(e) =>
+                        setField(p.id, "monthlyCredits", e.target.value)
+                      }
+                      placeholder="e.g. 500 — 0 means no allowance"
+                      data-testid={`input-plan-credits-${p.id}`}
+                    />
+                    <AllowanceEstimate
+                      credits={draft.monthlyCredits}
+                      rates={creditRates}
+                      testIdSuffix={p.id}
+                    />
+                  </div>
+                  {draft.billingMode !== "credits" && (
+                    <>
+                      <LimitSuggestion
+                        priceRupees={draft.priceRupees}
+                        rates={spendRates}
+                        ratesLoaded={spendRatesLoaded}
+                        testIdSuffix={p.id}
+                        onApply={(v) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [p.id]: {
+                              ...prev[p.id]!,
+                              captions: limitToInput(v.captions),
+                              images: limitToInput(v.images),
+                              videos: limitToInput(v.videos),
+                            },
+                          }))
+                        }
+                      />
+                      {AI_QUOTA_FIELDS.map((f) => (
+                        <div key={f.key} className="space-y-2">
+                          <label className="text-sm font-medium">{f.label}</label>
+                          <Input
+                            value={draft[f.key]}
+                            onChange={(e) => setField(p.id, f.key, e.target.value)}
+                            placeholder='e.g. 100 or "unlimited"'
+                          />
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {STRUCTURAL_FIELDS.map((f) => (
                     <div key={f.key} className="space-y-2">
                       <label className="text-sm font-medium">{f.label}</label>
                       <Input
@@ -899,32 +1080,16 @@ function PlansCard() {
                       data-testid={`switch-watermark-${p.id}`}
                     />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5 pr-3">
-                      <label className="text-sm font-medium">
-                        Wallet billing
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        Workspaces landing on this plan pay per generation from
-                        a prepaid wallet instead of monthly quotas + credits. A
-                        manual choice on the Tenants tab still wins.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={draft.billingMode === "wallet"}
-                      onCheckedChange={(on) =>
-                        setDrafts((prev) => ({
-                          ...prev,
-                          [p.id]: {
-                            ...prev[p.id]!,
-                            billingMode: on ? "wallet" : "quota",
-                          },
-                        }))
-                      }
-                      aria-label="Toggle wallet billing"
-                      data-testid={`switch-wallet-billing-${p.id}`}
-                    />
-                  </div>
+                  <BillingModeField
+                    value={draft.billingMode}
+                    testIdSuffix={p.id}
+                    onChange={(next) =>
+                      setDrafts((prev) => ({
+                        ...prev,
+                        [p.id]: { ...prev[p.id]!, billingMode: next },
+                      }))
+                    }
+                  />
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium">
@@ -1051,21 +1216,44 @@ function PlansCard() {
                       placeholder="e.g. 9990 — blank = no yearly option"
                     />
                   </div>
-                  <LimitSuggestion
-                    priceRupees={newPlan.priceRupees}
-                    rates={spendRates}
-                    ratesLoaded={spendRatesLoaded}
-                    testIdSuffix="new"
-                    onApply={(v) =>
-                      setNewPlan((prev) => ({
-                        ...prev,
-                        captions: limitToInput(v.captions),
-                        images: limitToInput(v.images),
-                        videos: limitToInput(v.videos),
-                      }))
-                    }
-                  />
-                  {LIMIT_FIELDS.map((f) => (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Credits / month
+                    </label>
+                    <Input
+                      value={newPlan.monthlyCredits}
+                      onChange={(e) =>
+                        setNewPlan((prev) => ({
+                          ...prev,
+                          monthlyCredits: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. 500 — 0 means no allowance"
+                      data-testid="input-plan-credits-new"
+                    />
+                    <AllowanceEstimate
+                      credits={newPlan.monthlyCredits}
+                      rates={creditRates}
+                      testIdSuffix="new"
+                    />
+                  </div>
+                  {newPlan.billingMode !== "credits" &&
+                    AI_QUOTA_FIELDS.map((f) => (
+                      <div key={f.key} className="space-y-2">
+                        <label className="text-sm font-medium">{f.label}</label>
+                        <Input
+                          value={newPlan[f.key]}
+                          onChange={(e) =>
+                            setNewPlan((prev) => ({
+                              ...prev,
+                              [f.key]: e.target.value,
+                            }))
+                          }
+                          placeholder='e.g. 100 or "unlimited"'
+                        />
+                      </div>
+                    ))}
+                  {STRUCTURAL_FIELDS.map((f) => (
                     <div key={f.key} className="space-y-2">
                       <label className="text-sm font-medium">{f.label}</label>
                       <Input
@@ -1098,28 +1286,13 @@ function PlansCard() {
                       data-testid="switch-watermark-new"
                     />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5 pr-3">
-                      <label className="text-sm font-medium">
-                        Wallet billing
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        Workspaces landing on this plan pay per generation from
-                        a prepaid wallet instead of monthly quotas + credits.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={newPlan.billingMode === "wallet"}
-                      onCheckedChange={(on) =>
-                        setNewPlan((prev) => ({
-                          ...prev,
-                          billingMode: on ? "wallet" : "quota",
-                        }))
-                      }
-                      aria-label="Toggle wallet billing"
-                      data-testid="switch-wallet-billing-new"
-                    />
-                  </div>
+                  <BillingModeField
+                    value={newPlan.billingMode}
+                    testIdSuffix="new"
+                    onChange={(next) =>
+                      setNewPlan((prev) => ({ ...prev, billingMode: next }))
+                    }
+                  />
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium">

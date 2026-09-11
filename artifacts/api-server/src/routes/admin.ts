@@ -663,9 +663,14 @@ function serializeAdminTenant(t: Tenant, walletBalancePaise = 0) {
     isSuperadmin: t.isSuperadmin || isAllowlisted,
     isAllowlisted,
     designSkillEnabled: t.designSkillEnabled ?? null,
-    // Wallet billing: which rail funds this workspace, and what it holds.
-    // Only consulted while the platform `wallet` switch is on.
-    billingMode: t.billingMode === "wallet" ? "wallet" : "quota",
+    // Which rail funds this workspace. Wallet still requires its platform
+    // switch, while credits still requires the meter to be enforcing; the
+    // response preserves the workspace's selected mode so admins can see and
+    // change it rather than having it collapse back to quota in the table.
+    billingMode:
+      t.billingMode === "wallet" || t.billingMode === "credits"
+        ? t.billingMode
+        : "quota",
     walletBalancePaise,
     createdAt: t.createdAt.toISOString(),
   };
@@ -3915,6 +3920,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     priceInrYearly,
     watermark,
     billingMode,
+    monthlyCredits,
   } = parsed.data;
   if (invalidLimits(limits)) {
     res
@@ -3924,6 +3930,15 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
   }
   if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
     res.status(400).json({ error: "Team seats must be a whole number" });
+    return;
+  }
+  if (
+    monthlyCredits !== undefined &&
+    (!Number.isInteger(monthlyCredits) || monthlyCredits < 0)
+  ) {
+    res
+      .status(400)
+      .json({ error: "Monthly credits must be a whole number of 0 or more" });
     return;
   }
   if (
@@ -4071,6 +4086,8 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     // Omitted by older admin clients: keep the plan's current setting.
     watermark: watermark ?? previous.watermark,
     billingMode: billingMode ?? previous.billingMode,
+    // Omitted by older admin clients: keep the plan's current allowance.
+    monthlyCredits: monthlyCredits ?? previous.monthlyCredits,
     features: features.map((f) => f.trim()).filter(Boolean),
     sortOrder: catalog.findIndex((p) => p.id === planId),
     archived: false,
@@ -4095,11 +4112,13 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
         ...previous.limits,
         watermark: previous.watermark,
         billingMode: previous.billingMode,
+        monthlyCredits: previous.monthlyCredits,
       }),
       newValue: JSON.stringify({
         ...limits,
         watermark: watermark ?? previous.watermark,
         billingMode: billingMode ?? previous.billingMode,
+        monthlyCredits: monthlyCredits ?? previous.monthlyCredits,
       }),
     });
   } catch (error) {
@@ -4133,9 +4152,19 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     priceInrYearly,
     watermark,
     billingMode,
+    monthlyCredits,
   } = parsed.data;
   if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
     res.status(400).json({ error: "Team seats must be a whole number" });
+    return;
+  }
+  if (
+    monthlyCredits !== undefined &&
+    (!Number.isInteger(monthlyCredits) || monthlyCredits < 0)
+  ) {
+    res
+      .status(400)
+      .json({ error: "Monthly credits must be a whole number of 0 or more" });
     return;
   }
   if (invalidLimits(limits)) {
@@ -4268,6 +4297,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     scheduledPosts: limits.scheduledPosts,
     watermark: watermark ?? false,
     billingMode: billingMode ?? "quota",
+    monthlyCredits: monthlyCredits ?? 0,
     features: features.map((f) => f.trim()).filter(Boolean),
     sortOrder: catalog.length,
     archived: false,
@@ -4289,6 +4319,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
         limits,
         watermark: watermark ?? false,
         billingMode: billingMode ?? "quota",
+        monthlyCredits: monthlyCredits ?? 0,
       }),
     });
   } catch (error) {

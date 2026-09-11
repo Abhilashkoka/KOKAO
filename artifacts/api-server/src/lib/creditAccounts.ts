@@ -1,7 +1,13 @@
-import { db, creditAccountsTable, creditAccountLedgerTable, type CreditAccount } from "@workspace/db";
+import {
+  db,
+  creditAccountsTable,
+  creditAccountLedgerTable,
+  tenantsTable,
+  type CreditAccount,
+} from "@workspace/db";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { MILLI } from "./creditRates";
+import { MILLI, getMeterMode } from "./creditRates";
 
 /**
  * The credit balance: grant, spend, refund, expire.
@@ -379,6 +385,37 @@ export function serializeAccount(row: CreditAccount): CreditBalance {
     grantedMilli: row.grantedMilli,
     grantedExpiresAt: row.grantedExpiresAt,
   });
+}
+
+/**
+ * True when this workspace's generations should be funded from the credit
+ * balance rather than plan quota or the rupee wallet.
+ *
+ * Two conditions, and the second is the important one: the workspace must be
+ * on billingMode="credits" AND the meter must actually be enforcing. A plan
+ * can therefore be moved onto credits at any time — during shadow mode it
+ * changes nothing, because the meter is still only recording and the old rail
+ * is still the one collecting. The rail flips for everyone when the meter
+ * flips, which is the same single dropdown that rolls it back.
+ *
+ * Without the mode check, a credits-mode workspace in shadow would reserve
+ * nothing at the route and be charged nothing at the provider: unlimited free
+ * generation, arrived at by two settings that each looked harmless.
+ *
+ * Fails CLOSED to the existing rail on any error.
+ */
+export async function isCreditFunded(tenantId: number): Promise<boolean> {
+  try {
+    if ((await getMeterMode()) !== "enforce") return false;
+    const [tenant] = await db
+      .select({ billingMode: tenantsTable.billingMode })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+    return tenant?.billingMode === "credits";
+  } catch {
+    return false;
+  }
 }
 
 function ordinalForReceipt(key: string, base: string): number | null {

@@ -26,7 +26,7 @@ export interface AdminTenant {
      * @nullable
      */
   designSkillEnabled?: boolean | null;
-  /** Which rail funds this workspace's generations. Only takes effect while the platform `wallet` switch is on. */
+  /** Which rail funds this workspace's generations. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota. */
   billingMode: AdminTenantBillingMode;
   /** Prepaid rupee wallet balance, GST-exclusive paise. */
   walletBalancePaise: number;

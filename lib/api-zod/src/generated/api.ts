@@ -193,7 +193,8 @@ export const ListPlansResponseItem = zod.object({
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
   "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs), \"wallet\" (prepaid rupee wallet), or \"credits\" (one metered credit balance). A manual per-tenant billing-mode choice always wins.'),
+  "monthlyCredits": zod.number().optional().describe('Credits granted to a workspace on this plan at the start of every paid period. 0 means the plan carries no allowance and the workspace buys credits or is granted them by hand. Optional so pre-credit clients keep working.')
 })
 export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
@@ -2157,7 +2158,7 @@ export const AdminListTenantsResponseItem = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2206,7 +2207,7 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2248,6 +2249,8 @@ export const adminCreatePlanBodyTeamSeatsMin = 0;
 
 
 
+export const adminCreatePlanBodyMonthlyCreditsMin = 0;
+
 
 
 export const AdminCreatePlanBody = zod.object({
@@ -2266,7 +2269,8 @@ export const AdminCreatePlanBody = zod.object({
   "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
   "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.'),
   "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Defaults to false.'),
-  "billingMode": zod.enum(['quota', 'wallet']).optional().describe('Default billing mode for workspaces landing on this plan. Defaults to \"quota\".')
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).optional().describe('Default billing mode for workspaces landing on this plan. Defaults to \"quota\"; \"credits\" funds only while the meter enforces.'),
+  "monthlyCredits": zod.number().min(adminCreatePlanBodyMonthlyCreditsMin).optional().describe('Credits granted at the start of every paid period. Defaults to 0 (no allowance).')
 })
 
 export const AdminCreatePlanResponseItem = zod.object({
@@ -2287,7 +2291,8 @@ export const AdminCreatePlanResponseItem = zod.object({
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
   "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs), \"wallet\" (prepaid rupee wallet), or \"credits\" (one metered credit balance). A manual per-tenant billing-mode choice always wins.'),
+  "monthlyCredits": zod.number().optional().describe('Credits granted to a workspace on this plan at the start of every paid period. 0 means the plan carries no allowance and the workspace buys credits or is granted them by hand. Optional so pre-credit clients keep working.')
 })
 export const AdminCreatePlanResponse = zod.array(AdminCreatePlanResponseItem)
 
@@ -2317,7 +2322,8 @@ export const AdminDeletePlanResponseItem = zod.object({
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
   "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs), \"wallet\" (prepaid rupee wallet), or \"credits\" (one metered credit balance). A manual per-tenant billing-mode choice always wins.'),
+  "monthlyCredits": zod.number().optional().describe('Credits granted to a workspace on this plan at the start of every paid period. 0 means the plan carries no allowance and the workspace buys credits or is granted them by hand. Optional so pre-credit clients keep working.')
 })
 export const AdminDeletePlanResponse = zod.array(AdminDeletePlanResponseItem)
 
@@ -2341,6 +2347,8 @@ export const adminUpdatePlanBodyTeamSeatsMin = 0;
 
 
 
+export const adminUpdatePlanBodyMonthlyCreditsMin = 0;
+
 
 
 export const AdminUpdatePlanBody = zod.object({
@@ -2358,7 +2366,8 @@ export const AdminUpdatePlanBody = zod.object({
   "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
   "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.'),
   "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Omitted = keep the plan\'s current setting.'),
-  "billingMode": zod.enum(['quota', 'wallet']).optional().describe('Default billing mode for workspaces landing on this plan. Omitted = keep the plan\'s current setting.')
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).optional().describe('Default billing mode for workspaces landing on this plan. Omitted = keep the plan\'s current setting.'),
+  "monthlyCredits": zod.number().min(adminUpdatePlanBodyMonthlyCreditsMin).optional().describe('Credits granted at the start of every paid period. Omitted = keep the plan\'s current allowance.')
 })
 
 export const AdminUpdatePlanResponseItem = zod.object({
@@ -2379,7 +2388,8 @@ export const AdminUpdatePlanResponseItem = zod.object({
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
   "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs), \"wallet\" (prepaid rupee wallet), or \"credits\" (one metered credit balance). A manual per-tenant billing-mode choice always wins.'),
+  "monthlyCredits": zod.number().optional().describe('Credits granted to a workspace on this plan at the start of every paid period. 0 means the plan carries no allowance and the workspace buys credits or is granted them by hand. Optional so pre-credit clients keep working.')
 })
 export const AdminUpdatePlanResponse = zod.array(AdminUpdatePlanResponseItem)
 
@@ -2404,7 +2414,7 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2447,7 +2457,7 @@ export const AdminUpdateTenantDesignSkillResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2954,7 +2964,7 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
  */
 export const AdminUpdateVideoGenSettingsBody = zod.object({
   "provider": zod.string().describe('Provider id from the catalog.'),
-  "textToVideoModel": zod.string().nullish().describe('Optional exact provider-native text-to-video model ID (empty\/null = provider default). Atlas Cloud rejects IDs outside its documented T2V/reference contract allowlist.'),
+  "textToVideoModel": zod.string().nullish().describe('Optional exact provider-native text-to-video model ID (empty\/null = provider default). Atlas Cloud rejects IDs outside its documented T2V\/reference contract allowlist.'),
   "imageToVideoModel": zod.string().nullish().describe('Optional exact provider-native image-to-video model ID (empty\/null = provider default). Atlas Cloud rejects IDs outside its documented I2V contract allowlist.'),
   "lipSyncPortraitModel": zod.string().nullish().describe('Replicate model for PORTRAIT lip sync — \"owner\/name\", or \"owner\/name:version\" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.'),
   "studioLipSyncDefault": zod.boolean().optional().describe('Admin default for new compatible jobs; each job remains an explicit choice.'),
@@ -3000,7 +3010,7 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "defaultTextToVideoModel": zod.string(),
   "defaultImageToVideoModel": zod.string(),
   "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
-  "supportsModelOverride": zod.boolean(),
+  "supportsModelOverride": zod.boolean().describe('Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists.'),
   "textModelOptions": zod.array(zod.object({
   "value": zod.string(),
   "label": zod.string()
@@ -3075,7 +3085,7 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "defaultTextToVideoModel": zod.string(),
   "defaultImageToVideoModel": zod.string(),
   "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
-  "supportsModelOverride": zod.boolean(),
+  "supportsModelOverride": zod.boolean().describe('Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists.'),
   "textModelOptions": zod.array(zod.object({
   "value": zod.string(),
   "label": zod.string()
@@ -3143,7 +3153,7 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "defaultTextToVideoModel": zod.string(),
   "defaultImageToVideoModel": zod.string(),
   "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
-  "supportsModelOverride": zod.boolean(),
+  "supportsModelOverride": zod.boolean().describe('Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists.'),
   "textModelOptions": zod.array(zod.object({
   "value": zod.string(),
   "label": zod.string()
@@ -3323,7 +3333,7 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "defaultTextToVideoModel": zod.string(),
   "defaultImageToVideoModel": zod.string(),
   "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
-  "supportsModelOverride": zod.boolean(),
+  "supportsModelOverride": zod.boolean().describe('Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists.'),
   "textModelOptions": zod.array(zod.object({
   "value": zod.string(),
   "label": zod.string()
@@ -3391,7 +3401,7 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "defaultTextToVideoModel": zod.string(),
   "defaultImageToVideoModel": zod.string(),
   "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
-  "supportsModelOverride": zod.boolean(),
+  "supportsModelOverride": zod.boolean().describe('Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists.'),
   "textModelOptions": zod.array(zod.object({
   "value": zod.string(),
   "label": zod.string()
@@ -34524,6 +34534,7 @@ export const GetCreditsResponse = zod.object({
   "total": zod.number(),
   "grantedExpiresAt": zod.string().nullish(),
   "mode": zod.string(),
+  "funded": zod.boolean().optional().describe('True when this workspace\'s generations are actually being paid for out of this balance — it is on the credits rail AND the meter is enforcing. False means credits are visible but some other rail (plan quota or the rupee wallet) is still the one collecting, so the UI should keep showing that rail.'),
   "history": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.string(),
@@ -35023,12 +35034,12 @@ export const AdminUpdateTenantBillingModeParams = zod.object({
 })
 
 export const AdminUpdateTenantBillingModeBody = zod.object({
-  "billingMode": zod.enum(['quota', 'wallet'])
+  "billingMode": zod.enum(['quota', 'wallet', 'credits'])
 })
 
 export const AdminUpdateTenantBillingModeResponse = zod.object({
   "tenantId": zod.number(),
-  "billingMode": zod.enum(['quota', 'wallet'])
+  "billingMode": zod.enum(['quota', 'wallet', 'credits'])
 })
 
 

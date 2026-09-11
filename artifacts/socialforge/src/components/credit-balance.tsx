@@ -1,7 +1,98 @@
 import { useGetCredits } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Coins } from "lucide-react";
 import { Link } from "wouter";
+
+/**
+ * Is this workspace actually spending credits right now?
+ *
+ * Two things have to be true, and keeping both in one place is the point:
+ * the workspace is on the credits rail, AND the meter is enforcing. A plan
+ * can be moved onto credits during shadow mode without anything changing for
+ * the people on it, so the UI must not start showing a credit balance as the
+ * thing that governs their work until it actually does. It also means the
+ * whole user-facing switch — credit meters instead of quota meters — flips
+ * back with the same dropdown that rolls the billing back.
+ */
+export function useCreditFunding() {
+  const { data: credits, isLoading } = useGetCredits();
+  return {
+    creditFunded: Boolean(credits?.funded),
+    credits,
+    isLoading,
+  };
+}
+
+/**
+ * The credit balance as a usage panel, for the places that used to show one
+ * progress bar per quota.
+ *
+ * A quota meter answers "how many captions are left", which is the wrong
+ * question once one balance funds everything — the honest answer is a single
+ * number plus what is about to expire. Showing three bars that all move
+ * together would be theatre.
+ */
+export function CreditUsageCard() {
+  const { credits } = useCreditFunding();
+  const total = credits?.total ?? 0;
+  const granted = credits?.granted ?? 0;
+  const purchased = credits?.purchased ?? 0;
+  const expiring = granted > 0 && credits?.grantedExpiresAt;
+
+  return (
+    <Card className="border-border shadow-sm" data-testid="card-credit-usage">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Coins className="h-5 w-5 text-primary" /> Credits
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <div className="text-4xl font-bold tracking-tight tabular-nums">
+            {total.toFixed(total < 10 ? 1 : 0)}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Spent on whatever you generate — video, images, captions, voice.
+          </p>
+        </div>
+        {total > 0 && granted > 0 ? (
+          <div className="space-y-2">
+            <Progress value={(granted / total) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground">
+              {granted.toFixed(granted < 10 ? 1 : 0)} from your plan
+              {expiring
+                ? `, expiring ${new Date(credits!.grantedExpiresAt!).toLocaleDateString()}`
+                : ""}
+              {purchased > 0
+                ? ` · ${purchased.toFixed(purchased < 10 ? 1 : 0)} purchased, never expire`
+                : ""}
+            </p>
+          </div>
+        ) : purchased > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Purchased credits never expire.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            You have no credits left. Top up to keep generating.
+          </p>
+        )}
+        <Link href="/billing">
+          <span className="text-xs font-medium text-primary cursor-pointer">
+            Top up credits →
+          </span>
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
 
 /**
  * The credit balance, where people can see it.

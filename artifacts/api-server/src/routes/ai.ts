@@ -74,6 +74,7 @@ import {
   type UsageMeta,
 } from "../lib/usage";
 import { spendCredit, refundCredits, type CreditKind } from "../lib/credits";
+import { isCreditFunded } from "../lib/creditAccounts";
 import {
   isWalletFunded,
   reserveWallet,
@@ -150,7 +151,7 @@ const objectStorageService = new ObjectStorageService();
  * back — see lib/wallet.ts.
  */
 interface Funding {
-  source: "quota" | "credit" | "wallet";
+  source: "quota" | "credit" | "wallet" | "credits";
   reservation?: WalletReservation;
   quotaReservation?: QuotaUsageReservation;
   stopQuotaLease?: () => void;
@@ -202,6 +203,11 @@ async function reserveFunding(
   limit: number,
   kind: CreditKind,
 ): Promise<Funding | null> {
+  // Credit-funded workspaces reserve nothing here. The credit meter debits at
+  // the provider boundary, which is the only place that knows what the call
+  // actually cost — reserving a second time at the route would charge twice
+  // for one generation, and refuse work the balance could afford.
+  if (await isCreditFunded(tenantId)) return { source: "credits" };
   if (await isWalletFunded(tenantId)) {
     const reservation = await reserveWallet(tenantId, kind);
     return reservation ? { source: "wallet", reservation } : null;

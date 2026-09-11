@@ -21,3 +21,9 @@ Mutually exclusive retries and provider fallbacks must share one logical operati
 Actual-quantity operations reserve a documented upper bound before dispatch using one immutable unit-rate snapshot, then settle downward by idempotent refund. Never depend on an extra debit after delivering provider output.
 
 **How to apply:** Keep purchased credits non-expiring and granted credits expiring, spend granted credits first, give every provider attempt a stable base operation identity, and only switch to enforce after every material provider path is metered and invoice totals reconcile.
+
+Enforcement readiness also requires billing-rail isolation and one consistent funding decision from route reservation through provider dispatch.
+
+**Why:** Invoice reconciliation alone cannot prevent a quota/wallet reservation followed by a second debit from the global credit meter, or a mode change between those boundaries.
+
+**How to apply:** Require whole-flow quota, wallet, and credits tests (including mode changes) before enabling enforcement. Do not treat a passed reconciliation gate as sufficient authorization to charge customers.

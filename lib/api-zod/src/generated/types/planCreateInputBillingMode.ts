@@ -7,7 +7,7 @@
  */
 
 /**
- * Default billing mode for workspaces landing on this plan. Defaults to "quota".
+ * Default billing mode for workspaces landing on this plan. Defaults to "quota"; "credits" funds only while the meter enforces.
  */
 export type PlanCreateInputBillingMode = typeof PlanCreateInputBillingMode[keyof typeof PlanCreateInputBillingMode];
 
@@ -15,4 +15,5 @@ export type PlanCreateInputBillingMode = typeof PlanCreateInputBillingMode[keyof
 export const PlanCreateInputBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;

@@ -7,7 +7,7 @@
  */
 
 /**
- * Which rail funds this workspace's generations. Only takes effect while the platform `wallet` switch is on.
+ * Which rail funds this workspace's generations. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.
  */
 export type AdminTenantBillingMode = typeof AdminTenantBillingMode[keyof typeof AdminTenantBillingMode];
 
@@ -15,4 +15,5 @@ export type AdminTenantBillingMode = typeof AdminTenantBillingMode[keyof typeof 
 export const AdminTenantBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;

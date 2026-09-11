@@ -33,7 +33,7 @@ export async function getUsage(tenantId: number): Promise<{
         // Credit-, wallet-, and explicitly unmetered rows exist only for
         // data-consumption/cost telemetry and must never count against the
         // monthly plan quota.
-        sql`(${usageEventsTable.funding} IS DISTINCT FROM 'credit' AND ${usageEventsTable.funding} IS DISTINCT FROM 'wallet' AND ${usageEventsTable.funding} IS DISTINCT FROM 'unmetered')`,
+        sql`(${usageEventsTable.funding} IS DISTINCT FROM 'credit' AND ${usageEventsTable.funding} IS DISTINCT FROM 'wallet' AND ${usageEventsTable.funding} IS DISTINCT FROM 'credits' AND ${usageEventsTable.funding} IS DISTINCT FROM 'unmetered')`,
       ),
     )
     .groupBy(usageEventsTable.kind);
@@ -54,7 +54,7 @@ export interface UsageMeta {
   model?: string;
   campaignId?: string;
   platform?: string;
-  funding?: "quota" | "credit" | "wallet" | "unmetered";
+  funding?: "quota" | "credit" | "wallet" | "credits" | "unmetered";
   // Actual-cost tracking (superadmin-only reporting; best-effort).
   provider?: string;
   inputTokens?: number;
@@ -181,7 +181,7 @@ export async function reserveQuotaUsage(
               eq(usageEventsTable.tenantId, tenantId),
               eq(usageEventsTable.kind, kind),
               gte(usageEventsTable.createdAt, periodStart),
-              sql`(${usageEventsTable.funding} IS DISTINCT FROM 'credit' AND ${usageEventsTable.funding} IS DISTINCT FROM 'wallet' AND ${usageEventsTable.funding} IS DISTINCT FROM 'unmetered')`,
+                sql`(${usageEventsTable.funding} IS DISTINCT FROM 'credit' AND ${usageEventsTable.funding} IS DISTINCT FROM 'wallet' AND ${usageEventsTable.funding} IS DISTINCT FROM 'credits' AND ${usageEventsTable.funding} IS DISTINCT FROM 'unmetered')`,
             ),
           )
       )[0]?.count ?? 0;

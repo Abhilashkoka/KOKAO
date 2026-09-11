@@ -12,4 +12,5 @@ export type TenantBillingModeInputBillingMode = typeof TenantBillingModeInputBil
 export const TenantBillingModeInputBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;

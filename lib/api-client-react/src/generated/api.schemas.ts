@@ -655,7 +655,7 @@ export interface LandingContent {
 }
 
 /**
- * Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.
+ * Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs), "wallet" (prepaid rupee wallet), or "credits" (one metered credit balance). A manual per-tenant billing-mode choice always wins.
  */
 export type PlanBillingMode = typeof PlanBillingMode[keyof typeof PlanBillingMode];
 
@@ -663,6 +663,7 @@ export type PlanBillingMode = typeof PlanBillingMode[keyof typeof PlanBillingMod
 export const PlanBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;
 
 export interface Plan {
@@ -689,12 +690,14 @@ export interface Plan {
   razorpayPlanIdYearly?: string | null;
   /** Stamp a "Made with KOKAO.in" watermark on AI-generated images and videos for workspaces on this plan. */
   watermark: boolean;
-  /** Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins. */
+  /** Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs), "wallet" (prepaid rupee wallet), or "credits" (one metered credit balance). A manual per-tenant billing-mode choice always wins. */
   billingMode: PlanBillingMode;
+  /** Credits granted to a workspace on this plan at the start of every paid period. 0 means the plan carries no allowance and the workspace buys credits or is granted them by hand. Optional so pre-credit clients keep working. */
+  monthlyCredits?: number;
 }
 
 /**
- * Default billing mode for workspaces landing on this plan. Defaults to "quota".
+ * Default billing mode for workspaces landing on this plan. Defaults to "quota"; "credits" funds only while the meter enforces.
  */
 export type PlanCreateInputBillingMode = typeof PlanCreateInputBillingMode[keyof typeof PlanCreateInputBillingMode];
 
@@ -702,6 +705,7 @@ export type PlanCreateInputBillingMode = typeof PlanCreateInputBillingMode[keyof
 export const PlanCreateInputBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;
 
 export interface PlanCreateInput {
@@ -748,8 +752,13 @@ export interface PlanCreateInput {
   priceInrYearly?: number | null;
   /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Defaults to false. */
   watermark?: boolean;
-  /** Default billing mode for workspaces landing on this plan. Defaults to "quota". */
+  /** Default billing mode for workspaces landing on this plan. Defaults to "quota"; "credits" funds only while the meter enforces. */
   billingMode?: PlanCreateInputBillingMode;
+  /**
+     * Credits granted at the start of every paid period. Defaults to 0 (no allowance).
+     * @minimum 0
+     */
+  monthlyCredits?: number;
 }
 
 /**
@@ -761,6 +770,7 @@ export type PlanUpdateInputBillingMode = typeof PlanUpdateInputBillingMode[keyof
 export const PlanUpdateInputBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;
 
 export interface PlanUpdateInput {
@@ -802,6 +812,11 @@ export interface PlanUpdateInput {
   watermark?: boolean;
   /** Default billing mode for workspaces landing on this plan. Omitted = keep the plan's current setting. */
   billingMode?: PlanUpdateInputBillingMode;
+  /**
+     * Credits granted at the start of every paid period. Omitted = keep the plan's current allowance.
+     * @minimum 0
+     */
+  monthlyCredits?: number;
 }
 
 export interface RazorpayAppCredentialStatus {
@@ -1382,6 +1397,8 @@ export interface CreditWallet {
   /** @nullable */
   grantedExpiresAt?: string | null;
   mode: string;
+  /** True when this workspace's generations are actually being paid for out of this balance — it is on the credits rail AND the meter is enforcing. False means credits are visible but some other rail (plan quota or the rupee wallet) is still the one collecting, so the UI should keep showing that rail. */
+  funded?: boolean;
   history: CreditHistoryEntry[];
 }
 
@@ -1581,7 +1598,7 @@ export interface AdminTenantCounts {
 }
 
 /**
- * Which rail funds this workspace's generations. Only takes effect while the platform `wallet` switch is on.
+ * Which rail funds this workspace's generations. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.
  */
 export type AdminTenantBillingMode = typeof AdminTenantBillingMode[keyof typeof AdminTenantBillingMode];
 
@@ -1589,6 +1606,7 @@ export type AdminTenantBillingMode = typeof AdminTenantBillingMode[keyof typeof 
 export const AdminTenantBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;
 
 export interface AdminTenant {
@@ -1607,7 +1625,7 @@ export interface AdminTenant {
      * @nullable
      */
   designSkillEnabled?: boolean | null;
-  /** Which rail funds this workspace's generations. Only takes effect while the platform `wallet` switch is on. */
+  /** Which rail funds this workspace's generations. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota. */
   billingMode: AdminTenantBillingMode;
   /** Prepaid rupee wallet balance, GST-exclusive paise. */
   walletBalancePaise: number;
@@ -11224,6 +11242,7 @@ export type TenantBillingModeInputBillingMode = typeof TenantBillingModeInputBil
 export const TenantBillingModeInputBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;
 
 export interface TenantBillingModeInput {
@@ -13209,6 +13228,7 @@ export type AdminUpdateTenantBillingMode200BillingMode = typeof AdminUpdateTenan
 export const AdminUpdateTenantBillingMode200BillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;
 
 export type AdminUpdateTenantBillingMode200 = {

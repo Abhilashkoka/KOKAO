@@ -15,4 +15,5 @@ export type PlanUpdateInputBillingMode = typeof PlanUpdateInputBillingMode[keyof
 export const PlanUpdateInputBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;

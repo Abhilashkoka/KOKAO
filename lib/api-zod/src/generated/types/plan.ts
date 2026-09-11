@@ -32,6 +32,8 @@ export interface Plan {
   razorpayPlanIdYearly?: string | null;
   /** Stamp a "Made with KOKAO.in" watermark on AI-generated images and videos for workspaces on this plan. */
   watermark: boolean;
-  /** Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins. */
+  /** Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs), "wallet" (prepaid rupee wallet), or "credits" (one metered credit balance). A manual per-tenant billing-mode choice always wins. */
   billingMode: PlanBillingMode;
+  /** Credits granted to a workspace on this plan at the start of every paid period. 0 means the plan carries no allowance and the workspace buys credits or is granted them by hand. Optional so pre-credit clients keep working. */
+  monthlyCredits?: number;
 }

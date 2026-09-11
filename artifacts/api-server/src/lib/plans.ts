@@ -44,11 +44,25 @@ export interface Plan {
   watermark: boolean;
   /**
    * Default billing mode for workspaces on this plan: "quota" (monthly
-   * allowances + credit packs) or "wallet" (prepaid rupee wallet). Applied
-   * when a tenant lands on the plan, unless a superadmin manually set the
-   * tenant's billing mode (tenants.billingModeOverriddenAt).
+   * allowances + credit packs), "wallet" (prepaid rupee wallet) or "credits"
+   * (one credit balance, metered at the provider). Applied when a tenant
+   * lands on the plan, unless a superadmin manually set the tenant's billing
+   * mode (tenants.billingModeOverriddenAt).
+   *
+   * "credits" only actually funds anything while the meter is enforcing; see
+   * isCreditFunded in lib/creditAccounts.ts.
    */
-  billingMode: "quota" | "wallet";
+  billingMode: "quota" | "wallet" | "credits";
+  /**
+   * Credits granted to a workspace on this plan at the start of every paid
+   * period (see lib/monthlyCreditGrant.ts). 0 = no allowance.
+   *
+   * The built-in defaults carry 0 deliberately. What an allowance should be is
+   * a pricing decision that depends on the rate card, so it is a superadmin's
+   * to make in Admin -> Plans; a number invented here would silently become
+   * everyone's plan the moment the meter starts enforcing.
+   */
+  monthlyCredits: number;
 }
 
 export const DEFAULT_PLANS: Plan[] = [
@@ -60,6 +74,7 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 0,
     watermark: true,
     billingMode: "quota",
+    monthlyCredits: 0,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -82,6 +97,7 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 0,
     watermark: false,
     billingMode: "wallet",
+    monthlyCredits: 0,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -101,6 +117,7 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 0,
     watermark: false,
     billingMode: "quota",
+    monthlyCredits: 0,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -121,6 +138,7 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 5,
     watermark: false,
     billingMode: "quota",
+    monthlyCredits: 0,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -213,7 +231,11 @@ function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
     features: r.features,
     teamSeats: r.teamSeats,
     watermark: r.watermark,
-    billingMode: r.billingMode === "wallet" ? "wallet" : "quota",
+    billingMode:
+      r.billingMode === "wallet" || r.billingMode === "credits"
+        ? r.billingMode
+        : "quota",
+    monthlyCredits: Math.max(0, r.monthlyCredits ?? 0),
     priceInr: r.priceInr,
     razorpayPlanId: r.razorpayPlanId,
     priceInrYearly: r.priceInrYearly,

@@ -52,6 +52,11 @@ export interface PlanCreateInput {
   priceInrYearly?: number | null;
   /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Defaults to false. */
   watermark?: boolean;
-  /** Default billing mode for workspaces landing on this plan. Defaults to "quota". */
+  /** Default billing mode for workspaces landing on this plan. Defaults to "quota"; "credits" funds only while the meter enforces. */
   billingMode?: PlanCreateInputBillingMode;
+  /**
+     * Credits granted at the start of every paid period. Defaults to 0 (no allowance).
+     * @minimum 0
+     */
+  monthlyCredits?: number;
 }
