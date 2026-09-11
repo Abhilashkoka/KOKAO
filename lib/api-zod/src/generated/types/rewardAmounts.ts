@@ -10,4 +10,11 @@ export interface RewardAmounts {
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
+  /**
+     * Canonical prepaid credits. Null when a legacy reward cannot be mapped safely.
+     * @nullable
+     */
+  credits: number | null;
+  /** Explanation shown to an administrator when credits is null. */
+  mappingError?: string;
 }

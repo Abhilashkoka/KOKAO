@@ -83,11 +83,17 @@ export function Button({
 export function Card({
   children,
   style,
+  testID,
 }: {
   children: React.ReactNode;
   style?: ViewStyle;
+  testID?: string;
 }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  return (
+    <View style={[styles.card, style]} testID={testID}>
+      {children}
+    </View>
+  );
 }
 
 export function Input(props: TextInputProps) {

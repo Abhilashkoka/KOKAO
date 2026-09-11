@@ -5,7 +5,9 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreditBalance } from './creditBalance';
 import type { CreditHistoryEntry } from './creditHistoryEntry';
+import type { LegacyConversionStatus } from './legacyConversionStatus';
 
 export interface CreditWallet {
   purchased: number;
@@ -13,8 +15,10 @@ export interface CreditWallet {
   total: number;
   /** @nullable */
   grantedExpiresAt?: string | null;
+  balance: CreditBalance;
   mode: string;
   /** True when this workspace's generations are actually being paid for out of this balance — it is on the credits rail AND the meter is enforcing. False means credits are visible but some other rail (plan quota or the rupee wallet) is still the one collecting, so the UI should keep showing that rail. */
   funded?: boolean;
   history: CreditHistoryEntry[];
+  legacyConversion: LegacyConversionStatus;
 }

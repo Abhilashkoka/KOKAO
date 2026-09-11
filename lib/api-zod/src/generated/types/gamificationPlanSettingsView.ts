@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GamificationPlanSettingsViewRewardCreditOverrides } from './gamificationPlanSettingsViewRewardCreditOverrides';
 
 export interface GamificationPlanSettingsView {
   questsEnabled: boolean;
@@ -18,4 +19,6 @@ export interface GamificationPlanSettingsView {
   refereeCaptionCredits: number;
   refereeImageCredits: number;
   referralMaxRedemptions: number;
+  /** Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee. */
+  rewardCreditOverrides: GamificationPlanSettingsViewRewardCreditOverrides;
 }

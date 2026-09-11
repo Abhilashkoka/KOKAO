@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BillingSubscription } from './billingSubscription';
+import type { CreditBalance } from './creditBalance';
 import type { CreditBalances } from './creditBalances';
 import type { CreditLedgerEntry } from './creditLedgerEntry';
 import type { CreditPack } from './creditPack';
@@ -21,6 +22,7 @@ export interface BillingOverview {
   plan: string;
   subscription: BillingSubscription | null;
   credits: CreditBalances;
+  balance: CreditBalance;
   creditPacks: CreditPack[];
   history: CreditLedgerEntry[];
 }

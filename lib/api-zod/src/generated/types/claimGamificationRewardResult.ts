@@ -5,11 +5,11 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreditBalances } from './creditBalances';
+import type { CreditBalance } from './creditBalance';
 import type { RewardAmounts } from './rewardAmounts';
 
 export interface ClaimGamificationRewardResult {
   ok: boolean;
   granted: RewardAmounts;
-  credits: CreditBalances;
+  credits: CreditBalance;
 }

@@ -11,9 +11,9 @@ import {
   type Tenant,
 } from "@workspace/db";
 import { and, eq, gte, sql, desc } from "drizzle-orm";
-import { grantCredits, getCreditBalances, type CreditBalances } from "./credits";
+import { grantCredits, type CreditBalance } from "./creditAccounts";
+import { creditsMilliFor, MILLI } from "./creditRates";
 import { getFeatureFlags } from "./featureFlags";
-import { logger } from "./logger";
 
 /**
  * Gamification engine: getting-started quests and daily creation streaks.
@@ -34,6 +34,10 @@ export interface RewardAmounts {
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
+  /** Canonical prepaid amount. Null means the legacy amount is not mappable. */
+  credits?: number | null;
+  /** Present when an old generation bucket has no safe rate-card mapping. */
+  mappingError?: string;
 }
 
 export interface PlanGamification {
@@ -47,6 +51,7 @@ export interface PlanGamification {
   refereeCaptionCredits: number;
   refereeImageCredits: number;
   referralMaxRedemptions: number;
+  rewardCreditOverrides: Record<string, number>;
 }
 
 export const DEFAULT_PLAN_GAMIFICATION: PlanGamification = {
@@ -60,10 +65,13 @@ export const DEFAULT_PLAN_GAMIFICATION: PlanGamification = {
   refereeCaptionCredits: 5,
   refereeImageCredits: 3,
   referralMaxRedemptions: 25,
+  rewardCreditOverrides: {},
 };
 
 /** Effective per-plan settings: the stored row, else the defaults. */
-export async function getPlanGamification(planId: string): Promise<PlanGamification> {
+export async function getPlanGamification(
+  planId: string,
+): Promise<PlanGamification> {
   const row = (
     await db
       .select()
@@ -74,7 +82,9 @@ export async function getPlanGamification(planId: string): Promise<PlanGamificat
   return row ? rowToPlanGamification(row) : { ...DEFAULT_PLAN_GAMIFICATION };
 }
 
-export function rowToPlanGamification(row: GamificationPlanSettings): PlanGamification {
+export function rowToPlanGamification(
+  row: GamificationPlanSettings,
+): PlanGamification {
   return {
     questsEnabled: row.questsEnabled,
     streaksEnabled: row.streaksEnabled,
@@ -86,17 +96,116 @@ export function rowToPlanGamification(row: GamificationPlanSettings): PlanGamifi
     refereeCaptionCredits: row.refereeCaptionCredits,
     refereeImageCredits: row.refereeImageCredits,
     referralMaxRedemptions: row.referralMaxRedemptions,
+    rewardCreditOverrides: row.rewardCreditOverrides ?? {},
   };
 }
 
 /** Scale a base reward by the plan's multiplier percent (floors, never negative). */
-export function applyMultiplier(base: RewardAmounts, percent: number): RewardAmounts {
+export function applyMultiplier(
+  base: RewardAmounts,
+  percent: number,
+): RewardAmounts {
   const p = Math.max(0, percent) / 100;
   return {
     captionCredits: Math.floor(base.captionCredits * p),
     imageCredits: Math.floor(base.imageCredits * p),
     videoCredits: Math.floor(base.videoCredits * p),
   };
+}
+
+/**
+ * Convert the old caption/image generation buckets to the canonical
+ * credit-rate-card unit. Video generations intentionally do not get guessed:
+ * the rate card prices video seconds while the old reward was one opaque
+ * generation, so an administrator must provide an explicit override for those
+ * rewards before they can be claimed.
+ */
+export async function legacyRewardToCreditsMilli(
+  reward: RewardAmounts,
+): Promise<number> {
+  if (reward.videoCredits > 0) {
+    throw new RewardMappingError(
+      "This reward includes a legacy video generation with no duration. Set an explicit credit override before claiming it.",
+    );
+  }
+  const [captionRate, imageRate] = await Promise.all([
+    reward.captionCredits > 0
+      ? creditsMilliFor("caption", 1)
+      : Promise.resolve(0),
+    reward.imageCredits > 0 ? creditsMilliFor("image", 1) : Promise.resolve(0),
+  ]);
+  if (reward.captionCredits > 0 && captionRate === null) {
+    throw new RewardMappingError(
+      "The current credit rate card has no caption rate for this reward.",
+    );
+  }
+  if (reward.imageCredits > 0 && imageRate === null) {
+    throw new RewardMappingError(
+      "The current credit rate card has no image rate for this reward.",
+    );
+  }
+  return (
+    reward.captionCredits * (captionRate ?? 0) +
+    reward.imageCredits * (imageRate ?? 0)
+  );
+}
+
+export class RewardMappingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RewardMappingError";
+  }
+}
+
+function scaledMilli(baseMilli: number, percent: number): number {
+  return Math.max(0, Math.floor((baseMilli * Math.max(0, percent)) / 100));
+}
+
+/**
+ * Resolve the amount that will actually be granted. Explicit canonical
+ * overrides win over conversion, while the existing plan multiplier continues
+ * to apply to both forms.
+ */
+export async function resolveRewardCreditsMilli(
+  reward: RewardAmounts,
+  settings: PlanGamification,
+  overrideKey: string,
+): Promise<number> {
+  const override = settings.rewardCreditOverrides[overrideKey];
+  if (override !== undefined) {
+    if (!Number.isInteger(override) || override < 0) {
+      throw new RewardMappingError(
+        `Invalid credit override for ${overrideKey}.`,
+      );
+    }
+    return scaledMilli(override, settings.rewardMultiplierPercent);
+  }
+  return scaledMilli(
+    await legacyRewardToCreditsMilli(reward),
+    settings.rewardMultiplierPercent,
+  );
+}
+
+async function displayReward(
+  reward: RewardAmounts,
+  settings: PlanGamification,
+  overrideKey: string,
+): Promise<RewardAmounts> {
+  const displayed = applyMultiplier(reward, settings.rewardMultiplierPercent);
+  try {
+    const milli = await resolveRewardCreditsMilli(
+      reward,
+      settings,
+      overrideKey,
+    );
+    return { ...displayed, credits: milli / MILLI };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "This reward cannot be converted to credits.";
+    return { ...displayed, credits: null, mappingError: message };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +226,12 @@ async function hasUsage(tenantId: number, kind: string): Promise<boolean> {
     await db
       .select({ one: sql<number>`1` })
       .from(usageEventsTable)
-      .where(and(eq(usageEventsTable.tenantId, tenantId), eq(usageEventsTable.kind, kind)))
+      .where(
+        and(
+          eq(usageEventsTable.tenantId, tenantId),
+          eq(usageEventsTable.kind, kind),
+        ),
+      )
       .limit(1)
   )[0];
   return !!row;
@@ -250,14 +364,19 @@ export interface StreakInfo {
  * one shared clock for everyone, matching how monthly quotas already reset.
  */
 export async function getStreak(tenantId: number): Promise<StreakInfo> {
-  const since = new Date(Date.now() - STREAK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const since = new Date(
+    Date.now() - STREAK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+  );
   const rows = await db
     .select({
       day: sql<string>`to_char(${usageEventsTable.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`,
     })
     .from(usageEventsTable)
     .where(
-      and(eq(usageEventsTable.tenantId, tenantId), gte(usageEventsTable.createdAt, since)),
+      and(
+        eq(usageEventsTable.tenantId, tenantId),
+        gte(usageEventsTable.createdAt, since),
+      ),
     )
     .groupBy(sql`1`)
     .orderBy(desc(sql`1`));
@@ -276,7 +395,8 @@ export async function getStreak(tenantId: number): Promise<StreakInfo> {
     currentDays += 1;
     cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
-  if (currentDays === 0) return { currentDays: 0, activeToday, startDate: null };
+  if (currentDays === 0)
+    return { currentDays: 0, activeToday, startDate: null };
 
   const start = new Date(anchor);
   start.setUTCDate(start.getUTCDate() - (currentDays - 1));
@@ -294,19 +414,36 @@ export class ClaimError extends Error {
       | "unknown_key"
       | "not_completed"
       | "already_claimed"
-      | "disabled",
+      | "disabled"
+      | "mapping_missing",
   ) {
     super(message);
     this.name = "ClaimError";
   }
 }
 
-async function getClaimedKeys(tenantId: number): Promise<Set<string>> {
+async function getClaimedKeys(
+  tenantId: number,
+): Promise<Map<string, number | null>> {
   const rows = await db
-    .select({ key: gamificationClaimsTable.key })
+    .select({
+      key: gamificationClaimsTable.key,
+      rewardCreditsMilli: gamificationClaimsTable.rewardCreditsMilli,
+    })
     .from(gamificationClaimsTable)
     .where(eq(gamificationClaimsTable.tenantId, tenantId));
-  return new Set(rows.map((r) => r.key));
+  return new Map(rows.map((r) => [r.key, r.rewardCreditsMilli]));
+}
+
+function frozenDisplayReward(
+  reward: RewardAmounts,
+  settings: PlanGamification,
+  rewardCreditsMilli: number,
+): RewardAmounts {
+  return {
+    ...applyMultiplier(reward, settings.rewardMultiplierPercent),
+    credits: rewardCreditsMilli / MILLI,
+  };
 }
 
 export function questClaimKey(questId: string): string {
@@ -321,7 +458,8 @@ function isUniqueViolation(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current; depth++) {
     const e = current as { code?: string; message?: string; cause?: unknown };
-    if (e.code === "23505" || /duplicate key/i.test(e.message ?? "")) return true;
+    if (e.code === "23505" || /duplicate key/i.test(e.message ?? ""))
+      return true;
     current = e.cause;
   }
   return false;
@@ -329,14 +467,14 @@ function isUniqueViolation(error: unknown): boolean {
 
 /**
  * Claim a quest or streak reward. Validates the underlying achievement
- * server-side (never trusts the client), inserts the claim row (the unique
- * index rejects replays), then grants the credits. If the grant fails the
- * claim row is removed so the reward stays claimable.
+ * server-side (never trusts the client), inserts the claim row, and grants
+ * canonical account credits in one transaction. Legacy generation buckets
+ * remain on the claim as an audit snapshot but are never credited.
  */
 export async function claimReward(
   tenant: Tenant,
   key: string,
-): Promise<{ granted: RewardAmounts; credits: CreditBalances }> {
+): Promise<{ granted: RewardAmounts; credits: CreditBalance }> {
   const flags = await getFeatureFlags();
   const settings = await getPlanGamification(tenant.plan);
 
@@ -353,13 +491,19 @@ export async function claimReward(
     const quest = getQuestDef(questMatch[1]!);
     if (!quest) throw new ClaimError("Unknown reward.", "unknown_key");
     if (!(await quest.check(tenant.id))) {
-      throw new ClaimError("Finish the quest first, then claim it.", "not_completed");
+      throw new ClaimError(
+        "Finish the quest first, then claim it.",
+        "not_completed",
+      );
     }
     kind = "quest";
     baseReward = quest.reward;
   } else if (streakMatch) {
     if (!flags.streaks || !settings.streaksEnabled) {
-      throw new ClaimError("Streaks are not enabled for your plan.", "disabled");
+      throw new ClaimError(
+        "Streaks are not enabled for your plan.",
+        "disabled",
+      );
     }
     const days = Number(streakMatch[1]);
     const milestone = STREAK_MILESTONES.find((m) => m.days === days);
@@ -383,51 +527,59 @@ export async function claimReward(
     throw new ClaimError("Unknown reward.", "unknown_key");
   }
 
-  const granted = applyMultiplier(baseReward, settings.rewardMultiplierPercent);
-
+  const overrideKey = `${kind}:${kind === "quest" ? questMatch![1] : streakMatch![1]}`;
+  let rewardCreditsMilli: number;
   try {
-    await db.insert(gamificationClaimsTable).values({
-      tenantId: tenant.id,
-      key,
-      kind,
-      captionCredits: granted.captionCredits,
-      imageCredits: granted.imageCredits,
-      videoCredits: granted.videoCredits,
-    });
+    rewardCreditsMilli = await resolveRewardCreditsMilli(
+      baseReward,
+      settings,
+      overrideKey,
+    );
   } catch (error) {
-    if (isUniqueViolation(error)) {
-      throw new ClaimError("You already claimed this reward.", "already_claimed");
+    if (error instanceof RewardMappingError) {
+      throw new ClaimError(error.message, "mapping_missing");
     }
     throw error;
   }
+  const granted: RewardAmounts = {
+    ...applyMultiplier(baseReward, settings.rewardMultiplierPercent),
+    credits: rewardCreditsMilli / MILLI,
+  };
 
   try {
-    await grantCredits({
-      tenantId: tenant.id,
-      captionCredits: granted.captionCredits,
-      imageCredits: granted.imageCredits,
-      videoCredits: granted.videoCredits,
-      kind: "admin_grant",
-      note: `gamification:${key}`,
-    });
-  } catch (error) {
-    // Compensate so the reward stays claimable; surfacing the error tells the
-    // user to retry.
-    await db
-      .delete(gamificationClaimsTable)
-      .where(
-        and(
-          eq(gamificationClaimsTable.tenantId, tenant.id),
-          eq(gamificationClaimsTable.key, key),
-        ),
-      )
-      .catch((cleanupError) =>
-        logger.error({ err: cleanupError }, "Failed to roll back gamification claim"),
+    const credits = await db.transaction(async (tx) => {
+      await tx.insert(gamificationClaimsTable).values({
+        tenantId: tenant.id,
+        key,
+        kind,
+        captionCredits: granted.captionCredits,
+        imageCredits: granted.imageCredits,
+        videoCredits: granted.videoCredits,
+        rewardCreditsMilli,
+      });
+      return grantCredits(
+        {
+          tenantId: tenant.id,
+          credits: rewardCreditsMilli / MILLI,
+          kind: "grant_promo",
+          // Gamification rewards share the expiring promotional bucket.
+          expiresInDays: Number(process.env.CREDIT_GRANT_EXPIRY_DAYS ?? 90),
+          idempotencyKey: `gamification:${tenant.id}:${key}`,
+          note: `Gamification reward: ${key}`,
+        },
+        tx,
       );
+    });
+    return { granted, credits };
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw new ClaimError(
+        "You already claimed this reward.",
+        "already_claimed",
+      );
+    }
     throw error;
   }
-
-  return { granted, credits: await getCreditBalances(tenant.id) };
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +614,9 @@ export interface GamificationState {
 }
 
 /** Everything the AI Studio gamification card needs, in one read. */
-export async function getGamificationState(tenant: Tenant): Promise<GamificationState> {
+export async function getGamificationState(
+  tenant: Tenant,
+): Promise<GamificationState> {
   const [flags, settings] = await Promise.all([
     getFeatureFlags(),
     getPlanGamification(tenant.plan),
@@ -470,10 +624,13 @@ export async function getGamificationState(tenant: Tenant): Promise<Gamification
   const questsEnabled = flags.quests && settings.questsEnabled;
   const streaksEnabled = flags.streaks && settings.streaksEnabled;
   const referralsEnabled = flags.referrals && settings.referralsEnabled;
-  const progressMeterEnabled = flags.progressMeter && settings.progressMeterEnabled;
+  const progressMeterEnabled =
+    flags.progressMeter && settings.progressMeterEnabled;
 
   const claimed =
-    questsEnabled || streaksEnabled ? await getClaimedKeys(tenant.id) : new Set<string>();
+    questsEnabled || streaksEnabled
+      ? await getClaimedKeys(tenant.id)
+      : new Map<string, number | null>();
 
   const quests = questsEnabled
     ? await Promise.all(
@@ -488,7 +645,16 @@ export async function getGamificationState(tenant: Tenant): Promise<Gamification
             completed: isClaimed || (await quest.check(tenant.id)),
             claimed: isClaimed,
             claimKey: key,
-            reward: applyMultiplier(quest.reward, settings.rewardMultiplierPercent),
+            reward:
+              isClaimed &&
+              claimed.get(key) !== null &&
+              claimed.get(key) !== undefined
+                ? frozenDisplayReward(quest.reward, settings, claimed.get(key)!)
+                : await displayReward(
+                    quest.reward,
+                    settings,
+                    `quest:${quest.id}`,
+                  ),
           };
         }),
       )
@@ -508,16 +674,29 @@ export async function getGamificationState(tenant: Tenant): Promise<Gamification
       currentDays: streak.currentDays,
       activeToday: streak.activeToday,
       milestones: streaksEnabled
-        ? STREAK_MILESTONES.map((m) => {
-            const key = streak.startDate ? streakClaimKey(m.days, streak.startDate) : null;
-            return {
-              days: m.days,
-              reward: applyMultiplier(m.reward, settings.rewardMultiplierPercent),
-              reached: streak.currentDays >= m.days,
-              claimed: key !== null && claimed.has(key),
-              claimKey: key,
-            };
-          })
+        ? await Promise.all(
+            STREAK_MILESTONES.map(async (m) => {
+              const key = streak.startDate
+                ? streakClaimKey(m.days, streak.startDate)
+                : null;
+              return {
+                days: m.days,
+                reward:
+                  key !== null &&
+                  claimed.get(key) !== null &&
+                  claimed.get(key) !== undefined
+                    ? frozenDisplayReward(m.reward, settings, claimed.get(key)!)
+                    : await displayReward(
+                        m.reward,
+                        settings,
+                        `streak:${m.days}`,
+                      ),
+                reached: streak.currentDays >= m.days,
+                claimed: key !== null && claimed.has(key),
+                claimKey: key,
+              };
+            }),
+          )
         : [],
     },
   };

@@ -154,6 +154,16 @@ export interface CreditBalances {
   videoCredits?: number;
 }
 
+export interface CreditBalance {
+  /** Paid-for credits. Never expire. */
+  purchased: number;
+  /** Allowance and bonus credits, which do expire. */
+  granted: number;
+  total: number;
+  /** @nullable */
+  grantedExpiresAt?: string | null;
+}
+
 /**
  * The current user's role in this workspace.
  */
@@ -200,6 +210,8 @@ export interface MeProfile {
   limits: PlanLimits;
   /** Prepaid credit balances. Credits are consumed automatically when the monthly plan quota is exhausted. */
   credits?: CreditBalances;
+  /** Unified prepaid balance. Additive to the legacy credits buckets; legacy balances remain available under credits. */
+  balance?: CreditBalance;
   /** Whether the current user has cross-tenant superadmin access. */
   isSuperadmin: boolean;
   /** Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants. */
@@ -1019,6 +1031,12 @@ export interface PromoCode {
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
+  /**
+     * Canonical prepaid credit override; required for legacy video rewards.
+     * @minimum 0
+     * @nullable
+     */
+  rewardCredits: number | null;
   /** @nullable */
   allowedPlans: string[] | null;
   audience: PromoCodeAudience;
@@ -1069,6 +1087,12 @@ export interface PromoCodeCreateInput {
   imageCredits: number;
   /** @minimum 0 */
   videoCredits?: number;
+  /**
+     * Optional canonical prepaid credit override. Set this for a video promo whose legacy duration is unknown.
+     * @minimum 0
+     * @nullable
+     */
+  rewardCredits?: number | null;
   allowedPlans?: string[];
   audience?: PromoCodeCreateInputAudience;
   /**
@@ -1113,6 +1137,12 @@ export interface PromoCodeUpdateInput {
   imageCredits?: number;
   /** @minimum 0 */
   videoCredits?: number;
+  /**
+     * Canonical prepaid credit override; null clears the override.
+     * @minimum 0
+     * @nullable
+     */
+  rewardCredits?: number | null;
   /** @nullable */
   allowedPlans?: string[] | null;
   audience?: PromoCodeUpdateInputAudience;
@@ -1153,6 +1183,10 @@ export interface PromoRedeemResult {
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
+  /** Canonical prepaid credits added to the redeemer's account. */
+  credits: number;
+  /** Canonical prepaid credits added to the code owner's account. */
+  referrerCredits: number;
   message: string;
 }
 
@@ -1364,16 +1398,6 @@ export interface CreditMeterReport {
   rows: CreditMeterReportRow[];
 }
 
-export interface CreditBalance {
-  /** Paid-for credits. Never expire. */
-  purchased: number;
-  /** Allowance and bonus credits, which do expire. */
-  granted: number;
-  total: number;
-  /** @nullable */
-  grantedExpiresAt?: string | null;
-}
-
 export interface CreditHistoryEntry {
   id: number;
   kind: string;
@@ -1390,21 +1414,32 @@ export interface CreditHistoryEntry {
   createdAt: string;
 }
 
+export interface LegacyConversionStatus {
+  /** True until an administrator explicitly approves legacy conversion. */
+  pending: boolean;
+  captionCredits: number;
+  imageCredits: number;
+  videoCredits: number;
+}
+
 export interface CreditWallet {
   purchased: number;
   granted: number;
   total: number;
   /** @nullable */
   grantedExpiresAt?: string | null;
+  balance: CreditBalance;
   mode: string;
   /** True when this workspace's generations are actually being paid for out of this balance — it is on the credits rail AND the meter is enforcing. False means credits are visible but some other rail (plan quota or the rupee wallet) is still the one collecting, so the UI should keep showing that rail. */
   funded?: boolean;
   history: CreditHistoryEntry[];
+  legacyConversion: LegacyConversionStatus;
 }
 
 export interface CreditAccountView {
   balance: CreditBalance;
   history: CreditHistoryEntry[];
+  legacyConversion: LegacyConversionStatus;
 }
 
 export interface CreditAccountGrantInput {
@@ -1513,6 +1548,7 @@ export interface BillingOverview {
   plan: string;
   subscription: BillingSubscription | null;
   credits: CreditBalances;
+  balance: CreditBalance;
   creditPacks: CreditPack[];
   history: CreditLedgerEntry[];
 }
@@ -8791,6 +8827,13 @@ export interface RewardAmounts {
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
+  /**
+     * Canonical prepaid credits. Null when a legacy reward cannot be mapped safely.
+     * @nullable
+     */
+  credits: number | null;
+  /** Explanation shown to an administrator when credits is null. */
+  mappingError?: string;
 }
 
 export interface GamificationQuest {
@@ -8845,7 +8888,7 @@ export interface ClaimGamificationRewardRequest {
 export interface ClaimGamificationRewardResult {
   ok: boolean;
   granted: RewardAmounts;
-  credits: CreditBalances;
+  credits: CreditBalance;
 }
 
 export interface ReferralInfo {
@@ -8862,7 +8905,24 @@ export interface ReferralInfo {
   redemptions: number;
   captionCreditsEarned: number;
   imageCreditsEarned: number;
+  /** Canonical prepaid credits earned by the referrer. */
+  creditsEarned: number;
+  /**
+     * Canonical amount awarded to a new user; null for legacy codes awaiting conversion.
+     * @nullable
+     */
+  refereeCredits: number | null;
+  /**
+     * Canonical amount currently awarded to the code owner.
+     * @nullable
+     */
+  referrerCredits: number | null;
 }
+
+/**
+ * Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.
+ */
+export type GamificationPlanSettingsViewRewardCreditOverrides = {[key: string]: number};
 
 export interface GamificationPlanSettingsView {
   questsEnabled: boolean;
@@ -8876,6 +8936,8 @@ export interface GamificationPlanSettingsView {
   refereeCaptionCredits: number;
   refereeImageCredits: number;
   referralMaxRedemptions: number;
+  /** Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee. */
+  rewardCreditOverrides: GamificationPlanSettingsViewRewardCreditOverrides;
 }
 
 export interface AdminGamificationPlan {
@@ -8885,6 +8947,11 @@ export interface AdminGamificationPlan {
   customized: boolean;
   settings: GamificationPlanSettingsView;
 }
+
+/**
+ * Optional canonical milli-credit overrides; omitted preserves the current map.
+ */
+export type AdminUpdateGamificationPlanRequestRewardCreditOverrides = {[key: string]: number};
 
 export interface AdminUpdateGamificationPlanRequest {
   questsEnabled: boolean;
@@ -8909,6 +8976,8 @@ export interface AdminUpdateGamificationPlanRequest {
      * @maximum 10000
      */
   referralMaxRedemptions: number;
+  /** Optional canonical milli-credit overrides; omitted preserves the current map. */
+  rewardCreditOverrides?: AdminUpdateGamificationPlanRequestRewardCreditOverrides;
 }
 
 export interface TopicIdeasRequest {

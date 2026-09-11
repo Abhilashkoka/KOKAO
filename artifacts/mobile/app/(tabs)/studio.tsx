@@ -36,6 +36,7 @@ import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { Image } from "expo-image";
 
 import { CaptionSplitHints } from "@/components/CaptionSplitHints";
+import { GamificationCard } from "@/components/GamificationCard";
 import {
   isQuotaError,
   quotaErrorMessage,
@@ -519,6 +520,8 @@ export default function StudioScreen() {
             ) : null}
           </View>
         ) : null}
+
+        <GamificationCard />
 
         <Card style={{ marginTop: 18 }}>
           <Text style={styles.cardTitle}>Need ideas?</Text>

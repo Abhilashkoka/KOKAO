@@ -73,6 +73,7 @@ interface FormState {
   captionCredits: string;
   imageCredits: string;
   videoCredits: string;
+  rewardCredits: string;
   audience: PromoCodeAudience;
   newTenantDays: string;
   allowedPlans: string[];
@@ -92,6 +93,7 @@ const EMPTY_FORM: FormState = {
   captionCredits: "0",
   imageCredits: "0",
   videoCredits: "0",
+  rewardCredits: "",
   audience: "all",
   newTenantDays: "30",
   allowedPlans: [],
@@ -129,11 +131,16 @@ export function PromosTab() {
     setForm((prev) => ({ ...prev, ...patch }));
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: getAdminListPromoCodesQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getAdminGetPromoMetricsQueryKey() });
+    queryClient.invalidateQueries({
+      queryKey: getAdminListPromoCodesQueryKey(),
+    });
+    queryClient.invalidateQueries({
+      queryKey: getAdminGetPromoMetricsQueryKey(),
+    });
   };
 
-  const codeError = form.mode === "single" ? promoCodeFieldError(form.code) : null;
+  const codeError =
+    form.mode === "single" ? promoCodeFieldError(form.code) : null;
 
   const handleCreate = () => {
     if (form.mode === "single" && codeError) {
@@ -147,11 +154,18 @@ export function PromosTab() {
     const captionCredits = Number(form.captionCredits) || 0;
     const imageCredits = Number(form.imageCredits) || 0;
     const videoCredits = Number(form.videoCredits) || 0;
-    if (captionCredits <= 0 && imageCredits <= 0 && videoCredits <= 0) {
+    const rewardCredits =
+      form.rewardCredits.trim() === "" ? null : Number(form.rewardCredits);
+    if (
+      captionCredits <= 0 &&
+      imageCredits <= 0 &&
+      videoCredits <= 0 &&
+      !(rewardCredits !== null && rewardCredits > 0)
+    ) {
       toast({
         title: "Add some credits",
         description:
-          "A promo code must grant at least one caption, image, or video credit.",
+          "A promo code must grant at least one legacy or canonical credit.",
         variant: "destructive",
       });
       return;
@@ -169,6 +183,7 @@ export function PromosTab() {
           captionCredits,
           imageCredits,
           videoCredits,
+          rewardCredits,
           ...(form.allowedPlans.length > 0
             ? { allowedPlans: form.allowedPlans }
             : {}),
@@ -200,7 +215,10 @@ export function PromosTab() {
         onError: (error) =>
           toast({
             title: "Could not create the code",
-            description: apiErrorMessage(error, "Please check the values and try again."),
+            description: apiErrorMessage(
+              error,
+              "Please check the values and try again.",
+            ),
             variant: "destructive",
           }),
       },
@@ -229,6 +247,41 @@ export function PromosTab() {
     );
   };
 
+  const editCanonicalReward = (promo: PromoCode) => {
+    const entered = window.prompt(
+      "Canonical prepaid credits for this code (leave blank to clear):",
+      promo.rewardCredits === null ? "" : String(promo.rewardCredits),
+    );
+    if (entered === null) return;
+    const rewardCredits = entered.trim() === "" ? null : Number(entered);
+    if (
+      rewardCredits !== null &&
+      (!Number.isFinite(rewardCredits) || rewardCredits < 0)
+    ) {
+      toast({
+        title: "Invalid canonical reward",
+        description: "Enter a non-negative number of prepaid credits.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateCode.mutate(
+      { id: promo.id, data: { rewardCredits } },
+      {
+        onSuccess: () => {
+          toast({ title: `Canonical reward updated for ${promo.code}` });
+          refresh();
+        },
+        onError: (error) =>
+          toast({
+            title: "Could not update canonical reward",
+            description: apiErrorMessage(error, "Please try again."),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
   const planName = (id: string) => plans?.find((p) => p.id === id)?.name ?? id;
 
   return (
@@ -239,7 +292,8 @@ export function PromosTab() {
       <Card className="border-border shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TicketPercent className="h-5 w-5 text-primary" /> Create promo codes
+            <TicketPercent className="h-5 w-5 text-primary" /> Create promo
+            codes
           </CardTitle>
           <CardDescription>
             Give away free caption and image credits. Create one named code or
@@ -309,7 +363,9 @@ export function PromosTab() {
                   <Input
                     id="promo-prefix"
                     value={form.prefix}
-                    onChange={(e) => set({ prefix: e.target.value.toUpperCase() })}
+                    onChange={(e) =>
+                      set({ prefix: e.target.value.toUpperCase() })
+                    }
                     placeholder="LAUNCH"
                     maxLength={20}
                     data-testid="input-promo-prefix"
@@ -362,6 +418,21 @@ export function PromosTab() {
               />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="promo-reward">
+                Canonical prepaid credits (optional)
+              </Label>
+              <Input
+                id="promo-reward"
+                type="number"
+                min={0}
+                step="0.001"
+                value={form.rewardCredits}
+                onChange={(e) => set({ rewardCredits: e.target.value })}
+                placeholder="Required for legacy video rewards"
+                data-testid="input-promo-reward-credits"
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label>Who can redeem</Label>
               <Select
                 value={form.audience}
@@ -379,7 +450,9 @@ export function PromosTab() {
             </div>
             {form.audience === "new" && (
               <div className="space-y-1.5">
-                <Label htmlFor="promo-newdays">"New" means signed up within (days)</Label>
+                <Label htmlFor="promo-newdays">
+                  "New" means signed up within (days)
+                </Label>
                 <Input
                   id="promo-newdays"
                   type="number"
@@ -392,7 +465,9 @@ export function PromosTab() {
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="promo-max">Total redemption limit (blank = unlimited)</Label>
+              <Label htmlFor="promo-max">
+                Total redemption limit (blank = unlimited)
+              </Label>
               <Input
                 id="promo-max"
                 type="number"
@@ -507,7 +582,10 @@ export function PromosTab() {
                       .writeText(lastBatch.map((c) => c.code).join("\n"))
                       .then(() => toast({ title: "Codes copied" }))
                       .catch(() =>
-                        toast({ title: "Could not copy", variant: "destructive" }),
+                        toast({
+                          title: "Could not copy",
+                          variant: "destructive",
+                        }),
                       );
                   }}
                   data-testid="button-copy-batch"
@@ -542,7 +620,9 @@ export function PromosTab() {
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono font-semibold">{promo.code}</span>
+                      <span className="font-mono font-semibold">
+                        {promo.code}
+                      </span>
                       <Badge variant={promo.active ? "default" : "secondary"}>
                         {promo.active ? "Active" : "Inactive"}
                       </Badge>
@@ -554,8 +634,12 @@ export function PromosTab() {
                       {[
                         promo.captionCredits > 0 &&
                           `${promo.captionCredits} captions`,
-                        promo.imageCredits > 0 && `${promo.imageCredits} images`,
-                        promo.videoCredits > 0 && `${promo.videoCredits} videos`,
+                        promo.imageCredits > 0 &&
+                          `${promo.imageCredits} images`,
+                        promo.videoCredits > 0 &&
+                          `${promo.videoCredits} videos`,
+                        promo.rewardCredits !== null &&
+                          `${promo.rewardCredits} prepaid credits`,
                       ]
                         .filter(Boolean)
                         .join(" + ")}
@@ -565,7 +649,10 @@ export function PromosTab() {
                         ` · plans: ${promo.allowedPlans.map(planName).join(", ")}`}
                       {" · "}
                       {promo.redemptionCount}
-                      {promo.maxRedemptions ? ` / ${promo.maxRedemptions}` : ""} redeemed
+                      {promo.maxRedemptions
+                        ? ` / ${promo.maxRedemptions}`
+                        : ""}{" "}
+                      redeemed
                       {promo.expiresAt &&
                         ` · expires ${new Date(promo.expiresAt).toLocaleDateString()}`}
                     </p>
@@ -579,6 +666,16 @@ export function PromosTab() {
                     data-testid={`button-toggle-${promo.code}`}
                   >
                     {promo.active ? "Deactivate" : "Reactivate"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={updateCode.isPending}
+                    onClick={() => editCanonicalReward(promo)}
+                    data-testid={`button-edit-reward-${promo.code}`}
+                  >
+                    Set reward
                   </Button>
                 </div>
               ))}
@@ -628,8 +725,9 @@ export function PromosTab() {
                   <div key={row.campaign} className="flex justify-between">
                     <span>{row.campaign}</span>
                     <span>
-                      {row.redemptions} redemptions · {row.captionCredits} captions ·{" "}
-                      {row.imageCredits} images · {row.videoCredits} videos
+                      {row.redemptions} redemptions · {row.captionCredits}{" "}
+                      captions · {row.imageCredits} images · {row.videoCredits}{" "}
+                      videos
                     </span>
                   </div>
                 ))}
@@ -656,7 +754,8 @@ export function PromosTab() {
         <CollapsibleCardHeader
           title={
             <span className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-primary" /> Recent failed attempts
+              <AlertTriangle className="h-5 w-5 text-primary" /> Recent failed
+              attempts
             </span>
           }
           description="Rejected redemptions — useful for spotting expired campaigns or abuse."
@@ -665,29 +764,31 @@ export function PromosTab() {
           testId="toggle-failed-attempts-card"
         />
         {failuresOpen && (
-        <CardContent>
-          {(failures?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted-foreground">No failed attempts.</p>
-          ) : (
-            <div className="space-y-1 text-sm">
-              {failures!.map((f) => (
-                <div
-                  key={f.id}
-                  className="flex flex-wrap items-center justify-between gap-2 border-b py-1.5 last:border-b-0"
-                >
-                  <span className="font-mono">{f.code}</span>
-                  <span className="text-muted-foreground">
-                    {f.tenantEmail ?? `workspace #${f.tenantId}`}
-                  </span>
-                  <Badge variant="secondary">{f.reason}</Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(f.createdAt).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
+          <CardContent>
+            {(failures?.length ?? 0) === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No failed attempts.
+              </p>
+            ) : (
+              <div className="space-y-1 text-sm">
+                {failures!.map((f) => (
+                  <div
+                    key={f.id}
+                    className="flex flex-wrap items-center justify-between gap-2 border-b py-1.5 last:border-b-0"
+                  >
+                    <span className="font-mono">{f.code}</span>
+                    <span className="text-muted-foreground">
+                      {f.tenantEmail ?? `workspace #${f.tenantId}`}
+                    </span>
+                    <Badge variant="secondary">{f.reason}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(f.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
         )}
       </Card>
 

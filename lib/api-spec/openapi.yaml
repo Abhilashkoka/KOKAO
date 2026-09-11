@@ -13241,6 +13241,11 @@ components:
           description: >-
             Prepaid credit balances. Credits are consumed automatically when
             the monthly plan quota is exhausted.
+        balance:
+          $ref: "#/components/schemas/CreditBalance"
+          description: >-
+            Unified prepaid balance. Additive to the legacy credits buckets;
+            legacy balances remain available under credits.
         isSuperadmin:
           type: boolean
           description: Whether the current user has cross-tenant superadmin access.
@@ -14185,6 +14190,7 @@ components:
           active,
           batchId,
           note,
+          rewardCredits,
           createdAt,
         ]
       properties:
@@ -14200,6 +14206,10 @@ components:
           type: integer
         videoCredits:
           type: integer
+        rewardCredits:
+          type: ["number", "null"]
+          minimum: 0
+          description: Canonical prepaid credit override; required for legacy video rewards.
         allowedPlans:
           type: ["array", "null"]
           items:
@@ -14254,6 +14264,10 @@ components:
         videoCredits:
           type: integer
           minimum: 0
+        rewardCredits:
+          type: ["number", "null"]
+          minimum: 0
+          description: Optional canonical prepaid credit override. Set this for a video promo whose legacy duration is unknown.
         allowedPlans:
           type: array
           items:
@@ -14295,6 +14309,10 @@ components:
         videoCredits:
           type: integer
           minimum: 0
+        rewardCredits:
+          type: ["number", "null"]
+          minimum: 0
+          description: Canonical prepaid credit override; null clears the override.
         allowedPlans:
           type: ["array", "null"]
           items:
@@ -14331,7 +14349,7 @@ components:
           maxLength: 64
     PromoRedeemResult:
       type: object
-      required: [ok, captionCredits, imageCredits, videoCredits, message]
+      required: [ok, captionCredits, imageCredits, videoCredits, credits, referrerCredits, message]
       properties:
         ok:
           type: boolean
@@ -14341,6 +14359,12 @@ components:
           type: integer
         videoCredits:
           type: integer
+        credits:
+          type: number
+          description: Canonical prepaid credits added to the redeemer's account.
+        referrerCredits:
+          type: number
+          description: Canonical prepaid credits added to the code owner's account.
         message:
           type: string
     PromoMetrics:
@@ -14604,9 +14628,22 @@ components:
         createdAt:
           type: string
           format: date-time
+    LegacyConversionStatus:
+      type: object
+      required: [pending, captionCredits, imageCredits, videoCredits]
+      properties:
+        pending:
+          type: boolean
+          description: True until an administrator explicitly approves legacy conversion.
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+        videoCredits:
+          type: integer
     CreditWallet:
       type: object
-      required: [purchased, granted, total, mode, history]
+      required: [purchased, granted, total, mode, history, balance, legacyConversion]
       properties:
         purchased:
           type: number
@@ -14616,6 +14653,8 @@ components:
           type: number
         grantedExpiresAt:
           type: ["string", "null"]
+        balance:
+          $ref: "#/components/schemas/CreditBalance"
         mode:
           type: string
         funded:
@@ -14630,9 +14669,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CreditHistoryEntry"
+        legacyConversion:
+          $ref: "#/components/schemas/LegacyConversionStatus"
     CreditAccountView:
       type: object
-      required: [balance, history]
+      required: [balance, history, legacyConversion]
       properties:
         balance:
           $ref: "#/components/schemas/CreditBalance"
@@ -14640,6 +14681,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CreditHistoryEntry"
+        legacyConversion:
+          $ref: "#/components/schemas/LegacyConversionStatus"
     CreditAccountGrantInput:
       type: object
       required: [credits]
@@ -14762,7 +14805,7 @@ components:
           type: boolean
     BillingOverview:
       type: object
-      required: [configured, keyId, plan, subscription, credits, creditPacks, history]
+      required: [configured, keyId, plan, subscription, credits, balance, creditPacks, history]
       properties:
         configured:
           type: boolean
@@ -14778,6 +14821,8 @@ components:
             - type: "null"
         credits:
           $ref: "#/components/schemas/CreditBalances"
+        balance:
+          $ref: "#/components/schemas/CreditBalance"
         creditPacks:
           type: array
           items:
@@ -21776,7 +21821,7 @@ components:
           description: The provider API key (stored encrypted, never returned).
     RewardAmounts:
       type: object
-      required: [captionCredits, imageCredits, videoCredits]
+      required: [captionCredits, imageCredits, videoCredits, credits]
       properties:
         captionCredits:
           type: integer
@@ -21784,6 +21829,12 @@ components:
           type: integer
         videoCredits:
           type: integer
+        credits:
+          type: ["number", "null"]
+          description: Canonical prepaid credits. Null when a legacy reward cannot be mapped safely.
+        mappingError:
+          type: string
+          description: Explanation shown to an administrator when credits is null.
     GamificationQuest:
       type: object
       required: [id, title, description, completed, claimed, claimKey, reward]
@@ -21866,7 +21917,7 @@ components:
         granted:
           $ref: "#/components/schemas/RewardAmounts"
         credits:
-          $ref: "#/components/schemas/CreditBalances"
+          $ref: "#/components/schemas/CreditBalance"
     ReferralInfo:
       type: object
       required:
@@ -21880,6 +21931,9 @@ components:
           redemptions,
           captionCreditsEarned,
           imageCreditsEarned,
+           creditsEarned,
+           refereeCredits,
+           referrerCredits,
         ]
       properties:
         code:
@@ -21903,6 +21957,15 @@ components:
           type: integer
         imageCreditsEarned:
           type: integer
+        creditsEarned:
+          type: number
+          description: Canonical prepaid credits earned by the referrer.
+        refereeCredits:
+          type: ["number", "null"]
+          description: Canonical amount awarded to a new user; null for legacy codes awaiting conversion.
+        referrerCredits:
+          type: ["number", "null"]
+          description: Canonical amount currently awarded to the code owner.
     GamificationPlanSettingsView:
       type: object
       required:
@@ -21917,6 +21980,7 @@ components:
           refereeCaptionCredits,
           refereeImageCredits,
           referralMaxRedemptions,
+          rewardCreditOverrides,
         ]
       properties:
         questsEnabled:
@@ -21940,6 +22004,12 @@ components:
           type: integer
         referralMaxRedemptions:
           type: integer
+        rewardCreditOverrides:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          description: Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.
     AdminGamificationPlan:
       type: object
       required: [planId, planName, customized, settings]
@@ -21997,6 +22067,12 @@ components:
           type: integer
           minimum: 1
           maximum: 10000
+        rewardCreditOverrides:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          description: Optional canonical milli-credit overrides; omitted preserves the current map.
 
     TopicIdeasRequest:
       type: object

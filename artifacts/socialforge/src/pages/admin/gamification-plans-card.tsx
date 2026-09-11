@@ -32,6 +32,29 @@ import { useToast } from "@/hooks/use-toast";
 
 type Draft = GamificationPlanSettingsView;
 
+const QUEST_REWARD_OVERRIDES = [
+  ["quest:create_brand_kit", "Create a brand kit"],
+  ["quest:first_caption", "Generate your first caption"],
+  ["quest:first_image", "Generate your first image"],
+  ["quest:first_video", "Make your first video"],
+  ["quest:connect_account", "Connect a social account"],
+  ["quest:schedule_post", "Schedule a post"],
+] as const;
+
+const STREAK_REWARD_OVERRIDES = [3, 7, 14, 30] as const;
+
+function formatCredits(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
+function overrideInputValue(
+  overrides: Record<string, number> | undefined,
+  key: string,
+): string {
+  const milli = overrides?.[key];
+  return typeof milli === "number" ? String(milli / 1000) : "";
+}
+
 function NumberField({
   id,
   label,
@@ -105,6 +128,29 @@ export function GamificationPlansCard() {
   const setDraft = (planId: string, patch: Partial<Draft>) =>
     setDrafts((prev) => ({ ...prev, [planId]: { ...prev[planId]!, ...patch } }));
 
+  const setCreditOverride = (planId: string, key: string, raw: string) => {
+    const draft = drafts[planId];
+    if (!draft) return;
+    const value = raw.trim();
+    const overrides = { ...(draft.rewardCreditOverrides ?? {}) };
+    if (!value) {
+      delete overrides[key];
+      setDraft(planId, { rewardCreditOverrides: overrides });
+      return;
+    }
+    const credits = Number(value);
+    if (!Number.isFinite(credits) || credits < 0 || credits > 1_000_000) {
+      toast({
+        title: "Invalid credit override",
+        description: "Enter between 0 and 1,000,000 credits.",
+        variant: "destructive",
+      });
+      return;
+    }
+    overrides[key] = Math.round(credits * 1000);
+    setDraft(planId, { rewardCreditOverrides: overrides });
+  };
+
   const onSave = (planId: string) => {
     const draft = drafts[planId];
     if (!draft) return;
@@ -144,11 +190,13 @@ export function GamificationPlansCard() {
       <CardHeader>
         <CardTitle>Gamification per plan</CardTitle>
         <CardDescription>
-          Tune quests, streaks, referral credits, and the upgrade meter for each
-          plan — new plans automatically appear here with the defaults. The
-          platform-wide switches live under Feature controls; a mechanic only
-          shows for a tenant when both its global switch and its plan toggle are
-          on.
+           Tune quests, streaks, referral credits, and the upgrade meter for each
+           plan — new plans automatically appear here with the defaults. Reward
+           overrides use the single prepaid-credit balance; leave one blank to
+           convert the legacy reward through the current rate card. The
+           platform-wide switches live under Feature controls; a mechanic only
+           shows for a tenant when both its global switch and its plan toggle are
+           on.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -227,7 +275,7 @@ export function GamificationPlansCard() {
                   />
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <NumberField
                     id={`mult-${plan.planId}`}
                     label="Reward multiplier %"
@@ -235,38 +283,6 @@ export function GamificationPlansCard() {
                     min={0}
                     max={1000}
                     onChange={(v) => setDraft(plan.planId, { rewardMultiplierPercent: v })}
-                  />
-                  <NumberField
-                    id={`referrer-cap-${plan.planId}`}
-                    label="Referrer: captions"
-                    value={draft.referrerCaptionCredits}
-                    min={0}
-                    max={1000}
-                    onChange={(v) => setDraft(plan.planId, { referrerCaptionCredits: v })}
-                  />
-                  <NumberField
-                    id={`referrer-img-${plan.planId}`}
-                    label="Referrer: images"
-                    value={draft.referrerImageCredits}
-                    min={0}
-                    max={1000}
-                    onChange={(v) => setDraft(plan.planId, { referrerImageCredits: v })}
-                  />
-                  <NumberField
-                    id={`referee-cap-${plan.planId}`}
-                    label="Friend: captions"
-                    value={draft.refereeCaptionCredits}
-                    min={0}
-                    max={1000}
-                    onChange={(v) => setDraft(plan.planId, { refereeCaptionCredits: v })}
-                  />
-                  <NumberField
-                    id={`referee-img-${plan.planId}`}
-                    label="Friend: images"
-                    value={draft.refereeImageCredits}
-                    min={0}
-                    max={1000}
-                    onChange={(v) => setDraft(plan.planId, { refereeImageCredits: v })}
                   />
                   <NumberField
                     id={`cap-${plan.planId}`}
@@ -277,6 +293,114 @@ export function GamificationPlansCard() {
                     onChange={(v) => setDraft(plan.planId, { referralMaxRedemptions: v })}
                   />
                 </div>
+
+                 <div className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-3">
+                   <div>
+                     <p className="text-sm font-medium">Unified reward credits</p>
+                     <p className="text-xs text-muted-foreground">
+                       Set an explicit prepaid-credit amount for any reward. Values
+                       support up to three decimal places and the multiplier still
+                       applies when the reward is claimed.
+                     </p>
+                   </div>
+                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                     {QUEST_REWARD_OVERRIDES.map(([key, label]) => (
+                       <div className="space-y-1" key={key}>
+                         <Label
+                           htmlFor={`override-${plan.planId}-${key}`}
+                           className="text-xs text-muted-foreground"
+                         >
+                           {label} (credits)
+                         </Label>
+                         <Input
+                           id={`override-${plan.planId}-${key}`}
+                           type="number"
+                           min={0}
+                           max={1_000_000}
+                           step="0.001"
+                           value={overrideInputValue(draft.rewardCreditOverrides, key)}
+                           placeholder="Auto-convert legacy reward"
+                           onChange={(e) =>
+                             setCreditOverride(plan.planId, key, e.target.value)
+                           }
+                           className="h-8"
+                           data-testid={`input-reward-override-${plan.planId}-${key}`}
+                         />
+                       </div>
+                     ))}
+                     {STREAK_REWARD_OVERRIDES.map((days) => {
+                       const key = `streak:${days}`;
+                       return (
+                         <div className="space-y-1" key={key}>
+                           <Label
+                             htmlFor={`override-${plan.planId}-${key}`}
+                             className="text-xs text-muted-foreground"
+                           >
+                             {days}-day streak (credits)
+                           </Label>
+                           <Input
+                             id={`override-${plan.planId}-${key}`}
+                             type="number"
+                             min={0}
+                             max={1_000_000}
+                             step="0.001"
+                             value={overrideInputValue(
+                               draft.rewardCreditOverrides,
+                               key,
+                             )}
+                             placeholder="Auto-convert legacy reward"
+                             onChange={(e) =>
+                               setCreditOverride(plan.planId, key, e.target.value)
+                             }
+                             className="h-8"
+                             data-testid={`input-reward-override-${plan.planId}-${key}`}
+                           />
+                         </div>
+                       );
+                     })}
+                     {(["referrer", "referee"] as const).map((key) => (
+                       <div className="space-y-1" key={key}>
+                         <Label
+                           htmlFor={`override-${plan.planId}-${key}`}
+                           className="text-xs text-muted-foreground"
+                         >
+                           {key === "referrer" ? "Referrer" : "New friend"} reward (credits)
+                         </Label>
+                         <Input
+                           id={`override-${plan.planId}-${key}`}
+                           type="number"
+                           min={0}
+                           max={1_000_000}
+                           step="0.001"
+                           value={overrideInputValue(
+                             draft.rewardCreditOverrides,
+                             key,
+                           )}
+                           placeholder="Auto-convert legacy reward"
+                           onChange={(e) =>
+                             setCreditOverride(plan.planId, key, e.target.value)
+                           }
+                           className="h-8"
+                           data-testid={`input-reward-override-${plan.planId}-${key}`}
+                         />
+                       </div>
+                     ))}
+                   </div>
+                   <details className="text-xs text-muted-foreground">
+                     <summary className="cursor-pointer font-medium">
+                       Legacy reward buckets (kept for existing balances)
+                     </summary>
+                     <p className="mt-2">
+                       Existing caption/image referral buckets are preserved and
+                       still sent for API compatibility: referrer{" "}
+                       {draft.referrerCaptionCredits} caption +{" "}
+                       {draft.referrerImageCredits} image; friend{" "}
+                       {draft.refereeCaptionCredits} caption +{" "}
+                       {draft.refereeImageCredits} image. New claims use the
+                       unified credit override above.
+                     </p>
+                   </details>
+                 </div>
               </div>
             );
           })

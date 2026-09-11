@@ -6,6 +6,8 @@ import {
   promoRedemptionsTable,
   promoRedemptionFailuresTable,
   tenantsTable,
+  creditAccountsTable,
+  creditAccountLedgerTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import {
@@ -14,7 +16,12 @@ import {
   generatePromoCode,
   getPromoMetrics,
 } from "./promoCodes";
-import { getCreditBalances, listCreditHistory } from "./credits";
+import { getCreditBalances as getLegacyCreditBalances } from "./credits";
+import {
+  getCreditBalance,
+  listCreditHistory,
+} from "./creditAccounts";
+import { creditsMilliFor, MILLI } from "./creditRates";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
 let tenantId: number;
@@ -51,6 +58,12 @@ afterAll(async () => {
   await db
     .delete(promoRedemptionFailuresTable)
     .where(eq(promoRedemptionFailuresTable.tenantId, tenantId));
+  await db
+    .delete(creditAccountLedgerTable)
+    .where(eq(creditAccountLedgerTable.tenantId, tenantId));
+  await db
+    .delete(creditAccountsTable)
+    .where(eq(creditAccountsTable.tenantId, tenantId));
   await deleteTenant(tenantId);
   await pool.end();
 });
@@ -82,26 +95,34 @@ describe("redeemPromoCode", () => {
 
   it("redeems a valid code once, grants credits, and writes the ledger", async () => {
     const promo = await insertPromo({ code: `OK-${suffix}` });
+    const before = await getCreditBalance(tenantId);
+    const legacyBefore = await getLegacyCreditBalances(tenantId);
+    const expectedCredits =
+      ((await creditsMilliFor("caption", 3))! +
+        (await creditsMilliFor("image", 2))!) /
+      MILLI;
     const result = await redeemPromoCode(tenantId, `  ok-${suffix} `);
     expect(result.ok).toBe(true);
-    expect(await getCreditBalances(tenantId)).toEqual({
-      captionCredits: 3,
-      imageCredits: 2,
-      videoCredits: 0,
-    });
+    if (result.ok) expect(result.credits).toBe(expectedCredits);
+    expect((await getCreditBalance(tenantId)).total).toBe(
+      before.total + expectedCredits,
+    );
+    expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
     const history = await listCreditHistory(tenantId);
     const entry = history.find((h) => h.kind === "promo");
-    expect(entry?.note).toBe(`Promo code OK-${suffix}`);
+    expect(entry).toBeUndefined();
+    const grant = history.find((h) => h.note === `Promo code OK-${suffix}`);
+    expect(grant?.kind).toBe("grant_promo");
+    expect(grant?.credits).toBe(expectedCredits);
 
     // Default per-tenant limit is 1: a second attempt is rejected.
     const again = await redeemPromoCode(tenantId, promo.code);
     expect(again.ok).toBe(false);
     if (!again.ok) expect(again.reason).toBe("per_tenant_limit_reached");
-    expect(await getCreditBalances(tenantId)).toEqual({
-      captionCredits: 3,
-      imageCredits: 2,
-      videoCredits: 0,
-    });
+    expect((await getCreditBalance(tenantId)).total).toBe(
+      before.total + expectedCredits,
+    );
+    expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
 
     const [updated] = await db
       .select()
@@ -116,19 +137,23 @@ describe("redeemPromoCode", () => {
       captionCredits: 0,
       imageCredits: 0,
       videoCredits: 4,
+      rewardCreditsMilli: 4 * MILLI,
     });
-    const before = await getCreditBalances(tenantId);
+    const before = await getCreditBalance(tenantId);
+    const legacyBefore = await getLegacyCreditBalances(tenantId);
     const result = await redeemPromoCode(tenantId, promo.code);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.videoCredits).toBe(4);
-      expect(result.message).toContain("4 video credits");
+      expect(result.credits).toBe(4);
+      expect(result.message).toContain("4 prepaid credits");
     }
-    const after = await getCreditBalances(tenantId);
-    expect(after.videoCredits).toBe(before.videoCredits + 4);
+    const after = await getCreditBalance(tenantId);
+    expect(after.total).toBe(before.total + 4);
+    expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
     const history = await listCreditHistory(tenantId);
     const entry = history.find((h) => h.note === `Promo code VID-${suffix}`);
-    expect(entry?.videoDelta).toBe(4);
+    expect(entry?.credits).toBe(4);
 
     const metrics = await getPromoMetrics();
     expect(metrics.totalVideoCredits).toBeGreaterThanOrEqual(4);
@@ -227,13 +252,16 @@ describe("redeemPromoCode", () => {
       captionCredits: 1,
       imageCredits: 0,
     });
-    const before = await getCreditBalances(tenantId);
+    const before = await getCreditBalance(tenantId);
+    const legacyBefore = await getLegacyCreditBalances(tenantId);
+    const expectedCredits = (await creditsMilliFor("caption", 1))! / MILLI;
     const results = await Promise.all(
       Array.from({ length: 5 }, () => redeemPromoCode(tenantId, promo.code)),
     );
     expect(results.filter((r) => r.ok).length).toBe(1);
-    const after = await getCreditBalances(tenantId);
-    expect(after.captionCredits).toBe(before.captionCredits + 1);
+    const after = await getCreditBalance(tenantId);
+    expect(after.total).toBe(before.total + expectedCredits);
+    expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
     const [row] = await db
       .select()
       .from(promoCodesTable)

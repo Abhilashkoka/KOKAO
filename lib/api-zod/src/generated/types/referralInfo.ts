@@ -20,4 +20,16 @@ export interface ReferralInfo {
   redemptions: number;
   captionCreditsEarned: number;
   imageCreditsEarned: number;
+  /** Canonical prepaid credits earned by the referrer. */
+  creditsEarned: number;
+  /**
+     * Canonical amount awarded to a new user; null for legacy codes awaiting conversion.
+     * @nullable
+     */
+  refereeCredits: number | null;
+  /**
+     * Canonical amount currently awarded to the code owner.
+     * @nullable
+     */
+  referrerCredits: number | null;
 }

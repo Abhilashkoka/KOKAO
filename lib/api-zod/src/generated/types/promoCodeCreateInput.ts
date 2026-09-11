@@ -28,6 +28,12 @@ export interface PromoCodeCreateInput {
   imageCredits: number;
   /** @minimum 0 */
   videoCredits?: number;
+  /**
+     * Optional canonical prepaid credit override. Set this for a video promo whose legacy duration is unknown.
+     * @minimum 0
+     * @nullable
+     */
+  rewardCredits?: number | null;
   allowedPlans?: string[];
   audience?: PromoCodeCreateInputAudience;
   /**

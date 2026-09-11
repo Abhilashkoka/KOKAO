@@ -59,7 +59,12 @@ import {
 import { billingProfilesTable } from "@workspace/db";
 import { UpdateBillingProfileBody } from "@workspace/api-zod";
 import { recordServerEvent } from "../lib/analytics";
-import { getCreditBalances, grantCredits, listCreditHistory } from "../lib/credits";
+import {
+  getCreditBalances,
+  grantCredits,
+  listCreditHistory,
+} from "../lib/credits";
+import { peekCreditBalance } from "../lib/creditAccounts";
 import { topUpCreditAccount } from "../lib/creditAccounts";
 import { notifyUpgradeRequested } from "../lib/notifications";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
@@ -74,13 +79,20 @@ const router: IRouter = Router();
 
 function requireOwner(req: Request, res: Response): boolean {
   if (req.memberRole !== "owner") {
-    res.status(403).json({ error: "Only the workspace owner can manage billing" });
+    res
+      .status(403)
+      .json({ error: "Only the workspace owner can manage billing" });
     return false;
   }
   return true;
 }
 
-function handleGatewayError(req: Request, res: Response, error: unknown, msg: string) {
+function handleGatewayError(
+  req: Request,
+  res: Response,
+  error: unknown,
+  msg: string,
+) {
   if (
     error instanceof RazorpayNotConfiguredError ||
     error instanceof CashfreeNotConfiguredError
@@ -146,6 +158,7 @@ router.get("/billing", async (req: Request, res: Response) => {
       cashfreeCreds,
       sub,
       balances,
+      balance,
       packs,
       history,
       tenant,
@@ -156,13 +169,18 @@ router.get("/billing", async (req: Request, res: Response) => {
       getCashfreeCredentials(),
       latestSubscription(req.tenantId),
       getCreditBalances(req.tenantId),
+      peekCreditBalance(req.tenantId),
       db
         .select()
         .from(creditPacksTable)
         .where(eq(creditPacksTable.active, true))
         .orderBy(creditPacksTable.sortOrder, creditPacksTable.id),
       listCreditHistory(req.tenantId),
-      db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1),
+      db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, req.tenantId))
+        .limit(1),
     ]);
 
     const configured =
@@ -172,7 +190,8 @@ router.get("/billing", async (req: Request, res: Response) => {
       gateway,
       configured,
       keyId: gateway === "razorpay" && razorpayConfigured ? keyId : null,
-      cashfreeMode: gateway === "cashfree" ? cashfreeCreds?.mode ?? null : null,
+      cashfreeMode:
+        gateway === "cashfree" ? (cashfreeCreds?.mode ?? null) : null,
       plan: tenant[0]?.plan ?? "free",
       subscription: sub
         ? {
@@ -188,6 +207,7 @@ router.get("/billing", async (req: Request, res: Response) => {
           }
         : null,
       credits: balances,
+      balance,
       creditPacks: packs.map((p) => ({
         id: p.id,
         name: p.name,
@@ -243,7 +263,8 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
     !existing.cancelAtPeriodEnd
   ) {
     res.status(409).json({
-      error: "You already have an active subscription. Cancel it before switching plans.",
+      error:
+        "You already have an active subscription. Cancel it before switching plans.",
     });
     return;
   }
@@ -263,7 +284,9 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
             .for("update");
           if (!locked) return null;
           const existingId =
-            cycle === "yearly" ? locked.cashfreePlanIdYearly : locked.cashfreePlanId;
+            cycle === "yearly"
+              ? locked.cashfreePlanIdYearly
+              : locked.cashfreePlanId;
           if (existingId) return existingId;
           const minted = await createCashfreePlan({
             planId: plan.id,
@@ -275,7 +298,10 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
             .update(planSettingsTable)
             .set(
               cycle === "yearly"
-                ? { cashfreePlanIdYearly: minted.plan_id, updatedAt: new Date() }
+                ? {
+                    cashfreePlanIdYearly: minted.plan_id,
+                    updatedAt: new Date(),
+                  }
                 : { cashfreePlanId: minted.plan_id, updatedAt: new Date() },
             )
             .where(eq(planSettingsTable.id, plan.id));
@@ -346,7 +372,9 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
           .for("update");
         if (!locked) return null;
         const existingId =
-          cycle === "yearly" ? locked.razorpayPlanIdYearly : locked.razorpayPlanId;
+          cycle === "yearly"
+            ? locked.razorpayPlanIdYearly
+            : locked.razorpayPlanId;
         if (existingId) return existingId;
         const minted = await createRazorpayPlan(
           plan.name,
@@ -412,29 +440,141 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
  * checkout signature, cross-checks the subscription state with Razorpay,
  * and activates the plan. The webhook remains the backstop.
  */
-router.post("/billing/verify-subscription", async (req: Request, res: Response) => {
-  if (!requireOwner(req, res)) return;
-  const parsed = BillingVerifySubscriptionBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const {
-    razorpaySubscriptionId,
-    razorpayPaymentId,
-    razorpaySignature,
-    cashfreeSubscriptionId,
-  } = parsed.data;
+router.post(
+  "/billing/verify-subscription",
+  async (req: Request, res: Response) => {
+    if (!requireOwner(req, res)) return;
+    const parsed = BillingVerifySubscriptionBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const {
+      razorpaySubscriptionId,
+      razorpayPaymentId,
+      razorpaySignature,
+      cashfreeSubscriptionId,
+    } = parsed.data;
 
-  // --- Cashfree: no client signature; trust the re-fetched canonical state ---
-  if (cashfreeSubscriptionId) {
+    // --- Cashfree: no client signature; trust the re-fetched canonical state ---
+    if (cashfreeSubscriptionId) {
+      const sub = (
+        await db
+          .select()
+          .from(subscriptionsTable)
+          .where(
+            and(
+              eq(
+                subscriptionsTable.cashfreeSubscriptionId,
+                cashfreeSubscriptionId,
+              ),
+              eq(subscriptionsTable.tenantId, req.tenantId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (!sub) {
+        res.status(404).json({ error: "Subscription not found" });
+        return;
+      }
+      try {
+        const live = await getCashfreeSubscription(cashfreeSubscriptionId);
+        if (!isCashfreeEntitledStatus(live.subscription_status)) {
+          res.status(409).json({
+            error: `Payment received but the subscription is ${live.subscription_status}. It will activate automatically once confirmed.`,
+          });
+          return;
+        }
+        const periodEnd = live.current_cycle?.cycle_end_time
+          ? new Date(live.current_cycle.cycle_end_time)
+          : null;
+        await db
+          .update(subscriptionsTable)
+          .set({
+            status: "active",
+            currentPeriodEnd: periodEnd,
+            updatedAt: new Date(),
+          })
+          .where(eq(subscriptionsTable.id, sub.id));
+        await db
+          .update(tenantsTable)
+          .set({
+            plan: sub.planId,
+            planOverriddenAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantsTable.id, req.tenantId));
+        await applyPlanBillingMode(req.tenantId, sub.planId);
+
+        const plan = await getPlan(sub.planId);
+        {
+          const pricePaise =
+            (sub.billingCycle === "yearly"
+              ? plan?.priceInrYearly
+              : plan?.priceInr) ?? 0;
+          if (pricePaise > 0) {
+            await recordInvoice({
+              tenantId: req.tenantId,
+              kind: "plan",
+              // One invoice per paid cycle: keyed by the cycle end when known.
+              refId: `${cashfreeSubscriptionId}:${periodEnd?.toISOString() ?? "activation"}`,
+              gateway: "cashfree",
+              description: `${plan?.name ?? sub.planId} plan — ${sub.billingCycle} subscription`,
+              baseAmountPaise: pricePaise,
+              totalPaise: pricePaise,
+            });
+          }
+        }
+        void recordServerEvent({
+          name: "subscription_started",
+          tenantId: req.tenantId,
+          params: { item_type: "subscription", item_name: sub.planId },
+        });
+        void recordServerEvent({
+          name: "purchase",
+          tenantId: req.tenantId,
+          params: {
+            item_type: "subscription",
+            item_name: sub.planId,
+            amount_paise:
+              (sub.billingCycle === "yearly"
+                ? plan?.priceInrYearly
+                : plan?.priceInr) ?? 0,
+          },
+        });
+        res.json({ ok: true, plan: sub.planId });
+      } catch (error) {
+        if (
+          error instanceof CashfreeApiError &&
+          error.status >= 400 &&
+          error.status < 500
+        ) {
+          res.status(400).json({
+            error:
+              "Cashfree no longer recognizes this subscription. Please start a new subscription or contact support.",
+          });
+          return;
+        }
+        handleGatewayError(req, res, error, "Failed to verify subscription");
+      }
+      return;
+    }
+
+    if (!razorpaySubscriptionId || !razorpayPaymentId || !razorpaySignature) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
     const sub = (
       await db
         .select()
         .from(subscriptionsTable)
         .where(
           and(
-            eq(subscriptionsTable.cashfreeSubscriptionId, cashfreeSubscriptionId),
+            eq(
+              subscriptionsTable.razorpaySubscriptionId,
+              razorpaySubscriptionId,
+            ),
             eq(subscriptionsTable.tenantId, req.tenantId),
           ),
         )
@@ -444,42 +584,69 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
       res.status(404).json({ error: "Subscription not found" });
       return;
     }
+
     try {
-      const live = await getCashfreeSubscription(cashfreeSubscriptionId);
-      if (!isCashfreeEntitledStatus(live.subscription_status)) {
+      const valid = await verifySubscriptionSignature({
+        subscriptionId: razorpaySubscriptionId,
+        paymentId: razorpayPaymentId,
+        signature: razorpaySignature,
+      });
+      if (!valid) {
+        res.status(400).json({ error: "Payment verification failed" });
+        return;
+      }
+
+      // Trust Razorpay's live state, not just the browser.
+      const live = await fetchRazorpaySubscription(razorpaySubscriptionId);
+      if (live.status !== "active" && live.status !== "authenticated") {
         res.status(409).json({
-          error: `Payment received but the subscription is ${live.subscription_status}. It will activate automatically once confirmed.`,
+          error: `Payment received but the subscription is ${live.status}. It will activate automatically once confirmed.`,
         });
         return;
       }
-      const periodEnd = live.current_cycle?.cycle_end_time
-        ? new Date(live.current_cycle.cycle_end_time)
-        : null;
+
       await db
         .update(subscriptionsTable)
         .set({
-          status: "active",
-          currentPeriodEnd: periodEnd,
+          status: live.status,
+          currentPeriodEnd: live.current_end
+            ? new Date(live.current_end * 1000)
+            : null,
           updatedAt: new Date(),
         })
         .where(eq(subscriptionsTable.id, sub.id));
+      // The tenant just paid for this plan themselves — a deliberate billing
+      // action clears any earlier superadmin plan override.
       await db
         .update(tenantsTable)
-        .set({ plan: sub.planId, planOverriddenAt: null, updatedAt: new Date() })
+        .set({
+          plan: sub.planId,
+          planOverriddenAt: null,
+          updatedAt: new Date(),
+        })
         .where(eq(tenantsTable.id, req.tenantId));
       await applyPlanBillingMode(req.tenantId, sub.planId);
 
+      // Server-side revenue analytics (own billing records, not consent-gated).
       const plan = await getPlan(sub.planId);
       {
         const pricePaise =
-          (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0;
+          (sub.billingCycle === "yearly"
+            ? plan?.priceInrYearly
+            : plan?.priceInr) ?? 0;
         if (pricePaise > 0) {
           await recordInvoice({
             tenantId: req.tenantId,
             kind: "plan",
-            // One invoice per paid cycle: keyed by the cycle end when known.
-            refId: `${cashfreeSubscriptionId}:${periodEnd?.toISOString() ?? "activation"}`,
-            gateway: "cashfree",
+            // One invoice per paid cycle, keyed by the cycle end — the
+            // subscription.charged webhook uses the SAME key, so verify and
+            // webhook can never double-invoice one charge.
+            refId: `${razorpaySubscriptionId}:${
+              live.current_end
+                ? new Date(live.current_end * 1000).toISOString()
+                : "activation"
+            }`,
+            gateway: "razorpay",
             description: `${plan?.name ?? sub.planId} plan — ${sub.billingCycle} subscription`,
             baseAmountPaise: pricePaise,
             totalPaise: pricePaise,
@@ -498,146 +665,34 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
           item_type: "subscription",
           item_name: sub.planId,
           amount_paise:
-            (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0,
+            (sub.billingCycle === "yearly"
+              ? plan?.priceInrYearly
+              : plan?.priceInr) ?? 0,
         },
       });
+
       res.json({ ok: true, plan: sub.planId });
     } catch (error) {
+      // A local subscription row can point at an id Razorpay no longer knows
+      // (e.g. deleted in the dashboard). Razorpay answers the live-state fetch
+      // with a 4xx — surface that as a clear, actionable 400 instead of a
+      // confusing "payment provider error" gateway 502. Nothing was mutated
+      // yet: the fetch happens before any plan/subscription-row writes.
       if (
-        error instanceof CashfreeApiError &&
+        error instanceof RazorpayApiError &&
         error.status >= 400 &&
         error.status < 500
       ) {
         res.status(400).json({
           error:
-            "Cashfree no longer recognizes this subscription. Please start a new subscription or contact support.",
+            "Razorpay no longer recognizes this subscription. Please start a new subscription or contact support.",
         });
         return;
       }
       handleGatewayError(req, res, error, "Failed to verify subscription");
     }
-    return;
-  }
-
-  if (!razorpaySubscriptionId || !razorpayPaymentId || !razorpaySignature) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-
-  const sub = (
-    await db
-      .select()
-      .from(subscriptionsTable)
-      .where(
-        and(
-          eq(subscriptionsTable.razorpaySubscriptionId, razorpaySubscriptionId),
-          eq(subscriptionsTable.tenantId, req.tenantId),
-        ),
-      )
-      .limit(1)
-  )[0];
-  if (!sub) {
-    res.status(404).json({ error: "Subscription not found" });
-    return;
-  }
-
-  try {
-    const valid = await verifySubscriptionSignature({
-      subscriptionId: razorpaySubscriptionId,
-      paymentId: razorpayPaymentId,
-      signature: razorpaySignature,
-    });
-    if (!valid) {
-      res.status(400).json({ error: "Payment verification failed" });
-      return;
-    }
-
-    // Trust Razorpay's live state, not just the browser.
-    const live = await fetchRazorpaySubscription(razorpaySubscriptionId);
-    if (live.status !== "active" && live.status !== "authenticated") {
-      res.status(409).json({
-        error: `Payment received but the subscription is ${live.status}. It will activate automatically once confirmed.`,
-      });
-      return;
-    }
-
-    await db
-      .update(subscriptionsTable)
-      .set({
-        status: live.status,
-        currentPeriodEnd: live.current_end ? new Date(live.current_end * 1000) : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(subscriptionsTable.id, sub.id));
-    // The tenant just paid for this plan themselves — a deliberate billing
-    // action clears any earlier superadmin plan override.
-    await db
-      .update(tenantsTable)
-      .set({ plan: sub.planId, planOverriddenAt: null, updatedAt: new Date() })
-      .where(eq(tenantsTable.id, req.tenantId));
-    await applyPlanBillingMode(req.tenantId, sub.planId);
-
-    // Server-side revenue analytics (own billing records, not consent-gated).
-    const plan = await getPlan(sub.planId);
-    {
-      const pricePaise =
-        (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0;
-      if (pricePaise > 0) {
-        await recordInvoice({
-          tenantId: req.tenantId,
-          kind: "plan",
-          // One invoice per paid cycle, keyed by the cycle end — the
-          // subscription.charged webhook uses the SAME key, so verify and
-          // webhook can never double-invoice one charge.
-          refId: `${razorpaySubscriptionId}:${
-            live.current_end
-              ? new Date(live.current_end * 1000).toISOString()
-              : "activation"
-          }`,
-          gateway: "razorpay",
-          description: `${plan?.name ?? sub.planId} plan — ${sub.billingCycle} subscription`,
-          baseAmountPaise: pricePaise,
-          totalPaise: pricePaise,
-        });
-      }
-    }
-    void recordServerEvent({
-      name: "subscription_started",
-      tenantId: req.tenantId,
-      params: { item_type: "subscription", item_name: sub.planId },
-    });
-    void recordServerEvent({
-      name: "purchase",
-      tenantId: req.tenantId,
-      params: {
-        item_type: "subscription",
-        item_name: sub.planId,
-        amount_paise:
-          (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0,
-      },
-    });
-
-    res.json({ ok: true, plan: sub.planId });
-  } catch (error) {
-    // A local subscription row can point at an id Razorpay no longer knows
-    // (e.g. deleted in the dashboard). Razorpay answers the live-state fetch
-    // with a 4xx — surface that as a clear, actionable 400 instead of a
-    // confusing "payment provider error" gateway 502. Nothing was mutated
-    // yet: the fetch happens before any plan/subscription-row writes.
-    if (
-      error instanceof RazorpayApiError &&
-      error.status >= 400 &&
-      error.status < 500
-    ) {
-      res.status(400).json({
-        error:
-          "Razorpay no longer recognizes this subscription. Please start a new subscription or contact support.",
-      });
-      return;
-    }
-    handleGatewayError(req, res, error, "Failed to verify subscription");
-  }
-});
+  },
+);
 
 /**
  * POST /billing/cancel
@@ -668,7 +723,8 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
         .update(subscriptionsTable)
         .set({
           cancelAtPeriodEnd: true,
-          status: live.subscription_status === "CANCELLED" ? "cancelled" : sub.status,
+          status:
+            live.subscription_status === "CANCELLED" ? "cancelled" : sub.status,
           updatedAt: new Date(),
         })
         .where(eq(subscriptionsTable.id, sub.id));
@@ -690,7 +746,11 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
       ) {
         await db
           .update(subscriptionsTable)
-          .set({ status: "cancelled", cancelAtPeriodEnd: true, updatedAt: new Date() })
+          .set({
+            status: "cancelled",
+            cancelAtPeriodEnd: true,
+            updatedAt: new Date(),
+          })
           .where(eq(subscriptionsTable.id, sub.id));
         res.status(400).json({
           error:
@@ -704,10 +764,17 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
   }
 
   try {
-    const live = await cancelRazorpaySubscription(sub.razorpaySubscriptionId!, true);
+    const live = await cancelRazorpaySubscription(
+      sub.razorpaySubscriptionId!,
+      true,
+    );
     await db
       .update(subscriptionsTable)
-      .set({ cancelAtPeriodEnd: true, status: live.status, updatedAt: new Date() })
+      .set({
+        cancelAtPeriodEnd: true,
+        status: live.status,
+        updatedAt: new Date(),
+      })
       .where(eq(subscriptionsTable.id, sub.id));
     void recordServerEvent({
       name: "subscription_cancelled",
@@ -729,7 +796,11 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
     if (isRazorpayLostIdError(error)) {
       await db
         .update(subscriptionsTable)
-        .set({ status: "cancelled", cancelAtPeriodEnd: true, updatedAt: new Date() })
+        .set({
+          status: "cancelled",
+          cancelAtPeriodEnd: true,
+          updatedAt: new Date(),
+        })
         .where(eq(subscriptionsTable.id, sub.id));
       res.status(400).json({
         error:
@@ -750,7 +821,11 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
 router.post("/billing/switch-payg", async (req: Request, res: Response) => {
   if (!requireOwner(req, res)) return;
   const tenant = (
-    await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
+    await db
+      .select()
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, req.tenantId))
+      .limit(1)
   )[0];
   if (!tenant) {
     res.status(401).json({ error: "Unauthorized" });
@@ -783,68 +858,74 @@ router.post("/billing/switch-payg", async (req: Request, res: Response) => {
  * Create a one-time Razorpay order for a credit pack. The browser opens
  * Checkout with the order id, then calls /billing/verify-purchase.
  */
-router.post("/billing/purchase-credits", async (req: Request, res: Response) => {
-  if (!requireOwner(req, res)) return;
-  const parsed = BillingPurchaseCreditsBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-
-  const pack = (
-    await db
-      .select()
-      .from(creditPacksTable)
-      .where(
-        and(eq(creditPacksTable.id, parsed.data.creditPackId), eq(creditPacksTable.active, true)),
-      )
-      .limit(1)
-  )[0];
-  if (!pack) {
-    res.status(404).json({ error: "Credit pack not found" });
-    return;
-  }
-
-  const tags = {
-    purpose: "credit_pack",
-    tenantId: String(req.tenantId),
-    creditPackId: String(pack.id),
-  };
-
-  try {
-    const gateway = await getActiveGateway();
-    if (gateway === "cashfree") {
-      const creds = await getCashfreeCredentials();
-      const order = await createCashfreeOrder({
-        amountPaise: pack.pricePaise,
-        customer: { id: `t${req.tenantId}`, email: req.tenantEmail },
-        tags,
-        note: pack.name,
-      });
-      res.json({
-        gateway: "cashfree",
-        cashfreeOrderId: order.orderId,
-        paymentSessionId: order.paymentSessionId,
-        cashfreeMode: creds?.mode ?? null,
-        amountPaise: pack.pricePaise,
-      });
+router.post(
+  "/billing/purchase-credits",
+  async (req: Request, res: Response) => {
+    if (!requireOwner(req, res)) return;
+    const parsed = BillingPurchaseCreditsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
       return;
     }
-    const order = await createRazorpayOrder({
-      amountPaise: pack.pricePaise,
-      receipt: `cp_${pack.id}_t${req.tenantId}_${Date.now()}`.slice(0, 40),
-      notes: tags,
-    });
-    res.json({
-      gateway: "razorpay",
-      razorpayOrderId: order.id,
-      amountPaise: order.amount,
-      keyId: await getRazorpayKeyId(),
-    });
-  } catch (error) {
-    handleGatewayError(req, res, error, "Failed to create order");
-  }
-});
+
+    const pack = (
+      await db
+        .select()
+        .from(creditPacksTable)
+        .where(
+          and(
+            eq(creditPacksTable.id, parsed.data.creditPackId),
+            eq(creditPacksTable.active, true),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!pack) {
+      res.status(404).json({ error: "Credit pack not found" });
+      return;
+    }
+
+    const tags = {
+      purpose: "credit_pack",
+      tenantId: String(req.tenantId),
+      creditPackId: String(pack.id),
+    };
+
+    try {
+      const gateway = await getActiveGateway();
+      if (gateway === "cashfree") {
+        const creds = await getCashfreeCredentials();
+        const order = await createCashfreeOrder({
+          amountPaise: pack.pricePaise,
+          customer: { id: `t${req.tenantId}`, email: req.tenantEmail },
+          tags,
+          note: pack.name,
+        });
+        res.json({
+          gateway: "cashfree",
+          cashfreeOrderId: order.orderId,
+          paymentSessionId: order.paymentSessionId,
+          cashfreeMode: creds?.mode ?? null,
+          amountPaise: pack.pricePaise,
+        });
+        return;
+      }
+      const order = await createRazorpayOrder({
+        amountPaise: pack.pricePaise,
+        receipt: `cp_${pack.id}_t${req.tenantId}_${Date.now()}`.slice(0, 40),
+        notes: tags,
+      });
+      res.json({
+        gateway: "razorpay",
+        razorpayOrderId: order.id,
+        amountPaise: order.amount,
+        keyId: await getRazorpayKeyId(),
+      });
+    } catch (error) {
+      handleGatewayError(req, res, error, "Failed to create order");
+    }
+  },
+);
 
 /**
  * POST /billing/verify-purchase
@@ -871,8 +952,13 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
     try {
       const order = await getCashfreeOrder(cashfreeOrderId);
       const tags = order.order_tags ?? {};
-      if (tags.purpose !== "credit_pack" || Number(tags.tenantId) !== req.tenantId) {
-        res.status(400).json({ error: "Order does not belong to this workspace" });
+      if (
+        tags.purpose !== "credit_pack" ||
+        Number(tags.tenantId) !== req.tenantId
+      ) {
+        res
+          .status(400)
+          .json({ error: "Order does not belong to this workspace" });
         return;
       }
       if (order.order_status !== "PAID") {
@@ -967,7 +1053,9 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
       notes.purpose !== "credit_pack" ||
       Number(notes.tenantId) !== req.tenantId
     ) {
-      res.status(400).json({ error: "Order does not belong to this workspace" });
+      res
+        .status(400)
+        .json({ error: "Order does not belong to this workspace" });
       return;
     }
     if (order.status !== "paid") {
@@ -1080,7 +1168,9 @@ router.post("/billing/request-upgrade", async (req: Request, res: Response) => {
     res.json({ ok: true, deduped: outcome === "updated" });
   } catch (error) {
     req.log.error({ err: error }, "Failed to submit upgrade request");
-    res.status(500).json({ error: "Could not send the request. Please try again." });
+    res
+      .status(500)
+      .json({ error: "Could not send the request. Please try again." });
   }
 });
 
@@ -1101,7 +1191,9 @@ router.post("/billing/promo/redeem", async (req: Request, res: Response) => {
   try {
     const result = await redeemPromoCode(req.tenantId, parsed.data.code);
     if (!result.ok) {
-      res.status(400).json({ error: result.message, code: result.reason });
+      res
+        .status(result.reason === "reward_mapping_missing" ? 422 : 400)
+        .json({ error: result.message, code: result.reason });
       return;
     }
     void recordServerEvent({
@@ -1111,6 +1203,7 @@ router.post("/billing/promo/redeem", async (req: Request, res: Response) => {
         caption_credits: result.captionCredits,
         image_credits: result.imageCredits,
         video_credits: result.videoCredits,
+        credits: result.credits,
       },
     });
     res.json({
@@ -1118,11 +1211,15 @@ router.post("/billing/promo/redeem", async (req: Request, res: Response) => {
       captionCredits: result.captionCredits,
       imageCredits: result.imageCredits,
       videoCredits: result.videoCredits,
+      credits: result.credits,
+      referrerCredits: result.referrerCredits,
       message: result.message,
     });
   } catch (error) {
     req.log.error({ err: error }, "Promo redemption failed");
-    res.status(500).json({ error: "Could not redeem the code. Please try again." });
+    res
+      .status(500)
+      .json({ error: "Could not redeem the code. Please try again." });
   }
 });
 

@@ -77,6 +77,12 @@ export const GetMeResponse = zod.object({
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 }).optional().describe('Prepaid credit balances. Credits are consumed automatically when the monthly plan quota is exhausted.'),
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+}).optional().describe('Unified prepaid balance. Additive to the legacy credits buckets; legacy balances remain available under credits.'),
   "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.'),
   "isOwner": zod.boolean().describe('Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants.'),
   "brandOnboardingComplete": zod.boolean().describe('Whether the tenant has finished (or skipped) brand onboarding.'),
@@ -3178,6 +3184,10 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
 /**
  * @summary Gamification settings for every plan in the catalog (superadmin only)
  */
+export const adminListGamificationPlansResponseSettingsRewardCreditOverridesMinOne = 0;
+
+
+
 export const AdminListGamificationPlansResponseItem = zod.object({
   "planId": zod.string(),
   "planName": zod.string(),
@@ -3192,7 +3202,8 @@ export const AdminListGamificationPlansResponseItem = zod.object({
   "referrerImageCredits": zod.number(),
   "refereeCaptionCredits": zod.number(),
   "refereeImageCredits": zod.number(),
-  "referralMaxRedemptions": zod.number()
+  "referralMaxRedemptions": zod.number(),
+  "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminListGamificationPlansResponseSettingsRewardCreditOverridesMinOne)).describe('Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.')
 })
 })
 export const AdminListGamificationPlansResponse = zod.array(AdminListGamificationPlansResponseItem)
@@ -3218,6 +3229,8 @@ export const adminUpdateGamificationPlanBodyRefereeImageCreditsMin = 0;
 
 export const adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax = 10000;
 
+export const adminUpdateGamificationPlanBodyRewardCreditOverridesMinOne = 0;
+
 
 
 export const AdminUpdateGamificationPlanBody = zod.object({
@@ -3230,8 +3243,13 @@ export const AdminUpdateGamificationPlanBody = zod.object({
   "referrerImageCredits": zod.number().min(adminUpdateGamificationPlanBodyReferrerImageCreditsMin),
   "refereeCaptionCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeCaptionCreditsMin),
   "refereeImageCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeImageCreditsMin),
-  "referralMaxRedemptions": zod.number().min(1).max(adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax)
+  "referralMaxRedemptions": zod.number().min(1).max(adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax),
+  "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminUpdateGamificationPlanBodyRewardCreditOverridesMinOne)).optional().describe('Optional canonical milli-credit overrides; omitted preserves the current map.')
 })
+
+export const adminUpdateGamificationPlanResponseSettingsRewardCreditOverridesMinOne = 0;
+
+
 
 export const AdminUpdateGamificationPlanResponseItem = zod.object({
   "planId": zod.string(),
@@ -3247,7 +3265,8 @@ export const AdminUpdateGamificationPlanResponseItem = zod.object({
   "referrerImageCredits": zod.number(),
   "refereeCaptionCredits": zod.number(),
   "refereeImageCredits": zod.number(),
-  "referralMaxRedemptions": zod.number()
+  "referralMaxRedemptions": zod.number(),
+  "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminUpdateGamificationPlanResponseSettingsRewardCreditOverridesMinOne)).describe('Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.')
 })
 })
 export const AdminUpdateGamificationPlanResponse = zod.array(AdminUpdateGamificationPlanResponseItem)
@@ -3259,6 +3278,10 @@ export const AdminUpdateGamificationPlanResponse = zod.array(AdminUpdateGamifica
 export const AdminResetGamificationPlanParams = zod.object({
   "planId": zod.coerce.string()
 })
+
+export const adminResetGamificationPlanResponseSettingsRewardCreditOverridesMinOne = 0;
+
+
 
 export const AdminResetGamificationPlanResponseItem = zod.object({
   "planId": zod.string(),
@@ -3274,7 +3297,8 @@ export const AdminResetGamificationPlanResponseItem = zod.object({
   "referrerImageCredits": zod.number(),
   "refereeCaptionCredits": zod.number(),
   "refereeImageCredits": zod.number(),
-  "referralMaxRedemptions": zod.number()
+  "referralMaxRedemptions": zod.number(),
+  "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminResetGamificationPlanResponseSettingsRewardCreditOverridesMinOne)).describe('Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.')
 })
 })
 export const AdminResetGamificationPlanResponse = zod.array(AdminResetGamificationPlanResponseItem)
@@ -32042,7 +32066,9 @@ export const GetGamificationResponse = zod.object({
   "reward": zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
-  "videoCredits": zod.number()
+  "videoCredits": zod.number(),
+  "credits": zod.number().nullable().describe('Canonical prepaid credits. Null when a legacy reward cannot be mapped safely.'),
+  "mappingError": zod.string().optional().describe('Explanation shown to an administrator when credits is null.')
 })
 })),
   "streak": zod.object({
@@ -32053,7 +32079,9 @@ export const GetGamificationResponse = zod.object({
   "reward": zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
-  "videoCredits": zod.number()
+  "videoCredits": zod.number(),
+  "credits": zod.number().nullable().describe('Canonical prepaid credits. Null when a legacy reward cannot be mapped safely.'),
+  "mappingError": zod.string().optional().describe('Explanation shown to an administrator when credits is null.')
 }),
   "reached": zod.boolean(),
   "claimed": zod.boolean(),
@@ -32079,12 +32107,15 @@ export const ClaimGamificationRewardResponse = zod.object({
   "granted": zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
-  "videoCredits": zod.number()
+  "videoCredits": zod.number(),
+  "credits": zod.number().nullable().describe('Canonical prepaid credits. Null when a legacy reward cannot be mapped safely.'),
+  "mappingError": zod.string().optional().describe('Explanation shown to an administrator when credits is null.')
 }),
   "credits": zod.object({
-  "captionCredits": zod.number(),
-  "imageCredits": zod.number(),
-  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
 })
 })
 
@@ -32101,7 +32132,10 @@ export const GetReferralInfoResponse = zod.object({
   "maxRedemptions": zod.number().nullable(),
   "redemptions": zod.number(),
   "captionCreditsEarned": zod.number(),
-  "imageCreditsEarned": zod.number()
+  "imageCreditsEarned": zod.number(),
+  "creditsEarned": zod.number().describe('Canonical prepaid credits earned by the referrer.'),
+  "refereeCredits": zod.number().nullable().describe('Canonical amount awarded to a new user; null for legacy codes awaiting conversion.'),
+  "referrerCredits": zod.number().nullable().describe('Canonical amount currently awarded to the code owner.')
 })
 
 
@@ -32481,6 +32515,10 @@ export const AdminGrantCreditsResponse = zod.object({
 /**
  * @summary List all promo codes, including inactive (superadmin only)
  */
+export const adminListPromoCodesResponseRewardCreditsMin = 0;
+
+
+
 export const AdminListPromoCodesResponseItem = zod.object({
   "id": zod.number(),
   "code": zod.string(),
@@ -32488,6 +32526,7 @@ export const AdminListPromoCodesResponseItem = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number(),
+  "rewardCredits": zod.number().min(adminListPromoCodesResponseRewardCreditsMin).nullable().describe('Canonical prepaid credit override; required for legacy video rewards.'),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -32522,6 +32561,8 @@ export const adminCreatePromoCodesBodyImageCreditsMin = 0;
 
 export const adminCreatePromoCodesBodyVideoCreditsMin = 0;
 
+export const adminCreatePromoCodesBodyRewardCreditsMin = 0;
+
 export const adminCreatePromoCodesBodyNewTenantDaysMax = 365;
 
 
@@ -32538,6 +32579,7 @@ export const AdminCreatePromoCodesBody = zod.object({
   "captionCredits": zod.number().min(adminCreatePromoCodesBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminCreatePromoCodesBodyImageCreditsMin),
   "videoCredits": zod.number().min(adminCreatePromoCodesBodyVideoCreditsMin).optional(),
+  "rewardCredits": zod.number().min(adminCreatePromoCodesBodyRewardCreditsMin).nullish().describe('Optional canonical prepaid credit override. Set this for a video promo whose legacy duration is unknown.'),
   "allowedPlans": zod.array(zod.string()).optional(),
   "audience": zod.enum(['all', 'new', 'existing']).optional(),
   "newTenantDays": zod.number().min(1).max(adminCreatePromoCodesBodyNewTenantDaysMax).optional(),
@@ -32549,6 +32591,10 @@ export const AdminCreatePromoCodesBody = zod.object({
   "note": zod.string().max(adminCreatePromoCodesBodyNoteMax).optional()
 })
 
+export const adminCreatePromoCodesResponseRewardCreditsMin = 0;
+
+
+
 export const AdminCreatePromoCodesResponseItem = zod.object({
   "id": zod.number(),
   "code": zod.string(),
@@ -32556,6 +32602,7 @@ export const AdminCreatePromoCodesResponseItem = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number(),
+  "rewardCredits": zod.number().min(adminCreatePromoCodesResponseRewardCreditsMin).nullable().describe('Canonical prepaid credit override; required for legacy video rewards.'),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -32587,6 +32634,8 @@ export const adminUpdatePromoCodeBodyImageCreditsMin = 0;
 
 export const adminUpdatePromoCodeBodyVideoCreditsMin = 0;
 
+export const adminUpdatePromoCodeBodyRewardCreditsMin = 0;
+
 export const adminUpdatePromoCodeBodyNewTenantDaysMax = 365;
 
 
@@ -32600,6 +32649,7 @@ export const AdminUpdatePromoCodeBody = zod.object({
   "captionCredits": zod.number().min(adminUpdatePromoCodeBodyCaptionCreditsMin).optional(),
   "imageCredits": zod.number().min(adminUpdatePromoCodeBodyImageCreditsMin).optional(),
   "videoCredits": zod.number().min(adminUpdatePromoCodeBodyVideoCreditsMin).optional(),
+  "rewardCredits": zod.number().min(adminUpdatePromoCodeBodyRewardCreditsMin).nullish().describe('Canonical prepaid credit override; null clears the override.'),
   "allowedPlans": zod.array(zod.string()).nullish(),
   "audience": zod.enum(['all', 'new', 'existing']).optional(),
   "newTenantDays": zod.number().min(1).max(adminUpdatePromoCodeBodyNewTenantDaysMax).optional(),
@@ -32611,6 +32661,10 @@ export const AdminUpdatePromoCodeBody = zod.object({
   "note": zod.string().max(adminUpdatePromoCodeBodyNoteMax).nullish()
 })
 
+export const adminUpdatePromoCodeResponseRewardCreditsMin = 0;
+
+
+
 export const AdminUpdatePromoCodeResponse = zod.object({
   "id": zod.number(),
   "code": zod.string(),
@@ -32618,6 +32672,7 @@ export const AdminUpdatePromoCodeResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number(),
+  "rewardCredits": zod.number().min(adminUpdatePromoCodeResponseRewardCreditsMin).nullable().describe('Canonical prepaid credit override; required for legacy video rewards.'),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -32640,6 +32695,10 @@ export const AdminDeactivatePromoCodeParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const adminDeactivatePromoCodeResponseRewardCreditsMin = 0;
+
+
+
 export const AdminDeactivatePromoCodeResponse = zod.object({
   "id": zod.number(),
   "code": zod.string(),
@@ -32647,6 +32706,7 @@ export const AdminDeactivatePromoCodeResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number(),
+  "rewardCredits": zod.number().min(adminDeactivatePromoCodeResponseRewardCreditsMin).nullable().describe('Canonical prepaid credit override; required for legacy video rewards.'),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -32723,6 +32783,8 @@ export const BillingRedeemPromoResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number(),
+  "credits": zod.number().describe('Canonical prepaid credits added to the redeemer\'s account.'),
+  "referrerCredits": zod.number().describe('Canonical prepaid credits added to the code owner\'s account.'),
   "message": zod.string()
 })
 
@@ -32747,6 +32809,12 @@ export const BillingGetOverviewResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
+}),
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
 }),
   "creditPacks": zod.array(zod.object({
   "id": zod.number(),
@@ -34533,6 +34601,12 @@ export const GetCreditsResponse = zod.object({
   "granted": zod.number(),
   "total": zod.number(),
   "grantedExpiresAt": zod.string().nullish(),
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+}),
   "mode": zod.string(),
   "funded": zod.boolean().optional().describe('True when this workspace\'s generations are actually being paid for out of this balance — it is on the credits rail AND the meter is enforcing. False means credits are visible but some other rail (plan quota or the rupee wallet) is still the one collecting, so the UI should keep showing that rail.'),
   "history": zod.array(zod.object({
@@ -34545,7 +34619,13 @@ export const GetCreditsResponse = zod.object({
   "refId": zod.string().nullish(),
   "note": zod.string().nullish(),
   "createdAt": zod.coerce.date()
-}))
+})),
+  "legacyConversion": zod.object({
+  "pending": zod.boolean().describe('True until an administrator explicitly approves legacy conversion.'),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
+})
 })
 
 
@@ -34700,7 +34780,13 @@ export const AdminGetTenantCreditsResponse = zod.object({
   "refId": zod.string().nullish(),
   "note": zod.string().nullish(),
   "createdAt": zod.coerce.date()
-}))
+})),
+  "legacyConversion": zod.object({
+  "pending": zod.boolean().describe('True until an administrator explicitly approves legacy conversion.'),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
+})
 })
 
 

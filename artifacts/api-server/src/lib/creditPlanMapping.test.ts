@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  vi,
+} from "vitest";
 vi.mock("./creditReconciliationGate", () => ({
   CREDIT_RECONCILIATION_GATE: {
     verdict: "go",
@@ -10,20 +18,31 @@ import {
   db,
   creditAccountsTable,
   creditAccountLedgerTable,
+  creditBalancesTable,
+  creditLedgerTable,
   subscriptionsTable,
   planSettingsTable,
   tenantsTable,
   walletBalancesTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { getCreditBalance, grantCredits, isCreditFunded } from "./creditAccounts";
+import {
+  getCreditBalance,
+  grantCredits,
+  isCreditFunded,
+} from "./creditAccounts";
 import { setMeterMode, invalidateCreditRateCache } from "./creditRates";
 import {
   monthlyCreditsForPlan,
   grantMonthlyCredits,
   grantUnbilledPlanCredits,
 } from "./monthlyCreditGrant";
-import { planCreditMigration } from "./creditMigration";
+import {
+  getLegacyConversionStatus,
+  planCreditMigration,
+  runCreditMigration,
+} from "./creditMigration";
+import { creditsMilliFor, MILLI } from "./creditRates";
 import { invalidatePlanCache } from "./plans";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
@@ -59,10 +78,12 @@ function planRow(id: string, extra: Record<string, unknown>) {
 
 beforeAll(async () => {
   tenantId = (await createTenant()).tenantId;
-  await db.insert(planSettingsTable).values([
-    planRow(FREE_PLAN, { monthlyCredits: 120, priceInr: null }),
-    planRow(PAID_PLAN, { monthlyCredits: 900, priceInr: 99900 }),
-  ]);
+  await db
+    .insert(planSettingsTable)
+    .values([
+      planRow(FREE_PLAN, { monthlyCredits: 120, priceInr: null }),
+      planRow(PAID_PLAN, { monthlyCredits: 900, priceInr: 99900 }),
+    ]);
   invalidatePlanCache();
 });
 
@@ -74,6 +95,12 @@ afterAll(async () => {
   await db
     .delete(creditAccountsTable)
     .where(eq(creditAccountsTable.tenantId, tenantId));
+  await db
+    .delete(creditLedgerTable)
+    .where(eq(creditLedgerTable.tenantId, tenantId));
+  await db
+    .delete(creditBalancesTable)
+    .where(eq(creditBalancesTable.tenantId, tenantId));
   await db
     .delete(subscriptionsTable)
     .where(eq(subscriptionsTable.tenantId, tenantId));
@@ -100,6 +127,12 @@ beforeEach(async () => {
   await db
     .delete(walletBalancesTable)
     .where(eq(walletBalancesTable.tenantId, tenantId));
+  await db
+    .delete(creditLedgerTable)
+    .where(eq(creditLedgerTable.tenantId, tenantId));
+  await db
+    .delete(creditBalancesTable)
+    .where(eq(creditBalancesTable.tenantId, tenantId));
   invalidateCreditRateCache();
   invalidatePlanCache();
 });
@@ -203,20 +236,40 @@ describe("the allowance for plans no gateway bills", () => {
         expect.objectContaining({ tenantId, source: "quota", credits: 120 }),
       ]),
     );
-    expect(await db
-      .select()
-      .from(creditAccountsTable)
-      .where(eq(creditAccountsTable.tenantId, tenantId))).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(creditAccountsTable)
+        .where(eq(creditAccountsTable.tenantId, tenantId)),
+    ).toHaveLength(0);
 
     await setTenant(FREE_PLAN, "wallet");
-    await db.insert(walletBalancesTable).values({ tenantId, balancePaise: 9000 });
+    await db
+      .insert(walletBalancesTable)
+      .values({ tenantId, balancePaise: 9000 });
     expect(await grantUnbilledPlanCredits(tenantId)).toBe(0);
-    const walletPlan = (await planCreditMigration()).find((row) => row.tenantId === tenantId);
+    const walletPlan = (await planCreditMigration()).find(
+      (row) => row.tenantId === tenantId,
+    );
     expect(walletPlan).toMatchObject({ source: "wallet", credits: 2 });
-    expect(await db
-      .select()
-      .from(creditAccountsTable)
-      .where(eq(creditAccountsTable.tenantId, tenantId))).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(creditAccountsTable)
+        .where(eq(creditAccountsTable.tenantId, tenantId)),
+    ).toHaveLength(0);
+  });
+
+  it("does not treat a reward-created account as legacy migration approval", async () => {
+    await setTenant(FREE_PLAN, "quota");
+    // A reward claim can create the canonical account before an admin reviews
+    // the old rail. The account itself is not an approval receipt.
+    await db.insert(creditAccountsTable).values({ tenantId });
+    expect(await planCreditMigration()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tenantId, source: "quota", credits: 120 }),
+      ]),
+    );
   });
 
   it("does not add a lazy allowance to an active gateway subscription", async () => {
@@ -234,11 +287,13 @@ describe("the allowance for plans no gateway bills", () => {
     // read must not add a second allowance merely because the catalog price is
     // null (a valid manual-only plan).
     const periodEnd = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    expect(await grantMonthlyCredits({
-      tenantId,
-      planId: FREE_PLAN,
-      periodEnd,
-    })).toBe(120);
+    expect(
+      await grantMonthlyCredits({
+        tenantId,
+        planId: FREE_PLAN,
+        periodEnd,
+      }),
+    ).toBe(120);
     expect(await grantUnbilledPlanCredits(tenantId)).toBe(0);
     expect((await getCreditBalance(tenantId)).total).toBe(120);
   });
@@ -256,5 +311,82 @@ describe("the allowance for plans no gateway bills", () => {
 
     expect(await grantUnbilledPlanCredits(tenantId)).toBe(0);
     expect((await getCreditBalance(tenantId)).total).toBe(120);
+  });
+
+  it("converts legacy generation balances once without mutating the old rail", async () => {
+    await setTenant(FREE_PLAN, "quota");
+    const legacy = {
+      tenantId,
+      captionCredits: 5,
+      imageCredits: 1,
+      videoCredits: 2,
+    };
+    await db.insert(creditBalancesTable).values(legacy);
+
+    const expectedMilli = Math.ceil(
+      ((await creditsMilliFor("caption", 5))! +
+        (await creditsMilliFor("image", 1))! +
+        (await creditsMilliFor("video", 10 * 2))!) /
+        MILLI,
+    ) * MILLI;
+    const plan = (await planCreditMigration()).filter(
+      (row) => row.tenantId === tenantId,
+    );
+    expect(plan).toEqual([
+      expect.objectContaining({
+        tenantId,
+        source: "credit",
+        credits: expectedMilli / MILLI,
+      }),
+    ]);
+    expect(await getLegacyConversionStatus(tenantId)).toMatchObject({
+      pending: true,
+      captionCredits: 5,
+      imageCredits: 1,
+      videoCredits: 2,
+    });
+
+    const first = await runCreditMigration(plan);
+    expect(first).toMatchObject({
+      migrated: plan,
+      skipped: 0,
+      totalCreditsGranted: expectedMilli / MILLI,
+    });
+    expect(await getCreditBalance(tenantId)).toMatchObject({
+      purchased: expectedMilli / MILLI,
+      granted: 0,
+      total: expectedMilli / MILLI,
+    });
+    expect(
+      await db
+        .select({
+          tenantId: creditBalancesTable.tenantId,
+          captionCredits: creditBalancesTable.captionCredits,
+          imageCredits: creditBalancesTable.imageCredits,
+          videoCredits: creditBalancesTable.videoCredits,
+        })
+        .from(creditBalancesTable)
+        .where(eq(creditBalancesTable.tenantId, tenantId)),
+    ).toEqual([legacy]);
+    expect(await getLegacyConversionStatus(tenantId)).toMatchObject({
+      pending: false,
+    });
+
+    // Replaying the same explicit plan is safe even if an operator retries a
+    // partially completed batch: the stable migration key prevents a second
+    // account grant.
+    const second = await runCreditMigration(plan);
+    expect(second.migrated).toEqual(plan);
+    expect(second.totalCreditsGranted).toBe(expectedMilli / MILLI);
+    expect((await getCreditBalance(tenantId)).total).toBe(
+      expectedMilli / MILLI,
+    );
+    expect(
+      (await db
+        .select()
+        .from(creditAccountLedgerTable)
+        .where(eq(creditAccountLedgerTable.tenantId, tenantId)))
+        .filter((row) => row.kind === "migrate"),
+    ).toHaveLength(1);
   });
 });

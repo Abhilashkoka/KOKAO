@@ -7,7 +7,7 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
-import { grantCredits, hasCreditAccount } from "./creditAccounts";
+import { grantCredits, hasMigrationReceipt } from "./creditAccounts";
 import { creditsMilliFor, MILLI } from "./creditRates";
 
 /**
@@ -33,8 +33,9 @@ import { creditsMilliFor, MILLI } from "./creditRates";
  *     people bought something under different terms; attaching a new deadline
  *     to it after the fact would be changing the deal.
  *
- * Idempotent by construction: a workspace that already has a credit account
- * is skipped, so a partial run can simply be run again.
+ * Idempotent by construction: only a workspace with an explicit migration
+ * receipt is skipped. Merely opening the new wallet or earning a reward does
+ * not waive a customer's untouched legacy balance.
  */
 
 export interface MigrationPlanRow {
@@ -50,6 +51,35 @@ export interface MigrationResult {
   migrated: MigrationPlanRow[];
   skipped: number;
   totalCreditsGranted: number;
+}
+
+export interface LegacyConversionStatus {
+  /** True until an administrator explicitly approves and runs migration. */
+  pending: boolean;
+  captionCredits: number;
+  imageCredits: number;
+  videoCredits: number;
+}
+
+/**
+ * Read-only disclosure for customers and admins. This deliberately never
+ * creates an account and never changes the legacy row: earning a new reward
+ * must not hide or waive value held on the old rail.
+ */
+export async function getLegacyConversionStatus(
+  tenantId: number,
+): Promise<LegacyConversionStatus> {
+  const [legacy] = await db
+    .select()
+    .from(creditBalancesTable)
+    .where(eq(creditBalancesTable.tenantId, tenantId))
+    .limit(1);
+  return {
+    pending: !(await hasMigrationReceipt(tenantId)),
+    captionCredits: legacy?.captionCredits ?? 0,
+    imageCredits: legacy?.imageCredits ?? 0,
+    videoCredits: legacy?.videoCredits ?? 0,
+  };
 }
 
 /** The default credit price in paise, for converting a rupee wallet. */
@@ -70,7 +100,11 @@ function roundUpCredits(milli: number): number {
  */
 export async function planCreditMigration(): Promise<MigrationPlanRow[]> {
   const tenants = await db
-    .select({ id: tenantsTable.id, plan: tenantsTable.plan, billingMode: tenantsTable.billingMode })
+    .select({
+      id: tenantsTable.id,
+      plan: tenantsTable.plan,
+      billingMode: tenantsTable.billingMode,
+    })
     .from(tenantsTable);
 
   const [captionMilli, imageMilli, videoMilli] = await Promise.all([
@@ -82,7 +116,7 @@ export async function planCreditMigration(): Promise<MigrationPlanRow[]> {
 
   const rows: MigrationPlanRow[] = [];
   for (const tenant of tenants) {
-    if (await hasCreditAccount(tenant.id)) continue;
+    if (await hasMigrationReceipt(tenant.id)) continue;
 
     if (tenant.billingMode === "wallet") {
       const [wallet] = await db

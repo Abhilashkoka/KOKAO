@@ -8,6 +8,7 @@ import {
 import { quoteVideoJobCredits, quoteActionCredits } from "../lib/creditQuote";
 import { getMeterMode } from "../lib/creditRates";
 import { grantUnbilledPlanCreditsSafely } from "../lib/monthlyCreditGrant";
+import { getLegacyConversionStatus } from "../lib/creditMigration";
 
 /**
  * Tenant-facing credit surface: what the workspace has, what it spent, and
@@ -29,16 +30,17 @@ router.get("/credits", async (req: Request, res: Response) => {
   // here, lazily, once per calendar month. Idempotent, and best-effort: the
   // balance still reads correctly if it fails.
   await grantUnbilledPlanCreditsSafely(req.tenantId);
-  const [balance, history, mode, funded] = await Promise.all([
+  const [balance, history, mode, funded, legacyConversion] = await Promise.all([
     peekCreditBalance(req.tenantId),
     listCreditHistory(req.tenantId, 50),
     getMeterMode(),
     isCreditFunded(req.tenantId),
+    getLegacyConversionStatus(req.tenantId),
   ]);
   // `funded` is the server's own answer to "is this balance what pays for my
   // work right now", so the UI never has to recombine the meter mode and the
   // workspace's rail and risk disagreeing with what the backend enforces.
-  res.json({ ...balance, mode, funded, history });
+  res.json({ ...balance, balance, mode, funded, history, legacyConversion });
 });
 
 /**
@@ -84,9 +86,14 @@ router.get("/credits/quote", async (req: Request, res: Response) => {
   }
 
   const quantity = Number(req.query.quantity ?? 1);
-  const credits = await quoteActionCredits(action, Number.isFinite(quantity) ? quantity : 1);
+  const credits = await quoteActionCredits(
+    action,
+    Number.isFinite(quantity) ? quantity : 1,
+  );
   if (credits === null) {
-    res.status(400).json({ error: `No credit rate is configured for "${action}"` });
+    res
+      .status(400)
+      .json({ error: `No credit rate is configured for "${action}"` });
     return;
   }
   res.json({

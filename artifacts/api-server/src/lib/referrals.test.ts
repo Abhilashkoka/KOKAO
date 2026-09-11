@@ -7,11 +7,15 @@ import {
   promoRedemptionsTable,
   notificationsTable,
   gamificationPlanSettingsTable,
+  creditAccountsTable,
+  creditAccountLedgerTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { getOrCreateReferralCode, getReferralCode, getReferralStats } from "./referrals";
 import { redeemPromoCode } from "./promoCodes";
-import { getCreditBalances } from "./credits";
+import { getCreditBalance } from "./creditAccounts";
+import { getCreditBalances as getLegacyCreditBalances } from "./credits";
+import { creditsMilliFor, MILLI } from "./creditRates";
 import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
 
 /** Unique per-run plan id so settings rows can never collide with real plans. */
@@ -46,6 +50,12 @@ afterAll(async () => {
   await db
     .delete(gamificationPlanSettingsTable)
     .where(eq(gamificationPlanSettingsTable.planId, TEST_PLAN));
+  await db
+    .delete(creditAccountLedgerTable)
+    .where(inArray(creditAccountLedgerTable.tenantId, [referrerId, refereeId]));
+  await db
+    .delete(creditAccountsTable)
+    .where(inArray(creditAccountsTable.tenantId, [referrerId, refereeId]));
   await deleteTenant(referrerId);
   await deleteTenant(refereeId);
   await pool.end();
@@ -75,8 +85,14 @@ describe("referral codes", () => {
 
   it("pays the referee from the code and the referrer from their plan settings", async () => {
     const code = (await getReferralCode(referrerId))!;
-    const refereeBefore = await getCreditBalances(refereeId);
-    const referrerBefore = await getCreditBalances(referrerId);
+    const refereeBefore = await getCreditBalance(refereeId);
+    const referrerBefore = await getCreditBalance(referrerId);
+    const refereeLegacyBefore = await getLegacyCreditBalances(refereeId);
+    const referrerLegacyBefore = await getLegacyCreditBalances(referrerId);
+    const expectedCredits =
+      ((await creditsMilliFor("caption", 5))! +
+        (await creditsMilliFor("image", 3))!) /
+      MILLI;
 
     const result = await redeemPromoCode(refereeId, code.code);
     expect(result.ok).toBe(true);
@@ -84,19 +100,24 @@ describe("referral codes", () => {
     expect(result.referrerTenantId).toBe(referrerId);
     expect(result.referrerCaptionCredits).toBe(5);
     expect(result.referrerImageCredits).toBe(3);
+    expect(result.credits).toBe(expectedCredits);
+    expect(result.referrerCredits).toBe(expectedCredits);
 
-    const refereeAfter = await getCreditBalances(refereeId);
-    expect(refereeAfter.captionCredits).toBe(refereeBefore.captionCredits + 5);
-    expect(refereeAfter.imageCredits).toBe(refereeBefore.imageCredits + 3);
+    const refereeAfter = await getCreditBalance(refereeId);
+    expect(refereeAfter.total).toBe(refereeBefore.total + expectedCredits);
+    expect(await getLegacyCreditBalances(refereeId)).toEqual(refereeLegacyBefore);
 
-    const referrerAfter = await getCreditBalances(referrerId);
-    expect(referrerAfter.captionCredits).toBe(referrerBefore.captionCredits + 5);
-    expect(referrerAfter.imageCredits).toBe(referrerBefore.imageCredits + 3);
+    const referrerAfter = await getCreditBalance(referrerId);
+    expect(referrerAfter.total).toBe(referrerBefore.total + expectedCredits);
+    expect(await getLegacyCreditBalances(referrerId)).toEqual(
+      referrerLegacyBefore,
+    );
 
     const stats = await getReferralStats(referrerId);
     expect(stats.redemptions).toBe(1);
     expect(stats.captionCreditsEarned).toBe(5);
     expect(stats.imageCreditsEarned).toBe(3);
+    expect(stats.creditsEarned).toBe(expectedCredits);
 
     // The referrer got an in-app heads-up.
     const notes = await db
@@ -118,21 +139,27 @@ describe("referral codes", () => {
     const extraRedeemer = await createTenant();
     try {
       const code = (await getReferralCode(referrerId))!;
-      const referrerBefore = await getCreditBalances(referrerId);
-      const redeemerBefore = await getCreditBalances(extraRedeemer.tenantId);
+      const referrerBefore = await getCreditBalance(referrerId);
+      const redeemerBefore = await getCreditBalance(extraRedeemer.tenantId);
       const result = await redeemPromoCode(extraRedeemer.tenantId, code.code);
       // The kill switch stops the WHOLE redemption — no referee credits, no
       // referrer reward — so disabling referrals ends all credit liability.
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.reason).toBe("referrals_disabled");
-      expect((await getCreditBalances(extraRedeemer.tenantId)).captionCredits).toBe(
-        redeemerBefore.captionCredits,
+      expect((await getCreditBalance(extraRedeemer.tenantId)).total).toBe(
+        redeemerBefore.total,
       );
-      expect((await getCreditBalances(referrerId)).captionCredits).toBe(
-        referrerBefore.captionCredits,
+      expect((await getCreditBalance(referrerId)).total).toBe(
+        referrerBefore.total,
       );
     } finally {
+      await db
+        .delete(creditAccountLedgerTable)
+        .where(eq(creditAccountLedgerTable.tenantId, extraRedeemer.tenantId));
+      await db
+        .delete(creditAccountsTable)
+        .where(eq(creditAccountsTable.tenantId, extraRedeemer.tenantId));
       await deleteTenant(extraRedeemer.tenantId);
     }
   });

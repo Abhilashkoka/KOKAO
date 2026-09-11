@@ -29,6 +29,7 @@ import { getGetFirstPostProgressQueryKey } from "@workspace/api-client-react";
 
 import { GettingStartedChecklist } from "@/components/GettingStartedChecklist";
 import { WelcomeCreditsBanner } from "@/components/WelcomeCreditsBanner";
+import { GamificationCard } from "@/components/GamificationCard";
 import {
   TeamMembershipCard,
   TeamWelcomeModal,
@@ -229,6 +230,7 @@ export default function HomeScreen() {
           {me.data?.brandOnboardingComplete ? <ConsentPrompt /> : null}
           <WelcomeCreditsBanner />
           <GettingStartedChecklist />
+          <GamificationCard />
           <TeamWelcomeModal />
           <TeamMembershipCard />
           <Card style={{ marginTop: 20 }}>

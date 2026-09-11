@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminUpdateGamificationPlanRequestRewardCreditOverrides } from './adminUpdateGamificationPlanRequestRewardCreditOverrides';
 
 export interface AdminUpdateGamificationPlanRequest {
   questsEnabled: boolean;
@@ -29,4 +30,6 @@ export interface AdminUpdateGamificationPlanRequest {
      * @maximum 10000
      */
   referralMaxRedemptions: number;
+  /** Optional canonical milli-credit overrides; omitted preserves the current map. */
+  rewardCreditOverrides?: AdminUpdateGamificationPlanRequestRewardCreditOverrides;
 }

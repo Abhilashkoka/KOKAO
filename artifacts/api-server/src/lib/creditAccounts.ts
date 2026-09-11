@@ -43,7 +43,13 @@ export interface CreditBalance {
   grantedExpiresAt: string | null;
 }
 
-export type GrantKind = "grant_plan" | "grant_signup" | "grant_promo" | "grant_admin" | "purchase" | "migrate";
+export type GrantKind =
+  | "grant_plan"
+  | "grant_signup"
+  | "grant_promo"
+  | "grant_admin"
+  | "purchase"
+  | "migrate";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -58,7 +64,9 @@ function toBalance(state: AccountState): CreditBalance {
     purchased: state.purchasedMilli / MILLI,
     granted: state.grantedMilli / MILLI,
     total: (state.purchasedMilli + state.grantedMilli) / MILLI,
-    grantedExpiresAt: state.grantedExpiresAt ? state.grantedExpiresAt.toISOString() : null,
+    grantedExpiresAt: state.grantedExpiresAt
+      ? state.grantedExpiresAt.toISOString()
+      : null,
   };
 }
 
@@ -71,7 +79,10 @@ function toBalance(state: AccountState): CreditBalance {
  * Expiry is applied here, inside the lock, so nothing downstream can read a
  * balance that includes credits which have already lapsed.
  */
-async function lockAccount(tx: DbTransaction, tenantId: number): Promise<AccountState> {
+async function lockAccount(
+  tx: DbTransaction,
+  tenantId: number,
+): Promise<AccountState> {
   await tx
     .insert(creditAccountsTable)
     .values({ tenantId })
@@ -88,7 +99,11 @@ async function lockAccount(tx: DbTransaction, tenantId: number): Promise<Account
     grantedExpiresAt: row?.grantedExpiresAt ?? null,
   };
 
-  if (state.grantedMilli > 0 && state.grantedExpiresAt && state.grantedExpiresAt.getTime() <= Date.now()) {
+  if (
+    state.grantedMilli > 0 &&
+    state.grantedExpiresAt &&
+    state.grantedExpiresAt.getTime() <= Date.now()
+  ) {
     const lapsed = state.grantedMilli;
     state.grantedMilli = 0;
     state.grantedExpiresAt = null;
@@ -108,27 +123,44 @@ async function lockAccount(tx: DbTransaction, tenantId: number): Promise<Account
   return state;
 }
 
-async function writeState(tx: DbTransaction, tenantId: number, state: AccountState): Promise<void> {
+async function writeState(
+  tx: DbTransaction,
+  tenantId: number,
+  state: AccountState,
+): Promise<void> {
   await tx
     .update(creditAccountsTable)
     .set({
       purchasedMilli: state.purchasedMilli,
       grantedMilli: state.grantedMilli,
-      grantedExpiresAt: state.grantedMilli === 0 ? null : state.grantedExpiresAt,
+      grantedExpiresAt:
+        state.grantedMilli === 0 ? null : state.grantedExpiresAt,
       updatedAt: new Date(),
     })
     .where(eq(creditAccountsTable.tenantId, tenantId));
 }
 
 /** What this workspace can spend right now, with expiry already applied. */
-export async function getCreditBalance(tenantId: number): Promise<CreditBalance> {
-  return toBalance(await db.transaction(async (tx) => lockAccount(tx, tenantId)));
+export async function getCreditBalance(
+  tenantId: number,
+): Promise<CreditBalance> {
+  return toBalance(
+    await db.transaction(async (tx) => lockAccount(tx, tenantId)),
+  );
 }
 
 /** A cheap read that takes no lock, for display where staleness is fine. */
-export async function peekCreditBalance(tenantId: number): Promise<CreditBalance> {
-  const [row] = await db.select().from(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenantId)).limit(1);
-  const lapsed = Boolean(row?.grantedExpiresAt && row.grantedExpiresAt.getTime() <= Date.now());
+export async function peekCreditBalance(
+  tenantId: number,
+): Promise<CreditBalance> {
+  const [row] = await db
+    .select()
+    .from(creditAccountsTable)
+    .where(eq(creditAccountsTable.tenantId, tenantId))
+    .limit(1);
+  const lapsed = Boolean(
+    row?.grantedExpiresAt && row.grantedExpiresAt.getTime() <= Date.now(),
+  );
   return toBalance({
     purchasedMilli: row?.purchasedMilli ?? 0,
     grantedMilli: lapsed ? 0 : (row?.grantedMilli ?? 0),
@@ -160,23 +192,28 @@ export interface GrantCreditsInput {
  * Add credits. `purchase` and `migrate` land in the never-expiring bucket;
  * every other kind lands in the expiring one.
  */
-export async function grantCredits(input: GrantCreditsInput): Promise<CreditBalance> {
+export async function grantCredits(
+  input: GrantCreditsInput,
+  transaction?: DbTransaction,
+): Promise<CreditBalance> {
   const deltaMilli = Math.round((Number(input.credits) || 0) * MILLI);
   const toPurchased = input.kind === "purchase" || input.kind === "migrate";
   if (deltaMilli < 0 && input.kind !== "grant_admin") {
     throw new Error("Only an admin adjustment may remove credits");
   }
 
-  return db.transaction(async (tx) => {
+  const apply = async (tx: DbTransaction): Promise<CreditBalance> => {
     const before = await lockAccount(tx, input.tenantId);
     if (input.idempotencyKey) {
       const [seen] = await tx
         .select({ id: creditAccountLedgerTable.id })
         .from(creditAccountLedgerTable)
-        .where(and(
-          eq(creditAccountLedgerTable.tenantId, input.tenantId),
-          eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey),
-        ))
+        .where(
+          and(
+            eq(creditAccountLedgerTable.tenantId, input.tenantId),
+            eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey),
+          ),
+        )
         .limit(1);
       if (seen) return toBalance(before);
     }
@@ -184,15 +221,29 @@ export async function grantCredits(input: GrantCreditsInput): Promise<CreditBala
     // A negative admin adjustment can empty a bucket but never drive it below
     // zero. The ledger records what was ACTUALLY applied, so totals reconcile.
     const after: AccountState = {
-      purchasedMilli: toPurchased ? Math.max(0, before.purchasedMilli + deltaMilli) : before.purchasedMilli,
-      grantedMilli: toPurchased ? before.grantedMilli : Math.max(0, before.grantedMilli + deltaMilli),
+      purchasedMilli: toPurchased
+        ? Math.max(0, before.purchasedMilli + deltaMilli)
+        : before.purchasedMilli,
+      grantedMilli: toPurchased
+        ? before.grantedMilli
+        : Math.max(0, before.grantedMilli + deltaMilli),
       grantedExpiresAt: before.grantedExpiresAt,
     };
 
     if (!toPurchased && deltaMilli > 0 && input.expiresInDays) {
-      const candidate = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
-      after.grantedExpiresAt =
-        after.grantedExpiresAt && after.grantedExpiresAt > candidate ? after.grantedExpiresAt : candidate;
+      // A legacy/admin goodwill balance with no deadline is deliberately
+      // preserved as non-expiring when a later expiring grant is added. The
+      // old value must never be made destructively expiring by a migration or
+      // by merely sharing the granted bucket.
+      if (!(before.grantedMilli > 0 && before.grantedExpiresAt === null)) {
+        const candidate = new Date(
+          Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000,
+        );
+        after.grantedExpiresAt =
+          after.grantedExpiresAt && after.grantedExpiresAt > candidate
+            ? after.grantedExpiresAt
+            : candidate;
+      }
     }
     if (after.grantedMilli === 0) after.grantedExpiresAt = null;
 
@@ -207,7 +258,11 @@ export async function grantCredits(input: GrantCreditsInput): Promise<CreditBala
       note: input.note ?? null,
     });
     return toBalance(after);
-  });
+  };
+  // Callers that already hold a business transaction (for example, a
+  // referral redemption) can keep the account grant and its own receipt
+  // atomic. Existing callers retain the one-transaction convenience API.
+  return transaction ? apply(transaction) : db.transaction(apply);
 }
 
 export interface SpendCreditsInput {
@@ -248,7 +303,9 @@ export interface SpendCreditsResult {
   refundIdempotencyKey?: string | null;
   attemptOrdinal?: number | null;
 }
-export async function spendCredits(input: SpendCreditsInput): Promise<CreditBalance> {
+export async function spendCredits(
+  input: SpendCreditsInput,
+): Promise<CreditBalance> {
   return (await spendCreditsOnce(input)).balance;
 }
 
@@ -268,10 +325,12 @@ export async function refundCredits(input: SpendCreditsInput): Promise<void> {
       const [seen] = await tx
         .select({ id: creditAccountLedgerTable.id })
         .from(creditAccountLedgerTable)
-        .where(and(
-          eq(creditAccountLedgerTable.tenantId, input.tenantId),
-          eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey),
-        ))
+        .where(
+          and(
+            eq(creditAccountLedgerTable.tenantId, input.tenantId),
+            eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey),
+          ),
+        )
         .limit(1);
       if (seen) return;
     }
@@ -295,8 +354,12 @@ export async function refundCredits(input: SpendCreditsInput): Promise<void> {
 }
 
 /** Best-effort refund: never let bookkeeping break a user-facing flow. */
-export async function refundCreditsSafely(input: SpendCreditsInput): Promise<void> {
-  await refundCredits(input).catch((err) => logger.error({ err, tenantId: input.tenantId }, "credit refund failed"));
+export async function refundCreditsSafely(
+  input: SpendCreditsInput,
+): Promise<void> {
+  await refundCredits(input).catch((err) =>
+    logger.error({ err, tenantId: input.tenantId }, "credit refund failed"),
+  );
 }
 
 export interface CreditHistoryEntry {
@@ -311,7 +374,10 @@ export interface CreditHistoryEntry {
   createdAt: string;
 }
 
-export async function listCreditHistory(tenantId: number, limit = 50): Promise<CreditHistoryEntry[]> {
+export async function listCreditHistory(
+  tenantId: number,
+  limit = 50,
+): Promise<CreditHistoryEntry[]> {
   const rows = await db
     .select()
     .from(creditAccountLedgerTable)
@@ -337,6 +403,21 @@ export async function hasCreditAccount(tenantId: number): Promise<boolean> {
     .select({ tenantId: creditAccountsTable.tenantId })
     .from(creditAccountsTable)
     .where(eq(creditAccountsTable.tenantId, tenantId))
+    .limit(1);
+  return Boolean(row);
+}
+
+/** True only after the explicit, admin-approved legacy conversion ran. */
+export async function hasMigrationReceipt(tenantId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: creditAccountLedgerTable.id })
+    .from(creditAccountLedgerTable)
+    .where(
+      and(
+        eq(creditAccountLedgerTable.tenantId, tenantId),
+        eq(creditAccountLedgerTable.kind, "migrate"),
+      ),
+    )
     .limit(1);
   return Boolean(row);
 }
@@ -404,7 +485,10 @@ export function serializeAccount(row: CreditAccount): CreditBalance {
  *
  * Fails CLOSED to the existing rail on any error.
  */
-export async function isCreditFunded(tenantId: number, frozenMode?: MeterMode): Promise<boolean> {
+export async function isCreditFunded(
+  tenantId: number,
+  frozenMode?: MeterMode,
+): Promise<boolean> {
   try {
     // Callers that are freezing a route funding decision pass the mode they
     // already read. Re-reading the mutable platform setting here would allow
@@ -424,7 +508,8 @@ export async function isCreditFunded(tenantId: number, frozenMode?: MeterMode): 
 function ordinalForReceipt(key: string, base: string): number | null {
   if (key === base) return 1; // compatibility with receipts predating ordinals
   const suffix = key.slice(`${base}:attempt:`.length);
-  if (!key.startsWith(`${base}:attempt:`) || !/^[1-9]\d*$/.test(suffix)) return null;
+  if (!key.startsWith(`${base}:attempt:`) || !/^[1-9]\d*$/.test(suffix))
+    return null;
   return Number(suffix);
 }
 
@@ -433,7 +518,9 @@ function ordinalForReceipt(key: string, base: string): number | null {
  * actually debited is essential: a replay after an earlier successful call
  * must not refund that earlier debit if the replayed provider call fails.
  */
-export async function spendCreditsOnce(input: SpendCreditsInput): Promise<SpendCreditsResult> {
+export async function spendCreditsOnce(
+  input: SpendCreditsInput,
+): Promise<SpendCreditsResult> {
   const costMilli = Math.max(0, Math.round(input.creditsMilli));
   return db.transaction(async (tx) => {
     // Serialize all movements for this workspace before consulting the
@@ -456,35 +543,46 @@ export async function spendCreditsOnce(input: SpendCreditsInput): Promise<SpendC
             idempotencyKey: creditAccountLedgerTable.idempotencyKey,
           })
           .from(creditAccountLedgerTable)
-          .where(and(
-            eq(creditAccountLedgerTable.tenantId, input.tenantId),
-            or(
-              eq(creditAccountLedgerTable.idempotencyKey, spendBase),
-              eq(creditAccountLedgerTable.idempotencyKey, refundBase),
-              sql`starts_with(${creditAccountLedgerTable.idempotencyKey}, ${`${spendBase}:attempt:`})`,
-              sql`starts_with(${creditAccountLedgerTable.idempotencyKey}, ${`${refundBase}:attempt:`})`,
+          .where(
+            and(
+              eq(creditAccountLedgerTable.tenantId, input.tenantId),
+              or(
+                eq(creditAccountLedgerTable.idempotencyKey, spendBase),
+                eq(creditAccountLedgerTable.idempotencyKey, refundBase),
+                sql`starts_with(${creditAccountLedgerTable.idempotencyKey}, ${`${spendBase}:attempt:`})`,
+                sql`starts_with(${creditAccountLedgerTable.idempotencyKey}, ${`${refundBase}:attempt:`})`,
+              ),
             ),
-          ));
+          );
         const spent = new Set<number>();
         const refunded = new Set<number>();
         for (const row of receipts) {
           if (!row.idempotencyKey) continue;
           const spendOrdinal = ordinalForReceipt(row.idempotencyKey, spendBase);
-          if (row.kind === "spend" && spendOrdinal !== null) spent.add(spendOrdinal);
-          const refundOrdinal = ordinalForReceipt(row.idempotencyKey, refundBase);
-          if (row.kind === "refund" && refundOrdinal !== null) refunded.add(refundOrdinal);
+          if (row.kind === "spend" && spendOrdinal !== null)
+            spent.add(spendOrdinal);
+          const refundOrdinal = ordinalForReceipt(
+            row.idempotencyKey,
+            refundBase,
+          );
+          if (row.kind === "refund" && refundOrdinal !== null)
+            refunded.add(refundOrdinal);
         }
         const latest = spent.size ? Math.max(...spent) : 0;
         if (latest > 0 && !refunded.has(latest)) {
           return {
             balance: toBalance(before),
             applied: false,
-            idempotencyKey: latest === 1 && receipts.some((r) => r.idempotencyKey === spendBase)
-              ? spendBase
-              : `${spendBase}:attempt:${latest}`,
-            refundIdempotencyKey: latest === 1 && receipts.some((r) => r.idempotencyKey === refundBase)
-              ? refundBase
-              : `${refundBase}:attempt:${latest}`,
+            idempotencyKey:
+              latest === 1 &&
+              receipts.some((r) => r.idempotencyKey === spendBase)
+                ? spendBase
+                : `${spendBase}:attempt:${latest}`,
+            refundIdempotencyKey:
+              latest === 1 &&
+              receipts.some((r) => r.idempotencyKey === refundBase)
+                ? refundBase
+                : `${refundBase}:attempt:${latest}`,
             attemptOrdinal: latest,
           };
         }
@@ -495,10 +593,12 @@ export async function spendCreditsOnce(input: SpendCreditsInput): Promise<SpendC
       const [seen] = await tx
         .select({ id: creditAccountLedgerTable.id })
         .from(creditAccountLedgerTable)
-        .where(and(
-          eq(creditAccountLedgerTable.tenantId, input.tenantId),
-          eq(creditAccountLedgerTable.idempotencyKey, receiptKey!),
-        ))
+        .where(
+          and(
+            eq(creditAccountLedgerTable.tenantId, input.tenantId),
+            eq(creditAccountLedgerTable.idempotencyKey, receiptKey!),
+          ),
+        )
         .limit(1);
       if (seen) {
         return {
@@ -512,7 +612,8 @@ export async function spendCreditsOnce(input: SpendCreditsInput): Promise<SpendC
     }
 
     const available = before.purchasedMilli + before.grantedMilli;
-    if (costMilli > available) throw new InsufficientCreditsError(costMilli, available);
+    if (costMilli > available)
+      throw new InsufficientCreditsError(costMilli, available);
 
     const fromGranted = Math.min(before.grantedMilli, costMilli);
     const fromPurchased = costMilli - fromGranted;

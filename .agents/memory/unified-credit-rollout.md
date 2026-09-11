@@ -28,6 +28,12 @@ Enforcement readiness also requires billing-rail isolation and one consistent fu
 
 **How to apply:** Require whole-flow quota, wallet, and credits tests (including mode changes) before enabling enforcement. Do not treat a passed reconciliation gate as sufficient authorization to charge customers.
 
+Reward conversion must preserve the terms of existing earned value. Previously issued referral codes use their stored reward promise, not the owner's current plan overrides. A new expiring reward must never impose a deadline on an existing non-expiring goodwill balance.
+
+**Why:** A shared grant-expiry timestamp cannot represent independent reward lots, and mutable plan overrides can silently change an already-issued referral promise.
+
+**How to apply:** Freeze canonical reward amounts at issuance/redemption, preserve the more favorable existing expiry, and leave legacy balances intact pending explicit conversion. Account existence alone is not evidence that legacy conversion occurred; require a migration ledger receipt.
+
 Provider credit enforcement is authorized by the server's frozen funding decision, not by a fresh global-mode or tenant-mode lookup. Legacy-funded pipelines remain on their original quota/wallet rail; adding metering does not migrate them to credits.
 
 **Why:** A mode switch after acceptance must neither add a second charge to reserved work nor remove the only charge from credits-funded work. Nested operations with their own wallet reservation must not inherit credit-debit authorization from their parent.

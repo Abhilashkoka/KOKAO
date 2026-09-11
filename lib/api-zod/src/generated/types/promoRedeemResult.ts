@@ -11,5 +11,9 @@ export interface PromoRedeemResult {
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
+  /** Canonical prepaid credits added to the redeemer's account. */
+  credits: number;
+  /** Canonical prepaid credits added to the code owner's account. */
+  referrerCredits: number;
   message: string;
 }

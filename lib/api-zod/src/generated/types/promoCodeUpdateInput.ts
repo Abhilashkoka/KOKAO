@@ -19,6 +19,12 @@ export interface PromoCodeUpdateInput {
   imageCredits?: number;
   /** @minimum 0 */
   videoCredits?: number;
+  /**
+     * Canonical prepaid credit override; null clears the override.
+     * @minimum 0
+     * @nullable
+     */
+  rewardCredits?: number | null;
   /** @nullable */
   allowedPlans?: string[] | null;
   audience?: PromoCodeUpdateInputAudience;

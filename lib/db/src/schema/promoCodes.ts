@@ -17,9 +17,9 @@ import { sql } from "drizzle-orm";
  *
  * Redemption is fully atomic: the redeem transaction locks the promo row
  * (SELECT ... FOR UPDATE), re-checks every constraint, appends a
- * promo_redemptions row, bumps redemptionCount, and grants the credits with
- * a matching credit_ledger entry — so concurrent submits can never double
- * credit or oversubscribe a capped code.
+ * promo_redemptions row, bumps redemptionCount, and grants canonical
+ * expiring account credits with matching ledger receipts — so concurrent
+ * submits can never double credit or oversubscribe a capped code.
  */
 export const promoCodesTable = pgTable(
   "promo_codes",
@@ -32,6 +32,13 @@ export const promoCodesTable = pgTable(
     captionCredits: integer("caption_credits").notNull().default(0),
     imageCredits: integer("image_credits").notNull().default(0),
     videoCredits: integer("video_credits").notNull().default(0),
+    /**
+     * Optional canonical amount for this promo/referral code. Null means the
+     * legacy caption/image amounts are converted at redemption using the
+     * current rate card; a non-null value is an explicit frozen override.
+     * Legacy video rewards must set this because their old duration is opaque.
+     */
+    rewardCreditsMilli: integer("reward_credits_milli"),
     /**
      * Plan ids allowed to redeem (matched against tenants.plan). Null or
      * empty = any plan.
@@ -63,7 +70,9 @@ export const promoCodesTable = pgTable(
      */
     ownerTenantId: integer("owner_tenant_id"),
     note: text("note"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -99,9 +108,18 @@ export const promoRedemptionsTable = pgTable(
     imageCredits: integer("image_credits").notNull().default(0),
     videoCredits: integer("video_credits").notNull().default(0),
     /** Referral codes only: what the code owner earned for this redemption. */
-    referrerCaptionCredits: integer("referrer_caption_credits").notNull().default(0),
-    referrerImageCredits: integer("referrer_image_credits").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    referrerCaptionCredits: integer("referrer_caption_credits")
+      .notNull()
+      .default(0),
+    referrerImageCredits: integer("referrer_image_credits")
+      .notNull()
+      .default(0),
+    /** Canonical amounts actually awarded, frozen at redemption time. */
+    rewardCreditsMilli: integer("reward_credits_milli"),
+    referrerRewardCreditsMilli: integer("referrer_reward_credits_milli"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [
     index("promo_redemptions_code_tenant_idx").on(t.promoCodeId, t.tenantId),
@@ -125,9 +143,12 @@ export const promoRedemptionFailuresTable = pgTable(
     code: text("code").notNull(),
     /** Machine-readable reason, e.g. plan_not_allowed | expired | limit_reached. */
     reason: text("reason").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [index("promo_failures_created_idx").on(t.createdAt)],
 );
 
-export type PromoRedemptionFailure = typeof promoRedemptionFailuresTable.$inferSelect;
+export type PromoRedemptionFailure =
+  typeof promoRedemptionFailuresTable.$inferSelect;

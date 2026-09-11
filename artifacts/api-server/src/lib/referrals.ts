@@ -5,9 +5,13 @@ import {
   type PromoCode,
   type Tenant,
 } from "@workspace/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { generatePromoCode } from "./promoCodes";
-import { getPlanGamification } from "./gamification";
+import {
+  getPlanGamification,
+  legacyRewardToCreditsMilli,
+} from "./gamification";
+import { MILLI } from "./creditRates";
 
 /**
  * Referral credits, built ON TOP of the promo-code engine rather than beside
@@ -23,7 +27,9 @@ export const REFERRAL_CAMPAIGN = "referral";
 /** New-account window for redeeming an invite (days since signup). */
 const REFERRAL_NEW_TENANT_DAYS = 30;
 
-export async function getReferralCode(tenantId: number): Promise<PromoCode | undefined> {
+export async function getReferralCode(
+  tenantId: number,
+): Promise<PromoCode | undefined> {
   return (
     await db
       .select()
@@ -45,7 +51,9 @@ export async function getReferralCode(tenantId: number): Promise<PromoCode | und
  * how the promo engine grants), so later admin changes affect new codes, not
  * codes already in circulation.
  */
-export async function getOrCreateReferralCode(tenant: Tenant): Promise<PromoCode> {
+export async function getOrCreateReferralCode(
+  tenant: Tenant,
+): Promise<PromoCode> {
   const existing = await getReferralCode(tenant.id);
   if (existing) return existing;
 
@@ -63,6 +71,7 @@ export async function getOrCreateReferralCode(tenant: Tenant): Promise<PromoCode
             campaign: REFERRAL_CAMPAIGN,
             captionCredits: settings.refereeCaptionCredits,
             imageCredits: settings.refereeImageCredits,
+            rewardCreditsMilli: settings.rewardCreditOverrides.referee ?? null,
             audience: "new",
             newTenantDays: REFERRAL_NEW_TENANT_DAYS,
             maxRedemptions: settings.referralMaxRedemptions,
@@ -89,24 +98,49 @@ export interface ReferralStats {
   redemptions: number;
   captionCreditsEarned: number;
   imageCreditsEarned: number;
+  /** Canonical credits earned by the referrer, including historical rows. */
+  creditsEarned: number;
 }
 
 /** How the tenant's invite code has performed (what THEY earned as referrer). */
-export async function getReferralStats(tenantId: number): Promise<ReferralStats> {
-  const row = (
-    await db
-      .select({
-        redemptions: sql<number>`count(*)::int`,
-        captionCreditsEarned: sql<number>`coalesce(sum(${promoRedemptionsTable.referrerCaptionCredits}), 0)::int`,
-        imageCreditsEarned: sql<number>`coalesce(sum(${promoRedemptionsTable.referrerImageCredits}), 0)::int`,
-      })
-      .from(promoRedemptionsTable)
-      .innerJoin(promoCodesTable, eq(promoRedemptionsTable.promoCodeId, promoCodesTable.id))
-      .where(eq(promoCodesTable.ownerTenantId, tenantId))
-  )[0];
+export async function getReferralStats(
+  tenantId: number,
+): Promise<ReferralStats> {
+  const rows = await db
+    .select({
+      redemptions: promoRedemptionsTable.id,
+      captionCreditsEarned: promoRedemptionsTable.referrerCaptionCredits,
+      imageCreditsEarned: promoRedemptionsTable.referrerImageCredits,
+      creditsEarned: promoRedemptionsTable.referrerRewardCreditsMilli,
+    })
+    .from(promoRedemptionsTable)
+    .innerJoin(
+      promoCodesTable,
+      eq(promoRedemptionsTable.promoCodeId, promoCodesTable.id),
+    )
+    .where(eq(promoCodesTable.ownerTenantId, tenantId));
+  let creditsEarned = 0;
+  for (const row of rows) {
+    if (row.creditsEarned !== null && row.creditsEarned !== undefined) {
+      creditsEarned += row.creditsEarned;
+    } else {
+      creditsEarned += await legacyRewardToCreditsMilli({
+        captionCredits: row.captionCreditsEarned,
+        imageCredits: row.imageCreditsEarned,
+        videoCredits: 0,
+      });
+    }
+  }
   return {
-    redemptions: row?.redemptions ?? 0,
-    captionCreditsEarned: row?.captionCreditsEarned ?? 0,
-    imageCreditsEarned: row?.imageCreditsEarned ?? 0,
+    redemptions: rows.length,
+    captionCreditsEarned: rows.reduce(
+      (sum, row) => sum + row.captionCreditsEarned,
+      0,
+    ),
+    imageCreditsEarned: rows.reduce(
+      (sum, row) => sum + row.imageCreditsEarned,
+      0,
+    ),
+    creditsEarned: creditsEarned / MILLI,
   };
 }

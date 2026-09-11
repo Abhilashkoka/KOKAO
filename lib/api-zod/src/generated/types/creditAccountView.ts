@@ -7,8 +7,10 @@
  */
 import type { CreditBalance } from './creditBalance';
 import type { CreditHistoryEntry } from './creditHistoryEntry';
+import type { LegacyConversionStatus } from './legacyConversionStatus';
 
 export interface CreditAccountView {
   balance: CreditBalance;
   history: CreditHistoryEntry[];
+  legacyConversion: LegacyConversionStatus;
 }

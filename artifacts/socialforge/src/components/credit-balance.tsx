@@ -1,12 +1,7 @@
 import { useGetCredits } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Coins } from "lucide-react";
 import { Link } from "wouter";
 
@@ -45,6 +40,11 @@ export function CreditUsageCard() {
   const granted = credits?.granted ?? 0;
   const purchased = credits?.purchased ?? 0;
   const expiring = granted > 0 && credits?.grantedExpiresAt;
+  const legacy = credits?.legacyConversion;
+  const legacyTotal =
+    (legacy?.captionCredits ?? 0) +
+    (legacy?.imageCredits ?? 0) +
+    (legacy?.videoCredits ?? 0);
 
   return (
     <Card className="border-border shadow-sm" data-testid="card-credit-usage">
@@ -54,6 +54,16 @@ export function CreditUsageCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {legacy?.pending && legacyTotal > 0 && (
+          <p
+            className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground"
+            data-testid="text-legacy-conversion-pending"
+          >
+            Your legacy balance ({legacy.captionCredits} caption,{" "}
+            {legacy.imageCredits} image, {legacy.videoCredits} video) is still
+            intact and awaiting administrator-approved conversion.
+          </p>
+        )}
         <div>
           <div className="text-4xl font-bold tracking-tight tabular-nums">
             {total.toFixed(total < 10 ? 1 : 0)}
@@ -126,7 +136,9 @@ export function CreditBalancePill() {
         }
       >
         <Coins className="h-3.5 w-3.5" />
-        <span className="tabular-nums">{total.toFixed(total < 10 ? 1 : 0)}</span>
+        <span className="tabular-nums">
+          {total.toFixed(total < 10 ? 1 : 0)}
+        </span>
         <span className="text-xs opacity-80">credits</span>
       </Badge>
     </Link>
@@ -167,7 +179,10 @@ export function CreditQuoteSummary({
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-medium">This will cost</span>
-        <span className="tabular-nums font-semibold" data-testid="text-quote-credits">
+        <span
+          className="tabular-nums font-semibold"
+          data-testid="text-quote-credits"
+        >
           {credits.toFixed(credits < 10 ? 1 : 0)} credits
         </span>
       </div>

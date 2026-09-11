@@ -7,6 +7,8 @@ import {
   gamificationClaimsTable,
   gamificationPlanSettingsTable,
   tenantsTable,
+  creditAccountsTable,
+  creditAccountLedgerTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
@@ -17,7 +19,9 @@ import {
   questClaimKey,
   streakClaimKey,
 } from "./gamification";
-import { getCreditBalances } from "./credits";
+import { getCreditBalance } from "./creditAccounts";
+import { getCreditBalances as getLegacyCreditBalances } from "./credits";
+import { creditsMilliFor, MILLI } from "./creditRates";
 import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
 
 /** Unique per-run plan id so settings rows can never collide with real plans. */
@@ -55,6 +59,12 @@ afterAll(async () => {
   await db
     .delete(gamificationPlanSettingsTable)
     .where(eq(gamificationPlanSettingsTable.planId, TEST_PLAN));
+  await db
+    .delete(creditAccountLedgerTable)
+    .where(eq(creditAccountLedgerTable.tenantId, tenantId));
+  await db
+    .delete(creditAccountsTable)
+    .where(eq(creditAccountsTable.tenantId, tenantId));
   await db.delete(usageEventsTable).where(eq(usageEventsTable.tenantId, tenantId));
   await db.delete(brandKitsTable).where(eq(brandKitsTable.tenantId, tenantId));
   await deleteTenant(tenantId);
@@ -81,18 +91,24 @@ describe("quests", () => {
     state = await getGamificationState(await tenant());
     expect(state.quests.find((q) => q.id === "create_brand_kit")!.completed).toBe(true);
 
-    const before = await getCreditBalances(tenantId);
+    const before = await getCreditBalance(tenantId);
+    const legacyBefore = await getLegacyCreditBalances(tenantId);
+    const expectedCreditsMilli = (await creditsMilliFor("caption", 2))!;
+    const expectedCredits = expectedCreditsMilli / MILLI;
     const { granted } = await claimReward(await tenant(), questClaimKey("create_brand_kit"));
     expect(granted.captionCredits).toBe(2); // catalog amount at 100%
-    const after = await getCreditBalances(tenantId);
-    expect(after.captionCredits).toBe(before.captionCredits + 2);
+    expect(granted.credits).toBe(expectedCredits);
+    const after = await getCreditBalance(tenantId);
+    expect(after.total).toBe(before.total + expectedCredits);
+    // New rewards must not recreate or mutate the legacy generation buckets.
+    expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
 
     // Replay is rejected and grants nothing.
     await expect(
       claimReward(await tenant(), questClaimKey("create_brand_kit")),
     ).rejects.toMatchObject({ code: "already_claimed" });
-    expect((await getCreditBalances(tenantId)).captionCredits).toBe(
-      after.captionCredits,
+    expect((await getCreditBalance(tenantId)).total).toBe(
+      after.total,
     );
 
     state = await getGamificationState(await tenant());
@@ -126,15 +142,22 @@ describe("streaks", () => {
       claimReward(await tenant(), streakClaimKey(3, "2000-01-01")),
     ).rejects.toMatchObject({ code: "not_completed" });
 
-    const before = await getCreditBalances(tenantId);
+    const before = await getCreditBalance(tenantId);
+    const legacyBefore = await getLegacyCreditBalances(tenantId);
+    const expectedCreditsMilli =
+      (await creditsMilliFor("caption", 1))! +
+      (await creditsMilliFor("image", 1))!;
+    const expectedCredits = expectedCreditsMilli / MILLI;
     const { granted } = await claimReward(
       await tenant(),
       streakClaimKey(3, streak.startDate!),
     );
     expect(granted.captionCredits).toBe(1);
     expect(granted.imageCredits).toBe(1);
-    const after = await getCreditBalances(tenantId);
-    expect(after.imageCredits).toBe(before.imageCredits + 1);
+    expect(granted.credits).toBe(expectedCredits);
+    const after = await getCreditBalance(tenantId);
+    expect(after.total).toBe(before.total + expectedCredits);
+    expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
 
     // Milestones above the current run stay unclaimable.
     await expect(

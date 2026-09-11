@@ -34,7 +34,20 @@ import {
   freezeVideoDeliveryBillingManifest,
   trueUpModel,
 } from "../lib/wallet";
-import { eq, sql, asc, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
+import {
+  eq,
+  sql,
+  asc,
+  desc,
+  gte,
+  lt,
+  lte,
+  and,
+  or,
+  ilike,
+  inArray,
+  isNotNull,
+} from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   syncActivatedModelPricing,
@@ -291,7 +304,11 @@ import {
   getGlobalDesignSkillEnabled,
   loadDesignSkillRow,
 } from "../lib/designSkill";
-import { getAiSpendConfig, setAiSpendConfig, getAiSpendRates } from "../lib/aiSpend";
+import {
+  getAiSpendConfig,
+  setAiSpendConfig,
+  getAiSpendRates,
+} from "../lib/aiSpend";
 import {
   getSignupCreditSettings,
   updateSignupCreditSettings,
@@ -302,10 +319,15 @@ import {
   deleteCreditRate,
   getMeterMode,
   setMeterMode,
+  MILLI,
 } from "../lib/creditRates";
 import { CREDIT_RECONCILIATION_GATE } from "../lib/creditReconciliationGate";
 import { meterReport } from "../lib/meter";
-import { planCreditMigration, runCreditMigration } from "../lib/creditMigration";
+import {
+  planCreditMigration,
+  runCreditMigration,
+  getLegacyConversionStatus,
+} from "../lib/creditMigration";
 import {
   grantCredits as grantAccountCredits,
   peekCreditBalance,
@@ -369,29 +391,48 @@ import { selectAtlasGenerationReferenceId } from "../lib/atlascloud/assetId";
 const router: IRouter = Router();
 
 async function serializeBytePlusAssets() {
-  const characters = await db.select().from(charactersTable).orderBy(asc(charactersTable.id));
+  const characters = await db
+    .select()
+    .from(charactersTable)
+    .orderBy(asc(charactersTable.id));
   const outfits = characters.length
-    ? await db.select().from(characterOutfitsTable).where(inArray(
-        characterOutfitsTable.characterId,
-        characters.map((character) => character.id),
-      ))
+    ? await db
+        .select()
+        .from(characterOutfitsTable)
+        .where(
+          inArray(
+            characterOutfitsTable.characterId,
+            characters.map((character) => character.id),
+          ),
+        )
     : [];
-  const identities = await db.select().from(bytePlusIdentitiesTable)
+  const identities = await db
+    .select()
+    .from(bytePlusIdentitiesTable)
     .orderBy(asc(bytePlusIdentitiesTable.id));
-  const cleanupRows = await db.select({
-    status: bytePlusIdentityCleanupsTable.status,
-    count: sql<number>`count(*)::int`,
-  }).from(bytePlusIdentityCleanupsTable)
+  const cleanupRows = await db
+    .select({
+      status: bytePlusIdentityCleanupsTable.status,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(bytePlusIdentityCleanupsTable)
     .groupBy(bytePlusIdentityCleanupsTable.status);
-  const [oldestOutstanding] = await db.select({
-    createdAt: bytePlusIdentityCleanupsTable.createdAt,
-  }).from(bytePlusIdentityCleanupsTable)
-    .where(inArray(bytePlusIdentityCleanupsTable.status, ["pending", "processing"]))
+  const [oldestOutstanding] = await db
+    .select({
+      createdAt: bytePlusIdentityCleanupsTable.createdAt,
+    })
+    .from(bytePlusIdentityCleanupsTable)
+    .where(
+      inArray(bytePlusIdentityCleanupsTable.status, ["pending", "processing"]),
+    )
     .orderBy(asc(bytePlusIdentityCleanupsTable.createdAt))
     .limit(1);
-  const cleanupByStatus = Object.fromEntries(cleanupRows.map((row) => [row.status, row.count]));
-  const outstandingRows = cleanupRows.filter((row) =>
-    row.status === "pending" || row.status === "processing");
+  const cleanupByStatus = Object.fromEntries(
+    cleanupRows.map((row) => [row.status, row.count]),
+  );
+  const outstandingRows = cleanupRows.filter(
+    (row) => row.status === "pending" || row.status === "processing",
+  );
   return {
     keySource: await getBytePlusAssetsKeySource(),
     identityCleanup: {
@@ -418,25 +459,35 @@ async function serializeBytePlusAssets() {
       assetGroupId: character.bytePlusAssetGroupId,
       identityId: character.bytePlusIdentityId,
       referenceSource: character.referenceSource,
-      outfits: outfits.filter((outfit) => outfit.characterId === character.id).map((outfit) => ({
-        id: outfit.id,
-        name: outfit.name,
-        assetId: outfit.bytePlusAssetId,
-        status: outfit.bytePlusAssetStatus,
-        error: outfit.bytePlusAssetError,
-        syncedAt: outfit.bytePlusAssetSyncedAt?.toISOString() ?? null,
-      })),
+      outfits: outfits
+        .filter((outfit) => outfit.characterId === character.id)
+        .map((outfit) => ({
+          id: outfit.id,
+          name: outfit.name,
+          assetId: outfit.bytePlusAssetId,
+          status: outfit.bytePlusAssetStatus,
+          error: outfit.bytePlusAssetError,
+          syncedAt: outfit.bytePlusAssetSyncedAt?.toISOString() ?? null,
+        })),
     })),
   };
 }
 
 async function serializeAtlasCloudAssets() {
-  const characters = await db.select().from(charactersTable).orderBy(asc(charactersTable.id));
+  const characters = await db
+    .select()
+    .from(charactersTable)
+    .orderBy(asc(charactersTable.id));
   const outfits = characters.length
-    ? await db.select().from(characterOutfitsTable).where(inArray(
-        characterOutfitsTable.characterId,
-        characters.map((character) => character.id),
-      ))
+    ? await db
+        .select()
+        .from(characterOutfitsTable)
+        .where(
+          inArray(
+            characterOutfitsTable.characterId,
+            characters.map((character) => character.id),
+          ),
+        )
     : [];
   return {
     configured: Boolean(await resolveAtlasAssetsKey()),
@@ -459,22 +510,27 @@ async function serializeAtlasCloudAssets() {
       eligible:
         character.referenceSource === "generated" &&
         character.bytePlusIdentityId === null,
-      outfits: outfits.filter((outfit) => outfit.characterId === character.id).map((outfit) => ({
-        id: outfit.id,
-        name: outfit.name,
-        /** @deprecated generationReferenceId is the unambiguous field. */
-        assetId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
-        libraryRecordId: outfit.atlasAssetLibraryId,
-        generationReferenceId: selectAtlasGenerationReferenceId(
-          outfit.atlasAssetReferenceId,
-          outfit.atlasAssetId,
-        ),
-        status: outfit.atlasAssetStatus,
-        error: outfit.atlasAssetError,
-        syncedAt: outfit.atlasAssetSyncedAt?.toISOString() ?? null,
-        sourcePath: outfit.atlasAssetSourcePath,
-        sourceSha256: outfit.atlasAssetSourceSha256,
-      })),
+      outfits: outfits
+        .filter((outfit) => outfit.characterId === character.id)
+        .map((outfit) => ({
+          id: outfit.id,
+          name: outfit.name,
+          /** @deprecated generationReferenceId is the unambiguous field. */
+          assetId: selectAtlasGenerationReferenceId(
+            outfit.atlasAssetReferenceId,
+            outfit.atlasAssetId,
+          ),
+          libraryRecordId: outfit.atlasAssetLibraryId,
+          generationReferenceId: selectAtlasGenerationReferenceId(
+            outfit.atlasAssetReferenceId,
+            outfit.atlasAssetId,
+          ),
+          status: outfit.atlasAssetStatus,
+          error: outfit.atlasAssetError,
+          syncedAt: outfit.atlasAssetSyncedAt?.toISOString() ?? null,
+          sourcePath: outfit.atlasAssetSourcePath,
+          sourceSha256: outfit.atlasAssetSourceSha256,
+        })),
     })),
   };
 }
@@ -489,7 +545,9 @@ router.get("/admin/byteplus-assets", async (_req, res) => {
 router.put("/admin/byteplus-assets/key", async (req, res) => {
   const parsed = SetAdminBytePlusAssetsKeyBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Both BytePlus access-key fields are required." });
+    res
+      .status(400)
+      .json({ error: "Both BytePlus access-key fields are required." });
     return;
   }
   await setStoredBytePlusAssetsKey({
@@ -522,107 +580,134 @@ router.delete("/admin/byteplus-assets/key", async (req, res) => {
   res.json(await serializeBytePlusAssets());
 });
 
-router.post("/admin/byteplus-assets/characters/:characterId/register", async (req, res) => {
-  const characterId = Number(req.params.characterId);
-  if (!Number.isInteger(characterId) || characterId <= 0) {
-    res.status(400).json({ error: "Invalid character id." });
-    return;
-  }
-  const [character] = await db.select({ tenantId: charactersTable.tenantId })
-    .from(charactersTable).where(eq(charactersTable.id, characterId)).limit(1);
-  if (!character) {
-    res.status(404).json({ error: "Character not found." });
-    return;
-  }
-  await registerCharacterAssets({
-    tenantId: character.tenantId,
-    characterId,
-  });
-  res.json(await serializeBytePlusAssets());
-});
+router.post(
+  "/admin/byteplus-assets/characters/:characterId/register",
+  async (req, res) => {
+    const characterId = Number(req.params.characterId);
+    if (!Number.isInteger(characterId) || characterId <= 0) {
+      res.status(400).json({ error: "Invalid character id." });
+      return;
+    }
+    const [character] = await db
+      .select({ tenantId: charactersTable.tenantId })
+      .from(charactersTable)
+      .where(eq(charactersTable.id, characterId))
+      .limit(1);
+    if (!character) {
+      res.status(404).json({ error: "Character not found." });
+      return;
+    }
+    await registerCharacterAssets({
+      tenantId: character.tenantId,
+      characterId,
+    });
+    res.json(await serializeBytePlusAssets());
+  },
+);
 
 router.get("/admin/atlascloud-assets", async (_req, res) => {
   res.json(await serializeAtlasCloudAssets());
 });
 
-router.post("/admin/atlascloud-assets/characters/:characterId/register", async (req, res) => {
-  const characterId = Number(req.params.characterId);
-  if (!Number.isInteger(characterId) || characterId <= 0) {
-    res.status(400).json({ error: "Invalid character id." });
-    return;
-  }
-  const [character] = await db.select({ tenantId: charactersTable.tenantId })
-    .from(charactersTable).where(eq(charactersTable.id, characterId)).limit(1);
-  if (!character) {
-    res.status(404).json({ error: "Character not found." });
-    return;
-  }
-  const [current] = await db.select({
-    referenceSheetImagePath: charactersTable.referenceSheetImagePath,
-  }).from(charactersTable).where(and(
-    eq(charactersTable.id, characterId),
-    eq(charactersTable.tenantId, character.tenantId),
-  )).limit(1);
-  if (!current?.referenceSheetImagePath) {
-    res.status(409).json({ error: "Character has no reference sheet to register." });
-    return;
-  }
-  let expectedReferenceSheetSha256: string;
-  try {
-    expectedReferenceSheetSha256 = await atlasSourceSha256(
-      current.referenceSheetImagePath,
-      character.tenantId,
-    );
-  } catch {
-    res.status(409).json({ error: "Could not load the current reference sheet bytes." });
-    return;
-  }
-  await registerAtlasCharacterAssets({
-    tenantId: character.tenantId,
-    characterId,
-    expectedReferenceSheetPath: current.referenceSheetImagePath,
-    expectedReferenceSheetSha256,
-  });
-  res.json(await serializeAtlasCloudAssets());
-});
+router.post(
+  "/admin/atlascloud-assets/characters/:characterId/register",
+  async (req, res) => {
+    const characterId = Number(req.params.characterId);
+    if (!Number.isInteger(characterId) || characterId <= 0) {
+      res.status(400).json({ error: "Invalid character id." });
+      return;
+    }
+    const [character] = await db
+      .select({ tenantId: charactersTable.tenantId })
+      .from(charactersTable)
+      .where(eq(charactersTable.id, characterId))
+      .limit(1);
+    if (!character) {
+      res.status(404).json({ error: "Character not found." });
+      return;
+    }
+    const [current] = await db
+      .select({
+        referenceSheetImagePath: charactersTable.referenceSheetImagePath,
+      })
+      .from(charactersTable)
+      .where(
+        and(
+          eq(charactersTable.id, characterId),
+          eq(charactersTable.tenantId, character.tenantId),
+        ),
+      )
+      .limit(1);
+    if (!current?.referenceSheetImagePath) {
+      res
+        .status(409)
+        .json({ error: "Character has no reference sheet to register." });
+      return;
+    }
+    let expectedReferenceSheetSha256: string;
+    try {
+      expectedReferenceSheetSha256 = await atlasSourceSha256(
+        current.referenceSheetImagePath,
+        character.tenantId,
+      );
+    } catch {
+      res
+        .status(409)
+        .json({ error: "Could not load the current reference sheet bytes." });
+      return;
+    }
+    await registerAtlasCharacterAssets({
+      tenantId: character.tenantId,
+      characterId,
+      expectedReferenceSheetPath: current.referenceSheetImagePath,
+      expectedReferenceSheetSha256,
+    });
+    res.json(await serializeAtlasCloudAssets());
+  },
+);
 
-router.get("/admin/video-jobs/:jobId/diagnostics", async (req: Request, res: Response) => {
-  const jobId = Number(req.params.jobId);
-  if (!Number.isInteger(jobId) || jobId <= 0) {
-    res.status(400).json({ error: "Invalid video job id." });
-    return;
-  }
-  const [job] = await db.select({
-    id: videoGenerationsTable.id,
-    status: videoGenerationsTable.status,
-    provider: videoGenerationsTable.provider,
-    model: videoGenerationsTable.model,
-    providerTaskId: videoGenerationsTable.providerTaskId,
-    providerRequestId: videoGenerationsTable.providerRequestId,
-    error: videoGenerationsTable.error,
-    errorHistory: videoGenerationsTable.errorHistory,
-    options: videoGenerationsTable.options,
-  }).from(videoGenerationsTable)
-    .where(eq(videoGenerationsTable.id, jobId))
-    .limit(1);
-  if (!job) {
-    res.status(404).json({ error: "Video job not found." });
-    return;
-  }
-  res.json({
-    id: job.id,
-    status: job.status,
-    provider: job.provider,
-    model: job.model,
-    providerTaskId: job.providerTaskId,
-    providerRequestId: job.providerRequestId,
-    error: job.error,
-    errorHistory: job.errorHistory ?? [],
-    providerTasks: Object.entries(job.options?.providerTasks ?? {})
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([operationKey, receipt]) => ({ operationKey, ...receipt })),
-  });
-});
+router.get(
+  "/admin/video-jobs/:jobId/diagnostics",
+  async (req: Request, res: Response) => {
+    const jobId = Number(req.params.jobId);
+    if (!Number.isInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "Invalid video job id." });
+      return;
+    }
+    const [job] = await db
+      .select({
+        id: videoGenerationsTable.id,
+        status: videoGenerationsTable.status,
+        provider: videoGenerationsTable.provider,
+        model: videoGenerationsTable.model,
+        providerTaskId: videoGenerationsTable.providerTaskId,
+        providerRequestId: videoGenerationsTable.providerRequestId,
+        error: videoGenerationsTable.error,
+        errorHistory: videoGenerationsTable.errorHistory,
+        options: videoGenerationsTable.options,
+      })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId))
+      .limit(1);
+    if (!job) {
+      res.status(404).json({ error: "Video job not found." });
+      return;
+    }
+    res.json({
+      id: job.id,
+      status: job.status,
+      provider: job.provider,
+      model: job.model,
+      providerTaskId: job.providerTaskId,
+      providerRequestId: job.providerRequestId,
+      error: job.error,
+      errorHistory: job.errorHistory ?? [],
+      providerTasks: Object.entries(job.options?.providerTasks ?? {})
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([operationKey, receipt]) => ({ operationKey, ...receipt })),
+    });
+  },
+);
 
 // Actual-cost tracking has its own platform kill switch: when it is off the
 // cost admin endpoints 403 like any other gated module. The feature-flag
@@ -643,9 +728,14 @@ router.param("id", (req, res, next, value) => {
  * the gateway's own reason (e.g. Cashfree's "Profile is inactive.") so the
  * admin isn't told to check API keys when the account itself is the problem.
  */
-function gatewayPlanError(gateway: "Cashfree" | "Razorpay", error: unknown): string {
+function gatewayPlanError(
+  gateway: "Cashfree" | "Razorpay",
+  error: unknown,
+): string {
   const reason =
-    error instanceof Error && error.message.trim() ? error.message.trim() : null;
+    error instanceof Error && error.message.trim()
+      ? error.message.trim()
+      : null;
   return reason
     ? `${gateway} rejected the plan: ${reason}`
     : `${gateway} rejected the plan price. Check the API keys and try again.`;
@@ -684,7 +774,10 @@ async function walletBalancesByTenant(): Promise<Map<number, number>> {
 
 /** Prepaid credit balances per tenant, for the admin tenants table Credits column. */
 async function creditBalancesByTenant(): Promise<
-  Map<number, { captionCredits: number; imageCredits: number; videoCredits: number }>
+  Map<
+    number,
+    { captionCredits: number; imageCredits: number; videoCredits: number }
+  >
 > {
   const rows = await db.select().from(creditBalancesTable);
   return new Map(
@@ -790,22 +883,25 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
   // fire-and-forget) so a stalled sweep is reported even if this process's
   // background timers were never started or died.
   void checkSweepStaleness();
-  const [tenantRows, contentRow, scheduleRow, accountRow, sweepRow] = await Promise.all([
-    db
-      .select({ plan: tenantsTable.plan, count: sql<number>`count(*)::int` })
-      .from(tenantsTable)
-      .groupBy(tenantsTable.plan),
-    db.select({ count: sql<number>`count(*)::int` }).from(contentItemsTable),
-    db.select({ count: sql<number>`count(*)::int` }).from(scheduledPostsTable),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(connectedAccountsTable),
-    db
-      .select()
-      .from(sweepStatusTable)
-      .where(eq(sweepStatusTable.id, 1))
-      .limit(1),
-  ]);
+  const [tenantRows, contentRow, scheduleRow, accountRow, sweepRow] =
+    await Promise.all([
+      db
+        .select({ plan: tenantsTable.plan, count: sql<number>`count(*)::int` })
+        .from(tenantsTable)
+        .groupBy(tenantsTable.plan),
+      db.select({ count: sql<number>`count(*)::int` }).from(contentItemsTable),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(scheduledPostsTable),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(connectedAccountsTable),
+      db
+        .select()
+        .from(sweepStatusTable)
+        .where(eq(sweepStatusTable.id, 1))
+        .limit(1),
+    ]);
 
   // Include every catalog plan (even those with zero tenants) plus any plan
   // ids still referenced by tenants but no longer in the catalog.
@@ -1067,8 +1163,8 @@ router.patch(
     }
 
     res.json(
-    serializeAdminTenant(updated, await getWalletBalancePaise(updated.id)),
-  );
+      serializeAdminTenant(updated, await getWalletBalancePaise(updated.id)),
+    );
   },
 );
 
@@ -1123,8 +1219,8 @@ router.patch(
     }
 
     res.json(
-    serializeAdminTenant(updated, await getWalletBalancePaise(updated.id)),
-  );
+      serializeAdminTenant(updated, await getWalletBalancePaise(updated.id)),
+    );
   },
 );
 
@@ -1210,65 +1306,73 @@ router.put("/admin/asr-settings", async (req: Request, res: Response) => {
  * PUT /admin/asr-providers/:providerId/key
  * Save a provider's API key (encrypted at rest). Superadmin only.
  */
-router.put("/admin/asr-providers/:providerId/key", async (req: Request, res: Response) => {
-  const def = getProviderDef(req.params.providerId as string);
-  if (!def) {
-    res.status(404).json({ error: "Unknown speech-to-text provider" });
-    return;
-  }
-  if (def.envKey === null) {
-    res.status(400).json({ error: "This provider is built in and does not take an API key" });
-    return;
-  }
-  const parsed = AdminSetAsrProviderKeyBody.safeParse(req.body);
-  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
-  if (!apiKey) {
-    res.status(400).json({ error: "API key is required" });
-    return;
-  }
-  await setStoredAsrKey(def.id, apiKey);
-  try {
-    await recordAdminAction({
-      action: "asr_key_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `${def.id}:set`,
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write ASR key audit log");
-  }
-  res.json(await serializeAsrSettings());
-});
+router.put(
+  "/admin/asr-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown speech-to-text provider" });
+      return;
+    }
+    if (def.envKey === null) {
+      res.status(400).json({
+        error: "This provider is built in and does not take an API key",
+      });
+      return;
+    }
+    const parsed = AdminSetAsrProviderKeyBody.safeParse(req.body);
+    const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+    if (!apiKey) {
+      res.status(400).json({ error: "API key is required" });
+      return;
+    }
+    await setStoredAsrKey(def.id, apiKey);
+    try {
+      await recordAdminAction({
+        action: "asr_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:set`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write ASR key audit log");
+    }
+    res.json(await serializeAsrSettings());
+  },
+);
 
 /**
  * DELETE /admin/asr-providers/:providerId/key
  * Remove the saved API key (the env secret, if set, becomes the fallback).
  */
-router.delete("/admin/asr-providers/:providerId/key", async (req: Request, res: Response) => {
-  const def = getProviderDef(req.params.providerId as string);
-  if (!def) {
-    res.status(404).json({ error: "Unknown speech-to-text provider" });
-    return;
-  }
-  await clearStoredAsrKey(def.id);
-  try {
-    await recordAdminAction({
-      action: "asr_key_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `${def.id}:cleared`,
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write ASR key audit log");
-  }
-  res.json(await serializeAsrSettings());
-});
+router.delete(
+  "/admin/asr-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown speech-to-text provider" });
+      return;
+    }
+    await clearStoredAsrKey(def.id);
+    try {
+      await recordAdminAction({
+        action: "asr_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:cleared`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write ASR key audit log");
+    }
+    res.json(await serializeAsrSettings());
+  },
+);
 
 /** Serialize the voice-cloning settings view (selected provider + catalog). */
 async function serializeVoiceCloneSettings() {
@@ -1291,47 +1395,56 @@ async function serializeVoiceCloneSettings() {
  * GET /admin/voice-clone-settings
  * The platform-wide voice-cloning (brand voice) provider selection.
  */
-router.get("/admin/voice-clone-settings", async (_req: Request, res: Response) => {
-  res.json(await serializeVoiceCloneSettings());
-});
+router.get(
+  "/admin/voice-clone-settings",
+  async (_req: Request, res: Response) => {
+    res.json(await serializeVoiceCloneSettings());
+  },
+);
 
 /**
  * PUT /admin/voice-clone-settings
  * Select which voice-cloning provider the Brand Voice feature uses.
  */
-router.put("/admin/voice-clone-settings", async (req: Request, res: Response) => {
-  const parsed = AdminUpdateVoiceCloneSettingsBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const def = getVoiceCloneProviderDef(parsed.data.provider);
-  if (!def) {
-    res.status(400).json({ error: "Unknown voice-cloning provider" });
-    return;
-  }
-
-  const before = await getSelectedVoiceCloneProviderId();
-  await setSelectedVoiceCloneProviderId(def.id);
-
-  if (before !== def.id) {
-    try {
-      await recordAdminAction({
-        action: "voice_clone_provider_change",
-        actorTenantId: req.tenantId,
-        actorEmail: req.tenantEmail,
-        targetTenantId: null,
-        targetEmail: null,
-        oldValue: before,
-        newValue: def.id,
-      });
-    } catch (error) {
-      req.log.error({ err: error }, "Failed to write voice-clone settings audit log");
+router.put(
+  "/admin/voice-clone-settings",
+  async (req: Request, res: Response) => {
+    const parsed = AdminUpdateVoiceCloneSettingsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
     }
-  }
+    const def = getVoiceCloneProviderDef(parsed.data.provider);
+    if (!def) {
+      res.status(400).json({ error: "Unknown voice-cloning provider" });
+      return;
+    }
 
-  res.json(await serializeVoiceCloneSettings());
-});
+    const before = await getSelectedVoiceCloneProviderId();
+    await setSelectedVoiceCloneProviderId(def.id);
+
+    if (before !== def.id) {
+      try {
+        await recordAdminAction({
+          action: "voice_clone_provider_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: before,
+          newValue: def.id,
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write voice-clone settings audit log",
+        );
+      }
+    }
+
+    res.json(await serializeVoiceCloneSettings());
+  },
+);
 
 /**
  * PUT /admin/voice-clone-providers/:providerId/key
@@ -1363,7 +1476,10 @@ router.put(
         newValue: `${def.id}:set`,
       });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write voice-clone key audit log");
+      req.log.error(
+        { err: error },
+        "Failed to write voice-clone key audit log",
+      );
     }
     res.json(await serializeVoiceCloneSettings());
   },
@@ -1393,7 +1509,10 @@ router.delete(
         newValue: `${def.id}:cleared`,
       });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write voice-clone key audit log");
+      req.log.error(
+        { err: error },
+        "Failed to write voice-clone key audit log",
+      );
     }
     res.json(await serializeVoiceCloneSettings());
   },
@@ -1413,7 +1532,10 @@ router.post(
     }
     const apiKey = await resolveVoiceCloneApiKey(def);
     if (!apiKey) {
-      res.json({ ok: false, message: "No API key is configured for this provider." });
+      res.json({
+        ok: false,
+        message: "No API key is configured for this provider.",
+      });
       return;
     }
     try {
@@ -1422,7 +1544,10 @@ router.post(
     } catch (error) {
       res.json({
         ok: false,
-        message: error instanceof Error ? error.message : "The connectivity test failed.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "The connectivity test failed.",
       });
     }
   },
@@ -1476,7 +1601,10 @@ async function serializeImageGenSettings() {
             requiresBaseUrl: false,
             modelOptions: [] as { value: string; label: string }[],
             envKey: null as string | null,
-            keySource: (row.encryptedApiKey ? "database" : null) as "database" | "env" | null,
+            keySource: (row.encryptedApiKey ? "database" : null) as
+              | "database"
+              | "env"
+              | null,
           };
         }),
     ],
@@ -1487,9 +1615,12 @@ async function serializeImageGenSettings() {
  * GET /admin/image-gen-settings
  * The platform-wide image generation provider selection.
  */
-router.get("/admin/image-gen-settings", async (_req: Request, res: Response) => {
-  res.json(await serializeImageGenSettings());
-});
+router.get(
+  "/admin/image-gen-settings",
+  async (_req: Request, res: Response) => {
+    res.json(await serializeImageGenSettings());
+  },
+);
 
 /**
  * PUT /admin/image-gen-settings
@@ -1541,7 +1672,10 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
           newValue: `${IMAGE_GEN_AUTO};fallback=true`,
         });
       } catch (error) {
-        req.log.error({ err: error }, "Failed to write image-gen settings audit log");
+        req.log.error(
+          { err: error },
+          "Failed to write image-gen settings audit log",
+        );
       }
     }
     res.json(await serializeImageGenSettings());
@@ -1555,10 +1689,7 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   const isCustomRef = parseCustomProviderId(def.id) !== null;
   const model = parsed.data.model?.trim() || null;
   const customBaseUrl = parsed.data.customBaseUrl?.trim() || null;
-  if (
-    def.id === "nvidia" &&
-    !(await isImageGenProviderConfigured(def))
-  ) {
+  if (def.id === "nvidia" && !(await isImageGenProviderConfigured(def))) {
     res.status(400).json({
       error:
         "NVIDIA image generation requires an enabled deployment that has passed its model test and has an explicit NVIDIA provider price.",
@@ -1566,7 +1697,9 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
     return;
   }
   if (customBaseUrl && !/^https:\/\//i.test(customBaseUrl)) {
-    res.status(400).json({ error: "The custom provider base URL must start with https://" });
+    res
+      .status(400)
+      .json({ error: "The custom provider base URL must start with https://" });
     return;
   }
   if (def.requiresBaseUrl && !customBaseUrl) {
@@ -1583,7 +1716,8 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   // actual-cost tracking never runs blind.
   let pricingWarning: string | null = null;
   {
-    const effectiveModel = (def.supportsModelOverride && model) || def.defaultModel;
+    const effectiveModel =
+      (def.supportsModelOverride && model) || def.defaultModel;
     const { missing, crossSourced } = await syncActivatedModelPricing({
       kind: "image",
       provider: def.id,
@@ -1591,7 +1725,9 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
     });
     if (missing.length > 0) {
       res.status(400).json({
-        error: missingPricingError(missing.map((m) => ({ model: m, kind: "image" as const }))),
+        error: missingPricingError(
+          missing.map((m) => ({ model: m, kind: "image" as const })),
+        ),
       });
       return;
     }
@@ -1635,7 +1771,10 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
         newValue: `${def.id}${model ? `:${model}` : ""};fallback=${parsed.data.fallbackEnabled ?? true}`,
       });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write image-gen settings audit log");
+      req.log.error(
+        { err: error },
+        "Failed to write image-gen settings audit log",
+      );
     }
   }
 
@@ -1655,7 +1794,9 @@ router.put(
       return;
     }
     if (def.envKey === null) {
-      res.status(400).json({ error: "This provider is built in and does not take an API key" });
+      res.status(400).json({
+        error: "This provider is built in and does not take an API key",
+      });
       return;
     }
     const parsed = AdminSetImageGenProviderKeyBody.safeParse(req.body);
@@ -1716,7 +1857,9 @@ router.delete(
 async function serializeVideoGenSettings() {
   const selection = await getVideoGenSelection();
   const operationalModelIds = new Set(
-    (await availableVideoModels({ ignoreAllowlist: true })).map((model) => model.id),
+    (await availableVideoModels({ ignoreAllowlist: true })).map(
+      (model) => model.id,
+    ),
   );
   const activeReplicateOverrides =
     selection.provider === "replicate"
@@ -1745,7 +1888,9 @@ async function serializeVideoGenSettings() {
       pricingAvailable: operationalModelIds.has(m.id),
       tier: m.tier,
       unitMultiplier: TIER_UNIT_MULTIPLIER[m.tier],
-      modes: (["text", "image"] as const).filter((mode) => Boolean(m.models[mode])),
+      modes: (["text", "image"] as const).filter((mode) =>
+        Boolean(m.models[mode]),
+      ),
       aspects: [...m.aspects],
       durations: [...m.durations],
       resolutions: [...m.resolutions],
@@ -1753,7 +1898,9 @@ async function serializeVideoGenSettings() {
       canGenerateAudio: m.canGenerateAudio,
       supportsEndFrame: m.supportsEndFrame === true,
     })),
-    replicatePricingModels: listReplicateVideoPricingTargets(activeReplicateOverrides),
+    replicatePricingModels: listReplicateVideoPricingTargets(
+      activeReplicateOverrides,
+    ),
     providers: [
       ...(await Promise.all(
         VIDEO_GEN_PROVIDERS.map(async (p) => ({
@@ -1764,7 +1911,9 @@ async function serializeVideoGenSettings() {
           configured: await isVideoGenProviderConfigured(p),
           supportsModelOverride: p.supportsModelOverride,
           textModelOptions: p.textModelOptions ? [...p.textModelOptions] : [],
-          imageModelOptions: p.imageModelOptions ? [...p.imageModelOptions] : [],
+          imageModelOptions: p.imageModelOptions
+            ? [...p.imageModelOptions]
+            : [],
           envKey: p.envKey,
           keySource: await getVideoGenKeySource(p),
         })),
@@ -1783,7 +1932,10 @@ async function serializeVideoGenSettings() {
           textModelOptions: [] as { value: string; label: string }[],
           imageModelOptions: [] as { value: string; label: string }[],
           envKey: "",
-          keySource: (row.encryptedApiKey ? "database" : null) as "database" | "env" | null,
+          keySource: (row.encryptedApiKey ? "database" : null) as
+            | "database"
+            | "env"
+            | null,
         })),
     ],
     stockSources: await Promise.all(
@@ -1803,69 +1955,84 @@ async function serializeVideoGenSettings() {
  * Save a stock footage source's API key (encrypted at rest). Superadmin only.
  * Stock sources feed the Topic to Video engine.
  */
-router.put("/admin/stock-sources/:sourceId/key", async (req: Request, res: Response) => {
-  const def = getStockSourceDef(req.params.sourceId as string);
-  if (!def) {
-    res.status(404).json({ error: "Unknown stock footage source" });
-    return;
-  }
-  const parsed = AdminSetVideoGenProviderKeyBody.safeParse(req.body);
-  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
-  if (!apiKey) {
-    res.status(400).json({ error: "API key is required" });
-    return;
-  }
-  await setStoredStockKey(def.id, apiKey);
-  try {
-    await recordAdminAction({
-      action: "videogen_key_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `stock_${def.id}:set`,
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write stock-source key audit log");
-  }
-  res.json(await serializeVideoGenSettings());
-});
+router.put(
+  "/admin/stock-sources/:sourceId/key",
+  async (req: Request, res: Response) => {
+    const def = getStockSourceDef(req.params.sourceId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown stock footage source" });
+      return;
+    }
+    const parsed = AdminSetVideoGenProviderKeyBody.safeParse(req.body);
+    const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+    if (!apiKey) {
+      res.status(400).json({ error: "API key is required" });
+      return;
+    }
+    await setStoredStockKey(def.id, apiKey);
+    try {
+      await recordAdminAction({
+        action: "videogen_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `stock_${def.id}:set`,
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to write stock-source key audit log",
+      );
+    }
+    res.json(await serializeVideoGenSettings());
+  },
+);
 
 /**
  * DELETE /admin/stock-sources/:sourceId/key
  * Remove the saved key (the env secret, if set, becomes the fallback).
  */
-router.delete("/admin/stock-sources/:sourceId/key", async (req: Request, res: Response) => {
-  const def = getStockSourceDef(req.params.sourceId as string);
-  if (!def) {
-    res.status(404).json({ error: "Unknown stock footage source" });
-    return;
-  }
-  await clearStoredStockKey(def.id);
-  try {
-    await recordAdminAction({
-      action: "videogen_key_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `stock_${def.id}:cleared`,
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write stock-source key audit log");
-  }
-  res.json(await serializeVideoGenSettings());
-});
+router.delete(
+  "/admin/stock-sources/:sourceId/key",
+  async (req: Request, res: Response) => {
+    const def = getStockSourceDef(req.params.sourceId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown stock footage source" });
+      return;
+    }
+    await clearStoredStockKey(def.id);
+    try {
+      await recordAdminAction({
+        action: "videogen_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `stock_${def.id}:cleared`,
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to write stock-source key audit log",
+      );
+    }
+    res.json(await serializeVideoGenSettings());
+  },
+);
 
 /**
  * GET /admin/video-gen-settings
  * The platform-wide video generation provider selection.
  */
-router.get("/admin/video-gen-settings", async (_req: Request, res: Response) => {
-  res.json(await serializeVideoGenSettings());
-});
+router.get(
+  "/admin/video-gen-settings",
+  async (_req: Request, res: Response) => {
+    res.json(await serializeVideoGenSettings());
+  },
+);
 
 /**
  * PUT /admin/video-gen-settings
@@ -1896,9 +2063,13 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     }
   }
   // Custom providers have no default models — both engines must be set.
-  if (parseCustomProviderId(def.id) !== null && (!textToVideoModel || !imageToVideoModel)) {
+  if (
+    parseCustomProviderId(def.id) !== null &&
+    (!textToVideoModel || !imageToVideoModel)
+  ) {
     res.status(400).json({
-      error: "Custom providers need both a text-to-video and an image-to-video model id",
+      error:
+        "Custom providers need both a text-to-video and an image-to-video model id",
     });
     return;
   }
@@ -1927,7 +2098,10 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     }
     const pricing =
       def.id === "nvidia"
-        ? { missing: [] as string[], crossSourced: [] as Array<{ model: string; source: string }> }
+        ? {
+            missing: [] as string[],
+            crossSourced: [] as Array<{ model: string; source: string }>,
+          }
         : await syncActivatedModelPricing({
             kind: "video",
             provider: def.id,
@@ -1942,7 +2116,11 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
         if (m === effectiveTextToVideo) engines.push("text-to-video");
         if (m === effectiveImageToVideo) engines.push("image-to-video");
         return engines.length > 0
-          ? engines.map((engine) => ({ model: m, kind: "video" as const, engine }))
+          ? engines.map((engine) => ({
+              model: m,
+              kind: "video" as const,
+              engine,
+            }))
           : [{ model: m, kind: "video" as const }];
       });
       res.status(400).json({ error: missingPricingError(entries) });
@@ -1992,7 +2170,9 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
       return;
     }
     const operational = new Set(
-      (await availableVideoModels({ ignoreAllowlist: true })).map((model) => model.id),
+      (await availableVideoModels({ ignoreAllowlist: true })).map(
+        (model) => model.id,
+      ),
     );
     const unavailable = enabledModelIds.filter((id) => !operational.has(id));
     if (unavailable.length) {
@@ -2049,7 +2229,10 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
         }),
       });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write video-gen settings audit log");
+      req.log.error(
+        { err: error },
+        "Failed to write video-gen settings audit log",
+      );
     }
   }
 
@@ -2196,7 +2379,10 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
         newValue: `caption=${after.captionCostPaise} image=${after.imageCostPaise} video=${after.videoCostPaise} fee=${after.feePercent}% mode=${after.displayMode} margin=${after.marginPercent}%`,
       });
     } catch (error) {
-      req.log?.error({ err: error }, "Failed to audit AI spend settings change");
+      req.log?.error(
+        { err: error },
+        "Failed to audit AI spend settings change",
+      );
     }
   }
   res.json(after);
@@ -2204,19 +2390,27 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
 
 /** Serialize the actual-cost configuration (rate + price catalog). */
 async function serializeAiCostConfig() {
-  const [config, prices] = await Promise.all([getAiCostConfig(), listModelPrices()]);
+  const [config, prices] = await Promise.all([
+    getAiCostConfig(),
+    listModelPrices(),
+  ]);
   const duplicateKeys = duplicateModelPriceKeys(prices);
-  const seedanceSourceCheckedAt = prices.reduce<Date | null>((latest, price) => {
-    if (
-      price.kind !== "video" ||
-      price.provider.trim().toLowerCase() !== "byteplus" ||
-      price.model.trim().toLowerCase() !== BYTEPLUS_SEEDANCE_25_MODEL ||
-      !price.sourceCheckedAt
-    ) {
-      return latest;
-    }
-    return !latest || price.sourceCheckedAt > latest ? price.sourceCheckedAt : latest;
-  }, null);
+  const seedanceSourceCheckedAt = prices.reduce<Date | null>(
+    (latest, price) => {
+      if (
+        price.kind !== "video" ||
+        price.provider.trim().toLowerCase() !== "byteplus" ||
+        price.model.trim().toLowerCase() !== BYTEPLUS_SEEDANCE_25_MODEL ||
+        !price.sourceCheckedAt
+      ) {
+        return latest;
+      }
+      return !latest || price.sourceCheckedAt > latest
+        ? price.sourceCheckedAt
+        : latest;
+    },
+    null,
+  );
   return {
     usdToInrPaise: config.usdToInrPaise,
     rateMarkupPaise: config.rateMarkupPaise,
@@ -2227,7 +2421,8 @@ async function serializeAiCostConfig() {
       SEEDANCE_PRICING_SWEEP_INTERVAL_MS / (60 * 60 * 1000),
     seedancePricingNextCheckAt: seedanceSourceCheckedAt
       ? new Date(
-          seedanceSourceCheckedAt.getTime() + SEEDANCE_PRICING_SWEEP_INTERVAL_MS,
+          seedanceSourceCheckedAt.getTime() +
+            SEEDANCE_PRICING_SWEEP_INTERVAL_MS,
         ).toISOString()
       : null,
     // Case/whitespace duplicate groups lurking in the catalog (the exact
@@ -2327,7 +2522,11 @@ async function storedSeedanceRateSnapshot(): Promise<SeedanceRateSnapshot> {
   const rates = emptySeedanceRates();
   for (const row of rows) {
     const resolution = row.variantCriteria?.resolution;
-    if (resolution !== "480p" && resolution !== "720p" && resolution !== "1080p") {
+    if (
+      resolution !== "480p" &&
+      resolution !== "720p" &&
+      resolution !== "1080p"
+    ) {
       continue;
     }
     rates[resolution] = {
@@ -2402,7 +2601,9 @@ router.put("/admin/ai-cost/rate", async (req: Request, res: Response) => {
     return;
   }
   const before = await getAiCostConfig();
-  const after = await setAiCostConfig({ usdToInrPaise: parsed.data.usdToInrPaise });
+  const after = await setAiCostConfig({
+    usdToInrPaise: parsed.data.usdToInrPaise,
+  });
   if (before.usdToInrPaise !== after.usdToInrPaise) {
     await auditAiCostChange(
       req,
@@ -2442,56 +2643,65 @@ router.put("/admin/ai-cost/markup", async (req: Request, res: Response) => {
  * This remains a decimal string so currency precision is never lost to JS
  * floating-point conversion.
  */
-router.put("/admin/ai-cost/elevenlabs-credit-rate", async (req: Request, res: Response) => {
-  const parsed = AdminUpdateElevenLabsCreditRateBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const rate = parsed.data.elevenLabsInrPerCredit;
-  if (rate !== null && !/[1-9]/.test(rate)) {
-    res.status(400).json({ error: "ElevenLabs rupees per credit must be greater than zero." });
-    return;
-  }
-  const before = await getAiCostConfig();
-  const after = await setElevenLabsCreditRate(rate);
-  if (before.elevenLabsInrPerCredit !== after.elevenLabsInrPerCredit) {
-    await auditAiCostChange(
-      req,
-      `elevenlabs_inr_per_credit=${before.elevenLabsInrPerCredit ?? "unset"}`,
-      `elevenlabs_inr_per_credit=${after.elevenLabsInrPerCredit ?? "unset"}`,
-    );
-  }
-  res.json(await serializeAiCostConfig());
-});
+router.put(
+  "/admin/ai-cost/elevenlabs-credit-rate",
+  async (req: Request, res: Response) => {
+    const parsed = AdminUpdateElevenLabsCreditRateBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const rate = parsed.data.elevenLabsInrPerCredit;
+    if (rate !== null && !/[1-9]/.test(rate)) {
+      res.status(400).json({
+        error: "ElevenLabs rupees per credit must be greater than zero.",
+      });
+      return;
+    }
+    const before = await getAiCostConfig();
+    const after = await setElevenLabsCreditRate(rate);
+    if (before.elevenLabsInrPerCredit !== after.elevenLabsInrPerCredit) {
+      await auditAiCostChange(
+        req,
+        `elevenlabs_inr_per_credit=${before.elevenLabsInrPerCredit ?? "unset"}`,
+        `elevenlabs_inr_per_credit=${after.elevenLabsInrPerCredit ?? "unset"}`,
+      );
+    }
+    res.json(await serializeAiCostConfig());
+  },
+);
 
 /**
  * POST /admin/ai-cost/rate/refresh
  * Fetch the live USD→INR market rate now, add the markup, and save it. On
  * fetch failure the stored rate stays untouched and this responds 502.
  */
-router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) => {
-  const before = await getAiCostConfig();
-  try {
-    const after = await refreshUsdInrRate();
-    if (before.usdToInrPaise !== after.usdToInrPaise) {
-      await auditAiCostChange(
-        req,
-        `rate=${before.usdToInrPaise}`,
-        `rate=${after.usdToInrPaise} (auto: market ${after.marketRatePaise} + markup ${after.rateMarkupPaise})`,
-      );
+router.post(
+  "/admin/ai-cost/rate/refresh",
+  async (req: Request, res: Response) => {
+    const before = await getAiCostConfig();
+    try {
+      const after = await refreshUsdInrRate();
+      if (before.usdToInrPaise !== after.usdToInrPaise) {
+        await auditAiCostChange(
+          req,
+          `rate=${before.usdToInrPaise}`,
+          `rate=${after.usdToInrPaise} (auto: market ${after.marketRatePaise} + markup ${after.rateMarkupPaise})`,
+        );
+      }
+      // A successful manual refresh also clears any outstanding stale-rate
+      // alert (and re-arms its dedupe), same as the daily sweep's success path.
+      await resolveFxRateStaleNotifications();
+      res.json(await serializeAiCostConfig());
+    } catch (error) {
+      req.log.error({ err: error }, "Manual USD→INR rate refresh failed");
+      res.status(502).json({
+        error:
+          "Could not fetch the current USD→INR rate. The saved rate is unchanged.",
+      });
     }
-    // A successful manual refresh also clears any outstanding stale-rate
-    // alert (and re-arms its dedupe), same as the daily sweep's success path.
-    await resolveFxRateStaleNotifications();
-    res.json(await serializeAiCostConfig());
-  } catch (error) {
-    req.log.error({ err: error }, "Manual USD→INR rate refresh failed");
-    res.status(502).json({
-      error: "Could not fetch the current USD→INR rate. The saved rate is unchanged.",
-    });
-  }
-});
+  },
+);
 
 /**
  * POST /admin/ai-cost/prices/byteplus-seedance/refresh
@@ -2521,7 +2731,10 @@ router.post(
           }),
         });
       } catch (error) {
-        req.log.error({ err: error }, "Failed to audit BytePlus Seedance rate refresh");
+        req.log.error(
+          { err: error },
+          "Failed to audit BytePlus Seedance rate refresh",
+        );
       }
       if (changed) {
         await notifySeedancePricingChanged(before, after);
@@ -2552,44 +2765,62 @@ interface ModelPriceFields {
 
 /** Apply the one authoritative kind-specific price rule before any save. */
 function normalizeModelPrice(data: ModelPriceFields) {
-  if (data.kind === "text" && (data.inputUsdPerMtok == null || data.outputUsdPerMtok == null)) {
-    return { error: "Text model prices need both input and output USD per 1M tokens." };
+  if (
+    data.kind === "text" &&
+    (data.inputUsdPerMtok == null || data.outputUsdPerMtok == null)
+  ) {
+    return {
+      error: "Text model prices need both input and output USD per 1M tokens.",
+    };
   }
   // Image rows may be flat-priced (usdPerImage), token-priced (both token
   // prices, for OpenAI/Gemini image models that report usage), or both.
-  const hasTokenPair = data.inputUsdPerMtok != null && data.outputUsdPerMtok != null;
+  const hasTokenPair =
+    data.inputUsdPerMtok != null && data.outputUsdPerMtok != null;
   if (data.kind === "image" && data.usdPerImage == null && !hasTokenPair) {
     return {
-      error: "Image model prices need a USD per image amount, or both input and output USD per 1M tokens.",
+      error:
+        "Image model prices need a USD per image amount, or both input and output USD per 1M tokens.",
     };
   }
   // Video rows may be per-second (most Replicate video models), flat
   // per-video, or both.
-  if (data.kind === "video" && data.usdPerSecond == null && data.usdPerVideo == null &&
-      data.usdPerMillionVideoTokens == null) {
+  if (
+    data.kind === "video" &&
+    data.usdPerSecond == null &&
+    data.usdPerVideo == null &&
+    data.usdPerMillionVideoTokens == null
+  ) {
     return {
-      error: "Video model prices need USD per 1M video tokens, USD per second, or USD per video.",
+      error:
+        "Video model prices need USD per 1M video tokens, USD per second, or USD per video.",
     };
   }
   return {
     value: {
-    kind: data.kind,
-    provider: data.provider.trim(),
-    model: data.model.trim(),
-    inputUsdPerMtok: (data.kind === "text" || data.kind === "image") && hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
-    outputUsdPerMtok: (data.kind === "text" || data.kind === "image") && hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
-    usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
-    usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
-    usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
-    usdPerMillionVideoTokens:
-      data.kind === "video" ? (data.usdPerMillionVideoTokens ?? null) : null,
-    variant: data.kind === "video" ? (data.variant ?? null) : null,
-    // An explicit admin save is authoritative and must not inherit a previous
-    // provider promotion or source timestamp from the row it replaces.
-    sourceUrl: null,
-    sourceCheckedAt: null,
-    promotionalUsdPerSecond: null,
-    promotionExpiresAt: null,
+      kind: data.kind,
+      provider: data.provider.trim(),
+      model: data.model.trim(),
+      inputUsdPerMtok:
+        (data.kind === "text" || data.kind === "image") && hasTokenPair
+          ? (data.inputUsdPerMtok ?? null)
+          : null,
+      outputUsdPerMtok:
+        (data.kind === "text" || data.kind === "image") && hasTokenPair
+          ? (data.outputUsdPerMtok ?? null)
+          : null,
+      usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
+      usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
+      usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
+      usdPerMillionVideoTokens:
+        data.kind === "video" ? (data.usdPerMillionVideoTokens ?? null) : null,
+      variant: data.kind === "video" ? (data.variant ?? null) : null,
+      // An explicit admin save is authoritative and must not inherit a previous
+      // provider promotion or source timestamp from the row it replaces.
+      sourceUrl: null,
+      sourceCheckedAt: null,
+      promotionalUsdPerSecond: null,
+      promotionExpiresAt: null,
     },
   };
 }
@@ -2607,7 +2838,10 @@ async function runModelPriceTrueUp(
       model: row.model,
     });
     if (result.rowsTruedUp > 0) {
-      req.log.info({ model: row.model, ...result }, "Trued up wallet charges after a price was added");
+      req.log.info(
+        { model: row.model, ...result },
+        "Trued up wallet charges after a price was added",
+      );
     }
   } catch (error) {
     // A true-up failure must not roll back or hide the price that was already
@@ -2616,7 +2850,10 @@ async function runModelPriceTrueUp(
   }
 }
 
-function triggerModelPriceTrueUp(req: Request, row: Awaited<ReturnType<typeof upsertModelPrice>>): void {
+function triggerModelPriceTrueUp(
+  req: Request,
+  row: Awaited<ReturnType<typeof upsertModelPrice>>,
+): void {
   void runModelPriceTrueUp(req, row);
 }
 
@@ -2651,88 +2888,111 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
  * Resolve an official provider model URL through our fixed-host catalogs only.
  * This is deliberately read-only.
  */
-router.post("/admin/ai-cost/prices/import/preview", async (req: Request, res: Response) => {
-  const parsed = AdminPreviewAiModelPriceImportBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  try {
-    const preview = await previewModelPriceImport(parsed.data.sourceUrl, parsed.data.kind);
-    res.json(
-      AdminPreviewAiModelPriceImportResponse.parse({
-        ...preview,
-        variants: preview.variants ?? [],
-      }),
-    );
-  } catch (error) {
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Unable to import a price from this URL.",
-    });
-  }
-});
+router.post(
+  "/admin/ai-cost/prices/import/preview",
+  async (req: Request, res: Response) => {
+    const parsed = AdminPreviewAiModelPriceImportBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    try {
+      const preview = await previewModelPriceImport(
+        parsed.data.sourceUrl,
+        parsed.data.kind,
+      );
+      res.json(
+        AdminPreviewAiModelPriceImportResponse.parse({
+          ...preview,
+          variants: preview.variants ?? [],
+        }),
+      );
+    } catch (error) {
+      res.status(400).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to import a price from this URL.",
+      });
+    }
+  },
+);
 
 /**
  * POST /admin/ai-cost/prices/import/confirm
  * Revalidate the official source URL and persist the admin-reviewed proposal.
  */
-router.post("/admin/ai-cost/prices/import/confirm", async (req: Request, res: Response) => {
-  const parsed = AdminConfirmAiModelPriceImportBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  let urlModel: { provider: "replicate" | "openrouter" | "openai" | "gemini"; model: string };
-  try {
-    urlModel = parseOfficialModelPriceUrl(parsed.data.sourceUrl);
-  } catch (error) {
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Unable to import a price from this URL.",
-    });
-    return;
-  }
-  const submittedModel = parsed.data.model.trim();
-  const sameModel =
-    urlModel.model === submittedModel ||
-    (urlModel.provider === "openrouter" &&
-      !submittedModel.includes("/") &&
-      urlModel.model.endsWith(`/${submittedModel}`));
-  if (urlModel.provider !== parsed.data.provider || !sameModel) {
-    res.status(400).json({ error: "The source URL does not match the submitted provider and model." });
-    return;
-  }
-  const variantInputs =
-    parsed.data.kind === "video" && (parsed.data.variants?.length ?? 0) > 0
-      ? parsed.data.variants!.map((variant) => ({
-          ...parsed.data,
-          ...variant,
-          variant: variant.criteria,
-        }))
-      : [parsed.data];
-  const normalizedRows = variantInputs.map((input) => normalizeModelPrice(input));
-  const invalid = normalizedRows.find((normalized) => "error" in normalized);
-  if (invalid && "error" in invalid) {
-    res.status(400).json({ error: invalid.error });
-    return;
-  }
-  const rows = [];
-  await clearModelPriceAutoImportSuppression(parsed.data);
-  for (const normalized of normalizedRows) {
-    if ("error" in normalized) continue;
-    rows.push(await upsertModelPrice(normalized.value));
-  }
-  const row = rows[0]!;
-  await auditAiCostChange(
-    req,
-    null,
-    `imported ${rows.length} ${row.kind} price row(s):${row.provider}/${row.model} from ${parsed.data.sourceUrl}`,
-  );
-  // The import flow is commonly opened from a specific pending wallet row.
-  // Wait for its first true-up attempt so the confirmation response and
-  // subsequent UI invalidation observe fresh state.
-  await runModelPriceTrueUp(req, row);
-  res.json(await serializeAiCostConfig());
-});
+router.post(
+  "/admin/ai-cost/prices/import/confirm",
+  async (req: Request, res: Response) => {
+    const parsed = AdminConfirmAiModelPriceImportBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    let urlModel: {
+      provider: "replicate" | "openrouter" | "openai" | "gemini";
+      model: string;
+    };
+    try {
+      urlModel = parseOfficialModelPriceUrl(parsed.data.sourceUrl);
+    } catch (error) {
+      res.status(400).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to import a price from this URL.",
+      });
+      return;
+    }
+    const submittedModel = parsed.data.model.trim();
+    const sameModel =
+      urlModel.model === submittedModel ||
+      (urlModel.provider === "openrouter" &&
+        !submittedModel.includes("/") &&
+        urlModel.model.endsWith(`/${submittedModel}`));
+    if (urlModel.provider !== parsed.data.provider || !sameModel) {
+      res.status(400).json({
+        error:
+          "The source URL does not match the submitted provider and model.",
+      });
+      return;
+    }
+    const variantInputs =
+      parsed.data.kind === "video" && (parsed.data.variants?.length ?? 0) > 0
+        ? parsed.data.variants!.map((variant) => ({
+            ...parsed.data,
+            ...variant,
+            variant: variant.criteria,
+          }))
+        : [parsed.data];
+    const normalizedRows = variantInputs.map((input) =>
+      normalizeModelPrice(input),
+    );
+    const invalid = normalizedRows.find((normalized) => "error" in normalized);
+    if (invalid && "error" in invalid) {
+      res.status(400).json({ error: invalid.error });
+      return;
+    }
+    const rows = [];
+    await clearModelPriceAutoImportSuppression(parsed.data);
+    for (const normalized of normalizedRows) {
+      if ("error" in normalized) continue;
+      rows.push(await upsertModelPrice(normalized.value));
+    }
+    const row = rows[0]!;
+    await auditAiCostChange(
+      req,
+      null,
+      `imported ${rows.length} ${row.kind} price row(s):${row.provider}/${row.model} from ${parsed.data.sourceUrl}`,
+    );
+    // The import flow is commonly opened from a specific pending wallet row.
+    // Wait for its first true-up attempt so the confirmation response and
+    // subsequent UI invalidation observe fresh state.
+    await runModelPriceTrueUp(req, row);
+    res.json(await serializeAiCostConfig());
+  },
+);
 
 /**
  * POST /admin/ai-cost/prices/dedupe
@@ -2741,38 +3001,46 @@ router.post("/admin/ai-cost/prices/import/confirm", async (req: Request, res: Re
  * an admin who just imported or hand-edited prices. Each merged group is
  * audited with the requesting admin as actor.
  */
-router.post("/admin/ai-cost/prices/dedupe", async (req: Request, res: Response) => {
-  const merges = await dedupeModelPrices();
-  for (const merge of merges) {
-    await auditAiCostChange(
-      req,
-      merge.removed
-        .map((r) => `duplicate #${r.id} ${merge.kind}:${r.provider}/${r.model}`)
-        .join(", "),
-      `merged into #${merge.keptId} ${merge.kind}:${merge.keptProvider}/${merge.keptModel} (prices from #${merge.pricesTakenFromId})`,
-    );
-  }
-  res.json({ merged: merges.length, config: await serializeAiCostConfig() });
-});
+router.post(
+  "/admin/ai-cost/prices/dedupe",
+  async (req: Request, res: Response) => {
+    const merges = await dedupeModelPrices();
+    for (const merge of merges) {
+      await auditAiCostChange(
+        req,
+        merge.removed
+          .map(
+            (r) => `duplicate #${r.id} ${merge.kind}:${r.provider}/${r.model}`,
+          )
+          .join(", "),
+        `merged into #${merge.keptId} ${merge.kind}:${merge.keptProvider}/${merge.keptModel} (prices from #${merge.pricesTakenFromId})`,
+      );
+    }
+    res.json({ merged: merges.length, config: await serializeAiCostConfig() });
+  },
+);
 
 /**
  * DELETE /admin/ai-cost/prices/:priceId
  * Remove a price row; the affected model's future costs become unknown.
  */
-router.delete("/admin/ai-cost/prices/:priceId", async (req: Request, res: Response) => {
-  const priceId = Number(req.params.priceId);
-  if (!Number.isInteger(priceId) || priceId <= 0) {
-    res.status(400).json({ error: "Invalid id" });
-    return;
-  }
-  const removed = await deleteModelPriceAndSuppressAutoImport(priceId);
-  if (!removed) {
-    res.status(404).json({ error: "Unknown price row" });
-    return;
-  }
-  await auditAiCostChange(req, `price #${priceId}`, "deleted");
-  res.json(await serializeAiCostConfig());
-});
+router.delete(
+  "/admin/ai-cost/prices/:priceId",
+  async (req: Request, res: Response) => {
+    const priceId = Number(req.params.priceId);
+    if (!Number.isInteger(priceId) || priceId <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const removed = await deleteModelPriceAndSuppressAutoImport(priceId);
+    if (!removed) {
+      res.status(404).json({ error: "Unknown price row" });
+      return;
+    }
+    await auditAiCostChange(req, `price #${priceId}`, "deleted");
+    res.json(await serializeAiCostConfig());
+  },
+);
 
 /**
  * GET /admin/ai-cost/report?month=YYYY-MM
@@ -2854,23 +3122,21 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     }
   >();
   for (const row of rows) {
-    const agg =
-      byTenant.get(row.tenantId) ??
-      {
-        captionCount: 0,
-        imageCount: 0,
-        videoCount: 0,
-        captionCostPaise: 0,
-        imageCostPaise: 0,
-        videoCostPaise: 0,
-        unknownCaptionCount: 0,
-        unknownImageCount: 0,
-        unknownVideoCount: 0,
-        snapshotDisplayPaise: 0,
-        noSnapshotCaptionCount: 0,
-        noSnapshotImageCount: 0,
-        noSnapshotVideoCount: 0,
-      };
+    const agg = byTenant.get(row.tenantId) ?? {
+      captionCount: 0,
+      imageCount: 0,
+      videoCount: 0,
+      captionCostPaise: 0,
+      imageCostPaise: 0,
+      videoCostPaise: 0,
+      unknownCaptionCount: 0,
+      unknownImageCount: 0,
+      unknownVideoCount: 0,
+      snapshotDisplayPaise: 0,
+      noSnapshotCaptionCount: 0,
+      noSnapshotImageCount: 0,
+      noSnapshotVideoCount: 0,
+    };
     if (row.kind === "caption") {
       agg.captionCount = row.count;
       agg.captionCostPaise = row.knownCostPaise;
@@ -2919,7 +3185,8 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         name: info?.name ?? null,
         email: info?.email ?? null,
         ...agg,
-        totalCostPaise: agg.captionCostPaise + agg.imageCostPaise + agg.videoCostPaise,
+        totalCostPaise:
+          agg.captionCostPaise + agg.imageCostPaise + agg.videoCostPaise,
         // Snapshotted amounts (rates in effect at event time) plus a
         // current-rate fallback for rows that predate snapshotting.
         displaySpendPaise:
@@ -3036,7 +3303,11 @@ router.get("/admin/ai-cost/campaigns", async (req: Request, res: Response) => {
   const [tenantRows, campaignRows] = await Promise.all([
     tenantIds.length
       ? db
-          .select({ id: tenantsTable.id, name: tenantsTable.name, email: tenantsTable.email })
+          .select({
+            id: tenantsTable.id,
+            name: tenantsTable.name,
+            email: tenantsTable.email,
+          })
           .from(tenantsTable)
           .where(inArray(tenantsTable.id, tenantIds))
       : Promise.resolve([]),
@@ -3054,7 +3325,9 @@ router.get("/admin/ai-cost/campaigns", async (req: Request, res: Response) => {
   const tenantInfo = new Map(tenantRows.map((t) => [t.id, t]));
   // Key campaign names by tenant too, so a campaign id from one tenant can
   // never pick up another tenant's campaign name.
-  const campaignName = new Map(campaignRows.map((c) => [`${c.tenantId}:${c.id}`, c.name]));
+  const campaignName = new Map(
+    campaignRows.map((c) => [`${c.tenantId}:${c.id}`, c.name]),
+  );
 
   const campaigns = rows
     .map((r) => {
@@ -3106,53 +3379,76 @@ router.put("/admin/nvidia/hosted-key", async (req: Request, res: Response) => {
   res.json(await setNvidiaHostedKey(parsed.data.apiKey.trim()));
 });
 
-router.delete("/admin/nvidia/hosted-key", async (_req: Request, res: Response) => {
-  res.json(await clearNvidiaHostedKey());
-});
+router.delete(
+  "/admin/nvidia/hosted-key",
+  async (_req: Request, res: Response) => {
+    res.json(await clearNvidiaHostedKey());
+  },
+);
 
-router.post("/admin/nvidia/hosted-test", async (_req: Request, res: Response) => {
-  try {
-    res.json(await testNvidiaHosted());
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Test failed" });
-  }
-});
+router.post(
+  "/admin/nvidia/hosted-test",
+  async (_req: Request, res: Response) => {
+    try {
+      res.json(await testNvidiaHosted());
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Test failed",
+      });
+    }
+  },
+);
 
-router.put("/admin/nvidia/deployments/:capability", async (req: Request, res: Response) => {
-  const capability = parseNvidiaCapability(req.params.capability);
-  const parsed = AdminSetNvidiaDeploymentBody.safeParse(req.body);
-  if (!capability || !parsed.success) {
-    res.status(400).json({ error: "Invalid NVIDIA deployment configuration" });
-    return;
-  }
-  try {
-    res.json(await setNvidiaDeployment(capability, parsed.data));
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid configuration" });
-  }
-});
+router.put(
+  "/admin/nvidia/deployments/:capability",
+  async (req: Request, res: Response) => {
+    const capability = parseNvidiaCapability(req.params.capability);
+    const parsed = AdminSetNvidiaDeploymentBody.safeParse(req.body);
+    if (!capability || !parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid NVIDIA deployment configuration" });
+      return;
+    }
+    try {
+      res.json(await setNvidiaDeployment(capability, parsed.data));
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid configuration",
+      });
+    }
+  },
+);
 
-router.delete("/admin/nvidia/deployments/:capability", async (req: Request, res: Response) => {
-  const capability = parseNvidiaCapability(req.params.capability);
-  if (!capability) {
-    res.status(400).json({ error: "Unknown NVIDIA capability" });
-    return;
-  }
-  res.json(await clearNvidiaDeployment(capability));
-});
+router.delete(
+  "/admin/nvidia/deployments/:capability",
+  async (req: Request, res: Response) => {
+    const capability = parseNvidiaCapability(req.params.capability);
+    if (!capability) {
+      res.status(400).json({ error: "Unknown NVIDIA capability" });
+      return;
+    }
+    res.json(await clearNvidiaDeployment(capability));
+  },
+);
 
-router.post("/admin/nvidia/deployments/:capability/test", async (req: Request, res: Response) => {
-  const capability = parseNvidiaCapability(req.params.capability);
-  if (!capability) {
-    res.status(400).json({ error: "Unknown NVIDIA capability" });
-    return;
-  }
-  try {
-    res.json(await testNvidiaDeployment(capability));
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Test failed" });
-  }
-});
+router.post(
+  "/admin/nvidia/deployments/:capability/test",
+  async (req: Request, res: Response) => {
+    const capability = parseNvidiaCapability(req.params.capability);
+    if (!capability) {
+      res.status(400).json({ error: "Unknown NVIDIA capability" });
+      return;
+    }
+    try {
+      res.json(await testNvidiaDeployment(capability));
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Test failed",
+      });
+    }
+  },
+);
 
 router.get("/admin/nvidia/models", async (req: Request, res: Response) => {
   const parsedCapability =
@@ -3167,7 +3463,9 @@ router.get("/admin/nvidia/models", async (req: Request, res: Response) => {
   try {
     res.json(await discoverNvidiaModels(capability));
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Discovery failed" });
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Discovery failed",
+    });
   }
 });
 
@@ -3177,17 +3475,19 @@ router.get("/admin/ai-fallbacks", async (_req: Request, res: Response) => {
 });
 
 const AdminUpdateAiFallbackOrdersBody = z.object({
-  orders: z.object(
-    Object.fromEntries(
-      EDITABLE_AI_FALLBACK_FAMILIES.map((family) => [
-        family,
-        z.array(z.string().min(1).max(200)).max(50).optional(),
-      ]),
-    ) as Record<
-      (typeof EDITABLE_AI_FALLBACK_FAMILIES)[number],
-      z.ZodOptional<z.ZodArray<z.ZodString>>
-    >,
-  ).strict(),
+  orders: z
+    .object(
+      Object.fromEntries(
+        EDITABLE_AI_FALLBACK_FAMILIES.map((family) => [
+          family,
+          z.array(z.string().min(1).max(200)).max(50).optional(),
+        ]),
+      ) as Record<
+        (typeof EDITABLE_AI_FALLBACK_FAMILIES)[number],
+        z.ZodOptional<z.ZodArray<z.ZodString>>
+      >,
+    )
+    .strict(),
 });
 
 /** Atomically replace all manual fallback family orders. */
@@ -3199,52 +3499,78 @@ router.put("/admin/ai-fallbacks", async (req: Request, res: Response) => {
       (ids) => ids !== undefined && new Set(ids).size !== ids.length,
     )
   ) {
-    res.status(400).json({ error: "Each fallback order must contain unique provider ids." });
+    res
+      .status(400)
+      .json({ error: "Each fallback order must contain unique provider ids." });
     return;
   }
   const allowed: Record<string, Set<string>> = {
     image: new Set(IMAGE_GEN_PROVIDERS.map((provider) => provider.id)),
     text: new Set(["builtin"]),
-    "text-to-video": new Set(VIDEO_GEN_PROVIDERS.flatMap((provider) =>
-      [provider.defaultTextToVideoModel, ...(provider.textModelOptions ?? []).map((model) => model.value)]
-        .filter(Boolean)
-        .map((model) => `${provider.id}::${model}`),
-    )),
-    "image-to-video": new Set(VIDEO_GEN_PROVIDERS.flatMap((provider) =>
-      [provider.defaultImageToVideoModel, ...(provider.imageModelOptions ?? []).map((model) => model.value)]
-        .filter(Boolean)
-        .map((model) => `${provider.id}::${model}`),
-    )),
+    "text-to-video": new Set(
+      VIDEO_GEN_PROVIDERS.flatMap((provider) =>
+        [
+          provider.defaultTextToVideoModel,
+          ...(provider.textModelOptions ?? []).map((model) => model.value),
+        ]
+          .filter(Boolean)
+          .map((model) => `${provider.id}::${model}`),
+      ),
+    ),
+    "image-to-video": new Set(
+      VIDEO_GEN_PROVIDERS.flatMap((provider) =>
+        [
+          provider.defaultImageToVideoModel,
+          ...(provider.imageModelOptions ?? []).map((model) => model.value),
+        ]
+          .filter(Boolean)
+          .map((model) => `${provider.id}::${model}`),
+      ),
+    ),
     tts: new Set(["openai", "deepgram", "nvidia"]),
     asr: new Set(ASR_PROVIDERS.map((provider) => provider.id)),
   };
   if (
-    Object.entries(parsed.data.orders).some(
-      ([family, ids]) => ids?.some((id) => !allowed[family]?.has(id)),
+    Object.entries(parsed.data.orders).some(([family, ids]) =>
+      ids?.some((id) => !allowed[family]?.has(id)),
     )
   ) {
-    res.status(400).json({ error: "A fallback order contains an unknown or unsupported candidate id." });
+    res.status(400).json({
+      error:
+        "A fallback order contains an unknown or unsupported candidate id.",
+    });
     return;
   }
   const currentReport = await buildAdminAiFallbackReport();
-  const primaries = new Map(currentReport.families.map((family) => {
-    const hasPinnedPrimary =
-      family.family !== "tts" &&
-      !(family.family === "image" && family.selected === IMAGE_GEN_AUTO);
-    if (!hasPinnedPrimary) return [family.family, null];
-    const primary = family.candidates.find((candidate) => candidate.role === "primary");
-    const id = primary
-      ? ((family.family === "text-to-video" || family.family === "image-to-video")
+  const primaries = new Map(
+    currentReport.families.map((family) => {
+      const hasPinnedPrimary =
+        family.family !== "tts" &&
+        !(family.family === "image" && family.selected === IMAGE_GEN_AUTO);
+      if (!hasPinnedPrimary) return [family.family, null];
+      const primary = family.candidates.find(
+        (candidate) => candidate.role === "primary",
+      );
+      const id = primary
+        ? family.family === "text-to-video" ||
+          family.family === "image-to-video"
           ? `${primary.provider}::${primary.model ?? ""}`
-          : primary.provider)
-      : null;
-    return [family.family, id];
-  }));
-  if (Object.entries(parsed.data.orders).some(([family, ids]) => {
-    const primary = primaries.get(family);
-    return primary !== null && primary !== undefined && ids?.includes(primary);
-  })) {
-    res.status(400).json({ error: "The selected primary cannot be added to its fallback chain." });
+          : primary.provider
+        : null;
+      return [family.family, id];
+    }),
+  );
+  if (
+    Object.entries(parsed.data.orders).some(([family, ids]) => {
+      const primary = primaries.get(family);
+      return (
+        primary !== null && primary !== undefined && ids?.includes(primary)
+      );
+    })
+  ) {
+    res.status(400).json({
+      error: "The selected primary cannot be added to its fallback chain.",
+    });
     return;
   }
   await setAiFallbackOrders(parsed.data.orders);
@@ -3264,60 +3590,95 @@ router.get("/admin/text-gen-settings", async (_req: Request, res: Response) => {
  * Live catalog pricing for the model ids being edited in the admin
  * dashboard (works for unsaved drafts, unlike GET /ai/models).
  */
-router.get("/admin/text-gen-model-pricing", async (req: Request, res: Response) => {
-  const raw = typeof req.query.models === "string" ? req.query.models : "";
-  const provider = req.query.provider === "replicate" ? "replicate" : "openrouter";
-  // Every submitted id gets an entry back (null prices when unknown) so the
-  // UI never shows a permanent "loading" placeholder for a skipped model.
-  const models = [...new Set(raw.split(",").map((m) => m.trim()).filter(Boolean))];
-  if (models.length === 0) {
-    res.status(400).json({ error: "Provide at least one model id in ?models=" });
-    return;
-  }
-  const capped = models.slice(0, 200);
-  const looked =
-    provider === "replicate"
-      ? await lookupReplicateTokenPricing(capped)
-      : await lookupOpenRouterPricing(capped);
-  // Ids past the abuse cap still get explicit null-priced entries.
-  const rest = models
-    .slice(200)
-    .map((model) => ({ model, inputPerMTokens: null, outputPerMTokens: null }));
-  res.json([...looked, ...rest]);
-});
+router.get(
+  "/admin/text-gen-model-pricing",
+  async (req: Request, res: Response) => {
+    const raw = typeof req.query.models === "string" ? req.query.models : "";
+    const provider =
+      req.query.provider === "replicate" ? "replicate" : "openrouter";
+    // Every submitted id gets an entry back (null prices when unknown) so the
+    // UI never shows a permanent "loading" placeholder for a skipped model.
+    const models = [
+      ...new Set(
+        raw
+          .split(",")
+          .map((m) => m.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (models.length === 0) {
+      res
+        .status(400)
+        .json({ error: "Provide at least one model id in ?models=" });
+      return;
+    }
+    const capped = models.slice(0, 200);
+    const looked =
+      provider === "replicate"
+        ? await lookupReplicateTokenPricing(capped)
+        : await lookupOpenRouterPricing(capped);
+    // Ids past the abuse cap still get explicit null-priced entries.
+    const rest = models.slice(200).map((model) => ({
+      model,
+      inputPerMTokens: null,
+      outputPerMTokens: null,
+    }));
+    res.json([...looked, ...rest]);
+  },
+);
 
 /**
  * GET /admin/video-model-pricing?models=owner/name,owner/name
  * Live Replicate pricing (scraped from public model pages) for the video
  * model dropdowns. Every submitted slug gets an entry (null when unknown).
  */
-router.get("/admin/video-model-pricing", async (req: Request, res: Response) => {
-  const raw = typeof req.query.models === "string" ? req.query.models : "";
-  const models = [...new Set(raw.split(",").map((m) => m.trim()).filter(Boolean))];
-  if (models.length === 0) {
-    res.status(400).json({ error: "Provide at least one model slug in ?models=" });
-    return;
-  }
-  const looked = (await lookupReplicateUnitPricing(models.slice(0, 50))).map((price) => ({
-    model: price.model,
-    price: formatPriceEntries(price.entries),
-    variants: price.entries.map((entry) => {
-      const value = Number(entry.price.replace(/[^0-9.]/g, ""));
-      return {
-        price: entry.price,
-        title: entry.title,
-        criteria: entry.criteria,
-        usdPerSecond: /per second/i.test(entry.title) && Number.isFinite(value) ? value : null,
-        usdPerVideo:
-          /per (?:output )?video(?! second)|per run/i.test(entry.title) && Number.isFinite(value)
-            ? value
-            : null,
-      };
-    }),
-  }));
-  const rest = models.slice(50).map((model) => ({ model, price: null, variants: [] }));
-  res.json([...looked, ...rest]);
-});
+router.get(
+  "/admin/video-model-pricing",
+  async (req: Request, res: Response) => {
+    const raw = typeof req.query.models === "string" ? req.query.models : "";
+    const models = [
+      ...new Set(
+        raw
+          .split(",")
+          .map((m) => m.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (models.length === 0) {
+      res
+        .status(400)
+        .json({ error: "Provide at least one model slug in ?models=" });
+      return;
+    }
+    const looked = (await lookupReplicateUnitPricing(models.slice(0, 50))).map(
+      (price) => ({
+        model: price.model,
+        price: formatPriceEntries(price.entries),
+        variants: price.entries.map((entry) => {
+          const value = Number(entry.price.replace(/[^0-9.]/g, ""));
+          return {
+            price: entry.price,
+            title: entry.title,
+            criteria: entry.criteria,
+            usdPerSecond:
+              /per second/i.test(entry.title) && Number.isFinite(value)
+                ? value
+                : null,
+            usdPerVideo:
+              /per (?:output )?video(?! second)|per run/i.test(entry.title) &&
+              Number.isFinite(value)
+                ? value
+                : null,
+          };
+        }),
+      }),
+    );
+    const rest = models
+      .slice(50)
+      .map((model) => ({ model, price: null, variants: [] }));
+    res.json([...looked, ...rest]);
+  },
+);
 
 /**
  * POST /admin/video-model-pricing
@@ -3325,23 +3686,29 @@ router.get("/admin/video-model-pricing", async (req: Request, res: Response) => 
  * public model pages. Unknown pages remain unavailable; existing manual rows
  * are preserved and reported rather than overwritten with a guess.
  */
-router.post("/admin/video-model-pricing", async (req: Request, res: Response) => {
-  const result = await syncReplicateVideoPricing();
-  try {
-    await recordAdminAction({
-      action: "ai_cost_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `replicate_video_bulk:${result.synced.length}:${result.manual.length}:${result.unavailable.length}`,
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write Replicate video price sync audit log");
-  }
-  res.json(result);
-});
+router.post(
+  "/admin/video-model-pricing",
+  async (req: Request, res: Response) => {
+    const result = await syncReplicateVideoPricing();
+    try {
+      await recordAdminAction({
+        action: "ai_cost_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `replicate_video_bulk:${result.synced.length}:${result.manual.length}:${result.unavailable.length}`,
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to write Replicate video price sync audit log",
+      );
+    }
+    res.json(result);
+  },
+);
 
 /**
  * PUT /admin/text-gen-settings
@@ -3389,7 +3756,10 @@ async function auditCustomProviderChange(
       newValue,
     });
   } catch (error) {
-    req.log.error({ err: error }, "Failed to write custom AI provider audit log");
+    req.log.error(
+      { err: error },
+      "Failed to write custom AI provider audit log",
+    );
   }
 }
 
@@ -3397,131 +3767,153 @@ async function auditCustomProviderChange(
  * GET /admin/custom-ai-providers
  * List admin-added OpenAI-compatible providers. Superadmin only.
  */
-router.get("/admin/custom-ai-providers", async (_req: Request, res: Response) => {
-  res.json(await serializeCustomAiProviders());
-});
+router.get(
+  "/admin/custom-ai-providers",
+  async (_req: Request, res: Response) => {
+    res.json(await serializeCustomAiProviders());
+  },
+);
 
 /**
  * POST /admin/custom-ai-providers
  * Add a custom provider. The base URL must be https and pass the shared
  * SSRF guard (public hosts only). Superadmin only.
  */
-router.post("/admin/custom-ai-providers", async (req: Request, res: Response) => {
-  const parsed = AdminCreateCustomAiProviderBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const name = parsed.data.name.trim();
-  if (!name) {
-    res.status(400).json({ error: "Name is required" });
-    return;
-  }
-  let baseUrl: string;
-  try {
-    baseUrl = await validateCustomBaseUrl(parsed.data.baseUrl);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid base URL" });
-    return;
-  }
-  let videoApi;
-  try {
-    videoApi = validateVideoApiMapping(parsed.data.videoApi);
-  } catch (error) {
-    res
-      .status(400)
-      .json({ error: error instanceof Error ? error.message : "Invalid video API mapping" });
-    return;
-  }
-  const row = await createCustomAiProvider({
-    name,
-    baseUrl,
-    apiKey: parsed.data.apiKey?.trim() || null,
-    textEnabled: parsed.data.textEnabled ?? false,
-    imageEnabled: parsed.data.imageEnabled ?? false,
-    videoEnabled: parsed.data.videoEnabled ?? false,
-    videoApi,
-  });
-  await auditCustomProviderChange(req, null, `${customProviderRef(row.id)}:${row.name}`);
-  res.json(await serializeCustomAiProviders());
-});
+router.post(
+  "/admin/custom-ai-providers",
+  async (req: Request, res: Response) => {
+    const parsed = AdminCreateCustomAiProviderBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const name = parsed.data.name.trim();
+    if (!name) {
+      res.status(400).json({ error: "Name is required" });
+      return;
+    }
+    let baseUrl: string;
+    try {
+      baseUrl = await validateCustomBaseUrl(parsed.data.baseUrl);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid base URL",
+      });
+      return;
+    }
+    let videoApi;
+    try {
+      videoApi = validateVideoApiMapping(parsed.data.videoApi);
+    } catch (error) {
+      res.status(400).json({
+        error:
+          error instanceof Error ? error.message : "Invalid video API mapping",
+      });
+      return;
+    }
+    const row = await createCustomAiProvider({
+      name,
+      baseUrl,
+      apiKey: parsed.data.apiKey?.trim() || null,
+      textEnabled: parsed.data.textEnabled ?? false,
+      imageEnabled: parsed.data.imageEnabled ?? false,
+      videoEnabled: parsed.data.videoEnabled ?? false,
+      videoApi,
+    });
+    await auditCustomProviderChange(
+      req,
+      null,
+      `${customProviderRef(row.id)}:${row.name}`,
+    );
+    res.json(await serializeCustomAiProviders());
+  },
+);
 
 /**
  * PUT /admin/custom-ai-providers/:providerId
  * Update a custom provider. Disabling a use case the provider currently
  * serves is refused — switch that use case away first. Superadmin only.
  */
-router.put("/admin/custom-ai-providers/:providerId", async (req: Request, res: Response) => {
-  const id = customProviderIdParam(req.params.providerId as string);
-  const existing = id === null ? null : await getCustomAiProvider(id);
-  if (!existing) {
-    res.status(404).json({ error: "Unknown custom provider" });
-    return;
-  }
-  const parsed = AdminUpdateCustomAiProviderBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const name = parsed.data.name.trim();
-  if (!name) {
-    res.status(400).json({ error: "Name is required" });
-    return;
-  }
-  let baseUrl: string;
-  try {
-    baseUrl = await validateCustomBaseUrl(parsed.data.baseUrl);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid base URL" });
-    return;
-  }
-  const ref = customProviderRef(existing.id);
-  const uses = await customProviderActiveUses(ref);
-  const disabling = uses.filter(
-    (use) =>
-      (use === "text generation" && !(parsed.data.textEnabled ?? false)) ||
-      (use === "image generation" && !(parsed.data.imageEnabled ?? false)) ||
-      (use === "video generation" && !(parsed.data.videoEnabled ?? false)),
-  );
-  if (disabling.length > 0) {
-    res.status(400).json({
-      error: `This provider is currently selected for ${disabling.join(" and ")}. Switch that use case to another provider first.`,
-    });
-    return;
-  }
-  // undefined = keep the stored mapping; a value replaces it (validated —
-  // template "openrouter" normalizes to null, the stored default).
-  let videoApi;
-  try {
-    videoApi =
-      parsed.data.videoApi === undefined
-        ? undefined
-        : validateVideoApiMapping(parsed.data.videoApi);
-  } catch (error) {
-    res
-      .status(400)
-      .json({ error: error instanceof Error ? error.message : "Invalid video API mapping" });
-    return;
-  }
-  const row = await updateCustomAiProvider(existing.id, {
-    name,
-    baseUrl,
-    // undefined = keep the stored key; null/"" clears it; a value replaces it.
-    apiKey: parsed.data.apiKey === undefined ? undefined : parsed.data.apiKey?.trim() || null,
-    textEnabled: parsed.data.textEnabled ?? false,
-    imageEnabled: parsed.data.imageEnabled ?? false,
-    videoEnabled: parsed.data.videoEnabled ?? false,
-    videoApi,
-  });
-  if (row) {
-    await auditCustomProviderChange(
-      req,
-      `${ref}:${existing.name}`,
-      `${ref}:${row.name}`,
+router.put(
+  "/admin/custom-ai-providers/:providerId",
+  async (req: Request, res: Response) => {
+    const id = customProviderIdParam(req.params.providerId as string);
+    const existing = id === null ? null : await getCustomAiProvider(id);
+    if (!existing) {
+      res.status(404).json({ error: "Unknown custom provider" });
+      return;
+    }
+    const parsed = AdminUpdateCustomAiProviderBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const name = parsed.data.name.trim();
+    if (!name) {
+      res.status(400).json({ error: "Name is required" });
+      return;
+    }
+    let baseUrl: string;
+    try {
+      baseUrl = await validateCustomBaseUrl(parsed.data.baseUrl);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid base URL",
+      });
+      return;
+    }
+    const ref = customProviderRef(existing.id);
+    const uses = await customProviderActiveUses(ref);
+    const disabling = uses.filter(
+      (use) =>
+        (use === "text generation" && !(parsed.data.textEnabled ?? false)) ||
+        (use === "image generation" && !(parsed.data.imageEnabled ?? false)) ||
+        (use === "video generation" && !(parsed.data.videoEnabled ?? false)),
     );
-  }
-  res.json(await serializeCustomAiProviders());
-});
+    if (disabling.length > 0) {
+      res.status(400).json({
+        error: `This provider is currently selected for ${disabling.join(" and ")}. Switch that use case to another provider first.`,
+      });
+      return;
+    }
+    // undefined = keep the stored mapping; a value replaces it (validated —
+    // template "openrouter" normalizes to null, the stored default).
+    let videoApi;
+    try {
+      videoApi =
+        parsed.data.videoApi === undefined
+          ? undefined
+          : validateVideoApiMapping(parsed.data.videoApi);
+    } catch (error) {
+      res.status(400).json({
+        error:
+          error instanceof Error ? error.message : "Invalid video API mapping",
+      });
+      return;
+    }
+    const row = await updateCustomAiProvider(existing.id, {
+      name,
+      baseUrl,
+      // undefined = keep the stored key; null/"" clears it; a value replaces it.
+      apiKey:
+        parsed.data.apiKey === undefined
+          ? undefined
+          : parsed.data.apiKey?.trim() || null,
+      textEnabled: parsed.data.textEnabled ?? false,
+      imageEnabled: parsed.data.imageEnabled ?? false,
+      videoEnabled: parsed.data.videoEnabled ?? false,
+      videoApi,
+    });
+    if (row) {
+      await auditCustomProviderChange(
+        req,
+        `${ref}:${existing.name}`,
+        `${ref}:${row.name}`,
+      );
+    }
+    res.json(await serializeCustomAiProviders());
+  },
+);
 
 /**
  * POST /admin/custom-ai-providers/:providerId/test
@@ -3538,9 +3930,14 @@ router.post(
       res.status(404).json({ error: "Unknown custom provider" });
       return;
     }
-    if (!existing.textEnabled && !existing.imageEnabled && !existing.videoEnabled) {
+    if (
+      !existing.textEnabled &&
+      !existing.imageEnabled &&
+      !existing.videoEnabled
+    ) {
       res.status(400).json({
-        error: "No use cases are enabled for this provider. Enable at least one, then test.",
+        error:
+          "No use cases are enabled for this provider. Enable at least one, then test.",
       });
       return;
     }
@@ -3553,25 +3950,28 @@ router.post(
  * DELETE /admin/custom-ai-providers/:providerId
  * Delete a custom provider, unless a use case still points at it. Superadmin only.
  */
-router.delete("/admin/custom-ai-providers/:providerId", async (req: Request, res: Response) => {
-  const id = customProviderIdParam(req.params.providerId as string);
-  const existing = id === null ? null : await getCustomAiProvider(id);
-  if (!existing) {
-    res.status(404).json({ error: "Unknown custom provider" });
-    return;
-  }
-  const ref = customProviderRef(existing.id);
-  const uses = await customProviderActiveUses(ref);
-  if (uses.length > 0) {
-    res.status(400).json({
-      error: `This provider is currently selected for ${uses.join(" and ")}. Switch that use case to another provider first.`,
-    });
-    return;
-  }
-  await deleteCustomAiProvider(existing.id);
-  await auditCustomProviderChange(req, `${ref}:${existing.name}`, null);
-  res.json(await serializeCustomAiProviders());
-});
+router.delete(
+  "/admin/custom-ai-providers/:providerId",
+  async (req: Request, res: Response) => {
+    const id = customProviderIdParam(req.params.providerId as string);
+    const existing = id === null ? null : await getCustomAiProvider(id);
+    if (!existing) {
+      res.status(404).json({ error: "Unknown custom provider" });
+      return;
+    }
+    const ref = customProviderRef(existing.id);
+    const uses = await customProviderActiveUses(ref);
+    if (uses.length > 0) {
+      res.status(400).json({
+        error: `This provider is currently selected for ${uses.join(" and ")}. Switch that use case to another provider first.`,
+      });
+      return;
+    }
+    await deleteCustomAiProvider(existing.id);
+    await auditCustomProviderChange(req, `${ref}:${existing.name}`, null);
+    res.json(await serializeCustomAiProviders());
+  },
+);
 
 router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   const parsed = AdminUpdateTextGenSettingsBody.safeParse(req.body);
@@ -3581,14 +3981,20 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   }
   const provider = parsed.data.provider as TextGenProvider;
   const customTextRow =
-    parseCustomProviderId(provider) !== null ? await resolveCustomProvider(provider) : null;
-  if (!(TEXT_GEN_PROVIDERS as readonly string[]).includes(provider) && !customTextRow) {
+    parseCustomProviderId(provider) !== null
+      ? await resolveCustomProvider(provider)
+      : null;
+  if (
+    !(TEXT_GEN_PROVIDERS as readonly string[]).includes(provider) &&
+    !customTextRow
+  ) {
     res.status(400).json({ error: "Unknown text generation provider" });
     return;
   }
   if (customTextRow && !customTextRow.textEnabled) {
     res.status(400).json({
-      error: "This custom provider is not enabled for text generation. Enable it on its card first.",
+      error:
+        "This custom provider is not enabled for text generation. Enable it on its card first.",
     });
     return;
   }
@@ -3605,13 +4011,15 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
           ? "Replicate"
           : provider === "nvidia"
             ? "NVIDIA"
-          : (customTextRow?.name ?? "custom provider");
+            : (customTextRow?.name ?? "custom provider");
     if (models.length === 0) {
       res.status(400).json({ error: `Add at least one ${label} model id` });
       return;
     }
     if (defaultModel && !models.includes(defaultModel)) {
-      res.status(400).json({ error: "The default model must be one of the listed models" });
+      res
+        .status(400)
+        .json({ error: "The default model must be one of the listed models" });
       return;
     }
     if (provider === "openrouter" && models.some(isBatchOnlyTextModel)) {
@@ -3621,8 +4029,13 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
       });
       return;
     }
-    if (provider === "replicate" && models.some((m) => !/^[^/\s]+\/[^/\s]+$/.test(m))) {
-      res.status(400).json({ error: "Replicate models must be owner/name slugs" });
+    if (
+      provider === "replicate" &&
+      models.some((m) => !/^[^/\s]+\/[^/\s]+$/.test(m))
+    ) {
+      res
+        .status(400)
+        .json({ error: "Replicate models must be owner/name slugs" });
       return;
     }
     if (provider === "nvidia") {
@@ -3659,10 +4072,16 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   // into ai_model_prices as part of this call.
   let pricingWarning: string | null = null;
   if (provider !== "builtin" && provider !== "nvidia") {
-    const { missing, crossSourced } = await syncActivatedModelPricing({ kind: "text", provider, models });
+    const { missing, crossSourced } = await syncActivatedModelPricing({
+      kind: "text",
+      provider,
+      models,
+    });
     if (missing.length > 0) {
       res.status(400).json({
-        error: missingPricingError(missing.map((m) => ({ model: m, kind: "text" as const }))),
+        error: missingPricingError(
+          missing.map((m) => ({ model: m, kind: "text" as const })),
+        ),
       });
       return;
     }
@@ -3673,7 +4092,8 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   await setTextGenSelection({
     provider,
     models: provider !== "builtin" ? models : [],
-    defaultModel: provider !== "builtin" ? (defaultModel ?? models[0] ?? null) : null,
+    defaultModel:
+      provider !== "builtin" ? (defaultModel ?? models[0] ?? null) : null,
   });
 
   const after = await getTextGenSelection();
@@ -3693,7 +4113,10 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
         newValue: `${after.provider}${after.defaultModel ? `:${after.defaultModel}` : ""}`,
       });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write text-gen settings audit log");
+      req.log.error(
+        { err: error },
+        "Failed to write text-gen settings audit log",
+      );
     }
   }
 
@@ -3770,55 +4193,52 @@ router.get("/admin/features", async (_req: Request, res: Response) => {
  * PUT /admin/features/:feature
  * Turn an app module on or off for every tenant on the platform.
  */
-router.put(
-  "/admin/features/:feature",
-  async (req: Request, res: Response) => {
-    const feature = String(req.params.feature);
-    if (!isKnownFeature(feature)) {
-      res.status(400).json({ error: "Unknown feature" });
-      return;
-    }
-    const parsed = AdminUpdateFeatureFlagBody.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Invalid input" });
-      return;
-    }
+router.put("/admin/features/:feature", async (req: Request, res: Response) => {
+  const feature = String(req.params.feature);
+  if (!isKnownFeature(feature)) {
+    res.status(400).json({ error: "Unknown feature" });
+    return;
+  }
+  const parsed = AdminUpdateFeatureFlagBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
 
-    const before = (await getFeatureFlags())[feature];
-    await db
-      .insert(featureFlagsTable)
-      .values({ feature, enabled: parsed.data.enabled })
-      .onConflictDoUpdate({
-        target: featureFlagsTable.feature,
-        set: { enabled: parsed.data.enabled, updatedAt: new Date() },
-      });
-    invalidateFeatureFlagCache();
-
-    if (before !== parsed.data.enabled) {
-      try {
-        await recordAdminAction({
-          action: "feature_flag_change",
-          actorTenantId: req.tenantId,
-          actorEmail: req.tenantEmail,
-          targetTenantId: null,
-          targetEmail: null,
-          oldValue: `${feature}:${before ? "enabled" : "disabled"}`,
-          newValue: `${feature}:${parsed.data.enabled ? "enabled" : "disabled"}`,
-        });
-      } catch (error) {
-        req.log.error({ err: error }, "Failed to write feature-flag audit log");
-      }
-    }
-
-    const def = FEATURES.find((f) => f.id === feature)!;
-    res.json({
-      feature,
-      label: def.label,
-      description: def.description,
-      enabled: parsed.data.enabled,
+  const before = (await getFeatureFlags())[feature];
+  await db
+    .insert(featureFlagsTable)
+    .values({ feature, enabled: parsed.data.enabled })
+    .onConflictDoUpdate({
+      target: featureFlagsTable.feature,
+      set: { enabled: parsed.data.enabled, updatedAt: new Date() },
     });
-  },
-);
+  invalidateFeatureFlagCache();
+
+  if (before !== parsed.data.enabled) {
+    try {
+      await recordAdminAction({
+        action: "feature_flag_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: `${feature}:${before ? "enabled" : "disabled"}`,
+        newValue: `${feature}:${parsed.data.enabled ? "enabled" : "disabled"}`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write feature-flag audit log");
+    }
+  }
+
+  const def = FEATURES.find((f) => f.id === feature)!;
+  res.json({
+    feature,
+    label: def.label,
+    description: def.description,
+    enabled: parsed.data.enabled,
+  });
+});
 
 /**
  * GET /admin/design-skill
@@ -3847,7 +4267,9 @@ router.put("/admin/design-skill", async (req: Request, res: Response) => {
       .set({ enabled: parsed.data.enabled })
       .where(eq(designSkillSettingsTable.id, row.id));
   } else {
-    await db.insert(designSkillSettingsTable).values({ enabled: parsed.data.enabled });
+    await db
+      .insert(designSkillSettingsTable)
+      .values({ enabled: parsed.data.enabled });
   }
 
   if (before !== parsed.data.enabled) {
@@ -3869,8 +4291,7 @@ router.put("/admin/design-skill", async (req: Request, res: Response) => {
   res.json({ enabled: parsed.data.enabled });
 });
 
-const invalidLimit = (n: number) =>
-  !Number.isInteger(n) || (n < 0 && n !== -1);
+const invalidLimit = (n: number) => !Number.isInteger(n) || (n < 0 && n !== -1);
 
 function invalidLimits(limits: {
   captions: number;
@@ -3985,7 +4406,9 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
   const needsMonthlyMint =
     nextPriceInr !== null &&
     (nextPriceInr !== previous.priceInr ||
-      (activeGateway === "razorpay" ? !nextRazorpayPlanId : !nextCashfreePlanId));
+      (activeGateway === "razorpay"
+        ? !nextRazorpayPlanId
+        : !nextCashfreePlanId));
   const needsYearlyMint =
     nextPriceInrYearly !== null &&
     (nextPriceInrYearly !== previous.priceInrYearly ||
@@ -4342,7 +4765,8 @@ router.delete("/admin/plans/:planId", async (req: Request, res: Response) => {
 
   if (planId === FALLBACK_PLAN_ID) {
     res.status(400).json({
-      error: "The Free plan is the default for new signups and cannot be deleted",
+      error:
+        "The Free plan is the default for new signups and cannot be deleted",
     });
     return;
   }
@@ -4426,90 +4850,125 @@ async function listGamificationPlans() {
       planId: p.id,
       planName: p.name,
       customized: !!row,
-      settings: row ? rowToPlanGamification(row) : { ...DEFAULT_PLAN_GAMIFICATION },
+      settings: row
+        ? rowToPlanGamification(row)
+        : { ...DEFAULT_PLAN_GAMIFICATION },
     };
   });
 }
 
-router.get("/admin/gamification-plans", async (_req: Request, res: Response) => {
-  res.json(await listGamificationPlans());
-});
+router.get(
+  "/admin/gamification-plans",
+  async (_req: Request, res: Response) => {
+    res.json(await listGamificationPlans());
+  },
+);
 
 /**
  * PUT /admin/gamification-plans/:planId
  * Upsert one plan's gamification settings (toggles, reward multiplier,
  * referral amounts). The plan id is validated against the live catalog.
  */
-router.put("/admin/gamification-plans/:planId", async (req: Request, res: Response) => {
-  const planId = String(req.params.planId);
-  const catalog = await listPlans();
-  if (!catalog.some((p) => p.id === planId)) {
-    res.status(404).json({ error: "Unknown plan" });
-    return;
-  }
-  const parsed = AdminUpdateGamificationPlanBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const s = parsed.data;
-  const nonNegative = [
-    s.referrerCaptionCredits,
-    s.referrerImageCredits,
-    s.refereeCaptionCredits,
-    s.refereeImageCredits,
-  ];
-  if (
-    nonNegative.some((n) => !Number.isInteger(n) || n < 0) ||
-    !Number.isInteger(s.rewardMultiplierPercent) ||
-    s.rewardMultiplierPercent < 0 ||
-    s.rewardMultiplierPercent > 1000 ||
-    !Number.isInteger(s.referralMaxRedemptions) ||
-    s.referralMaxRedemptions < 1 ||
-    s.referralMaxRedemptions > 10000
-  ) {
-    res.status(400).json({
-      error:
-        "Credits must be whole numbers >= 0, the multiplier 0-1000%, and the referral cap 1-10000.",
-    });
-    return;
-  }
+router.put(
+  "/admin/gamification-plans/:planId",
+  async (req: Request, res: Response) => {
+    const planId = String(req.params.planId);
+    const catalog = await listPlans();
+    if (!catalog.some((p) => p.id === planId)) {
+      res.status(404).json({ error: "Unknown plan" });
+      return;
+    }
+    const parsed = AdminUpdateGamificationPlanBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const s = parsed.data;
+    const nonNegative = [
+      s.referrerCaptionCredits,
+      s.referrerImageCredits,
+      s.refereeCaptionCredits,
+      s.refereeImageCredits,
+    ];
+    const overrides = s.rewardCreditOverrides ?? {};
+    const overrideEntries = Object.entries(overrides);
+    if (
+      nonNegative.some((n) => !Number.isInteger(n) || n < 0) ||
+      !Number.isInteger(s.rewardMultiplierPercent) ||
+      s.rewardMultiplierPercent < 0 ||
+      s.rewardMultiplierPercent > 1000 ||
+      !Number.isInteger(s.referralMaxRedemptions) ||
+      s.referralMaxRedemptions < 1 ||
+      s.referralMaxRedemptions > 10000 ||
+      overrideEntries.some(
+        ([key, value]) =>
+          !/^(quest:[a-z0-9_]+|streak:[0-9]+|referrer|referee)$/.test(key) ||
+          !Number.isInteger(value) ||
+          value < 0 ||
+          value > 1_000_000_000,
+      )
+    ) {
+      res.status(400).json({
+        error:
+          "Credits must be whole numbers >= 0, the multiplier 0-1000%, and the referral cap 1-10000.",
+      });
+      return;
+    }
 
-  const values = {
-    planId,
-    questsEnabled: s.questsEnabled,
-    streaksEnabled: s.streaksEnabled,
-    referralsEnabled: s.referralsEnabled,
-    progressMeterEnabled: s.progressMeterEnabled,
-    rewardMultiplierPercent: s.rewardMultiplierPercent,
-    referrerCaptionCredits: s.referrerCaptionCredits,
-    referrerImageCredits: s.referrerImageCredits,
-    refereeCaptionCredits: s.refereeCaptionCredits,
-    refereeImageCredits: s.refereeImageCredits,
-    referralMaxRedemptions: s.referralMaxRedemptions,
-    updatedAt: new Date(),
-  };
-  await db
-    .insert(gamificationPlanSettingsTable)
-    .values(values)
-    .onConflictDoUpdate({ target: gamificationPlanSettingsTable.planId, set: values });
+    // Older admin clients do not send canonical overrides. Preserve any
+    // existing map rather than silently deleting explicit credit values.
+    const existing = (
+      await db
+        .select({
+          rewardCreditOverrides:
+            gamificationPlanSettingsTable.rewardCreditOverrides,
+        })
+        .from(gamificationPlanSettingsTable)
+        .where(eq(gamificationPlanSettingsTable.planId, planId))
+        .limit(1)
+    )[0];
+    const rewardCreditOverrides =
+      s.rewardCreditOverrides ?? existing?.rewardCreditOverrides ?? {};
+    const values = {
+      planId,
+      questsEnabled: s.questsEnabled,
+      streaksEnabled: s.streaksEnabled,
+      referralsEnabled: s.referralsEnabled,
+      progressMeterEnabled: s.progressMeterEnabled,
+      rewardMultiplierPercent: s.rewardMultiplierPercent,
+      referrerCaptionCredits: s.referrerCaptionCredits,
+      referrerImageCredits: s.referrerImageCredits,
+      refereeCaptionCredits: s.refereeCaptionCredits,
+      refereeImageCredits: s.refereeImageCredits,
+      referralMaxRedemptions: s.referralMaxRedemptions,
+      rewardCreditOverrides,
+      updatedAt: new Date(),
+    };
+    await db
+      .insert(gamificationPlanSettingsTable)
+      .values(values)
+      .onConflictDoUpdate({
+        target: gamificationPlanSettingsTable.planId,
+        set: values,
+      });
 
-  try {
-    await recordAdminAction({
-      action: "gamification_plan_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: JSON.stringify({ planId, ...s }),
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write gamification audit log");
-  }
+    try {
+      await recordAdminAction({
+        action: "gamification_plan_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: JSON.stringify({ planId, ...s }),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write gamification audit log");
+    }
 
-  res.json(await listGamificationPlans());
-});
+    res.json(await listGamificationPlans());
+  },
+);
 
 /**
  * DELETE /admin/gamification-plans/:planId
@@ -4581,7 +5040,9 @@ const invalidPack = (b: {
   b.imageCredits < 0 ||
   (b.videoCredits !== undefined &&
     (!Number.isInteger(b.videoCredits) || b.videoCredits < 0)) ||
-  (b.captionCredits === 0 && b.imageCredits === 0 && (b.videoCredits ?? 0) === 0);
+  (b.captionCredits === 0 &&
+    b.imageCredits === 0 &&
+    (b.videoCredits ?? 0) === 0);
 
 /** GET /admin/credit-packs — all packs, including inactive. */
 router.get("/admin/credit-packs", async (_req: Request, res: Response) => {
@@ -4599,7 +5060,9 @@ router.post("/admin/credit-packs", async (req: Request, res: Response) => {
     return;
   }
   const count = (
-    await db.select({ count: sql<number>`count(*)::int` }).from(creditPacksTable)
+    await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(creditPacksTable)
   )[0];
   const created = (
     await db
@@ -4644,7 +5107,11 @@ router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
     return;
   }
   const previous = (
-    await db.select().from(creditPacksTable).where(eq(creditPacksTable.id, id)).limit(1)
+    await db
+      .select()
+      .from(creditPacksTable)
+      .where(eq(creditPacksTable.id, id))
+      .limit(1)
   )[0];
   if (!previous) {
     res.status(404).json({ error: "Not found" });
@@ -4687,34 +5154,44 @@ router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
  * deactivated (never hard-deleted) so the credit ledger's pack references
  * stay resolvable.
  */
-router.delete("/admin/credit-packs/:id", async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  const previous = (
-    await db.select().from(creditPacksTable).where(eq(creditPacksTable.id, id)).limit(1)
-  )[0];
-  if (!previous) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-  await db
-    .update(creditPacksTable)
-    .set({ active: false, updatedAt: new Date() })
-    .where(eq(creditPacksTable.id, id));
-  try {
-    await recordAdminAction({
-      action: "credit_pack_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: JSON.stringify(serializeCreditPack(previous)),
-      newValue: JSON.stringify({ ...serializeCreditPack(previous), active: false }),
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write credit-pack audit log");
-  }
-  res.json(await listAllCreditPacks());
-});
+router.delete(
+  "/admin/credit-packs/:id",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const previous = (
+      await db
+        .select()
+        .from(creditPacksTable)
+        .where(eq(creditPacksTable.id, id))
+        .limit(1)
+    )[0];
+    if (!previous) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    await db
+      .update(creditPacksTable)
+      .set({ active: false, updatedAt: new Date() })
+      .where(eq(creditPacksTable.id, id));
+    try {
+      await recordAdminAction({
+        action: "credit_pack_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: JSON.stringify(serializeCreditPack(previous)),
+        newValue: JSON.stringify({
+          ...serializeCreditPack(previous),
+          active: false,
+        }),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write credit-pack audit log");
+    }
+    res.json(await listAllCreditPacks());
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Promo codes (superadmin-defined credit giveaways)
@@ -4728,6 +5205,8 @@ function serializePromoCode(p: PromoCode) {
     captionCredits: p.captionCredits,
     imageCredits: p.imageCredits,
     videoCredits: p.videoCredits,
+    rewardCredits:
+      p.rewardCreditsMilli === null ? null : p.rewardCreditsMilli / MILLI,
     allowedPlans: p.allowedPlans,
     audience: p.audience as "all" | "new" | "existing",
     newTenantDays: p.newTenantDays,
@@ -4755,7 +5234,10 @@ function parsePromoDate(
 async function auditPromoChange(
   req: Request,
   oldValue: PromoCode | null,
-  newValue: ReturnType<typeof serializePromoCode> | { batchId: string; count: number } | null,
+  newValue:
+    | ReturnType<typeof serializePromoCode>
+    | { batchId: string; count: number }
+    | null,
 ) {
   try {
     await recordAdminAction({
@@ -4794,16 +5276,29 @@ router.post("/admin/promo-codes", async (req: Request, res: Response) => {
   }
   const b = parsed.data;
   if (
+    b.rewardCredits !== undefined &&
+    b.rewardCredits !== null &&
+    (!Number.isFinite(b.rewardCredits) || b.rewardCredits < 0)
+  ) {
+    res
+      .status(400)
+      .json({ error: "rewardCredits must be a finite non-negative number." });
+    return;
+  }
+  if (
     (b.captionCredits ?? 0) <= 0 &&
     (b.imageCredits ?? 0) <= 0 &&
-    (b.videoCredits ?? 0) <= 0
+    (b.videoCredits ?? 0) <= 0 &&
+    (b.rewardCredits ?? 0) <= 0
   ) {
-    res.status(400).json({ error: "A promo code must grant at least one credit." });
+    res
+      .status(400)
+      .json({ error: "A promo code must grant at least one credit." });
     return;
   }
   const hasCode = typeof b.code === "string" && b.code.trim().length > 0;
   const count = b.generateCount ?? 0;
-  if (hasCode === (count > 0)) {
+  if (hasCode === count > 0) {
     res.status(400).json({
       error: "Provide either a specific code or a number of codes to generate.",
     });
@@ -4825,6 +5320,10 @@ router.post("/admin/promo-codes", async (req: Request, res: Response) => {
     captionCredits: b.captionCredits,
     imageCredits: b.imageCredits,
     videoCredits: b.videoCredits ?? 0,
+    rewardCreditsMilli:
+      b.rewardCredits === undefined || b.rewardCredits === null
+        ? null
+        : Math.round(b.rewardCredits * MILLI),
     allowedPlans:
       b.allowedPlans && b.allowedPlans.length > 0 ? b.allowedPlans : null,
     audience: b.audience ?? "all",
@@ -4892,13 +5391,27 @@ router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
     return;
   }
   const previous = (
-    await db.select().from(promoCodesTable).where(eq(promoCodesTable.id, id)).limit(1)
+    await db
+      .select()
+      .from(promoCodesTable)
+      .where(eq(promoCodesTable.id, id))
+      .limit(1)
   )[0];
   if (!previous) {
     res.status(404).json({ error: "Not found" });
     return;
   }
   const b = parsed.data;
+  if (
+    b.rewardCredits !== undefined &&
+    b.rewardCredits !== null &&
+    (!Number.isFinite(b.rewardCredits) || b.rewardCredits < 0)
+  ) {
+    res
+      .status(400)
+      .json({ error: "rewardCredits must be a finite non-negative number." });
+    return;
+  }
   const startsAt = parsePromoDate(b.startsAt);
   const expiresAt = parsePromoDate(b.expiresAt);
   if (startsAt === "invalid" || expiresAt === "invalid") {
@@ -4908,8 +5421,21 @@ router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
   const nextCaptions = b.captionCredits ?? previous.captionCredits;
   const nextImages = b.imageCredits ?? previous.imageCredits;
   const nextVideos = b.videoCredits ?? previous.videoCredits;
-  if (nextCaptions <= 0 && nextImages <= 0 && nextVideos <= 0) {
-    res.status(400).json({ error: "A promo code must grant at least one credit." });
+  const nextRewardCreditsMilli =
+    b.rewardCredits === undefined
+      ? previous.rewardCreditsMilli
+      : b.rewardCredits === null
+        ? null
+        : Math.round(b.rewardCredits * MILLI);
+  if (
+    nextCaptions <= 0 &&
+    nextImages <= 0 &&
+    nextVideos <= 0 &&
+    (nextRewardCreditsMilli ?? 0) <= 0
+  ) {
+    res
+      .status(400)
+      .json({ error: "A promo code must grant at least one credit." });
     return;
   }
   const nextStarts = startsAt === undefined ? previous.startsAt : startsAt;
@@ -4923,10 +5449,13 @@ router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
       .update(promoCodesTable)
       .set({
         campaign:
-          b.campaign === undefined ? previous.campaign : b.campaign?.trim() || null,
+          b.campaign === undefined
+            ? previous.campaign
+            : b.campaign?.trim() || null,
         captionCredits: nextCaptions,
         imageCredits: nextImages,
         videoCredits: nextVideos,
+        rewardCreditsMilli: nextRewardCreditsMilli,
         allowedPlans:
           b.allowedPlans === undefined
             ? previous.allowedPlans
@@ -4936,7 +5465,9 @@ router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
         audience: b.audience ?? previous.audience,
         newTenantDays: b.newTenantDays ?? previous.newTenantDays,
         maxRedemptions:
-          b.maxRedemptions === undefined ? previous.maxRedemptions : b.maxRedemptions,
+          b.maxRedemptions === undefined
+            ? previous.maxRedemptions
+            : b.maxRedemptions,
         perTenantLimit: b.perTenantLimit ?? previous.perTenantLimit,
         startsAt: nextStarts,
         expiresAt: nextExpires,
@@ -4962,7 +5493,11 @@ router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
 router.delete("/admin/promo-codes/:id", async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const previous = (
-    await db.select().from(promoCodesTable).where(eq(promoCodesTable.id, id)).limit(1)
+    await db
+      .select()
+      .from(promoCodesTable)
+      .where(eq(promoCodesTable.id, id))
+      .limit(1)
   )[0];
   if (!previous) {
     res.status(404).json({ error: "Not found" });
@@ -5058,7 +5593,10 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  if (parsed.data.mode === "enforce" && CREDIT_RECONCILIATION_GATE.verdict !== "go") {
+  if (
+    parsed.data.mode === "enforce" &&
+    CREDIT_RECONCILIATION_GATE.verdict !== "go"
+  ) {
     res.status(409).json({
       error: `Credit enforcement is locked: ${CREDIT_RECONCILIATION_GATE.reason} Keep the meter in shadow mode until reconciliation is complete.`,
     });
@@ -5116,10 +5654,13 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
  * records, because `recordUsage` only fires on success. The provider token and
  * USD columns are what make the comparison exact rather than plausible.
  */
-router.get("/admin/credit-meter-report", async (req: Request, res: Response) => {
-  const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
-  res.json(await meterReport(days));
-});
+router.get(
+  "/admin/credit-meter-report",
+  async (req: Request, res: Response) => {
+    const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
+    res.json(await meterReport(days));
+  },
+);
 
 /**
  * POST /admin/tenants/:id/credit-account — grant or remove credits (audited).
@@ -5128,53 +5669,60 @@ router.get("/admin/credit-meter-report", async (req: Request, res: Response) => 
  * they never lapse, which is the right choice for a goodwill grant that stands
  * in for a purchase.
  */
-router.post("/admin/tenants/:id/credit-account", async (req: Request, res: Response) => {
-  const tenantId = Number(req.params.id);
-  if (!Number.isInteger(tenantId)) {
-    res.status(400).json({ error: "Invalid tenant" });
-    return;
-  }
-  const parsed = AdminGrantCreditAccountBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const before = await peekCreditBalance(tenantId);
-  const balance = await grantAccountCredits({
-    tenantId,
-    credits: parsed.data.credits,
-    kind: "grant_admin",
-    expiresInDays: parsed.data.expiresInDays ?? null,
-    note: parsed.data.note ?? null,
-  });
-  try {
-    await recordAdminAction({
-      action: "credit_account_grant",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: tenantId,
-      targetEmail: null,
-      oldValue: JSON.stringify(before),
-      newValue: JSON.stringify(balance),
+router.post(
+  "/admin/tenants/:id/credit-account",
+  async (req: Request, res: Response) => {
+    const tenantId = Number(req.params.id);
+    if (!Number.isInteger(tenantId)) {
+      res.status(400).json({ error: "Invalid tenant" });
+      return;
+    }
+    const parsed = AdminGrantCreditAccountBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const before = await peekCreditBalance(tenantId);
+    const balance = await grantAccountCredits({
+      tenantId,
+      credits: parsed.data.credits,
+      kind: "grant_admin",
+      expiresInDays: parsed.data.expiresInDays ?? null,
+      note: parsed.data.note ?? null,
     });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write credit-grant audit log");
-  }
-  res.json(balance);
-});
+    try {
+      await recordAdminAction({
+        action: "credit_account_grant",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: tenantId,
+        targetEmail: null,
+        oldValue: JSON.stringify(before),
+        newValue: JSON.stringify(balance),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write credit-grant audit log");
+    }
+    res.json(balance);
+  },
+);
 
 /** GET /admin/tenants/:id/credit-account — balance and recent history. */
-router.get("/admin/tenants/:id/credit-account", async (req: Request, res: Response) => {
-  const tenantId = Number(req.params.id);
-  if (!Number.isInteger(tenantId)) {
-    res.status(400).json({ error: "Invalid tenant" });
-    return;
-  }
-  res.json({
-    balance: await peekCreditBalance(tenantId),
-    history: await listAccountCreditHistory(tenantId, 50),
-  });
-});
+router.get(
+  "/admin/tenants/:id/credit-account",
+  async (req: Request, res: Response) => {
+    const tenantId = Number(req.params.id);
+    if (!Number.isInteger(tenantId)) {
+      res.status(400).json({ error: "Invalid tenant" });
+      return;
+    }
+    res.json({
+      balance: await peekCreditBalance(tenantId),
+      history: await listAccountCreditHistory(tenantId, 50),
+      legacyConversion: await getLegacyConversionStatus(tenantId),
+    });
+  },
+);
 
 /**
  * GET /admin/credit-migration — what every workspace WOULD receive. Writes
@@ -5190,11 +5738,13 @@ router.get("/admin/credit-migration", async (_req: Request, res: Response) => {
 });
 
 /**
- * POST /admin/credit-migration — convert every workspace onto credits.
+ * POST /admin/credit-migration — explicitly approve conversion onto credits.
  *
- * Idempotent: a workspace that already has an account is skipped, so a partial
- * run can simply be repeated. Conversion rounds up and lands in the
- * never-expiring bucket, because these people bought under different terms.
+ * This is intentionally never called by a customer read/claim path. A
+ * workspace with a newly-created account is still migrated unless it has a
+ * recorded migration receipt, so earning a reward cannot hide legacy value.
+ * Conversion rounds up and lands in the never-expiring bucket, because these
+ * people bought under different terms.
  */
 router.post("/admin/credit-migration", async (req: Request, res: Response) => {
   const result = await runCreditMigration();
@@ -5241,54 +5791,67 @@ router.get("/admin/promo-failures", async (_req: Request, res: Response) => {
  * POST /admin/tenants/:id/credits — manual credit grant (or deduction with
  * negative deltas). Audited; the ledger records it as admin_grant.
  */
-router.post("/admin/tenants/:id/credits", async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  const parsed = AdminGrantCreditsBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const { captionCredits, imageCredits, note } = parsed.data;
-  const videoCredits = parsed.data.videoCredits ?? 0;
-  if (
-    !Number.isInteger(captionCredits) ||
-    !Number.isInteger(imageCredits) ||
-    !Number.isInteger(videoCredits) ||
-    (captionCredits === 0 && imageCredits === 0 && videoCredits === 0)
-  ) {
-    res.status(400).json({ error: "Grant at least one credit (whole numbers)" });
-    return;
-  }
-  const tenant = (
-    await db.select().from(tenantsTable).where(eq(tenantsTable.id, id)).limit(1)
-  )[0];
-  if (!tenant) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-  await grantCredits({
-    tenantId: id,
-    captionCredits,
-    imageCredits,
-    videoCredits,
-    kind: "admin_grant",
-    note: note?.trim() || "Granted by admin",
-  });
-  try {
-    await recordAdminAction({
-      action: "credit_grant",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: tenant.id,
-      targetEmail: tenant.email ?? null,
-      oldValue: null,
-      newValue: JSON.stringify({ captionCredits, imageCredits, videoCredits }),
+router.post(
+  "/admin/tenants/:id/credits",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const parsed = AdminGrantCreditsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const { captionCredits, imageCredits, note } = parsed.data;
+    const videoCredits = parsed.data.videoCredits ?? 0;
+    if (
+      !Number.isInteger(captionCredits) ||
+      !Number.isInteger(imageCredits) ||
+      !Number.isInteger(videoCredits) ||
+      (captionCredits === 0 && imageCredits === 0 && videoCredits === 0)
+    ) {
+      res
+        .status(400)
+        .json({ error: "Grant at least one credit (whole numbers)" });
+      return;
+    }
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, id))
+        .limit(1)
+    )[0];
+    if (!tenant) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    await grantCredits({
+      tenantId: id,
+      captionCredits,
+      imageCredits,
+      videoCredits,
+      kind: "admin_grant",
+      note: note?.trim() || "Granted by admin",
     });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write credit-grant audit log");
-  }
-  res.json({ ok: true, credits: await getCreditBalances(id) });
-});
+    try {
+      await recordAdminAction({
+        action: "credit_grant",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: tenant.id,
+        targetEmail: tenant.email ?? null,
+        oldValue: null,
+        newValue: JSON.stringify({
+          captionCredits,
+          imageCredits,
+          videoCredits,
+        }),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write credit-grant audit log");
+    }
+    res.json({ ok: true, credits: await getCreditBalances(id) });
+  },
+);
 
 /**
  * GET /admin/audit-logs
@@ -5339,7 +5902,9 @@ function escapeLike(value: string): string {
 
 function buildAuditLogWhere(
   q: Record<string, unknown>,
-): { ok: true; where: ReturnType<typeof and> } | { ok: false; message: string } {
+):
+  | { ok: true; where: ReturnType<typeof and> }
+  | { ok: false; message: string } {
   const conditions = [];
 
   const action = typeof q.action === "string" ? q.action : undefined;
@@ -5436,7 +6001,10 @@ router.get("/admin/audit-logs", async (req: Request, res: Response) => {
       .select()
       .from(adminAuditLogsTable)
       .where(where)
-      .orderBy(desc(adminAuditLogsTable.createdAt), desc(adminAuditLogsTable.id))
+      .orderBy(
+        desc(adminAuditLogsTable.createdAt),
+        desc(adminAuditLogsTable.id),
+      )
       .limit(limit)
       .offset(offset),
     db
@@ -5508,7 +6076,9 @@ type SeedanceExportSnapshot = Partial<SeedanceRateSnapshot> & {
   outcome?: unknown;
 };
 
-function parseSeedanceExportSnapshot(value: string | null): SeedanceExportSnapshot | null {
+function parseSeedanceExportSnapshot(
+  value: string | null,
+): SeedanceExportSnapshot | null {
   if (value === null) return null;
   try {
     const parsed: unknown = JSON.parse(value);
@@ -5574,87 +6144,84 @@ router.head("/admin/audit-logs/export", (req: Request, res: Response) => {
   res.status(204).end();
 });
 
-router.get(
-  "/admin/audit-logs/export",
-  async (req: Request, res: Response) => {
-    const parsed = buildAuditLogWhere(req.query as Record<string, unknown>);
-    if (!parsed.ok) {
-      res.status(400).json({ error: { message: parsed.message } });
-      return;
-    }
-    const where = parsed.where;
+router.get("/admin/audit-logs/export", async (req: Request, res: Response) => {
+  const parsed = buildAuditLogWhere(req.query as Record<string, unknown>);
+  if (!parsed.ok) {
+    res.status(400).json({ error: { message: parsed.message } });
+    return;
+  }
+  const where = parsed.where;
 
-    // Same housekeeping as GET /admin/audit-logs: never export a stale
-    // "pending" test-email reservation as in-progress. Best-effort.
-    try {
-      await sweepAbandonedEmailTestSends();
-    } catch (error) {
-      req.log.error({ err: error }, "Failed to sweep stale test-email rows");
-    }
+  // Same housekeeping as GET /admin/audit-logs: never export a stale
+  // "pending" test-email reservation as in-progress. Best-effort.
+  try {
+    await sweepAbandonedEmailTestSends();
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to sweep stale test-email rows");
+  }
 
-    const stamp = new Date().toISOString().slice(0, 10);
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="audit-log-${stamp}.csv"`,
-    );
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="audit-log-${stamp}.csv"`,
+  );
 
-    res.write(
-      [
-        "id",
-        "createdAt",
-        "action",
-        "actorTenantId",
-        "actorEmail",
-        "targetTenantId",
-        "targetEmail",
-        "oldValue",
-        "newValue",
-        ...SEEDANCE_EXPORT_HEADERS,
-      ].join(",") + "\r\n",
-    );
+  res.write(
+    [
+      "id",
+      "createdAt",
+      "action",
+      "actorTenantId",
+      "actorEmail",
+      "targetTenantId",
+      "targetEmail",
+      "oldValue",
+      "newValue",
+      ...SEEDANCE_EXPORT_HEADERS,
+    ].join(",") + "\r\n",
+  );
 
-    let offset = 0;
-    for (;;) {
-      const rows = await db
-        .select()
-        .from(adminAuditLogsTable)
-        .where(where)
-        .orderBy(
-          desc(adminAuditLogsTable.createdAt),
-          desc(adminAuditLogsTable.id),
-        )
-        .limit(AUDIT_EXPORT_BATCH)
-        .offset(offset);
+  let offset = 0;
+  for (;;) {
+    const rows = await db
+      .select()
+      .from(adminAuditLogsTable)
+      .where(where)
+      .orderBy(
+        desc(adminAuditLogsTable.createdAt),
+        desc(adminAuditLogsTable.id),
+      )
+      .limit(AUDIT_EXPORT_BATCH)
+      .offset(offset);
 
-      for (const r of rows) {
-        res.write(
-          [
-            csvCell(r.id),
-            csvCell(r.createdAt.toISOString()),
-            csvCell(r.action),
-            csvCell(r.actorTenantId),
-            csvCell(r.actorEmail ?? null),
-            csvCell(r.targetTenantId),
-            csvCell(r.targetEmail ?? null),
-            csvCell(r.oldValue ?? null),
-            csvCell(r.newValue ?? null),
-            ...seedanceExportCells(
-              r.action,
-              r.oldValue ?? null,
-              r.newValue ?? null,
-            ).map(csvCell),
-          ].join(",") + "\r\n",
-        );
-      }
-
-      if (rows.length < AUDIT_EXPORT_BATCH) break;
-      offset += AUDIT_EXPORT_BATCH;
+    for (const r of rows) {
+      res.write(
+        [
+          csvCell(r.id),
+          csvCell(r.createdAt.toISOString()),
+          csvCell(r.action),
+          csvCell(r.actorTenantId),
+          csvCell(r.actorEmail ?? null),
+          csvCell(r.targetTenantId),
+          csvCell(r.targetEmail ?? null),
+          csvCell(r.oldValue ?? null),
+          csvCell(r.newValue ?? null),
+          ...seedanceExportCells(
+            r.action,
+            r.oldValue ?? null,
+            r.newValue ?? null,
+          ).map(csvCell),
+        ].join(",") + "\r\n",
+      );
     }
 
-    res.end();
-  },
-);
+    if (rows.length < AUDIT_EXPORT_BATCH) break;
+    offset += AUDIT_EXPORT_BATCH;
+  }
+
+  res.end();
+});
 
 /**
  * GET /admin/notification-policies
@@ -6025,11 +6592,9 @@ router.patch(
           .where(eq(supportRequestsTable.id, id))
           .limit(1)
       )[0];
-      res
-        .status(exists ? 400 : 404)
-        .json({
-          error: exists ? "This request was already resolved" : "Not found",
-        });
+      res.status(exists ? 400 : 404).json({
+        error: exists ? "This request was already resolved" : "Not found",
+      });
       return;
     }
 
@@ -6114,7 +6679,10 @@ router.put("/admin/wallet/settings", async (req: Request, res: Response) => {
         newValue: `gst:${after.gstPercent}%`,
       });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write wallet settings audit log");
+      req.log.error(
+        { err: error },
+        "Failed to write wallet settings audit log",
+      );
     }
   }
   res.json(after);
@@ -6126,104 +6694,155 @@ router.put("/admin/wallet/settings", async (req: Request, res: Response) => {
  * missing from the price catalog. Adding a price on the AI tab clears the
  * entry and collects the difference automatically.
  */
-router.get("/admin/wallet/pending-prices", async (_req: Request, res: Response) => {
-  res.json(await listPendingPricedModels());
-});
+router.get(
+  "/admin/wallet/pending-prices",
+  async (_req: Request, res: Response) => {
+    res.json(await listPendingPricedModels());
+  },
+);
 
 /**
  * GET /admin/wallet/settlement-retries
  * Successful AI work whose final wallet settlement is still pending, currently
  * processing, or terminally failed after the automatic retry budget.
  */
-router.get("/admin/wallet/settlement-retries", async (_req: Request, res: Response) => {
-  res.json(await listWalletSettlementRetries());
-});
+router.get(
+  "/admin/wallet/settlement-retries",
+  async (_req: Request, res: Response) => {
+    res.json(await listWalletSettlementRetries());
+  },
+);
 
 /**
  * GET /admin/wallet/video-reconciliation
  * Read-only retry-chain discrepancy report. This endpoint deliberately never
  * applies a debit or refund to historical wallet balances.
  */
-router.get("/admin/wallet/video-reconciliation", async (_req: Request, res: Response) => {
-  res.json(await listVideoWalletReconciliationReport());
-});
+router.get(
+  "/admin/wallet/video-reconciliation",
+  async (_req: Request, res: Response) => {
+    res.json(await listVideoWalletReconciliationReport());
+  },
+);
 
-router.get("/admin/wallet/video-reconciliation/:completedJobId/dry-run", async (req, res) => {
-  const jobId = Number(req.params.completedJobId);
-  if (!Number.isSafeInteger(jobId) || jobId <= 0) {
-    res.status(400).json({ error: "completedJobId must be a positive integer" });
-    return;
-  }
-  res.json(await materializeHistoricalGuidedDeliveryBilling(jobId));
-});
-
-/** Freeze a historical manifest only; wallet reconciliation remains explicit. */
-router.post("/admin/wallet/video-reconciliation/materialize", async (req, res) => {
-  const parsed = z.object({ completedJobId: z.number().int().positive() }).strict().safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "completedJobId must be a positive integer" });
-    return;
-  }
-  try {
-    const dryRun = await materializeHistoricalGuidedDeliveryBilling(parsed.data.completedJobId);
-    if (dryRun.status === "unsupported") {
-      res.status(409).json(dryRun);
+router.get(
+  "/admin/wallet/video-reconciliation/:completedJobId/dry-run",
+  async (req, res) => {
+    const jobId = Number(req.params.completedJobId);
+    if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+      res
+        .status(400)
+        .json({ error: "completedJobId must be a positive integer" });
       return;
     }
-    const manifest = await freezeVideoDeliveryBillingManifest({
-      tenantId: dryRun.tenantId,
-      completedJobId: dryRun.jobId,
-      chainId: dryRun.chainId,
-      idempotencyKey: `video-delivery-v2:${dryRun.jobId}`,
-      items: dryRun.items,
-      reservationIds: dryRun.reservationIds,
-    });
-    await recordAdminAction({
-      action: "video_delivery_billing_reconcile",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: dryRun.tenantId,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `completedJobId:${dryRun.jobId};manifestId:${manifest.id}`,
-    });
-    res.json({ dryRun, manifest });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Historical manifest freeze failed";
-    res.status(/conflict|unsupported|succeeded/i.test(message) ? 409 : 400).json({ error: message });
-  }
-});
+    res.json(await materializeHistoricalGuidedDeliveryBilling(jobId));
+  },
+);
 
-/** Reconcile one explicit immutable v2 delivery manifest. */
-router.post("/admin/wallet/video-reconciliation/reconcile", async (req: Request, res: Response) => {
-  const parsed = z.object({ completedJobId: z.number().int().positive() }).strict().safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "completedJobId must be a positive integer" });
-    return;
-  }
-  try {
-    const result = await reconcileVideoDeliveryBillingManifest(parsed.data.completedJobId);
-    req.log.info({ completedJobId: parsed.data.completedJobId, appliedPaise: result.appliedPaise }, "Manual video delivery billing reconcile");
+/** Freeze a historical manifest only; wallet reconciliation remains explicit. */
+router.post(
+  "/admin/wallet/video-reconciliation/materialize",
+  async (req, res) => {
+    const parsed = z
+      .object({ completedJobId: z.number().int().positive() })
+      .strict()
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "completedJobId must be a positive integer" });
+      return;
+    }
     try {
+      const dryRun = await materializeHistoricalGuidedDeliveryBilling(
+        parsed.data.completedJobId,
+      );
+      if (dryRun.status === "unsupported") {
+        res.status(409).json(dryRun);
+        return;
+      }
+      const manifest = await freezeVideoDeliveryBillingManifest({
+        tenantId: dryRun.tenantId,
+        completedJobId: dryRun.jobId,
+        chainId: dryRun.chainId,
+        idempotencyKey: `video-delivery-v2:${dryRun.jobId}`,
+        items: dryRun.items,
+        reservationIds: dryRun.reservationIds,
+      });
       await recordAdminAction({
         action: "video_delivery_billing_reconcile",
         actorTenantId: req.tenantId,
         actorEmail: req.tenantEmail,
-        targetTenantId: null,
+        targetTenantId: dryRun.tenantId,
         targetEmail: null,
         oldValue: null,
-        newValue: `completedJobId:${parsed.data.completedJobId};appliedPaise:${result.appliedPaise}`,
+        newValue: `completedJobId:${dryRun.jobId};manifestId:${manifest.id}`,
       });
+      res.json({ dryRun, manifest });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write video delivery reconcile audit log");
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Historical manifest freeze failed";
+      res
+        .status(/conflict|unsupported|succeeded/i.test(message) ? 409 : 400)
+        .json({ error: message });
     }
-    res.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Video delivery reconcile failed";
-    const conflict = /pending|balance|unknown|settled/i.test(message);
-    res.status(conflict ? 409 : 400).json({ error: message });
-  }
-});
+  },
+);
+
+/** Reconcile one explicit immutable v2 delivery manifest. */
+router.post(
+  "/admin/wallet/video-reconciliation/reconcile",
+  async (req: Request, res: Response) => {
+    const parsed = z
+      .object({ completedJobId: z.number().int().positive() })
+      .strict()
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "completedJobId must be a positive integer" });
+      return;
+    }
+    try {
+      const result = await reconcileVideoDeliveryBillingManifest(
+        parsed.data.completedJobId,
+      );
+      req.log.info(
+        {
+          completedJobId: parsed.data.completedJobId,
+          appliedPaise: result.appliedPaise,
+        },
+        "Manual video delivery billing reconcile",
+      );
+      try {
+        await recordAdminAction({
+          action: "video_delivery_billing_reconcile",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: `completedJobId:${parsed.data.completedJobId};appliedPaise:${result.appliedPaise}`,
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write video delivery reconcile audit log",
+        );
+      }
+      res.json(result);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Video delivery reconcile failed";
+      const conflict = /pending|balance|unknown|settled/i.test(message);
+      res.status(conflict ? 409 : 400).json({ error: message });
+    }
+  },
+);
 
 /**
  * POST /admin/wallet/pending-prices/reconcile
@@ -6264,48 +6883,59 @@ router.post(
  * Move a workspace between quota billing and wallet billing. Takes effect
  * only while the platform `wallet` switch is on.
  */
-router.put("/admin/tenants/:id/billing-mode", async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: "Invalid id" });
-    return;
-  }
-  const parsed = AdminUpdateTenantBillingModeBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const tenant = (
-    await db.select().from(tenantsTable).where(eq(tenantsTable.id, id)).limit(1)
-  )[0];
-  if (!tenant) {
-    res.status(404).json({ error: "Tenant not found" });
-    return;
-  }
-  const billingMode = parsed.data.billingMode;
-  if (tenant.billingMode !== billingMode) {
-    // Manual superadmin choice: mark it overridden so future plan changes
-    // don't silently re-apply the plan's default billing mode.
-    await db
-      .update(tenantsTable)
-      .set({ billingMode, billingModeOverriddenAt: new Date(), updatedAt: new Date() })
-      .where(eq(tenantsTable.id, id));
-    try {
-      await recordAdminAction({
-        action: "billing_mode_change",
-        actorTenantId: req.tenantId,
-        actorEmail: req.tenantEmail,
-        targetTenantId: id,
-        targetEmail: tenant.email ?? null,
-        oldValue: tenant.billingMode,
-        newValue: billingMode,
-      });
-    } catch (error) {
-      req.log.error({ err: error }, "Failed to write billing-mode audit log");
+router.put(
+  "/admin/tenants/:id/billing-mode",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
     }
-  }
-  res.json({ tenantId: id, billingMode });
-});
+    const parsed = AdminUpdateTenantBillingModeBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, id))
+        .limit(1)
+    )[0];
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+    const billingMode = parsed.data.billingMode;
+    if (tenant.billingMode !== billingMode) {
+      // Manual superadmin choice: mark it overridden so future plan changes
+      // don't silently re-apply the plan's default billing mode.
+      await db
+        .update(tenantsTable)
+        .set({
+          billingMode,
+          billingModeOverriddenAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(tenantsTable.id, id));
+      try {
+        await recordAdminAction({
+          action: "billing_mode_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: id,
+          targetEmail: tenant.email ?? null,
+          oldValue: tenant.billingMode,
+          newValue: billingMode,
+        });
+      } catch (error) {
+        req.log.error({ err: error }, "Failed to write billing-mode audit log");
+      }
+    }
+    res.json({ tenantId: id, billingMode });
+  },
+);
 
 /**
  * POST /admin/tenants/:id/wallet
@@ -6314,49 +6944,59 @@ router.put("/admin/tenants/:id/billing-mode", async (req: Request, res: Response
  * is clamped so the wallet never goes negative, and the ledger records the
  * delta that was actually applied.
  */
-router.post("/admin/tenants/:id/wallet", async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: "Invalid id" });
-    return;
-  }
-  const parsed = AdminAdjustTenantWalletBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  if (parsed.data.amountPaise === 0) {
-    res.status(400).json({ error: "Enter an amount." });
-    return;
-  }
-  const tenant = (
-    await db.select().from(tenantsTable).where(eq(tenantsTable.id, id)).limit(1)
-  )[0];
-  if (!tenant) {
-    res.status(404).json({ error: "Tenant not found" });
-    return;
-  }
+router.post(
+  "/admin/tenants/:id/wallet",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const parsed = AdminAdjustTenantWalletBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    if (parsed.data.amountPaise === 0) {
+      res.status(400).json({ error: "Enter an amount." });
+      return;
+    }
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, id))
+        .limit(1)
+    )[0];
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
 
-  const { appliedPaise, balancePaise } = await adminAdjustWallet({
-    tenantId: id,
-    amountPaise: parsed.data.amountPaise,
-    note: parsed.data.note ?? "Adjusted by an administrator",
-  });
-  try {
-    await recordAdminAction({
-      action: "wallet_adjust",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: id,
-      targetEmail: tenant.email ?? null,
-      oldValue: String(balancePaise - appliedPaise),
-      newValue: String(balancePaise),
+    const { appliedPaise, balancePaise } = await adminAdjustWallet({
+      tenantId: id,
+      amountPaise: parsed.data.amountPaise,
+      note: parsed.data.note ?? "Adjusted by an administrator",
     });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write wallet adjustment audit log");
-  }
-  res.json({ ok: true, balancePaise, appliedPaise });
-});
+    try {
+      await recordAdminAction({
+        action: "wallet_adjust",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: id,
+        targetEmail: tenant.email ?? null,
+        oldValue: String(balancePaise - appliedPaise),
+        newValue: String(balancePaise),
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to write wallet adjustment audit log",
+      );
+    }
+    res.json({ ok: true, balancePaise, appliedPaise });
+  },
+);
 
 // ============================================================================
 // Sarvam TTS provider (tts_sarvam) — credential management
@@ -6394,52 +7034,61 @@ router.get("/admin/tts-settings", async (_req: Request, res: Response) => {
  * Save (or rotate) the Sarvam API subscription key (encrypted at rest).
  * Superadmin only.  Body: { apiKey: string }
  */
-router.put("/admin/tts-providers/sarvam/key", async (req: Request, res: Response) => {
-  const parsed = AdminSetSarvamTtsKeyBody.safeParse(req.body);
-  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
-  if (!apiKey) {
-    res.status(400).json({ error: "API key is required" });
-    return;
-  }
-  await setStoredSarvamKey(apiKey);
-  try {
-    await recordAdminAction({
-      action: "tts_key_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `${SARVAM_PROVIDER_ID}:set`,
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write Sarvam TTS key audit log");
-  }
-  res.json(await serializeTtsSettings());
-});
+router.put(
+  "/admin/tts-providers/sarvam/key",
+  async (req: Request, res: Response) => {
+    const parsed = AdminSetSarvamTtsKeyBody.safeParse(req.body);
+    const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+    if (!apiKey) {
+      res.status(400).json({ error: "API key is required" });
+      return;
+    }
+    await setStoredSarvamKey(apiKey);
+    try {
+      await recordAdminAction({
+        action: "tts_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${SARVAM_PROVIDER_ID}:set`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write Sarvam TTS key audit log");
+    }
+    res.json(await serializeTtsSettings());
+  },
+);
 
 /**
  * DELETE /admin/tts-providers/sarvam/key
  * Remove the stored Sarvam API key (env var SARVAM_API_KEY becomes the
  * fallback if set). Superadmin only.
  */
-router.delete("/admin/tts-providers/sarvam/key", async (req: Request, res: Response) => {
-  await clearStoredSarvamKey();
-  try {
-    await recordAdminAction({
-      action: "tts_key_change",
-      actorTenantId: req.tenantId,
-      actorEmail: req.tenantEmail,
-      targetTenantId: null,
-      targetEmail: null,
-      oldValue: null,
-      newValue: `${SARVAM_PROVIDER_ID}:cleared`,
-    });
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to write Sarvam TTS key clear audit log");
-  }
-  res.json(await serializeTtsSettings());
-});
+router.delete(
+  "/admin/tts-providers/sarvam/key",
+  async (req: Request, res: Response) => {
+    await clearStoredSarvamKey();
+    try {
+      await recordAdminAction({
+        action: "tts_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${SARVAM_PROVIDER_ID}:cleared`,
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to write Sarvam TTS key clear audit log",
+      );
+    }
+    res.json(await serializeTtsSettings());
+  },
+);
 
 /**
  * POST /admin/tts-providers/sarvam/test
@@ -6450,50 +7099,67 @@ router.delete("/admin/tts-providers/sarvam/key", async (req: Request, res: Respo
  *
  * Response: { ok: boolean; message: string }
  */
-router.post("/admin/tts-providers/sarvam/test", async (req: Request, res: Response) => {
-  const credential = await resolveSarvamCredentialSnapshot();
-  if (!credential) {
-    res.json({ ok: false, message: "No Sarvam API key is configured." });
-    return;
-  }
-  try {
-    await testSarvamKey(credential.apiKey);
-    await persistSarvamTestStatusForCredential(credential, "ok").catch(() => false);
+router.post(
+  "/admin/tts-providers/sarvam/test",
+  async (req: Request, res: Response) => {
+    const credential = await resolveSarvamCredentialSnapshot();
+    if (!credential) {
+      res.json({ ok: false, message: "No Sarvam API key is configured." });
+      return;
+    }
     try {
-      await recordAdminAction({
-        action: "tts_key_test",
-        actorTenantId: req.tenantId,
-        actorEmail: req.tenantEmail,
-        targetTenantId: null,
-        targetEmail: null,
-        oldValue: null,
-        newValue: `${SARVAM_PROVIDER_ID}:ok`,
-      });
+      await testSarvamKey(credential.apiKey);
+      await persistSarvamTestStatusForCredential(credential, "ok").catch(
+        () => false,
+      );
+      try {
+        await recordAdminAction({
+          action: "tts_key_test",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: `${SARVAM_PROVIDER_ID}:ok`,
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write Sarvam TTS test audit log",
+        );
+      }
+      res.json({ ok: true, message: "The Sarvam API key works." });
     } catch (error) {
-      req.log.error({ err: error }, "Failed to write Sarvam TTS test audit log");
+      const rawMessage =
+        error instanceof Error
+          ? error.message
+          : "The Sarvam TTS connectivity test failed.";
+      const message = rawMessage.split(credential.apiKey).join("[redacted]");
+      await persistSarvamTestStatusForCredential(
+        credential,
+        "error",
+        message,
+      ).catch(() => false);
+      try {
+        await recordAdminAction({
+          action: "tts_key_test",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: `${SARVAM_PROVIDER_ID}:error`,
+        });
+      } catch (auditError) {
+        req.log.error(
+          { err: auditError },
+          "Failed to write Sarvam TTS test audit log",
+        );
+      }
+      // Safe error — never leak the key itself in the message
+      res.json({ ok: false, message });
     }
-    res.json({ ok: true, message: "The Sarvam API key works." });
-  } catch (error) {
-    const rawMessage =
-      error instanceof Error ? error.message : "The Sarvam TTS connectivity test failed.";
-    const message = rawMessage.split(credential.apiKey).join("[redacted]");
-    await persistSarvamTestStatusForCredential(credential, "error", message).catch(() => false);
-    try {
-      await recordAdminAction({
-        action: "tts_key_test",
-        actorTenantId: req.tenantId,
-        actorEmail: req.tenantEmail,
-        targetTenantId: null,
-        targetEmail: null,
-        oldValue: null,
-        newValue: `${SARVAM_PROVIDER_ID}:error`,
-      });
-    } catch (auditError) {
-      req.log.error({ err: auditError }, "Failed to write Sarvam TTS test audit log");
-    }
-    // Safe error — never leak the key itself in the message
-    res.json({ ok: false, message });
-  }
-});
+  },
+);
 
 export default router;

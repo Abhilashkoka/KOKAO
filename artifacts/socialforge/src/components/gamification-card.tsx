@@ -4,8 +4,10 @@ import {
   useClaimGamificationReward,
   useGetReferralInfo,
   useGetMe,
+  useGetCredits,
   getGetGamificationQueryKey,
   getGetMeQueryKey,
+  getGetCreditsQueryKey,
   getGetReferralInfoQueryKey,
   type RewardAmounts,
 } from "@workspace/api-client-react";
@@ -42,11 +44,41 @@ import { navigate } from "wouter/use-browser-location";
  */
 
 function fmtReward(reward: RewardAmounts): string {
-  const parts: string[] = [];
-  if (reward.captionCredits > 0) parts.push(`+${reward.captionCredits} caption`);
-  if (reward.imageCredits > 0) parts.push(`+${reward.imageCredits} image`);
-  if (reward.videoCredits > 0) parts.push(`+${reward.videoCredits} video`);
-  return parts.length ? `${parts.join(" · ")} credits` : "";
+  if (typeof reward.credits === "number" && Number.isFinite(reward.credits)) {
+    return `+${formatCredits(reward.credits)} credits`;
+  }
+
+  // Older API responses only had separate generation buckets. Keep rendering
+  // those values so an older client never loses a reward disclosure, while
+  // making it clear that this is not the canonical balance.
+  const legacy: string[] = [];
+  if (reward.captionCredits > 0) legacy.push(`${reward.captionCredits} caption`);
+  if (reward.imageCredits > 0) legacy.push(`${reward.imageCredits} image`);
+  if (reward.videoCredits > 0) legacy.push(`${reward.videoCredits} video`);
+  if (!legacy.length) return reward.mappingError || "";
+  return reward.mappingError
+    ? `Legacy: ${legacy.join(" + ")} · credit mapping needed`
+    : `Legacy: ${legacy.join(" + ")} credits`;
+}
+
+function formatCredits(value: number): string {
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+  });
+}
+
+function referralReward(
+  canonical: number | null | undefined,
+  caption: number,
+  image: number,
+): string {
+  if (typeof canonical === "number" && Number.isFinite(canonical)) {
+    return `${formatCredits(canonical)} credits`;
+  }
+  const legacy: string[] = [];
+  if (caption > 0) legacy.push(`${caption} caption`);
+  if (image > 0) legacy.push(`${image} image`);
+  return legacy.length ? `${legacy.join(" + ")} (legacy balances)` : "not configured";
 }
 
 export function GamificationCard() {
@@ -56,6 +88,9 @@ export function GamificationCard() {
     query: { queryKey: getGetGamificationQueryKey(), staleTime: 30_000 },
   });
   const { data: me } = useGetMe();
+  const { data: creditWallet } = useGetCredits({
+    query: { queryKey: getGetCreditsQueryKey(), staleTime: 30_000 },
+  });
   const claim = useClaimGamificationReward();
   const [referralOpen, setReferralOpen] = useState(false);
   // Collapsed by default to keep the card slim; auto-opens when a reward is
@@ -85,6 +120,7 @@ export function GamificationCard() {
         onSuccess: (result) => {
           void queryClient.invalidateQueries({ queryKey: getGetGamificationQueryKey() });
           void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetCreditsQueryKey() });
           toast({
             title: "Reward claimed!",
             description: `${fmtReward(result.granted)} added to your balance.`,
@@ -122,6 +158,10 @@ export function GamificationCard() {
   const meterMax = meterRows.length
     ? Math.max(...meterRows.map((r) => Math.min(1, r.used / r.limit)))
     : 0;
+  const canonicalBalance =
+    creditWallet?.balance?.total ?? creditWallet?.total ?? me?.balance?.total;
+  const legacyBalance = me?.credits;
+  const legacyConversion = creditWallet?.legacyConversion;
 
   return (
     <Card className="border-primary/20 bg-gradient-to-r from-primary/5 via-card to-card shadow-sm">
@@ -202,7 +242,7 @@ export function GamificationCard() {
                   <button
                     type="button"
                     className="font-semibold underline underline-offset-2"
-                    disabled={claim.isPending}
+                    disabled={claim.isPending || m.reward.credits === null}
                     onClick={() => onClaim(m.claimKey!)}
                     data-testid={`claim-streak-${m.days}`}
                   >
@@ -240,7 +280,7 @@ export function GamificationCard() {
                     size="sm"
                     variant="secondary"
                     className="shrink-0"
-                    disabled={claim.isPending}
+                     disabled={claim.isPending || quest.reward.credits === null}
                     onClick={() => onClaim(quest.claimKey)}
                     data-testid={`claim-quest-${quest.id}`}
                   >
@@ -288,6 +328,38 @@ export function GamificationCard() {
           </div>
         )}
 
+        {(typeof canonicalBalance === "number" || legacyBalance) && (
+          <div
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+            data-testid="gamification-balance"
+          >
+            {typeof canonicalBalance === "number" && (
+              <span className="font-medium text-foreground">
+                Balance: {formatCredits(canonicalBalance)} credits
+              </span>
+            )}
+            {legacyBalance && (
+              <span>
+                Legacy balances remain available: {legacyBalance.captionCredits}{" "}
+                caption · {legacyBalance.imageCredits} image
+                {legacyBalance.videoCredits !== undefined
+                  ? ` · ${legacyBalance.videoCredits} video`
+                  : ""}
+              </span>
+            )}
+            {legacyConversion?.pending &&
+              legacyConversion.captionCredits +
+                legacyConversion.imageCredits +
+                legacyConversion.videoCredits >
+                0 && (
+                <span>
+                  Legacy balances remain intact and await administrator-approved
+                  conversion.
+                </span>
+              )}
+          </div>
+        )}
+
         <ReferralDialog open={referralOpen} onOpenChange={setReferralOpen} />
       </CardContent>
     </Card>
@@ -302,7 +374,7 @@ function ReferralDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { toast } = useToast();
-  const { data: referral, isLoading } = useGetReferralInfo({
+  const { data: referral, isLoading, isError, error } = useGetReferralInfo({
     query: { queryKey: getGetReferralInfoQueryKey(), enabled: open },
   });
 
@@ -325,8 +397,11 @@ function ReferralDialog({
           </DialogTitle>
           <DialogDescription>
             {referral
-              ? `Friends redeem your code on their Billing page within 30 days of signing up. They get ${referral.refereeCaptionCredits} caption + ${referral.refereeImageCredits} image credits — you earn ${referral.referrerCaptionCredits} caption + ${referral.referrerImageCredits} image credits per signup.`
-              : "Loading your personal code…"}
+              ? `Friends redeem your code on their Billing page within 30 days of signing up. They get ${referralReward(referral.refereeCredits, referral.refereeCaptionCredits, referral.refereeImageCredits)} — you earn ${referralReward(referral.referrerCredits, referral.referrerCaptionCredits, referral.referrerImageCredits)} per signup.`
+              : isError
+                ? (error as { message?: string } | undefined)?.message ||
+                  "Referral rewards are unavailable right now."
+                : "Loading your personal code…"}
           </DialogDescription>
         </DialogHeader>
         {!isLoading && referral && (
@@ -348,12 +423,22 @@ function ReferralDialog({
                 <p className="text-xs text-muted-foreground">signups</p>
               </div>
               <div className="rounded-lg bg-muted/60 py-2">
-                <p className="text-lg font-semibold">{referral.captionCreditsEarned}</p>
-                <p className="text-xs text-muted-foreground">captions earned</p>
+                <p className="text-lg font-semibold">
+                  {formatCredits(
+                    typeof referral.creditsEarned === "number"
+                      ? referral.creditsEarned
+                      : 0,
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">credits earned</p>
               </div>
               <div className="rounded-lg bg-muted/60 py-2">
-                <p className="text-lg font-semibold">{referral.imageCreditsEarned}</p>
-                <p className="text-xs text-muted-foreground">images earned</p>
+                <p className="text-lg font-semibold">
+                  {referral.captionCreditsEarned + referral.imageCreditsEarned}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  legacy balances
+                </p>
               </div>
             </div>
             {referral.maxRedemptions !== null && (

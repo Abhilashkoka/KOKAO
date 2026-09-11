@@ -15,6 +15,12 @@ export interface PromoCode {
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
+  /**
+     * Canonical prepaid credit override; required for legacy video rewards.
+     * @minimum 0
+     * @nullable
+     */
+  rewardCredits: number | null;
   /** @nullable */
   allowedPlans: string[] | null;
   audience: PromoCodeAudience;

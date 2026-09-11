@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { pool, db, creditAccountsTable, creditAccountLedgerTable } from "@workspace/db";
+import {
+  pool,
+  db,
+  creditAccountsTable,
+  creditAccountLedgerTable,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
   getCreditBalance,
@@ -23,15 +28,23 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.delete(creditAccountLedgerTable).where(eq(creditAccountLedgerTable.tenantId, tenantId));
-  await db.delete(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenantId));
+  await db
+    .delete(creditAccountLedgerTable)
+    .where(eq(creditAccountLedgerTable.tenantId, tenantId));
+  await db
+    .delete(creditAccountsTable)
+    .where(eq(creditAccountsTable.tenantId, tenantId));
   await deleteTenant(tenantId);
   await pool.end();
 });
 
 beforeEach(async () => {
-  await db.delete(creditAccountLedgerTable).where(eq(creditAccountLedgerTable.tenantId, tenantId));
-  await db.delete(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenantId));
+  await db
+    .delete(creditAccountLedgerTable)
+    .where(eq(creditAccountLedgerTable.tenantId, tenantId));
+  await db
+    .delete(creditAccountsTable)
+    .where(eq(creditAccountsTable.tenantId, tenantId));
 });
 
 describe("credit accounts", () => {
@@ -41,14 +54,19 @@ describe("credit accounts", () => {
       granted: 0,
       total: 0,
     });
-    await expect(spendCredits({ tenantId, creditsMilli: 1000 })).rejects.toBeInstanceOf(
-      InsufficientCreditsError,
-    );
+    await expect(
+      spendCredits({ tenantId, creditsMilli: 1000 }),
+    ).rejects.toBeInstanceOf(InsufficientCreditsError);
   });
 
   it("keeps purchased and granted in separate buckets", async () => {
     await grantCredits({ tenantId, credits: 10, kind: "purchase" });
-    await grantCredits({ tenantId, credits: 5, kind: "grant_plan", expiresInDays: 90 });
+    await grantCredits({
+      tenantId,
+      credits: 5,
+      kind: "grant_plan",
+      expiresInDays: 90,
+    });
     expect(await getCreditBalance(tenantId)).toMatchObject({
       purchased: 10,
       granted: 5,
@@ -58,16 +76,30 @@ describe("credit accounts", () => {
 
   it("spends GRANTED credits first so an allowance is used before it lapses", async () => {
     await grantCredits({ tenantId, credits: 10, kind: "purchase" });
-    await grantCredits({ tenantId, credits: 4, kind: "grant_plan", expiresInDays: 90 });
+    await grantCredits({
+      tenantId,
+      credits: 4,
+      kind: "grant_plan",
+      expiresInDays: 90,
+    });
 
-    const after = await spendCredits({ tenantId, creditsMilli: 6 * MILLI, rateKey: "video" });
+    const after = await spendCredits({
+      tenantId,
+      creditsMilli: 6 * MILLI,
+      rateKey: "video",
+    });
     // 4 from granted, 2 from purchased — not 6 from purchased.
     expect(after).toMatchObject({ granted: 0, purchased: 8, total: 8 });
   });
 
   it("expires granted credits lazily and leaves purchased untouched", async () => {
     await grantCredits({ tenantId, credits: 7, kind: "purchase" });
-    await grantCredits({ tenantId, credits: 3, kind: "grant_promo", expiresInDays: 1 });
+    await grantCredits({
+      tenantId,
+      credits: 3,
+      kind: "grant_promo",
+      expiresInDays: 1,
+    });
     // Backdate the expiry rather than waiting a day.
     await db
       .update(creditAccountsTable)
@@ -84,19 +116,52 @@ describe("credit accounts", () => {
   });
 
   it("never shortens the life of credits already in the granted bucket", async () => {
-    await grantCredits({ tenantId, credits: 5, kind: "grant_plan", expiresInDays: 90 });
+    await grantCredits({
+      tenantId,
+      credits: 5,
+      kind: "grant_plan",
+      expiresInDays: 90,
+    });
     const first = await peekCreditBalance(tenantId);
-    await grantCredits({ tenantId, credits: 5, kind: "grant_promo", expiresInDays: 7 });
+    await grantCredits({
+      tenantId,
+      credits: 5,
+      kind: "grant_promo",
+      expiresInDays: 7,
+    });
     const second = await peekCreditBalance(tenantId);
     expect(new Date(second.grantedExpiresAt!).getTime()).toBe(
       new Date(first.grantedExpiresAt!).getTime(),
     );
   });
 
+  it("preserves a non-expiring goodwill bucket when an expiring grant is added", async () => {
+    await grantCredits({ tenantId, credits: 5, kind: "grant_admin" });
+    await grantCredits({
+      tenantId,
+      credits: 2,
+      kind: "grant_promo",
+      expiresInDays: 7,
+    });
+    expect(await peekCreditBalance(tenantId)).toMatchObject({
+      granted: 7,
+      grantedExpiresAt: null,
+    });
+  });
+
   it("refunds into the purchased bucket so a refund never carries a deadline", async () => {
-    await grantCredits({ tenantId, credits: 6, kind: "grant_plan", expiresInDays: 30 });
+    await grantCredits({
+      tenantId,
+      credits: 6,
+      kind: "grant_plan",
+      expiresInDays: 30,
+    });
     await spendCredits({ tenantId, creditsMilli: 6 * MILLI, rateKey: "image" });
-    await refundCredits({ tenantId, creditsMilli: 6 * MILLI, rateKey: "image" });
+    await refundCredits({
+      tenantId,
+      creditsMilli: 6 * MILLI,
+      rateKey: "image",
+    });
     expect(await getCreditBalance(tenantId)).toMatchObject({
       purchased: 6,
       granted: 0,
@@ -106,9 +171,24 @@ describe("credit accounts", () => {
 
   it("is idempotent per key, so a redelivered webhook grants exactly once", async () => {
     const key = "plan:test:2026-01-01T00:00:00.000Z";
-    await grantCredits({ tenantId, credits: 15, kind: "grant_plan", idempotencyKey: key });
-    await grantCredits({ tenantId, credits: 15, kind: "grant_plan", idempotencyKey: key });
-    await grantCredits({ tenantId, credits: 15, kind: "grant_plan", idempotencyKey: key });
+    await grantCredits({
+      tenantId,
+      credits: 15,
+      kind: "grant_plan",
+      idempotencyKey: key,
+    });
+    await grantCredits({
+      tenantId,
+      credits: 15,
+      kind: "grant_plan",
+      idempotencyKey: key,
+    });
+    await grantCredits({
+      tenantId,
+      credits: 15,
+      kind: "grant_plan",
+      idempotencyKey: key,
+    });
     expect((await getCreditBalance(tenantId)).total).toBe(15);
   });
 
@@ -116,13 +196,27 @@ describe("credit accounts", () => {
     const otherTenantId = (await createTenant()).tenantId;
     const key = "same-external-receipt";
     try {
-      await grantCredits({ tenantId, credits: 3, kind: "purchase", idempotencyKey: key });
-      await grantCredits({ tenantId: otherTenantId, credits: 7, kind: "purchase", idempotencyKey: key });
+      await grantCredits({
+        tenantId,
+        credits: 3,
+        kind: "purchase",
+        idempotencyKey: key,
+      });
+      await grantCredits({
+        tenantId: otherTenantId,
+        credits: 7,
+        kind: "purchase",
+        idempotencyKey: key,
+      });
       expect((await getCreditBalance(tenantId)).total).toBe(3);
       expect((await getCreditBalance(otherTenantId)).total).toBe(7);
     } finally {
-      await db.delete(creditAccountLedgerTable).where(eq(creditAccountLedgerTable.tenantId, otherTenantId));
-      await db.delete(creditAccountsTable).where(eq(creditAccountsTable.tenantId, otherTenantId));
+      await db
+        .delete(creditAccountLedgerTable)
+        .where(eq(creditAccountLedgerTable.tenantId, otherTenantId));
+      await db
+        .delete(creditAccountsTable)
+        .where(eq(creditAccountsTable.tenantId, otherTenantId));
       await deleteTenant(otherTenantId);
     }
   });
@@ -182,7 +276,9 @@ describe("credit accounts", () => {
 
     expect(results.filter((result) => result.applied)).toHaveLength(1);
     expect((await getCreditBalance(tenantId)).total).toBe(6);
-    expect((await listCreditHistory(tenantId)).filter((row) => row.kind === "spend")).toHaveLength(1);
+    expect(
+      (await listCreditHistory(tenantId)).filter((row) => row.kind === "spend"),
+    ).toHaveLength(1);
   });
 
   it("reports account existence and platform liability", async () => {
