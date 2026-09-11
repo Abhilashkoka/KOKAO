@@ -52,6 +52,8 @@ describe("Replicate LatentSync prediction request", () => {
         source: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
         audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
         def: LATENT_SYNC,
+        durationSec: 5,
+        meterCtx: null,
       },
       "test-token",
     );
@@ -109,6 +111,7 @@ describe("Replicate LatentSync prediction request", () => {
 
     await generateWithReplicate(
       {
+        meterContext: null,
         prompt: "A presenter speaks to camera",
         aspectRatio: "9:16",
         durationSec: 5,
@@ -168,6 +171,8 @@ describe("Replicate LatentSync prediction request", () => {
         source: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
         audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
         def: SYNC_LIPSYNC_2,
+        durationSec: 5,
+        meterCtx: null,
       },
       "test-token",
     );
@@ -221,6 +226,8 @@ describe("Replicate LatentSync prediction request", () => {
         source: { buffer: Buffer.from("portrait"), mimeType: "image/png" },
         audio: { buffer: Buffer.from("voice"), mimeType: "audio/mpeg" },
         def: portraitLipSyncModel("acme/talking-head:abc123")!,
+        durationSec: 5,
+        meterCtx: null,
       },
       "test-token",
     );
@@ -271,6 +278,8 @@ describe("Replicate LatentSync prediction request", () => {
         source: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
         audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
         def: LATENT_SYNC,
+        durationSec: 5,
+        meterCtx: null,
       },
       "test-token",
       "someone/other-lipsync:abc123",

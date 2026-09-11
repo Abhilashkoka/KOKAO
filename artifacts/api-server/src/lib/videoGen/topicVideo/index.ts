@@ -10,6 +10,7 @@ import { logger } from "../../logger";
 import { VideoGenProviderError, type VideoAspect, type VideoGenReceipt } from "../types";
 import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "../providers/atlascloud";
 import type { PromptVariantKey } from "@workspace/db";
+import type { MeterContext } from "../../meter";
 import type { TargetLocale } from "@workspace/localization";
 import { generateTopicScript, narrationSentenceWordBounds } from "./script";
 import {
@@ -217,7 +218,7 @@ async function gatherStockClips(
   aspect: VideoAspect,
   neededScenes: number,
   startedAt: number,
-  ranking: { tenantAiModel: string; topic: string; sceneTexts: string[] } | null,
+  ranking: { tenantId: number; tenantAiModel: string; topic: string; sceneTexts: string[] } | null,
 ): Promise<{ clips: Buffer[]; provider: string; sceneToClip: number[] | null }> {
   const sources = (await stockCandidates(stockSource)).slice(0, 1 + STOCK_FALLBACK_LIMIT);
   if (sources.length === 0) throw stockNotConfiguredError(stockSource);
@@ -240,6 +241,7 @@ async function gatherStockClips(
   // Strictly fail-soft — null keeps the interleaved search order.
   const assignment = ranking
     ? await assignClipsToScenes({
+        tenantId: ranking.tenantId,
         tenantAiModel: ranking.tenantAiModel,
         topic: ranking.topic,
         sceneTexts: ranking.sceneTexts,
@@ -665,6 +667,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     params.onStage?.("Filming your character");
     const generated = await generateCharacterStoryClips({
       tenantId: params.tenantId,
+      videoJobId: params.videoJobId,
       tenantAiModel,
       topic,
       characterId: params.characterId ?? 0,
@@ -701,6 +704,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       stockScenes?.length ?? narration.cues.length,
       startedAt,
       {
+        tenantId: params.tenantId,
         tenantAiModel,
         topic,
         sceneTexts: stockScenes?.map((scene) => scene.text) ?? narration.cues.map((cue) => cue.text),
@@ -830,6 +834,7 @@ async function planCharacterScenes(params: {
 /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
 async function generateCharacterStoryClips(params: {
   tenantId: number;
+  videoJobId?: number;
   tenantAiModel: string;
   topic: string;
   characterId: number;
@@ -891,6 +896,15 @@ async function generateCharacterStoryClips(params: {
     seed: params.seed ?? null,
     modelOptions: params.modelOptions,
     lipSync: params.lipSync ?? null,
+    meterCtx: {
+      tenantId: params.tenantId,
+      refKind: params.videoJobId == null ? "topicVideo" : "videoJob",
+      refId: params.videoJobId == null ? null : String(params.videoJobId),
+      operationKey:
+        params.videoJobId == null
+          ? "topicVideo:character_lip_sync"
+          : `videoJob:${params.videoJobId}:character_lip_sync`,
+    },
   });
   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
 }
@@ -1195,6 +1209,14 @@ export async function planTopicStoryboard(
       const generated = await generateBrollStills({
         prompts: visuals,
         aspectRatio: params.aspectRatio,
+        meterContext: {
+          tenantId: params.tenantId,
+          refKind: params.videoJobId == null ? "videoStoryboard" : "videoJob",
+          refId: params.videoJobId == null ? null : String(params.videoJobId),
+          operationKey: params.videoJobId == null
+            ? "videoStoryboard:preview"
+            : `videoJob:${params.videoJobId}:preview`,
+        },
         onProviderFailure: params.onPreviewProviderFailure
           ? async ({ sceneIndex, attemptIndex, error }) => {
               const storyboardScenes: VideoStoryboardScene[] = scenes.map((scene, index) => ({
@@ -1511,6 +1533,14 @@ export async function prepareCharacterStoryStoryboard(params: {
       outfits: detail.outfits,
       plan: missingSceneIndices.map((index) => plan[index]!),
       aspectRatio: params.aspectRatio,
+      meterCtx: {
+        tenantId: params.tenantId,
+        refKind: params.videoJobId == null ? "videoStoryboard" : "videoJob",
+        refId: params.videoJobId == null ? null : String(params.videoJobId),
+        operationKey: params.videoJobId == null
+          ? "videoStoryboard:character_keyframe"
+          : `videoJob:${params.videoJobId}:character_keyframe`,
+      },
       onProviderSuccess: params.onKeyframeProviderSuccess || params.onKeyframeProviderFailure
         ? async ({ sceneIndex, attemptIndex, result }) => {
             completedSceneIndices.add(sceneIndex);
@@ -1650,6 +1680,8 @@ export async function renderTopicStoryboard(params: {
   aspectRatio: VideoAspect;
   /** Lip-sync character scenes to the narration (decided and priced at enqueue). */
   characterLipSync?: boolean;
+  /** Owning workspace operation; null only for playground/probe rendering. */
+  meterCtx?: MeterContext | null;
   /** Storyboard scenes the optional finishing pass will lip-sync. */
   lipSyncedSceneIds?: ReadonlySet<string>;
   subtitles: boolean;
@@ -1839,6 +1871,7 @@ export async function renderTopicStoryboard(params: {
       savedClips,
       onCheckpoint: params.onCheckpoint,
       lipSync: nativeAudio || !params.characterLipSync ? null : { wav: narrationWav },
+      meterCtx: params.meterCtx ?? null,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;
@@ -2073,7 +2106,16 @@ export async function regenerateStoryboardPreview(params: {
       `${params.scene.visual}\nReference sheet order: ${allRefs.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. Reproduce the APPROVED SHARED BACKDROP consistently in this scene; camera angle and crop may change, but its architecture, layout, colors, fixtures, and permanent objects must not. PRIOR ACCEPTED SAME-CHARACTER SHOT tiles guide face, hair, clothing presentation, lighting, and style continuity only; they never override approved identity, outfit, or backdrop tiles, and their pose, expression, framing, and action must change to follow the current shot direction. ADDITIONAL LOCATION GUIDANCE and LOGO OVERLAY tiles are supplementary only and must never alter character identities.`,
         size,
         referenceImage,
-        { requireReferenceInput: true, selectionPolicy: params.imageSelectionPolicy },
+        {
+          requireReferenceInput: true,
+          selectionPolicy: params.imageSelectionPolicy,
+          meterContext: {
+            tenantId: params.tenantId,
+            refKind: "videoStoryboard",
+            refId: params.scene.id,
+            operationKey: `videoStoryboard:${params.scene.id}:guided_continuity`,
+          },
+        },
       );
     } catch (error) {
       await params.onProviderFailure?.({ attemptIndex: 0, error });
@@ -2109,6 +2151,12 @@ export async function regenerateStoryboardPreview(params: {
               0,
           },
         ],
+        meterCtx: {
+          tenantId: params.tenantId,
+          refKind: "videoStoryboard",
+          refId: params.scene.id,
+          operationKey: `videoStoryboard:${params.scene.id}:character_keyframe`,
+        },
         aspectRatio: params.aspectRatio,
         onProviderSuccess: params.onProviderSuccess
           ? async ({ attemptIndex, result }) => {
@@ -2128,6 +2176,12 @@ export async function regenerateStoryboardPreview(params: {
     prompts: [params.scene.visual],
     aspectRatio: params.aspectRatio,
     priorImages: params.priorImages,
+    meterContext: {
+      tenantId: params.tenantId,
+      refKind: "videoStoryboard",
+      refId: params.scene.id,
+      operationKey: `videoStoryboard:${params.scene.id}:regenerate`,
+    },
     onProviderSuccess: params.onProviderSuccess
       ? async ({ attemptIndex, result }) => {
           await params.onProviderSuccess!({ attemptIndex, result });

@@ -189,7 +189,10 @@ export async function generateTopicScript(params: {
   /** Resolved long-form template settings; null preserves legacy 1..3 sizing. */
   runtime?: VideoTemplateRuntimeSettings | null;
 }): Promise<TopicScript & { model: string }> {
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.tenantId ? { tenantId: params.tenantId } : null,
+  );
 
   // Prompt Template Kit: a production template for the video_script flow
   // replaces the built-in system prompt. Video jobs run in the background

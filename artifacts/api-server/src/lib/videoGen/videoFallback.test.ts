@@ -38,6 +38,7 @@ const frozenText = {
 const params = {
   mode: "text" as const, prompt: "a pastel sunrise over still water",
   aspectRatio: "9:16" as const, durationSec: 5, resolvedVideoModel: frozenText,
+  meterCtx: null,
 };
 
 describe("generateVideo frozen model contract", () => {
@@ -70,7 +71,7 @@ describe("generateVideo frozen model contract", () => {
       durationSec: 8,
       resolvedVideoModel: {
         ...frozenText,
-        permittedDurationSec: [5],
+        permittedDurationSec: [5, 8],
         durationPolicy: "nearest",
       },
     });
@@ -115,7 +116,7 @@ describe("generateVideo frozen model contract", () => {
       durationSec: 8,
       resolvedVideoModel: {
         ...frozenText,
-        permittedDurationSec: [5],
+        permittedDurationSec: [5, 8],
         durationPolicy: "nearest",
       },
     });

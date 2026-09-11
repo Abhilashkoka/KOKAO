@@ -3,6 +3,13 @@ import { db, voiceCloneSettingsTable, appCredentialsTable } from "@workspace/db"
 import { eq } from "drizzle-orm";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import { platformFetch, PlatformTimeoutError } from "../platformFetch";
+import { meter, type MeterContext } from "../meter";
+import {
+  conservativeSpeechDurationSeconds,
+  probeAudioDurationSeconds,
+  speechDurationReservationSeconds,
+  wavDurationSeconds,
+} from "../audioDuration";
 
 /**
  * Voice cloning / brand-voice TTS provider framework.
@@ -866,11 +873,21 @@ export async function cloneBrandVoice(args: {
   mimeType: string;
   /** Pin wallet-funded work to the provider persisted in its durable intent. */
   provider?: string;
-}): Promise<ClonedVoiceRef> {
+}, meterContext: MeterContext | null): Promise<ClonedVoiceRef> {
   const { def, apiKey } = args.provider
     ? await requireVoiceCloneProviderById(args.provider)
     : await requireVoiceCloneProvider();
-  const voiceId = await def.clone({ apiKey, name: args.name, audio: args.audio, mimeType: args.mimeType });
+  const exactDuration = await probeAudioDurationSeconds(args.audio, `voice-sample.${args.mimeType.split("/")[1] ?? "audio"}`);
+  const voiceId = await meter(
+    meterContext ? { ...meterContext, provider: def.id, model: "instant_voice_clone" } : null,
+    "voice",
+    exactDuration !== null
+      ? Math.max(0.001, exactDuration)
+      // Probe failures occur for malformed or duration-less streaming input.
+      // Reserve at a conservative 32kbps rather than inventing an exact value.
+      : Math.max(0.001, args.audio.length / 4_000),
+    () => def.clone({ apiKey, name: args.name, audio: args.audio, mimeType: args.mimeType }),
+  );
   return { provider: def.id, voiceId };
 }
 
@@ -902,6 +919,7 @@ export async function findClonedVoiceByExactName(
 export async function speakWithClonedVoice(
   voice: ClonedVoiceRef,
   text: string,
+  meterContext: MeterContext | null,
   modelId?: string,
   languageCode?: string,
 ): Promise<Buffer> {
@@ -911,13 +929,21 @@ export async function speakWithClonedVoice(
       "This brand voice was cloned at a different provider than the one currently configured.",
     );
   }
-  return def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode });
+  return meter(
+    meterContext ? { ...meterContext, provider: def.id, model: modelId ?? ELEVENLABS_MULTILINGUAL_V2_MODEL } : null,
+    "voice",
+    estimatedSpeechSeconds(text),
+    () => def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode }),
+    (audio) => ({ actualQuantity: wavDurationSeconds(audio) }),
+    { reservationQuantity: speechDurationReservationSeconds(text) },
+  );
 }
 
 /** Speak while retaining the provider's exact billing receipt. */
 export async function speakWithClonedVoiceReceipt(
   voice: ClonedVoiceRef,
   text: string,
+  meterContext: MeterContext | null,
   onReceipt?: VoiceSpeechReceiptHandler,
   modelId?: string,
   languageCode?: string,
@@ -930,18 +956,36 @@ export async function speakWithClonedVoiceReceipt(
   }
   if (!def.speakWithReceipt) {
     return {
-      audio: await def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode }),
+      audio: await meter(
+        meterContext ? { ...meterContext, provider: def.id, model: modelId ?? ELEVENLABS_MULTILINGUAL_V2_MODEL } : null,
+        "voice",
+        estimatedSpeechSeconds(text),
+        () => def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode }),
+        (audio) => ({ actualQuantity: wavDurationSeconds(audio) }),
+        { reservationQuantity: speechDurationReservationSeconds(text) },
+      ),
       receipt: { providerCredits: null, requestId: null, traceId: null },
     };
   }
-  return def.speakWithReceipt({
-    apiKey,
-    voiceId: voice.voiceId,
-    text,
-    onReceipt,
-    modelId,
-    languageCode,
-  });
+  return meter(
+    meterContext ? { ...meterContext, provider: def.id, model: modelId ?? ELEVENLABS_MULTILINGUAL_V2_MODEL } : null,
+    "voice",
+    estimatedSpeechSeconds(text),
+    () => def.speakWithReceipt!({
+      apiKey,
+      voiceId: voice.voiceId,
+      text,
+      onReceipt,
+      modelId,
+      languageCode,
+    }),
+    (result) => ({ actualQuantity: wavDurationSeconds(result.audio) }),
+    { reservationQuantity: speechDurationReservationSeconds(text) },
+  );
+}
+
+function estimatedSpeechSeconds(text: string): number {
+  return conservativeSpeechDurationSeconds(text);
 }
 
 /** Best-effort delete of a cloned voice at its provider. Never throws. */

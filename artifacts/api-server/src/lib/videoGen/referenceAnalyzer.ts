@@ -8,6 +8,7 @@ import { getTextGenClient } from "../textGen";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { transcribeAudio } from "../asr";
+import type { MeterContext } from "../meter";
 import { withTimeout } from "./retry";
 import { probeDurationSec, runFfmpeg } from "./slideshow";
 import { assertTemplateSafe, UnsafeTemplateError } from "./videoTemplates";
@@ -313,6 +314,7 @@ export interface AnalyzeReferenceParams {
   videoBytes: Buffer;
   /** The tenant's selected text model (must be vision-capable). */
   tenantAiModel: string;
+  meterContext: MeterContext;
   /**
    * Called immediately after the model returns, before parsing its payload.
    * Wallet-funded callers use this boundary to durably acknowledge paid work.
@@ -364,6 +366,11 @@ export async function analyzeReferenceVideo(
           buffer: audio,
           mimeType: "audio/mpeg",
           filename: "reference.mp3",
+        }, {
+          ...params.meterContext,
+          operationKey: params.meterContext.operationKey
+            ? `${params.meterContext.operationKey}:transcription`
+            : null,
         });
         transcript = result.text ?? "";
       } catch (err) {
@@ -389,7 +396,7 @@ export async function analyzeReferenceVideo(
       transcript,
     };
 
-    const textGen = await getTextGenClient(params.tenantAiModel, {
+    const textGen = await getTextGenClient(params.tenantAiModel, params.meterContext, {
       capability: "multimodal",
     });
     const content: (

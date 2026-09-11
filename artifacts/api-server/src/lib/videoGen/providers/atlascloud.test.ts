@@ -3,6 +3,11 @@ import { EventEmitter } from "node:events";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import type https from "node:https";
 
+const meterMock = vi.hoisted(() =>
+  vi.fn(async <T>(_ctx: unknown, _kind: string, _quantity: number, fn: () => Promise<T>) => fn()),
+);
+vi.mock("../../meter", () => ({ meter: meterMock }));
+
 vi.mock("../../webFetch", () => ({
   assertPublicHost: vi.fn(async () => {}),
   resolvePublicHost: vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]),
@@ -22,6 +27,7 @@ import {
 import { VideoGenProviderError, type VideoGenInput } from "../types";
 
 const input: VideoGenInput = {
+  meterContext: null,
   prompt: "A presenter turns to camera",
   aspectRatio: "9:16",
   durationSec: 8,
@@ -67,7 +73,10 @@ function pinnedDependencies(
 }
 
 describe("Atlas Cloud Seedance 2.5", () => {
-  beforeEach(() => setAtlasPinnedDownloadForTest(async () => Buffer.from("video-bytes")));
+  beforeEach(() => {
+    meterMock.mockClear();
+    setAtlasPinnedDownloadForTest(async () => Buffer.from("video-bytes"));
+  });
   afterEach(() => setAtlasPinnedDownloadForTest(null));
   afterEach(() => {
     vi.useRealTimers();
@@ -144,8 +153,23 @@ describe("Atlas Cloud Seedance 2.5", () => {
       throw new Error(`unexpected URL ${url}`);
     });
     vi.stubGlobal("fetch", fetch);
-    await expect(generateWithAtlasCloud({ ...input, onProviderTaskAccepted: accepted }, "secret"))
+    await expect(generateWithAtlasCloud({
+      ...input,
+      meterContext: { tenantId: 1, operationKey: "atlas:clip" },
+      onProviderTaskAccepted: accepted,
+    }, "secret"))
       .resolves.toMatchObject({ provider: "atlascloud", providerTaskId: "prediction-1" });
+    expect(meterMock.mock.calls[0]?.slice(0, 3)).toEqual([
+      {
+        tenantId: 1,
+        operationFamilyKey: "atlas:clip",
+        operationKey: "atlas:clip:submit:0",
+        provider: "atlascloud",
+        model: ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
+      },
+      "video_hd",
+      8,
+    ]);
     expect(accepted).toHaveBeenCalledWith({ taskId: "prediction-1", requestId: null });
     expect(fetch.mock.calls[0]?.[0]).toBe("https://api.atlascloud.ai/api/v1/model/generateVideo");
     expect(fetch.mock.calls[0]?.[1]).toMatchObject({

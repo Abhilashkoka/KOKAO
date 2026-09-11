@@ -8,6 +8,7 @@ import {
   ALLOWED_CONTENT_TYPES,
   MAX_FETCH_BYTES,
 } from "../webFetch";
+import { meter } from "../meter";
 
 export interface DraftInput {
   url?: string | null;
@@ -284,6 +285,7 @@ export async function isImageUrl(
 export async function draftBrandKit(
   aiModel: string,
   input: DraftInput,
+  tenantId: number,
 ): Promise<DraftOutput> {
   const base = buildDefaultPayload({
     brandName: input.brandName ?? undefined,
@@ -427,15 +429,25 @@ export async function draftBrandKit(
     '"visual_style":{"imagery_style":[],"icon_style","illustration_style","motion_style"}}.';
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: aiModel,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: contextParts.join("\n\n") },
-      ],
-      max_completion_tokens: 4096,
-      response_format: { type: "json_object" },
-    });
+    const completion = await meter(
+      { tenantId, provider: "builtin", model: aiModel },
+      "caption",
+      1,
+      () =>
+        openai.chat.completions.create({
+          model: aiModel,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: contextParts.join("\n\n") },
+          ],
+          max_completion_tokens: 4096,
+          response_format: { type: "json_object" },
+        }),
+      (result) =>
+        typeof result.usage?.completion_tokens === "number"
+          ? { tokens: result.usage.completion_tokens }
+          : null,
+    );
     const raw = completion.choices[0]?.message?.content ?? "{}";
     const obj = JSON.parse(raw) as Record<string, unknown>;
     const payload = mergeDraft(base, obj);

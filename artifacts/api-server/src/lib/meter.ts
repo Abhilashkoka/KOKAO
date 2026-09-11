@@ -1,12 +1,15 @@
 import { db, creditMeterEventsTable } from "@workspace/db";
 import { and, desc, gte, sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { creditsMilliFor, getMeterMode, MILLI } from "./creditRates";
+import { creditCostSnapshotFor, getMeterMode, listCreditRates, MILLI } from "./creditRates";
 import {
-  spendCredits,
+  spendCreditsOnce,
+  refundCredits,
   refundCreditsSafely,
   InsufficientCreditsError,
 } from "./creditAccounts";
+import { MeterDispatchReplayError } from "./meterErrors";
+export { MeterDispatchReplayError } from "./meterErrors";
 
 /**
  * THE METER.
@@ -50,6 +53,13 @@ export interface MeterContext {
    * instead of twice.
    */
   operationKey?: string | null;
+  /**
+   * Stable identity shared by mutually exclusive provider retries/fallbacks
+   * for one logical operation. Attempt-specific `operationKey` values remain
+   * useful for diagnostics, while this family prevents any successful or
+   * crash-uncertain attempt from being replayed through a different suffix.
+   */
+  operationFamilyKey?: string | null;
 }
 
 /** Rate-card keys the app meters today. Widen as cost centres are added. */
@@ -68,28 +78,52 @@ export interface ProviderReported {
   tokens?: number | null;
   /** Actual USD the provider says it charged. */
   usd?: number | null;
+  /**
+   * Authoritative successful quantity, when it is only knowable from the
+   * provider result (for example, decoded TTS audio duration).
+   */
+  actualQuantity?: number | null;
+}
+
+export interface MeterOptions {
+  /**
+   * Hard upper bound for a quantity only known after provider success.
+   * Enforce mode reserves this quantity before dispatch and permits refund-only
+   * settlement. A provider result above the declared bound is invalid and is
+   * not delivered.
+   */
+  reservationQuantity?: number;
+}
+
+export class ActualQuantityExceedsReservationError extends Error {
+  constructor(
+    readonly actualQuantity: number,
+    readonly reservationQuantity: number,
+  ) {
+    super("Provider result exceeded its metered quantity reservation");
+    this.name = "ActualQuantityExceedsReservationError";
+  }
 }
 
 async function recordMeterEvent(args: {
   ctx: MeterContext;
   key: string;
   quantity: number;
+  /** The rate-card result snapshotted before provider dispatch. */
+  creditsMilli: number;
   outcome: "ok" | "failed";
   mode: string;
   reported?: ProviderReported | null;
 }): Promise<void> {
-  const creditsMilli = await creditsMilliFor(args.key, args.quantity);
   await db.insert(creditMeterEventsTable).values({
     tenantId: args.ctx.tenantId,
     rateKey: args.key,
     // A non-finite quantity is a caller bug, not a reason to lose the row: it
     // records at zero so the call still appears in the report.
-    quantityMilli: Number.isFinite(args.quantity)
-      ? Math.round(Math.max(0, args.quantity) * MILLI)
-      : 0,
+    quantityMilli: Number.isFinite(args.quantity) ? Math.round(Math.max(0, args.quantity) * MILLI) : 0,
     // An unpriced key records at zero rather than being dropped, so it shows
     // up in the report as a gap in the rate card instead of vanishing.
-    creditsMilli: creditsMilli ?? 0,
+    creditsMilli: args.creditsMilli,
     outcome: args.outcome,
     mode: args.mode,
     provider: args.ctx.provider ?? null,
@@ -123,7 +157,10 @@ export async function meter<T>(
    * the recorded row carries what the invoice will say and not only what the
    * rate card charged.
    */
-  reportedFrom?: (result: T) => ProviderReported | null | undefined,
+  reportedFrom?: (
+    result: T,
+  ) => ProviderReported | null | undefined | Promise<ProviderReported | null | undefined>,
+  options: MeterOptions = {},
 ): Promise<T> {
   if (!ctx) return fn();
 
@@ -136,8 +173,15 @@ export async function meter<T>(
   }
   if (mode === "off") return fn();
 
-  const priced = await creditsMilliFor(key, quantity).catch(() => null);
-  const costMilli = priced ?? 0;
+  const requestedReservation = options.reservationQuantity;
+  const reservationQuantity =
+    typeof requestedReservation === "number" &&
+    Number.isFinite(requestedReservation) &&
+    requestedReservation >= 0
+      ? Math.max(Number.isFinite(quantity) ? quantity : 0, requestedReservation)
+      : quantity;
+  const priceSnapshot = await creditCostSnapshotFor(key, reservationQuantity).catch(() => null);
+  const costMilli = priceSnapshot?.costMilli ?? 0;
 
   // ENFORCE: debit BEFORE the provider call, so two concurrent generations
   // cannot both spend the last credit, and refund if the call then fails.
@@ -145,24 +189,94 @@ export async function meter<T>(
   // rate card can be validated against a real invoice before anyone is
   // charged from it.
   let debited = false;
-  if (mode === "enforce" && costMilli > 0) {
-    await spendCredits({
+  let debitReceiptKey: string | null = null;
+  let failureRefundKey: string | null = null;
+  // A paid rate gets a receipt even when the conservative reservation rounds
+  // to zero. The authoritative result can then be settled after success, and
+  // a failed zero-estimate attempt can persist its matching refund marker.
+  if (mode === "enforce" && (priceSnapshot?.unitRateMilli ?? 0) > 0) {
+    const familyKey = ctx.operationFamilyKey?.trim() || null;
+    const spendBase = familyKey
+      ? `spend-family:${familyKey}`
+      : ctx.operationKey ? `spend:${ctx.operationKey}:${key}` : null;
+    const refundBase = familyKey
+      ? `refund-family:${familyKey}`
+      : ctx.operationKey ? `refund:${ctx.operationKey}:${key}` : null;
+    const debit = await spendCreditsOnce({
       tenantId: ctx.tenantId,
       creditsMilli: costMilli,
       rateKey: key,
       refKind: ctx.refKind ?? null,
       refId: ctx.refId ?? null,
-      idempotencyKey: ctx.operationKey ? `spend:${ctx.operationKey}:${key}` : null,
+      idempotencyKey: spendBase,
+      retryAfterRefund: Boolean(spendBase && refundBase),
+      refundIdempotencyKey: refundBase,
     });
-    debited = true;
+    debited = debit.applied;
+    debitReceiptKey = debit.idempotencyKey ?? spendBase;
+    failureRefundKey = debit.refundIdempotencyKey ?? refundBase;
+    // An idempotency receipt means this exact provider operation has already
+    // been dispatched. We do not cache provider responses here, so proceeding
+    // would make a fresh paid call without a fresh debit. Callers must assign
+    // a distinct operation key to every real retry.
+    if (!debit.applied) {
+      throw new MeterDispatchReplayError();
+    }
   }
 
   try {
     const result = await fn();
-    const reported = reportedFrom ? (reportedFrom(result) ?? null) : null;
-    await recordMeterEvent({ ctx, key, quantity, outcome: "ok", mode, reported }).catch((err) =>
-      logger.warn({ err, key }, "credit meter: failed to record a successful call"),
-    );
+    const reported = reportedFrom ? ((await reportedFrom(result)) ?? null) : null;
+    const actualQuantity =
+      typeof reported?.actualQuantity === "number" &&
+      Number.isFinite(reported.actualQuantity) &&
+      reported.actualQuantity >= 0
+        ? reported.actualQuantity
+        : quantity;
+    if (
+      mode === "enforce" &&
+      reported?.actualQuantity !== undefined &&
+      Number.isFinite(actualQuantity) &&
+      Number.isFinite(reservationQuantity) &&
+      actualQuantity > reservationQuantity
+    ) {
+      // This is a provider/caller contract violation, not metering
+      // infrastructure failure. Rejecting it is what makes the pre-dispatch
+      // upper bound provable and prevents unfunded output delivery.
+      throw new ActualQuantityExceedsReservationError(actualQuantity, reservationQuantity);
+    }
+    const authoritativeCostMilli = priceSnapshot && Number.isFinite(actualQuantity)
+      ? Math.round(actualQuantity * priceSnapshot.unitRateMilli)
+      : costMilli;
+    let settledCostMilli = costMilli;
+    if (mode === "enforce" && debited && authoritativeCostMilli !== costMilli) {
+      if (authoritativeCostMilli < costMilli) {
+        try {
+          await refundCredits({
+            tenantId: ctx.tenantId,
+            creditsMilli: costMilli - authoritativeCostMilli,
+            rateKey: key,
+            refKind: ctx.refKind ?? null,
+            refId: ctx.refId ?? null,
+            idempotencyKey: debitReceiptKey ? `${debitReceiptKey}:settle-refund` : null,
+          });
+          settledCostMilli = authoritativeCostMilli;
+        } catch (err) {
+          logger.warn({ err, key }, "credit meter: failed to settle quantity refund");
+        }
+      }
+    } else if (mode !== "enforce") {
+      settledCostMilli = authoritativeCostMilli;
+    }
+    await recordMeterEvent({
+      ctx,
+      key,
+      quantity: actualQuantity,
+      creditsMilli: settledCostMilli,
+      outcome: "ok",
+      mode,
+      reported,
+    }).catch((err) => logger.warn({ err, key }, "credit meter: failed to record a successful call"));
     return result;
   } catch (error) {
     // The whole reason this exists: a failed provider call is still billed by
@@ -170,9 +284,14 @@ export async function meter<T>(
     // a failure that was never their fault should not cost them — which means
     // provider failure waste lands on the platform, where it is visible in the
     // report and can be engineered away.
-    await recordMeterEvent({ ctx, key, quantity, outcome: "failed", mode }).catch((err) =>
-      logger.warn({ err, key }, "credit meter: failed to record a failed call"),
-    );
+    await recordMeterEvent({
+      ctx,
+      key,
+      quantity,
+      creditsMilli: costMilli,
+      outcome: "failed",
+      mode,
+    }).catch((err) => logger.warn({ err, key }, "credit meter: failed to record a failed call"));
     if (debited) {
       await refundCreditsSafely({
         tenantId: ctx.tenantId,
@@ -180,9 +299,7 @@ export async function meter<T>(
         rateKey: key,
         refKind: ctx.refKind ?? null,
         refId: ctx.refId ?? null,
-        idempotencyKey: ctx.operationKey
-          ? `refund:${ctx.operationKey}:${key}`
-          : null,
+        idempotencyKey: failureRefundKey,
       });
     }
     throw error;
@@ -202,6 +319,11 @@ export interface MeterReportRow {
   quantity: number;
   /** What those calls would have cost, in whole credits. */
   credits: number;
+  /**
+   * How this key appears on the current rate card. "unpriced" is deliberately
+   * distinct from a configured zero rate and a disabled rate.
+   */
+  pricingStatus: "priced" | "free" | "inactive" | "unpriced";
   /** Output tokens the provider reported, when it reports any. */
   providerTokens: number | null;
   /** Actual USD the provider reported, when it reports any. */
@@ -217,6 +339,8 @@ export interface MeterReport {
   /** Provider-reported totals, for holding against an invoice. */
   totalProviderTokens: number | null;
   totalProviderUsd: number | null;
+  /** Metered keys absent from the current rate card. */
+  unpricedKeys: string[];
   rows: MeterReportRow[];
 }
 
@@ -229,39 +353,49 @@ export interface MeterReport {
  */
 export async function meterReport(days = 30): Promise<MeterReport> {
   const since = new Date(Date.now() - Math.max(1, days) * 24 * 60 * 60 * 1000);
-  const rows = await db
-    .select({
-      rateKey: creditMeterEventsTable.rateKey,
-      provider: creditMeterEventsTable.provider,
-      model: creditMeterEventsTable.model,
-      calls: sql<number>`count(*)::int`,
-      failedCalls: sql<number>`count(*) filter (where ${creditMeterEventsTable.outcome} = 'failed')::int`,
-      quantityMilli: sql<number>`coalesce(sum(${creditMeterEventsTable.quantityMilli}), 0)::bigint`,
-      creditsMilli: sql<number>`coalesce(sum(${creditMeterEventsTable.creditsMilli}), 0)::bigint`,
-      providerTokens: sql<number | null>`sum(${creditMeterEventsTable.providerTokens})::bigint`,
-      providerCostMicroUsd: sql<number | null>`sum(${creditMeterEventsTable.providerCostMicroUsd})::bigint`,
-    })
-    .from(creditMeterEventsTable)
-    .where(gte(creditMeterEventsTable.createdAt, since))
-    .groupBy(
-      creditMeterEventsTable.rateKey,
-      creditMeterEventsTable.provider,
-      creditMeterEventsTable.model,
-    )
-    .orderBy(desc(sql`coalesce(sum(${creditMeterEventsTable.creditsMilli}), 0)`));
+  const [rows, rates] = await Promise.all([
+    db
+      .select({
+        rateKey: creditMeterEventsTable.rateKey,
+        provider: creditMeterEventsTable.provider,
+        model: creditMeterEventsTable.model,
+        calls: sql<number>`count(*)::int`,
+        failedCalls: sql<number>`count(*) filter (where ${creditMeterEventsTable.outcome} = 'failed')::int`,
+        quantityMilli: sql<number>`coalesce(sum(${creditMeterEventsTable.quantityMilli}), 0)::bigint`,
+        creditsMilli: sql<number>`coalesce(sum(${creditMeterEventsTable.creditsMilli}), 0)::bigint`,
+        providerTokens: sql<number | null>`sum(${creditMeterEventsTable.providerTokens})::bigint`,
+        providerCostMicroUsd: sql<number | null>`sum(${creditMeterEventsTable.providerCostMicroUsd})::bigint`,
+      })
+      .from(creditMeterEventsTable)
+      .where(gte(creditMeterEventsTable.createdAt, since))
+      .groupBy(creditMeterEventsTable.rateKey, creditMeterEventsTable.provider, creditMeterEventsTable.model)
+      .orderBy(desc(sql`coalesce(sum(${creditMeterEventsTable.creditsMilli}), 0)`)),
+    listCreditRates(),
+  ]);
+  const ratesByKey = new Map(rates.map((rate) => [rate.key, rate]));
 
-  const mapped: MeterReportRow[] = rows.map((r) => ({
-    rateKey: r.rateKey,
-    provider: r.provider,
-    model: r.model,
-    calls: Number(r.calls),
-    failedCalls: Number(r.failedCalls),
-    quantity: Number(r.quantityMilli) / MILLI,
-    credits: Number(r.creditsMilli) / MILLI,
-    providerTokens: r.providerTokens === null ? null : Number(r.providerTokens),
-    providerUsd:
-      r.providerCostMicroUsd === null ? null : Number(r.providerCostMicroUsd) / 1_000_000,
-  }));
+  const mapped: MeterReportRow[] = rows.map((r) => {
+    const rate = ratesByKey.get(r.rateKey);
+    const pricingStatus: MeterReportRow["pricingStatus"] = !rate
+      ? "unpriced"
+      : !rate.active
+        ? "inactive"
+        : rate.credits === 0
+          ? "free"
+          : "priced";
+    return {
+      rateKey: r.rateKey,
+      provider: r.provider,
+      model: r.model,
+      calls: Number(r.calls),
+      failedCalls: Number(r.failedCalls),
+      quantity: Number(r.quantityMilli) / MILLI,
+      credits: Number(r.creditsMilli) / MILLI,
+      pricingStatus,
+      providerTokens: r.providerTokens === null ? null : Number(r.providerTokens),
+      providerUsd: r.providerCostMicroUsd === null ? null : Number(r.providerCostMicroUsd) / 1_000_000,
+    };
+  });
 
   const tokenRows = mapped.filter((r) => r.providerTokens !== null);
   const usdRows = mapped.filter((r) => r.providerUsd !== null);
@@ -274,12 +408,9 @@ export async function meterReport(days = 30): Promise<MeterReport> {
     failedCalls: mapped.reduce((sum, r) => sum + r.failedCalls, 0),
     // Null rather than zero when nothing reported: a provider that says
     // nothing must not read as a provider that charged nothing.
-    totalProviderTokens: tokenRows.length
-      ? tokenRows.reduce((sum, r) => sum + (r.providerTokens ?? 0), 0)
-      : null,
-    totalProviderUsd: usdRows.length
-      ? usdRows.reduce((sum, r) => sum + (r.providerUsd ?? 0), 0)
-      : null,
+    totalProviderTokens: tokenRows.length ? tokenRows.reduce((sum, r) => sum + (r.providerTokens ?? 0), 0) : null,
+    totalProviderUsd: usdRows.length ? usdRows.reduce((sum, r) => sum + (r.providerUsd ?? 0), 0) : null,
+    unpricedKeys: [...new Set(mapped.filter((r) => r.pricingStatus === "unpriced").map((r) => r.rateKey))].sort(),
     rows: mapped,
   };
 }
@@ -295,11 +426,6 @@ export async function tenantMeterCredits(tenantId: number, days = 30): Promise<n
       creditsMilli: sql<number>`coalesce(sum(${creditMeterEventsTable.creditsMilli}), 0)::bigint`,
     })
     .from(creditMeterEventsTable)
-    .where(
-      and(
-        sql`${creditMeterEventsTable.tenantId} = ${tenantId}`,
-        gte(creditMeterEventsTable.createdAt, since),
-      ),
-    );
+    .where(and(sql`${creditMeterEventsTable.tenantId} = ${tenantId}`, gte(creditMeterEventsTable.createdAt, since)));
   return Number(row?.creditsMilli ?? 0) / MILLI;
 }

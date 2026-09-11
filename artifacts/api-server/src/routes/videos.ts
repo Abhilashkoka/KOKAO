@@ -595,7 +595,11 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     };
   }
 
-  const selectedTextGen = await getTextGenClient(args.tenantModel);
+  const selectedTextGen = await getTextGenClient(args.tenantModel, {
+    tenantId: args.req.tenantId,
+    refKind: "videoScript",
+    operationKey: args.operationKey ?? null,
+  });
   // Reserve against the model's full synchronous context/output envelope, not
   // the much smaller display-rate estimate. The final settle still uses the
   // provider's actual receipt (or one caption unit when unmetered), so nearly
@@ -3628,6 +3632,7 @@ router.post(
         settleProviderSuccessBeforePersistence: true,
         perform: () =>
           translateGuidedStoryLine({
+            tenantId: req.tenantId,
             tenantAiModel: tenant.aiModel,
             locale: row.state.setup!.locale,
             sourceText: sourceLine.text,
@@ -5091,7 +5096,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                         refId: `${row.id}:${row.revision}:${role.id}`,
                       },
                     },
-                    () => generateCharacterReference(castPrompt, row?.state.imageModelSnapshot),
+                    () => generateCharacterReference(castPrompt, {
+                      tenantId: req.tenantId,
+                      refKind: "guidedStoryCast",
+                      refId: `${row!.id}:${row!.revision}:${role.id}`,
+                      operationKey,
+                    }, row?.state.imageModelSnapshot),
                     (result) => ({
                       provider: result.provider,
                       model: result.model,
@@ -5101,7 +5111,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 : null;
             const generated =
               executed?.value ??
-              (await generateCharacterReference(castPrompt, row?.state.imageModelSnapshot));
+              (await generateCharacterReference(castPrompt, {
+                tenantId: req.tenantId,
+                refKind: "guidedStoryCast",
+                refId: `${row!.id}:${row!.revision}:${role.id}`,
+                operationKey,
+              }, row?.state.imageModelSnapshot));
             operationId = executed?.operationId ?? null;
             provider = generated.provider;
             model = generated.model;
@@ -5522,6 +5537,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                           generateCharacterReferenceSheet(
                             ownedCharacter,
                             primaryReference,
+                            {
+                              tenantId: req.tenantId,
+                              refKind: "character",
+                              refId: String(owned.characterId),
+                              operationKey: sheetOperationKey,
+                            },
                             owned.row.state.imageModelSnapshot,
                           ),
                         (result) => ({
@@ -5536,6 +5557,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                   (await generateCharacterReferenceSheet(
                     ownedCharacter,
                     primaryReference,
+                    {
+                      tenantId: req.tenantId,
+                      refKind: "character",
+                      refId: String(owned.characterId),
+                      operationKey: sheetOperationKey,
+                    },
                     owned.row.state.imageModelSnapshot,
                   ));
                 sheetBuffer = sheet.buffer;
@@ -7143,7 +7170,12 @@ router.post(
             if (!boundary) throw new Error("Reference provider boundary checkpoint failed.");
             durableCheckpoint = "provider_running";
             providerStarted = true;
-            return generateCharacterReference(description, row?.state.imageModelSnapshot);
+            return generateCharacterReference(description, {
+              tenantId: req.tenantId,
+              refKind: "guidedStoryReference",
+              refId: operationId,
+              operationKey: `guidedStoryReference:${operationId}`,
+            }, row?.state.imageModelSnapshot);
           }
           if (member.characterId == null || !member.character.referenceImagePath) {
             throw new Error("Outfits can only be generated for a saved canonical identity.");
@@ -7171,6 +7203,12 @@ router.post(
             detail.character,
             description,
             reference,
+            {
+              tenantId: req.tenantId,
+              refKind: "guidedStoryReference",
+              refId: operationId,
+              operationKey: `guidedStoryReference:${operationId}`,
+            },
             mask,
             undefined,
             row?.state.imageModelSnapshot,
@@ -9523,6 +9561,11 @@ async function generateVideoHandler(
         mimeType: "audio/mpeg",
         filename: "presenter-audio.mp3",
         timestamps: true,
+      }, {
+        tenantId: req.tenantId,
+        refKind: "content",
+        refId: body.presenterVideoPath,
+        operationKey: `asr:presenter:${req.tenantId}:${body.presenterVideoPath}`,
       });
       const lines = alignPresenterNarration({
         script: body.prompt?.trim() ?? "",
@@ -9531,6 +9574,7 @@ async function generateVideoHandler(
         segments: transcription.segments,
       });
       presenterBroll = await planPresenterBrollTimeline({
+        tenantId: req.tenantId,
         script: body.prompt?.trim() ?? "",
         tenantAiModel: tenant.aiModel,
         durationMs,
@@ -11100,7 +11144,15 @@ router.post(
             prompt,
             imageSizeForAspect(aspect),
             reference,
-            { requireReferenceInput: Boolean(reference) },
+            {
+              requireReferenceInput: Boolean(reference),
+              meterContext: {
+                tenantId: req.tenantId,
+                refKind: "videoJobCover",
+                refId: String(job.id),
+                operationKey: `videoJob:${job.id}:cover:${intensity}`,
+              },
+            },
           );
           return {
             path: await uploadBufferToStorage(req.tenantId, image.buffer, "image/png"),

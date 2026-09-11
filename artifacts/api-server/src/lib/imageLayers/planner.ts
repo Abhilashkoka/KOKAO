@@ -70,7 +70,9 @@ export async function planImageLayers(input: {
   // Unlike the design-skill pass, this one fails LOUDLY. A soft failure would
   // mean silently generating a flat image after the user chose (and was
   // quoted for) a layered one.
-  const textGen = await getTextGenClient(input.tenant.aiModel).catch((err) => {
+  const textGen = await getTextGenClient(input.tenant.aiModel, {
+    tenantId: input.tenantId,
+  }).catch((err) => {
     logger.error({ err }, "Layer planner could not resolve a text-gen client");
     return null;
   });

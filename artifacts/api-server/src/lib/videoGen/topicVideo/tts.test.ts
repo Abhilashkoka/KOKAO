@@ -7,14 +7,24 @@ import {
   resetProviderHealthForTests,
 } from "../../providerHealth";
 import { VideoGenProviderError } from "../types";
-import { orderedTtsProviders, resolveTtsApiKey, TTS_PROVIDERS } from "./tts";
+import {
+  orderedTtsProviders,
+  resolveTtsApiKey,
+  speakIndicCue,
+  TTS_PROVIDERS,
+} from "./tts";
 import { buildWav, synthesizeNarration } from "./narration";
+import { MeterDispatchReplayError } from "../../meterErrors";
 
 vi.mock("@workspace/integrations-openai-ai-server/audio", () => ({
   textToSpeech: vi.fn(),
 }));
+vi.mock("../../meter", () => ({
+  meter: vi.fn(async (_ctx, _key, _quantity, fn) => fn()),
+}));
 
 import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
+import { meter } from "../../meter";
 
 const savedKey = process.env.DEEPGRAM_API_KEY;
 const realFetch = globalThis.fetch;
@@ -35,6 +45,7 @@ function okAudio(buffer: Buffer): Response {
 describe("tts provider registry", () => {
   beforeEach(async () => {
     vi.mocked(textToSpeech).mockReset();
+    vi.mocked(meter).mockClear();
     resetProviderHealthForTests();
     delete process.env.DEEPGRAM_API_KEY;
     // A stored Deepgram ASR key doubles as the TTS key; clear it for determinism.
@@ -119,6 +130,7 @@ describe("tts provider registry", () => {
 describe("synthesizeNarration provider failover", () => {
   beforeEach(async () => {
     vi.mocked(textToSpeech).mockReset();
+    vi.mocked(meter).mockClear();
     resetProviderHealthForTests();
     delete process.env.DEEPGRAM_API_KEY;
     await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "asr_%"));
@@ -139,7 +151,12 @@ describe("synthesizeNarration provider failover", () => {
     const fetchMock = vi.fn(async () => okAudio(wav(1)));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const out = await synthesizeNarration(["First line.", "Second line."], "nova");
+    const out = await synthesizeNarration(["First line.", "Second line."], "nova", {
+      meterContext: {
+        tenantId: 7,
+        operationKey: "video-job:82:narration",
+      },
+    });
 
     // Both sentences came from Deepgram — a mixed track would be rejected.
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -147,12 +164,56 @@ describe("synthesizeNarration provider failover", () => {
     expect(out.totalDurationSec).toBeCloseTo(1 + 0.25 + 1 + 0.6, 2);
     expect(getProviderHealth("tts:openai")?.consecutiveFailures).toBe(1);
     expect(getProviderHealth("tts:deepgram")?.consecutiveFailures).toBe(0);
+    expect(
+      vi.mocked(meter).mock.calls
+        .map(([ctx]) => ctx?.operationFamilyKey)
+        .filter((key): key is string => Boolean(key)),
+    ).toEqual([
+      "video-job:82:narration:sentence:0",
+      "video-job:82:narration:sentence:0",
+      "video-job:82:narration:sentence:0",
+      "video-job:82:narration:sentence:1",
+    ]);
   }, 20_000);
 
   it("fails without a fallback when nothing else is configured", async () => {
     vi.mocked(textToSpeech).mockRejectedValue(new VideoGenProviderError("voice down", 503));
 
     await expect(synthesizeNarration(["Only line."], "alloy")).rejects.toThrow("voice down");
+  }, 20_000);
+
+  it("gives every sentence and retry a durable meter key", async () => {
+    vi.mocked(textToSpeech)
+      .mockRejectedValueOnce(new VideoGenProviderError("retry", 503))
+      .mockResolvedValue(wav(1));
+
+    await synthesizeNarration(["First line.", "Second line."], "alloy", {
+      meterContext: {
+        tenantId: 7,
+        refKind: "videoJob",
+        refId: "81",
+        operationKey: "video-job:81:narration",
+      },
+    });
+
+    expect(
+      vi.mocked(meter).mock.calls
+        .map(([ctx]) => ctx?.operationKey)
+        .filter((key): key is string => Boolean(key)),
+    ).toEqual([
+      "video-job:81:narration:sentence:0:provider:openai:attempt:0",
+      "video-job:81:narration:sentence:0:provider:openai:attempt:1",
+      "video-job:81:narration:sentence:1:provider:openai:attempt:0",
+    ]);
+    expect(
+      vi.mocked(meter).mock.calls
+        .map(([ctx]) => ctx?.operationFamilyKey)
+        .filter((key): key is string => Boolean(key)),
+    ).toEqual([
+      "video-job:81:narration:sentence:0",
+      "video-job:81:narration:sentence:0",
+      "video-job:81:narration:sentence:1",
+    ]);
   }, 20_000);
 
   it("does not re-speak the track on a permanent failure", async () => {
@@ -165,6 +226,39 @@ describe("synthesizeNarration provider failover", () => {
 
     await expect(synthesizeNarration(["Only line."], "alloy")).rejects.toThrow("cannot be spoken");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(getProviderHealth("tts:openai")).toBeNull();
+  });
+
+  it("does not re-speak or mark provider health when the meter blocks a replay", async () => {
+    process.env.DEEPGRAM_API_KEY = "test-dg-key";
+    const replay = new MeterDispatchReplayError();
+    vi.mocked(meter).mockRejectedValueOnce(replay);
+    const fetchMock = vi.fn(async () => okAudio(wav(1)));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      synthesizeNarration(["Only line."], "alloy", {
+        meterContext: { tenantId: 7, operationKey: "video-job:83:narration" },
+      }),
+    ).rejects.toBe(replay);
+
+    expect(textToSpeech).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getProviderHealth("tts:openai")).toBeNull();
+  });
+
+  it("does not retry Indic TTS when the meter blocks a replay", async () => {
+    const replay = new MeterDispatchReplayError();
+    vi.mocked(meter).mockRejectedValueOnce(replay);
+
+    await expect(
+      speakIndicCue("నమస్కారం", "alloy", {
+        tenantId: 7,
+        operationKey: "video-job:84:indic:0",
+      }),
+    ).rejects.toBe(replay);
+
+    expect(textToSpeech).not.toHaveBeenCalled();
     expect(getProviderHealth("tts:openai")).toBeNull();
   });
 

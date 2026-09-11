@@ -18,6 +18,13 @@ import {
 } from "../../nvidiaCore";
 import { boundedProviderFetch } from "../../aiProviderFetch";
 import { applyManualOrder, getAiFallbackOrders } from "../../aiFallbackSettings";
+import { meter, type MeterContext } from "../../meter";
+import { isMeterDispatchReplayError } from "../../meterErrors";
+import {
+  conservativeSpeechDurationSeconds,
+  speechDurationReservationSeconds,
+  wavDurationSeconds,
+} from "../../audioDuration";
 
 /**
  * Text-to-speech provider registry for narration.
@@ -124,13 +131,24 @@ export function normalizeLocalizedNarrationSelection(input: {
 
 export async function createLocalizedCueSpeaker(
   selection: LocalizedNarrationSelection,
+  meterContext: MeterContext | null,
 ): Promise<(text: string) => Promise<Buffer>> {
   if (selection.provider === "openai") {
     const voice = selection.speaker as NarrationVoice;
-    return (text) => speakIndicCue(text, voice);
+    let invocation = 0;
+    return (text) => {
+      const thisInvocation = invocation++;
+      return speakIndicCue(text, voice, meterContext ? {
+        ...meterContext,
+        operationKey: meterContext.operationKey
+          ? `${meterContext.operationKey}:cue:${thisInvocation}`
+          : null,
+      } : null);
+    };
   }
   const sarvamSpeaker = await createSarvamCueSpeaker(
     selection.speaker as SarvamStockSpeaker,
+    meterContext,
   );
   if (!sarvamSpeaker) {
     throw new VideoGenProviderError(
@@ -343,6 +361,7 @@ export async function orderedTtsProviders(): Promise<TtsProviderDef[]> {
  *     fix, and recording one failure is enough for the circuit breaker.
  */
 function isIndicTtsRetryable(error: unknown): boolean {
+  if (isMeterDispatchReplayError(error)) return false;
   if (error instanceof VideoGenProviderError) {
     if (error.status === undefined) return true; // timeout / network
     return isTransientStatus(error.status);
@@ -370,16 +389,42 @@ function isIndicTtsRetryable(error: unknown): boolean {
  * @param voice  An OpenAI stock voice from the six supported voices.
  * @returns      WAV bytes suitable for parseWav.
  */
-export async function speakIndicCue(text: string, voice: NarrationVoice): Promise<Buffer> {
+export async function speakIndicCue(
+  text: string,
+  voice: NarrationVoice,
+  meterContext: MeterContext | null,
+): Promise<Buffer> {
   const healthKey = ttsHealthKey("openai");
   const startedAt = Date.now();
+  const operationFamilyKey =
+    meterContext?.operationFamilyKey?.trim() ||
+    meterContext?.operationKey?.trim() ||
+    null;
 
-  const speak = (): Promise<Buffer> =>
-    withTimeout(
-      () => speakWithOpenAI(text, voice),
-      TTS_TIMEOUT_MS,
-      "Indic TTS",
+  let attempt = 0;
+  const speak = (): Promise<Buffer> => {
+    const thisAttempt = attempt++;
+    return meter(
+      meterContext ? {
+        ...meterContext,
+        provider: "openai",
+        model: LOCALIZED_OPENAI_MODEL,
+        operationFamilyKey,
+        operationKey: meterContext.operationKey
+          ? `${meterContext.operationKey}:openai:attempt:${thisAttempt}`
+          : null,
+      } : null,
+      "voice",
+      conservativeSpeechDurationSeconds(text),
+      () => withTimeout(
+        () => speakWithOpenAI(text, voice),
+        TTS_TIMEOUT_MS,
+        "Indic TTS",
+      ),
+      (result) => ({ actualQuantity: wavDurationSeconds(result) }),
+      { reservationQuantity: speechDurationReservationSeconds(text) },
     );
+  };
 
   let audio: Buffer;
   try {

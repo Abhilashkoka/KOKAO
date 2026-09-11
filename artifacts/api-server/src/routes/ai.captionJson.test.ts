@@ -41,22 +41,26 @@ type Completion = {
   };
 };
 let completionScript: () => Promise<Completion>;
+const textMeterContexts: Array<Record<string, unknown>> = [];
 
 vi.mock("../lib/textGen", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/textGen")>();
   return {
     ...actual,
-    getTextGenClient: vi.fn(async () => ({
-      provider: "builtin",
-      model: "test-model",
-      client: {
-        chat: {
-          completions: {
-            create: vi.fn(async () => completionScript()),
+    getTextGenClient: vi.fn(async (_model, meterContext) => {
+      textMeterContexts.push(meterContext as Record<string, unknown>);
+      return {
+        provider: "builtin",
+        model: "test-model",
+        client: {
+          chat: {
+            completions: {
+              create: vi.fn(async () => completionScript()),
+            },
           },
         },
-      },
-    })),
+      };
+    }),
   };
 });
 
@@ -93,6 +97,7 @@ beforeEach(async () => {
   tenant = await createTenant();
   planState.captions = 0;
   costState.meta = {};
+  textMeterContexts.length = 0;
 
   const app = express();
   app.use(express.json());
@@ -193,6 +198,13 @@ describe("JSON caption endpoint billing", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].kind).toBe("caption");
     expect(rows[0].funding).toBe("quota");
+    expect(textMeterContexts).toHaveLength(1);
+    expect(textMeterContexts[0]).toMatchObject({
+      tenantId: tenant.tenantId,
+      refKind: "action",
+      operationKey: `text:generate-caption:quota:${rows[0].id}`,
+    });
+    expect(String(textMeterContexts[0]?.refId)).toMatch(/^generate-caption:/);
     // Quota funded: the credit ledger must be untouched.
     expect(await ledgerRows()).toHaveLength(0);
   });

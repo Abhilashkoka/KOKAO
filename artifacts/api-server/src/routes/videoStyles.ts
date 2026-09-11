@@ -238,6 +238,12 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
           analyzeReferenceVideo({
             videoBytes,
             tenantAiModel: tenant.aiModel,
+            meterContext: {
+              tenantId: req.tenantId,
+              refKind: "video_style_profile",
+              refId: sourceVideoPath,
+              operationKey: `video-style-analysis:${sourceVideoPath}`,
+            },
             onProviderSuccess: confirmSuccess,
           }),
         () => ({}),
@@ -254,6 +260,12 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
       payload = await analyzeReferenceVideo({
         videoBytes,
         tenantAiModel: tenant.aiModel,
+        meterContext: {
+          tenantId: req.tenantId,
+          refKind: "video_style_profile",
+          refId: sourceVideoPath,
+          operationKey: `video-style-analysis:${sourceVideoPath}`,
+        },
       });
     }
   } catch (err) {

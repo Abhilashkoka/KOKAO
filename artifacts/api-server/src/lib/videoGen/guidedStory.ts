@@ -1471,7 +1471,9 @@ export async function generateGuidedStoryScript(params: {
   roleCount?: number;
   brandConstraints: string | null;
 }) {
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(params.tenantAiModel, {
+    tenantId: params.tenantId,
+  });
   const maxSpokenWords = guidedStoryMaxSpokenWords(params.durationSeconds);
   const outputFormat = "Return only JSON with title, logline, warnings, roles[{id,name,description}], scenes[{id,startMs,endMs,visualDirection,roleIds,lines[{id,ownerRoleId,kind,text,romanizedPronunciation,englishTranslation,startMs,endMs}]}]. roleIds lists every role visibly present; kind is dialogue or narration; dialogue ownerRoleId must be a role id. For Hindi, Telugu, and Tamil, romanizedPronunciation must be a faithful, readable Latin-letter pronunciation of text and englishTranslation must be its faithful English meaning; both are display only. For English, use null for both.";
   const runtimeContext = [
@@ -1616,11 +1618,14 @@ export async function generateGuidedStoryScript(params: {
 
 /** Generate display-only pronunciation and English meaning for one immutable source line. */
 export async function translateGuidedStoryLine(params: {
+  tenantId: number;
   tenantAiModel: string;
   locale: string;
   sourceText: string;
 }) {
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(params.tenantAiModel, {
+    tenantId: params.tenantId,
+  });
   const completion = await textGen.client.chat.completions.create({
     model: textGen.model,
     messages: [
@@ -1887,7 +1892,9 @@ export async function generateGuidedStorySceneInsertion(params: {
   ) {
     throw new VideoGenProviderError("The scene insertion position is invalid.");
   }
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(params.tenantAiModel, {
+    tenantId: params.tenantId,
+  });
   const previous = params.script.scenes[params.insertionIndex - 1] ?? null;
   const next = params.script.scenes[params.insertionIndex] ?? null;
   const outputFormat =

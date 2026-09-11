@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreditMeterReportRowPricingStatus } from './creditMeterReportRowPricingStatus';
 
 export interface CreditMeterReportRow {
   rateKey: string;
@@ -17,6 +18,8 @@ export interface CreditMeterReportRow {
   failedCalls: number;
   quantity: number;
   credits: number;
+  /** How the key appears on the current rate card. Unpriced means the key is missing, not that it has a configured zero or inactive rate. */
+  pricingStatus: CreditMeterReportRowPricingStatus;
   /**
      * Output tokens the provider reported, when it reports any.
      * @nullable

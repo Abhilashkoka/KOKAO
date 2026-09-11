@@ -4,10 +4,13 @@ import {
   groupCuesIntoScenes,
   clipDurationForScene,
   planSceneVisuals,
+  generateSceneKeyframes,
   generateCharacterSceneClips,
   CHARACTER_SCENES_PER_PARAGRAPH,
 } from "./characterScenes";
 import { videoJobUnits } from "../units";
+import { MeterDispatchReplayError } from "../../meterErrors";
+import type { MeterContext } from "../../meter";
 
 // ---------------------------------------------------------------------------
 // Scene grouping (pure)
@@ -122,7 +125,8 @@ vi.mock("../../textGen", () => ({
 }));
 
 const sceneGenState = vi.hoisted(() => ({
-  keyframes: [] as { visual: string; outfitId: number }[],
+  keyframes: [] as { visual: string; outfitId: number; meterContext: MeterContext | null }[],
+  keyframeErrors: [] as Error[],
   animated: [] as string[],
   loadedRefs: [] as string[],
 }));
@@ -135,8 +139,17 @@ vi.mock("../../characters", async (importOriginal) => {
       return { buffer: Buffer.from("ref"), mimeType: "image/png" };
     }),
     generateSceneKeyframe: vi.fn(
-      async (_c: Character, outfit: CharacterOutfit, visual: string) => {
-        sceneGenState.keyframes.push({ visual, outfitId: outfit.id });
+      async (
+        _c: Character,
+        outfit: CharacterOutfit,
+        visual: string,
+        _aspect: unknown,
+        _reference: unknown,
+        meterContext: MeterContext | null,
+      ) => {
+        sceneGenState.keyframes.push({ visual, outfitId: outfit.id, meterContext });
+        const error = sceneGenState.keyframeErrors.shift();
+        if (error) throw error;
         return { buffer: Buffer.from(`kf-${visual}`), provider: "openai", model: "gpt-image-1" };
       },
     ),
@@ -190,6 +203,7 @@ beforeEach(() => {
   planState.lastRefinementPrompt = "";
   planState.refinementThrows = false;
   sceneGenState.keyframes.length = 0;
+  sceneGenState.keyframeErrors.length = 0;
   sceneGenState.animated.length = 0;
   sceneGenState.loadedRefs.length = 0;
 });
@@ -430,6 +444,27 @@ describe("planSceneVisuals", () => {
 });
 
 describe("generateCharacterSceneClips", () => {
+  it("treats a metered replay block as terminal before the outer keyframe retry", async () => {
+    sceneGenState.keyframeErrors.push(new MeterDispatchReplayError());
+
+    await expect(
+      generateSceneKeyframes({
+        tenantId: 1,
+        character,
+        outfits,
+        plan: [{ visual: "waking up", outfitId: 10, shotSize: "medium" }],
+        aspectRatio: "9:16",
+        meterCtx: { tenantId: 1, operationKey: "video-job:9:keyframe" },
+      }),
+    ).rejects.toBeInstanceOf(MeterDispatchReplayError);
+
+    expect(sceneGenState.keyframes).toHaveLength(1);
+    expect(sceneGenState.keyframes[0]?.meterContext).toMatchObject({
+      operationFamilyKey: "video-job:9:keyframe:0:0",
+      operationKey: "video-job:9:keyframe:0:0:dispatch:0",
+    });
+  });
+
   it("anchors every scene to its outfit reference and animates the keyframe", async () => {
     const scenes = [
       { firstCue: 0, lastCue: 1, durationSec: 6.2, text: "one" },

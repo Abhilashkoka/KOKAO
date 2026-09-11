@@ -11,6 +11,7 @@ import type { CustomVideoApiMapping } from "@workspace/db";
  */
 
 const baseInput: VideoGenInput = {
+  meterContext: null,
   prompt: "A barista pulling an espresso shot",
   aspectRatio: "9:16",
   durationSec: 6,

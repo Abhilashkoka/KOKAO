@@ -13,6 +13,10 @@ vi.mock("./notifications", () => ({
   notifyTextGenFailover: vi.fn(async () => {}),
   resolveTextGenFailoverNotifications: vi.fn(async () => {}),
 }));
+const meterMock = vi.hoisted(() => vi.fn());
+vi.mock("./meter", () => ({
+  meter: meterMock,
+}));
 
 import type OpenAI from "openai";
 import { findModelPrice } from "./aiCost";
@@ -70,6 +74,7 @@ beforeEach(() => {
   resetProviderHealthForTests();
   resetTextGenFailoverNotifyThrottleForTests();
   mockFindModelPrice.mockResolvedValue({ id: 1 } as never);
+  meterMock.mockImplementation(async (_ctx, _key, _quantity, fn) => fn());
 });
 
 afterAll(() => {
@@ -140,12 +145,14 @@ describe("withTextGenFailover", () => {
         throw statusError(503, "text outage");
       }, "text"),
       "m",
+      null,
       { resolveCandidate: async () => null },
     );
     const multimodalCreate = vi.fn(async () => ({ from: "vision" }));
     const multimodal = withTextGenFailover(
       nvidiaPrimaryOf(multimodalCreate, "multimodal"),
       "m",
+      null,
       { resolveCandidate: async () => null },
     );
 
@@ -169,6 +176,7 @@ describe("withTextGenFailover", () => {
         throw statusError(503, "vision outage");
       }, "multimodal"),
       "m",
+      null,
       { resolveCandidate: async () => null },
     );
     for (let i = 0; i < 3; i += 1) {
@@ -186,7 +194,7 @@ describe("withTextGenFailover", () => {
     });
     const candidateCreate = vi.fn(async () => ({ ok: true }));
     const candidate = candidateOf(candidateCreate);
-    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "openai/gpt-4o-mini", {
+    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "openai/gpt-4o-mini", null, {
       resolveCandidate: async () => candidate,
     });
 
@@ -226,7 +234,7 @@ describe("withTextGenFailover", () => {
       throw statusError(400, "bad request");
     });
     const resolveCandidate = vi.fn(async () => candidateOf(vi.fn()));
-    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", {
+    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", null, {
       resolveCandidate,
     });
 
@@ -244,7 +252,7 @@ describe("withTextGenFailover", () => {
     const primaryCreate = vi.fn(async () => {
       throw statusError(503, "primary down");
     });
-    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", {
+    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", null, {
       resolveCandidate: async () => null,
     });
 
@@ -261,7 +269,7 @@ describe("withTextGenFailover", () => {
     const candidateCreate = vi.fn(async () => {
       throw statusError(500, "candidate down");
     });
-    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", {
+    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", null, {
       resolveCandidate: async () => candidateOf(candidateCreate),
     });
 
@@ -278,7 +286,7 @@ describe("withTextGenFailover", () => {
     }
     const primaryCreate = vi.fn(async () => ({ from: "primary" }));
     const candidateCreate = vi.fn(async () => ({ from: "candidate" }));
-    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", {
+    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", null, {
       resolveCandidate: async () => candidateOf(candidateCreate),
     });
 
@@ -295,7 +303,7 @@ describe("withTextGenFailover", () => {
       throw statusError(503);
     });
     const candidateCreate = vi.fn(async () => ({ ok: true }));
-    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", {
+    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", null, {
       resolveCandidate: async () => candidateOf(candidateCreate),
     });
 
@@ -309,6 +317,32 @@ describe("withTextGenFailover", () => {
     expect(mockNotify).toHaveBeenCalledTimes(1);
   });
 
+  it("assigns distinct debit keys to repeated failover provider calls", async () => {
+    const primaryCreate = vi.fn(async () => {
+      throw statusError(503);
+    });
+    const candidateCreate = vi.fn(async () => ({ ok: true }));
+    const wrapped = withTextGenFailover(
+      primaryOf(primaryCreate),
+      "m",
+      { tenantId: 42, operationKey: "text-action" },
+      { resolveCandidate: async () => candidateOf(candidateCreate) },
+    );
+
+    await wrapped.client.chat.completions.create({ model: "x", messages: [] } as never);
+    await wrapped.client.chat.completions.create({ model: "x", messages: [] } as never);
+
+    expect(meterMock.mock.calls.map((call) => [
+      call[0]?.operationKey,
+      call[0]?.operationFamilyKey,
+    ])).toEqual([
+      ["text-action:text:1", "text-action:text:1"],
+      ["text-action:text:1", "text-action:text:1"],
+      ["text-action:text:2", "text-action:text:2"],
+      ["text-action:text:2", "text-action:text:2"],
+    ]);
+  });
+
   it("clears the failover alert and re-arms the throttle when the primary recovers", async () => {
     const mockResolve = vi.mocked(resolveTextGenFailoverNotifications);
     let fail = true;
@@ -317,7 +351,7 @@ describe("withTextGenFailover", () => {
       return { from: "primary" };
     });
     const candidateCreate = vi.fn(async () => ({ ok: true }));
-    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", {
+    const wrapped = withTextGenFailover(primaryOf(primaryCreate), "m", null, {
       resolveCandidate: async () => candidateOf(candidateCreate),
     });
     const call = () =>

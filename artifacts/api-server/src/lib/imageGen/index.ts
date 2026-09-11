@@ -33,6 +33,8 @@ import { generateWithNvidia, NVIDIA_SDXL_MODEL } from "./providers/nvidia";
 import { generateWithHiggsfield, HIGGSFIELD_IMAGE_MODEL } from "./providers/higgsfield";
 import sharp from "sharp";
 import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
+import { meter, type MeterContext } from "../meter";
+import { isMeterDispatchReplayError } from "../meterErrors";
 import {
   ImageGenNotConfiguredError,
   ImageGenProviderError,
@@ -510,6 +512,7 @@ export function imageGenHealthKey(providerId: string): string {
 /** Whether an image-gen failure is the PROVIDER's fault (429/5xx/network),
  * as opposed to a bad prompt or invalid key that would fail anywhere. */
 function isTransientImageGenError(error: unknown): boolean {
+  if (isMeterDispatchReplayError(error)) return false;
   if (error instanceof ImagePreservationError) return false;
   if (error instanceof ImageGenProviderError) {
     if (error.status === undefined) return true; // timeout / network-shaped
@@ -716,6 +719,8 @@ async function runImageGenProvider(
   referenceImage: ReferenceImage | undefined,
   isSelected: boolean,
   transparent: boolean,
+  meterContext: MeterContext | null,
+  attemptIndex: number,
   editMask?: ReferenceImage,
 ): Promise<ImageGenResult> {
   const apiKey = await resolveImageGenApiKey(def);
@@ -731,19 +736,33 @@ async function runImageGenProvider(
   const key = imageGenHealthKey(def.id);
   const startedAt = Date.now();
   try {
-    const result = await def.generate(
-      {
-        ...input,
-        // Model/baseUrl overrides belong to the SELECTED provider only; a
-        // fallback provider runs with its own default model.
-        model,
-        baseUrl:
-          isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
-        referenceImage: def.supportsImageInput ? referenceImage : undefined,
-        editMask: def.supportsExactMaskedEdits ? editMask : undefined,
-        transparent: transparent && def.supportsTransparency ? true : undefined,
-      },
-      apiKey,
+    const result = await meter(
+      meterContext
+        ? {
+            ...meterContext,
+            provider: def.id,
+            model,
+            operationFamilyKey: meterContext.operationFamilyKey ?? meterContext.operationKey,
+            operationKey:
+              `${meterContext.operationKey ?? "image"}:provider:${def.id}:model:${model}:attempt:${attemptIndex}`,
+          }
+        : null,
+      editMask ? "image_edit" : "image",
+      1,
+      () => def.generate(
+        {
+          ...input,
+          // Model/baseUrl overrides belong to the SELECTED provider only; a
+          // fallback provider runs with its own default model.
+          model,
+          baseUrl:
+            isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
+          referenceImage: def.supportsImageInput ? referenceImage : undefined,
+          editMask: def.supportsExactMaskedEdits ? editMask : undefined,
+          transparent: transparent && def.supportsTransparency ? true : undefined,
+        },
+        apiKey,
+      ),
     );
     // Only successes are timed. A failure's duration says how fast the vendor
     // said no, which is not the number routing wants to know.
@@ -841,8 +860,9 @@ function shortMessage(error: unknown): string {
 export async function generateImage(
   prompt: string,
   size: ImageSize,
-  referenceImage?: ReferenceImage,
-  opts?: {
+  referenceImage: ReferenceImage | undefined,
+  opts: {
+    meterContext: MeterContext | null;
     transparent?: boolean;
     exactMaskedEdit?: ExactMaskedEdit;
     requireReferenceInput?: boolean;
@@ -998,6 +1018,8 @@ export async function generateImage(
         // provider in first position, and to nothing else.
         !auto && step === 0,
         transparent,
+        opts.meterContext,
+        step,
         prepared?.editMask,
       );
       // Wallet callers persist the paid provider acknowledgement before local

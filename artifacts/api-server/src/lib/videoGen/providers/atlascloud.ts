@@ -1,6 +1,7 @@
 import {
   compiledClipPrompt,
   providerAspect,
+  isHdVideoResolution,
   videoGenFetch,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
@@ -12,6 +13,7 @@ import https from "node:https";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { assertPublicHost, resolvePublicHost } from "../../webFetch";
 import { isAtlasGenerationReferenceId } from "../../atlascloud/assetId";
+import { meter } from "../../meter";
 
 /** Atlas Cloud's documented, directly callable Seedance 2.5 endpoints. */
 export const ATLASCLOUD_SEEDANCE_25_T2V_MODEL = "bytedance/seedance-2.5/text-to-video";
@@ -360,22 +362,43 @@ export async function generateWithAtlasCloud(
     // The documented API has no idempotency key. Never retry this create call:
     // an ambiguous POST may have already purchased a prediction.
     await input.onProviderSubmitStarted?.();
-    let response: Response;
-    try {
-      response = await videoGenFetch(GENERATE_URL, {
-        method: "POST", headers, body: JSON.stringify(atlasCloudRequestBody(input)),
-      });
-    } catch {
-      throw new VideoGenProviderError(
-        "Atlas Cloud submit outcome is uncertain and requires manual reconciliation; it will not be retried.",
-        502,
-      );
-    }
-    requestId = responseRequestId(response) ?? requestId;
-    if (response.status >= 400 && response.status < 500 && response.status !== 408) {
-      await input.onProviderSubmitRejected?.();
-    }
-    prediction = await parse(response, "generation request");
+    const submitted = await meter(
+      input.meterContext
+        ? {
+            ...input.meterContext,
+            provider: input.meterContext.provider ?? "atlascloud",
+            model: input.model,
+            operationFamilyKey: input.meterContext.operationFamilyKey
+              ?? input.meterContext.operationKey,
+            operationKey: `${input.meterContext.operationKey ?? "video"}:submit:0`,
+          }
+        : null,
+      isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+      input.durationSec,
+      async () => {
+        let response: Response;
+        try {
+          response = await videoGenFetch(GENERATE_URL, {
+            method: "POST", headers, body: JSON.stringify(atlasCloudRequestBody(input)),
+          });
+        } catch {
+          throw new VideoGenProviderError(
+            "Atlas Cloud submit outcome is uncertain and requires manual reconciliation; it will not be retried.",
+            502,
+          );
+        }
+        const submittedRequestId = responseRequestId(response) ?? requestId;
+        if (response.status >= 400 && response.status < 500 && response.status !== 408) {
+          await input.onProviderSubmitRejected?.();
+        }
+        return {
+          prediction: await parse(response, "generation request"),
+          requestId: submittedRequestId,
+        };
+      },
+    );
+    prediction = submitted.prediction;
+    requestId = submitted.requestId;
     taskId = safeId(prediction.id);
     if (!taskId) throw new VideoGenProviderError("Atlas Cloud returned no valid prediction id.", 502);
     try {

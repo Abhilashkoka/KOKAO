@@ -13228,8 +13228,7 @@ components:
           description: Max scheduled posts. -1 means unlimited.
     MeProfile:
       type: object
-      required:
-        [tenant, usage, limits, isSuperadmin, isOwner, brandOnboardingComplete]
+      required: [tenant, usage, limits, isSuperadmin, isOwner, brandOnboardingComplete]
       properties:
         tenant:
           $ref: "#/components/schemas/Tenant"
@@ -13362,8 +13361,7 @@ components:
           format: date-time
     TeamOverview:
       type: object
-      required:
-        [enabled, role, seatLimit, seatsUsed, members, invites, seatRequests]
+      required: [enabled, role, seatLimit, seatsUsed, members, invites, seatRequests]
       properties:
         enabled:
           type: boolean
@@ -13401,8 +13399,7 @@ components:
           default: member
     SupportRequest:
       type: object
-      required:
-        [id, category, subject, message, status, adminReply, resolvedAt, createdAt]
+      required: [id, category, subject, message, status, adminReply, resolvedAt, createdAt]
       properties:
         id:
           type: integer
@@ -13473,21 +13470,7 @@ components:
           maxLength: 1000
     AdminSeatRequest:
       type: object
-      required:
-        [
-          id,
-          tenantId,
-          tenantName,
-          tenantEmail,
-          tenantPlan,
-          currentSeatLimit,
-          seatsUsed,
-          requestedSeats,
-          note,
-          status,
-          grantedSeats,
-          createdAt,
-        ]
+      required: [id, tenantId, tenantName, tenantEmail, tenantPlan, currentSeatLimit, seatsUsed, requestedSeats, note, status, grantedSeats, createdAt]
       properties:
         id:
           type: integer
@@ -13537,8 +13520,7 @@ components:
             Ignored when denying.
     AppBrand:
       type: object
-      required:
-        [appName, logoUrl, iconUrl, primaryColor, backgroundColor, loaderAnimationUrl]
+      required: [appName, logoUrl, iconUrl, primaryColor, backgroundColor, loaderAnimationUrl]
       properties:
         appName:
           type: ["string", "null"]
@@ -13603,13 +13585,11 @@ components:
       description: >
         The full public landing page document. Snake_case keys mirror the
         original flat-file CMS export so content can be seeded verbatim.
-      required:
-        [site, nav, hero, platforms, features, how, pricing, testimonials, faq, cta, footer, privacy]
+      required: [site, nav, hero, platforms, features, how, pricing, testimonials, faq, cta, footer, privacy]
       properties:
         site:
           type: object
-          required:
-            [brand, logo, meta_title, meta_description, color_bg, color_ink, color_accent1, color_accent2, color_accent3]
+          required: [brand, logo, meta_title, meta_description, color_bg, color_ink, color_accent1, color_accent2, color_accent3]
           properties:
             brand:
               type: string
@@ -13644,8 +13624,7 @@ components:
                 $ref: "#/components/schemas/LandingLink"
         hero:
           type: object
-          required:
-            [badge, title, subtitle, cta_primary, cta_primary_link, cta_secondary, cta_secondary_link, card_prompt, card_status, stats]
+          required: [badge, title, subtitle, cta_primary, cta_primary_link, cta_secondary, cta_secondary_link, card_prompt, card_status, stats]
           properties:
             badge:
               type: string
@@ -13975,16 +13954,7 @@ components:
             Omitted = keep the plan's current setting.
     RazorpayAppCredentialStatus:
       type: object
-      required:
-        [
-          configured,
-          keyIdMasked,
-          keySecretMasked,
-          webhookSecretMasked,
-          testStatus,
-          testedAt,
-          testError,
-        ]
+      required: [configured, keyIdMasked, keySecretMasked, webhookSecretMasked, testStatus, testedAt, testError]
       properties:
         configured:
           type: boolean
@@ -14018,16 +13988,7 @@ components:
           maxLength: 200
     CashfreeAppCredentialStatus:
       type: object
-      required:
-        [
-          configured,
-          appIdMasked,
-          secretKeyMasked,
-          mode,
-          testStatus,
-          testedAt,
-          testError,
-        ]
+      required: [configured, appIdMasked, secretKeyMasked, mode, testStatus, testedAt, testError]
       properties:
         configured:
           type: boolean
@@ -14364,15 +14325,7 @@ components:
           type: string
     PromoMetrics:
       type: object
-      required:
-        [
-          totalRedemptions,
-          totalCaptionCredits,
-          totalImageCredits,
-          totalVideoCredits,
-          byCampaign,
-          byPlan,
-        ]
+      required: [totalRedemptions, totalCaptionCredits, totalImageCredits, totalVideoCredits, byCampaign, byPlan]
       properties:
         totalRedemptions:
           type: integer
@@ -14386,8 +14339,7 @@ components:
           type: array
           items:
             type: object
-            required:
-              [campaign, redemptions, captionCredits, imageCredits, videoCredits]
+            required: [campaign, redemptions, captionCredits, imageCredits, videoCredits]
             properties:
               campaign:
                 type: string
@@ -14536,7 +14488,7 @@ components:
             $ref: "#/components/schemas/CreditRateInput"
     CreditMeterReportRow:
       type: object
-      required: [rateKey, calls, failedCalls, quantity, credits]
+      required: [rateKey, calls, failedCalls, quantity, credits, pricingStatus]
       properties:
         rateKey:
           type: string
@@ -14555,6 +14507,12 @@ components:
           type: number
         credits:
           type: number
+        pricingStatus:
+          type: string
+          enum: [priced, free, inactive, unpriced]
+          description: >-
+            How the key appears on the current rate card. Unpriced means the key
+            is missing, not that it has a configured zero or inactive rate.
         providerTokens:
           type: ["number", "null"]
           description: Output tokens the provider reported, when it reports any.
@@ -14563,7 +14521,7 @@ components:
           description: Actual USD the provider reported, when it reports any.
     CreditMeterReport:
       type: object
-      required: [since, mode, totalCalls, failedCalls, totalCredits, rows]
+      required: [since, mode, totalCalls, failedCalls, totalCredits, unpricedKeys, rows]
       properties:
         since:
           type: string
@@ -14580,6 +14538,11 @@ components:
           type: ["number", "null"]
         totalProviderUsd:
           type: ["number", "null"]
+        unpricedKeys:
+          type: array
+          description: Metered keys absent from the current rate card.
+          items:
+            type: string
         rows:
           type: array
           items:
@@ -14752,16 +14715,7 @@ components:
           type: string
     BillingSubscription:
       type: object
-      required:
-        [
-          id,
-          planId,
-          status,
-          billingCycle,
-          razorpaySubscriptionId,
-          currentPeriodEnd,
-          cancelAtPeriodEnd,
-        ]
+      required: [id, planId, status, billingCycle, razorpaySubscriptionId, currentPeriodEnd, cancelAtPeriodEnd]
       properties:
         id:
           type: integer
@@ -14876,19 +14830,7 @@ components:
           type: integer
     AdminTenant:
       type: object
-      required:
-        [
-          id,
-          email,
-          name,
-          plan,
-          aiModel,
-          isSuperadmin,
-          isAllowlisted,
-          billingMode,
-          walletBalancePaise,
-          createdAt,
-        ]
+      required: [id, email, name, plan, aiModel, isSuperadmin, isAllowlisted, billingMode, walletBalancePaise, createdAt]
       properties:
         id:
           type: integer
@@ -15036,8 +14978,7 @@ components:
           description: Provider id from the catalog.
     SarvamTtsSettingsView:
       type: object
-      required:
-        [provider, label, model, configured, envKey, keySource, lastTestStatus, lastTestedAt, lastTestError]
+      required: [provider, label, model, configured, envKey, keySource, lastTestStatus, lastTestedAt, lastTestError]
       properties:
         provider:
           type: string
@@ -15328,20 +15269,7 @@ components:
     ProviderHealthEntryView:
       type: object
       required:
-        [
-          key,
-          family,
-          providerId,
-          label,
-          selected,
-          healthy,
-          breakerOpenUntil,
-          consecutiveFailures,
-          lastFailureMessage,
-          samples,
-          successes,
-          typicalLatencyMs,
-        ]
+        [key, family, providerId, label, selected, healthy, breakerOpenUntil, consecutiveFailures, lastFailureMessage, samples, successes, typicalLatencyMs]
       properties:
         key:
           type: string
@@ -16018,14 +15946,7 @@ components:
 
     AdminAuditLog:
       type: object
-      required:
-        [
-          id,
-          action,
-          actorTenantId,
-          targetTenantId,
-          createdAt,
-        ]
+      required: [id, action, actorTenantId, targetTenantId, createdAt]
       properties:
         id:
           type: integer
@@ -16107,8 +16028,7 @@ components:
           description: Mobile push notifications to the user's registered devices.
     NotificationTypeSetting:
       type: object
-      required:
-        [type, label, description, enabled, emailPolicy, preference, effective]
+      required: [type, label, description, enabled, emailPolicy, preference, effective]
       properties:
         type:
           type: string
@@ -16320,8 +16240,7 @@ components:
       properties:
         identity:
           type: object
-          required:
-            [brand_name, brand_slug, tagline, description, industry, audience]
+          required: [brand_name, brand_slug, tagline, description, industry, audience]
           properties:
             brand_name: { type: string }
             brand_slug: { type: string }
@@ -16448,8 +16367,7 @@ components:
             $ref: "#/components/schemas/BrandChannelRule"
         brand_controls:
           type: object
-          required:
-            [approved, approval_status, allowed_use_cases, restricted_terms]
+          required: [approved, approval_status, allowed_use_cases, restricted_terms]
           properties:
             approved: { type: boolean }
             approval_status:
@@ -16546,16 +16464,7 @@ components:
                 description: Stock narration voice used when voice_mode is preset.
     BrandKitVersion:
       type: object
-      required:
-        [
-          id,
-          brandKitId,
-          versionNumber,
-          sourceType,
-          approvalStatus,
-          payload,
-          createdAt,
-        ]
+      required: [id, brandKitId, versionNumber, sourceType, approvalStatus, payload, createdAt]
       properties:
         id: { type: integer }
         brandKitId: { type: integer }
@@ -16585,18 +16494,7 @@ components:
           format: date-time
     BrandKit:
       type: object
-      required:
-        [
-          id,
-          name,
-          slug,
-          brandType,
-          status,
-          isDefault,
-          isArchived,
-          createdAt,
-          updatedAt,
-        ]
+      required: [id, name, slug, brandType, status, isDefault, isArchived, createdAt, updatedAt]
       properties:
         id: { type: integer }
         name: { type: string }
@@ -18062,9 +17960,23 @@ components:
     VideoModelInfo:
       type: object
       required:
-        [id, label, blurb, provider, providerModels, pricingAvailable, tier,
-         unitMultiplier, modes, aspects, durations, resolutions, hasQuality,
-         canGenerateAudio, supportsEndFrame]
+        [
+          id,
+          label,
+          blurb,
+          provider,
+          providerModels,
+          pricingAvailable,
+          tier,
+          unitMultiplier,
+          modes,
+          aspects,
+          durations,
+          resolutions,
+          hasQuality,
+          canGenerateAudio,
+          supportsEndFrame,
+        ]
       properties:
         id:
           type: string
@@ -18982,7 +18894,28 @@ components:
             version: { type: integer, const: 1 }
     GuidedStoryDraft:
       type: object
-      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, castApprovals, duplicateAssignmentConfirmed, scriptGeneration, generatedCastOperations, referenceOperations, visualChoices, storyboardJobId, estimates, createdAt, updatedAt]
+      required:
+        [
+          id,
+          revision,
+          version,
+          setup,
+          script,
+          scriptApprovedAt,
+          userRoleId,
+          castStrategy,
+          cast,
+          castApprovals,
+          duplicateAssignmentConfirmed,
+          scriptGeneration,
+          generatedCastOperations,
+          referenceOperations,
+          visualChoices,
+          storyboardJobId,
+          estimates,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id: { type: integer }
         revision: { type: integer }
@@ -19798,8 +19731,7 @@ components:
             means the shot inherits the job's seed.
     VideoStoryboard:
       type: object
-      required:
-        [version, visualsSource, timelineLocked, regenerations, narration, scenes]
+      required: [version, visualsSource, timelineLocked, regenerations, narration, scenes]
       properties:
         version:
           type: integer
@@ -19998,7 +19930,26 @@ components:
             with instructions to use the shared backdrop review endpoint.
     GuidedSceneCorrectionAttempt:
       type: object
-      required: [id, version, category, note, state, inputFingerprint, originalPreviewPath, replacementPath, funding, provider, model, knownCostPaise, actualCostPaise, error, requestedAt, startedAt, finishedAt]
+      required:
+        [
+          id,
+          version,
+          category,
+          note,
+          state,
+          inputFingerprint,
+          originalPreviewPath,
+          replacementPath,
+          funding,
+          provider,
+          model,
+          knownCostPaise,
+          actualCostPaise,
+          error,
+          requestedAt,
+          startedAt,
+          finishedAt,
+        ]
       properties:
         id: { type: string }
         version: { type: integer, minimum: 1 }
@@ -20050,7 +20001,32 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, modelId, resolvedVideoModel, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, guidedStoryDialogueReplay, dialogueReplayOperation, guidedReferenceContext, guidedStoryDraftId, guidedStoryDirectRender, guidedStoryRecoveryUnavailable, guidedStoryRecoveryDismissed, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [
+          id,
+          engine,
+          status,
+          sourceImagePaths,
+          aspectRatio,
+          modelId,
+          resolvedVideoModel,
+          retryable,
+          recovery,
+          privacyRecoveryCapability,
+          repairable,
+          repair,
+          guidedPreviewRender,
+          guidedStoryDialogueReplay,
+          dialogueReplayOperation,
+          guidedReferenceContext,
+          guidedStoryDraftId,
+          guidedStoryDirectRender,
+          guidedStoryRecoveryUnavailable,
+          guidedStoryRecoveryDismissed,
+          currentVideoPath,
+          savedContentItemId,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: integer
@@ -20219,7 +20195,26 @@ components:
           description: Append-only durable failure history. Error text is sanitized.
           items:
             type: object
-            required: [jobId, jobNumber, scope, sceneId, sceneNumber, displayNumber, operation, provider, model, code, message, providerRequestId, occurredAt, attempt, recoveryAttempt, outcome, fingerprint]
+            required:
+              [
+                jobId,
+                jobNumber,
+                scope,
+                sceneId,
+                sceneNumber,
+                displayNumber,
+                operation,
+                provider,
+                model,
+                code,
+                message,
+                providerRequestId,
+                occurredAt,
+                attempt,
+                recoveryAttempt,
+                outcome,
+                fingerprint,
+              ]
             properties:
               jobId: { type: integer }
               jobNumber: { type: integer }
@@ -20735,9 +20730,7 @@ components:
                 type: string
     VideoGenSettingsView:
       type: object
-      required:
-        [provider, textToVideoModel, imageToVideoModel, providers, stockSources,
-         replicatePricingModels, studioLipSyncDefault]
+      required: [provider, textToVideoModel, imageToVideoModel, providers, stockSources, replicatePricingModels, studioLipSyncDefault]
       properties:
         pricingWarning:
           type: ["string", "null"]
@@ -20827,15 +20820,7 @@ components:
           description: KOKAO routes that invoke this model.
     VideoGenProviderInfo:
       type: object
-      required:
-        [
-          id,
-          label,
-          defaultTextToVideoModel,
-          defaultImageToVideoModel,
-          configured,
-          supportsModelOverride,
-        ]
+      required: [id, label, defaultTextToVideoModel, defaultImageToVideoModel, configured, supportsModelOverride]
       properties:
         id:
           type: string
@@ -20880,8 +20865,7 @@ components:
           description: Narration speed measured from the transcript; 0 when no speech was found.
     VideoStylePayload:
       type: object
-      required:
-        [version, hookShape, pacing, captionStyle, energy, visualNotes, scriptGuidance, sourceDurationSec, transcriptExcerpt]
+      required: [version, hookShape, pacing, captionStyle, energy, visualNotes, scriptGuidance, sourceDurationSec, transcriptExcerpt]
       properties:
         version:
           type: integer
@@ -21116,21 +21100,7 @@ components:
           description: Concrete guidance, shown before selection so nothing demands a shoot afterwards.
     VideoStyleProfile:
       type: object
-      required:
-        [
-          id,
-          name,
-          scope,
-          sourceKind,
-          published,
-          slots,
-          jobDefaults,
-          estimatedUnits,
-          sourceVideoPath,
-          payload,
-          createdAt,
-          updatedAt,
-        ]
+      required: [id, name, scope, sourceKind, published, slots, jobDefaults, estimatedUnits, sourceVideoPath, payload, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -21322,7 +21292,20 @@ components:
     Character:
       type: object
       required:
-        [id, name, description, referenceImagePath, referenceSource, identityId, referenceSheetImagePath, referenceSheetStatus, referenceSheetError, outfits, createdAt, updatedAt]
+        [
+          id,
+          name,
+          description,
+          referenceImagePath,
+          referenceSource,
+          identityId,
+          referenceSheetImagePath,
+          referenceSheetStatus,
+          referenceSheetError,
+          outfits,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: integer
@@ -21798,15 +21781,7 @@ components:
           description: Null while no streak is running.
     GamificationState:
       type: object
-      required:
-        [
-          questsEnabled,
-          streaksEnabled,
-          referralsEnabled,
-          progressMeterEnabled,
-          quests,
-          streak,
-        ]
+      required: [questsEnabled, streaksEnabled, referralsEnabled, progressMeterEnabled, quests, streak]
       properties:
         questsEnabled:
           type: boolean
@@ -22196,18 +22171,7 @@ components:
       description: >-
         Latest engagement snapshot for one published post (one row per
         content item per platform). Counters are cumulative platform totals.
-      required:
-        [
-          id,
-          contentItemId,
-          platform,
-          likes,
-          comments,
-          shares,
-          impressions,
-          publishedAt,
-          pollState,
-        ]
+      required: [id, contentItemId, platform, likes, comments, shares, impressions, publishedAt, pollState]
       properties:
         id:
           type: integer
@@ -22518,8 +22482,7 @@ components:
           description: Temporary `/objects/.../voice-samples/...` path returned for a picked voice sample.
     ConsentState:
       type: object
-      required:
-        [analytics, deviceDetails, locationCoarse, locationPrecise, carrier, responded, promptDismissed]
+      required: [analytics, deviceDetails, locationCoarse, locationPrecise, carrier, responded, promptDismissed]
       properties:
         analytics:
           type: boolean
@@ -22642,8 +22605,7 @@ components:
           type: integer
     AudienceAnalytics:
       type: object
-      required:
-        [dau, mau, stickiness, sessions, avgSessionLengthSec, retention, countries, platforms, browsers, deviceModels]
+      required: [dau, mau, stickiness, sessions, avgSessionLengthSec, retention, countries, platforms, browsers, deviceModels]
       properties:
         dau:
           type: array
@@ -22876,7 +22838,19 @@ components:
     RevenueAnalytics:
       type: object
       required:
-        [purchaseCount, purchaseTotalPaise, refundCount, refundTotalPaise, arpuPaise, subscriptionsStarted, subscriptionsRenewed, subscriptionsCancelled, cancelReasons, byPlan, byCreditPack]
+        [
+          purchaseCount,
+          purchaseTotalPaise,
+          refundCount,
+          refundTotalPaise,
+          arpuPaise,
+          subscriptionsStarted,
+          subscriptionsRenewed,
+          subscriptionsCancelled,
+          cancelReasons,
+          byPlan,
+          byCreditPack,
+        ]
       properties:
         purchaseCount:
           type: integer
@@ -22995,8 +22969,7 @@ components:
                 type: string
     ReliabilityAnalytics:
       type: object
-      required:
-        [errorCount, errorsByType, errorsByScreen, crashCount, crashFreeSessionRate, anrCount, startup, apiLatency]
+      required: [errorCount, errorsByType, errorsByScreen, crashCount, crashFreeSessionRate, anrCount, startup, apiLatency]
       properties:
         errorCount:
           type: integer
@@ -23319,16 +23292,7 @@ components:
           type: ["string", "null"]
     GoogleAdsAppCredentialStatus:
       type: object
-      required:
-        [
-          configured,
-          clientIdMasked,
-          clientSecretMasked,
-          developerTokenMasked,
-          testStatus,
-          testedAt,
-          testError,
-        ]
+      required: [configured, clientIdMasked, clientSecretMasked, developerTokenMasked, testStatus, testedAt, testError]
       properties:
         configured:
           type: boolean
@@ -23508,8 +23472,7 @@ components:
           description: Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).
     AdsDraft:
       type: object
-      required:
-        [id, connectionId, platform, targetType, targetName, action, changes, status, createdAt]
+      required: [id, connectionId, platform, targetType, targetName, action, changes, status, createdAt]
       properties:
         id:
           type: integer
@@ -23890,8 +23853,7 @@ components:
     AiSpendSettingsView:
       type: object
       description: Platform-wide "AI amount spent" display configuration (superadmin).
-      required:
-        [captionCostPaise, imageCostPaise, videoCostPaise, feePercent, displayMode, marginPercent]
+      required: [captionCostPaise, imageCostPaise, videoCostPaise, feePercent, displayMode, marginPercent]
       properties:
         captionCostPaise:
           type: integer
@@ -23917,8 +23879,7 @@ components:
           description: Whole-number percentage margin applied on top of actual cost in cost_plus mode.
     UpdateAiSpendSettingsRequest:
       type: object
-      required:
-        [captionCostPaise, imageCostPaise, videoCostPaise, feePercent, displayMode, marginPercent]
+      required: [captionCostPaise, imageCostPaise, videoCostPaise, feePercent, displayMode, marginPercent]
       properties:
         captionCostPaise:
           type: integer
@@ -24039,7 +24000,18 @@ components:
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.
-      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, elevenLabsInrPerCredit, seedancePricingRefreshIntervalHours, seedancePricingNextCheckAt, duplicateGroups, prices]
+      required:
+        [
+          usdToInrPaise,
+          rateMarkupPaise,
+          marketRatePaise,
+          rateAutoUpdatedAt,
+          elevenLabsInrPerCredit,
+          seedancePricingRefreshIntervalHours,
+          seedancePricingNextCheckAt,
+          duplicateGroups,
+          prices,
+        ]
       properties:
         usdToInrPaise:
           type: integer
@@ -24158,8 +24130,7 @@ components:
           enum: [text, image, video]
     AiModelPriceImportConfirmInput:
       type: object
-      required:
-        [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo]
+      required: [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo]
       properties:
         sourceUrl:
           type: string
@@ -24209,8 +24180,7 @@ components:
           minimum: 0
     AiModelPriceImportPreview:
       type: object
-      required:
-        [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo, variants, warnings]
+      required: [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo, variants, warnings]
       properties:
         sourceUrl:
           type: string
@@ -24323,16 +24293,7 @@ components:
             $ref: "#/components/schemas/AiCostReportTenantRow"
     AiCostReportMonthTotal:
       type: object
-      required:
-        [
-          month,
-          captionCount,
-          imageCount,
-          videoCount,
-          totalCostPaise,
-          displaySpendPaise,
-          unknownCount,
-        ]
+      required: [month, captionCount, imageCount, videoCount, totalCostPaise, displaySpendPaise, unknownCount]
       properties:
         month:
           type: string
@@ -24366,19 +24327,7 @@ components:
             $ref: "#/components/schemas/AiCostCampaignRow"
     AiCostCampaignRow:
       type: object
-      required:
-        [
-          tenantId,
-          tenantName,
-          tenantEmail,
-          campaignId,
-          campaignName,
-          captionCount,
-          imageCount,
-          videoCount,
-          totalCostPaise,
-          unknownCount,
-        ]
+      required: [tenantId, tenantName, tenantEmail, campaignId, campaignName, captionCount, imageCount, videoCount, totalCostPaise, unknownCount]
       properties:
         tenantId:
           type: integer
@@ -24518,19 +24467,7 @@ components:
           type: integer
     WalletOverview:
       type: object
-      required:
-        [
-          walletBilling,
-          configured,
-          keyId,
-          balancePaise,
-          gstPercent,
-          minTopupPaise,
-          lowBalanceThresholdPaise,
-          lowBalance,
-          rates,
-          history,
-        ]
+      required: [walletBilling, configured, keyId, balancePaise, gstPercent, minTopupPaise, lowBalanceThresholdPaise, lowBalance, rates, history]
       properties:
         walletBilling:
           type: boolean
@@ -24625,8 +24562,7 @@ components:
           description: Cashfree order id; the server re-checks payment status with Cashfree.
     WalletSettings:
       type: object
-      required:
-        [gstPercent, minTopupPaise, lowBalanceThresholdPaise, videoCostPaise]
+      required: [gstPercent, minTopupPaise, lowBalanceThresholdPaise, videoCostPaise]
       properties:
         gstPercent:
           type: integer
@@ -24642,8 +24578,7 @@ components:
             fallbacks come from the AI Spend Display settings.
     WalletSettingsInput:
       type: object
-      required:
-        [gstPercent, minTopupPaise, lowBalanceThresholdPaise, videoCostPaise]
+      required: [gstPercent, minTopupPaise, lowBalanceThresholdPaise, videoCostPaise]
       properties:
         gstPercent:
           type: integer
@@ -24663,18 +24598,7 @@ components:
           maximum: 10000000
     WalletPendingPrice:
       type: object
-      required:
-        [
-          usageKind,
-          provider,
-          model,
-          chargeCount,
-          chargedPaise,
-          reason,
-          detail,
-          priceProvider,
-          missingUsageCount,
-        ]
+      required: [usageKind, provider, model, chargeCount, chargedPaise, reason, detail, priceProvider, missingUsageCount]
       properties:
         usageKind:
           type: string
@@ -24911,8 +24835,7 @@ components:
           items: { type: string, maxLength: 50 }
     PromptCaseType:
       type: object
-      required:
-        [id, name, slug, riskLevel, approvalRequired, tags, status, createdAt, updatedAt]
+      required: [id, name, slug, riskLevel, approvalRequired, tags, status, createdAt, updatedAt]
       properties:
         id: { type: integer }
         name: { type: string }
@@ -25027,8 +24950,7 @@ components:
         status: { type: string, enum: [draft, active, archived] }
     PromptTemplateVersion:
       type: object
-      required:
-        [id, templateId, caseTypeId, versionNo, blocks, config, lifecycleState, evalStatus, createdAt]
+      required: [id, templateId, caseTypeId, versionNo, blocks, config, lifecycleState, evalStatus, createdAt]
       properties:
         id: { type: integer }
         templateId: { type: integer }
@@ -25042,8 +24964,7 @@ components:
         changeNotes: { type: ["string", "null"] }
         lifecycleState:
           type: string
-          enum:
-            [draft, pending_review, approved, rejected, staging, production, deprecated, archived]
+          enum: [draft, pending_review, approved, rejected, staging, production, deprecated, archived]
         evalStatus: { type: string, enum: [none, passed, failed] }
         submittedBy: { type: ["string", "null"] }
         submittedAt: { type: ["string", "null"] }
@@ -25069,8 +24990,7 @@ components:
       properties:
         to:
           type: string
-          enum:
-            [pending_review, approved, rejected, staging, production, deprecated, archived]
+          enum: [pending_review, approved, rejected, staging, production, deprecated, archived]
         comments: { type: ["string", "null"], maxLength: 4000 }
     PromptReview:
       type: object
@@ -25212,8 +25132,7 @@ components:
         changeNotes: { type: ["string", "null"], maxLength: 2000 }
         lifecycleState:
           type: string
-          enum:
-            [draft, pending_review, approved, rejected, staging, production, deprecated, archived]
+          enum: [draft, pending_review, approved, rejected, staging, production, deprecated, archived]
         evalStatus: { type: string, enum: [none, passed, failed] }
         submittedBy: { type: ["string", "null"], maxLength: 320 }
         submittedAt: { type: ["string", "null"] }
@@ -25279,8 +25198,7 @@ components:
           items: { $ref: "#/components/schemas/PromptKitBundleCase" }
     PromptKitImportResult:
       type: object
-      required:
-        [casesCreated, casesUpdated, templatesCreated, templatesUpdated, versionsCreated, versionsUpdated, promotionsApplied, warnings]
+      required: [casesCreated, casesUpdated, templatesCreated, templatesUpdated, versionsCreated, versionsUpdated, promotionsApplied, warnings]
       properties:
         casesCreated: { type: integer }
         casesUpdated: { type: integer }
@@ -25471,19 +25389,7 @@ components:
         message: { type: string }
     LocalizedCue:
       type: object
-      required:
-        [
-          index,
-          startMs,
-          endMs,
-          text,
-          backTranslation,
-          sourceSyllables,
-          syllables,
-          syllableBudget,
-          issues,
-          cueIssues,
-        ]
+      required: [index, startMs, endMs, text, backTranslation, sourceSyllables, syllables, syllableBudget, issues, cueIssues]
       properties:
         index: { type: integer }
         startMs: { type: integer }
@@ -25589,7 +25495,24 @@ components:
         lastTestError: { type: ["string", "null"] }
     NvidiaDeploymentView:
       type: object
-      required: [capability, kind, configured, baseUrl, apiKeyMasked, model, protocol, compatible, enabled, adminPriceUsd, priceKnown, activationBlockedReason, lastTestStatus, lastTestedAt, lastTestError]
+      required:
+        [
+          capability,
+          kind,
+          configured,
+          baseUrl,
+          apiKeyMasked,
+          model,
+          protocol,
+          compatible,
+          enabled,
+          adminPriceUsd,
+          priceKnown,
+          activationBlockedReason,
+          lastTestStatus,
+          lastTestedAt,
+          lastTestError,
+        ]
       properties:
         capability: { $ref: "#/components/schemas/NvidiaCapability" }
         kind: { type: string, enum: [hosted, self-hosted] }

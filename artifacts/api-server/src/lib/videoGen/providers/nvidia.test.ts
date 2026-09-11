@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { generateWithNvidiaNimVideo } from "./nvidia";
 import type { VideoGenInput } from "../types";
 
+const meterMock = vi.hoisted(() =>
+  vi.fn(async <T>(_ctx: unknown, _kind: string, _quantity: number, fn: () => Promise<T>) => fn()),
+);
+vi.mock("../../meter", () => ({ meter: meterMock }));
+
 const { resolveDeployment, isActivatable } = vi.hoisted(() => ({
   resolveDeployment: vi.fn(),
   isActivatable: vi.fn(),
@@ -20,6 +25,7 @@ const mp4 = Buffer.concat([
 ]);
 
 const baseInput: VideoGenInput = {
+  meterContext: null,
   prompt: "A paper kite",
   aspectRatio: "16:9",
   durationSec: 12,
@@ -28,6 +34,7 @@ const baseInput: VideoGenInput = {
 };
 
 beforeEach(() => {
+  meterMock.mockClear();
   globalThis.fetch = realFetch;
   isActivatable.mockResolvedValue(true);
   resolveDeployment.mockResolvedValue({
@@ -47,7 +54,21 @@ describe("NVIDIA Visual GenAI NIM video adapter", () => {
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
-    const result = await generateWithNvidiaNimVideo(baseInput, null);
+    const result = await generateWithNvidiaNimVideo({
+      ...baseInput,
+      meterContext: { tenantId: 1, operationKey: "nvidia:clip" },
+    }, null);
+    expect(meterMock.mock.calls[0]?.slice(0, 3)).toEqual([
+      {
+        tenantId: 1,
+        operationFamilyKey: "nvidia:clip",
+        operationKey: "nvidia:clip:submit:0",
+        provider: "nvidia",
+        model: "wan-ai/wan2.2",
+      },
+      "video",
+      12,
+    ]);
     expect(result.buffer).toEqual(mp4);
     expect(result).toMatchObject({ provider: "nvidia", model: "wan-ai/wan2.2" });
     expect(fetchMock).toHaveBeenCalledWith(

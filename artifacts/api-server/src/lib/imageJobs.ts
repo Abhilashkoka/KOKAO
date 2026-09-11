@@ -75,6 +75,12 @@ export async function runImageGenerationJob(
         : "1024x1024") as ImageSize,
       brandKitId: job.brandKitId ?? null,
       referenceImage,
+      meterContext: {
+        tenantId: job.tenantId,
+        refKind: "imageJob",
+        refId: String(job.id),
+        operationKey: `imageJob:${job.id}:generate`,
+      },
     });
 
     // Snapshot the display spend BEFORE the terminal status flip: clients

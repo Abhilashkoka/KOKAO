@@ -3,6 +3,7 @@ import { resetProviderHealthForTests } from "../../providerHealth";
 import { buildWav, synthesizeNarration } from "./narration";
 import { synthesizeGuidedNarration } from "./index";
 import { VoiceCloneError, VoiceCloneNotConfiguredError } from "../../voiceClone";
+import { MeterDispatchReplayError } from "../../meterErrors";
 
 const billing = vi.hoisted(() => ({
   reserves: [] as unknown[],
@@ -135,7 +136,12 @@ describe("synthesizeNarration with a cloned brand voice", () => {
 
     expect(brandSpeak).toHaveBeenCalledTimes(SENTENCES.length);
     expect(brandSpeak).toHaveBeenCalledWith(
-      CLONED, "First sentence.", undefined, "eleven_multilingual_v2", undefined,
+      CLONED,
+      "First sentence.",
+      null,
+      undefined,
+      "eleven_multilingual_v2",
+      undefined,
     );
     expect(stockSpeak).not.toHaveBeenCalled();
     expect(narration.cues).toHaveLength(2);
@@ -143,7 +149,7 @@ describe("synthesizeNarration with a cloned brand voice", () => {
   });
 
   it("reserves and settles every cloned narration sentence from its receipt", async () => {
-    brandSpeak.mockImplementation(async (_voice, _text, onReceipt) => {
+    brandSpeak.mockImplementation(async (_voice, _text, _meterContext, onReceipt) => {
       const receipt = {
         providerCredits: "10",
         requestId: `request-${billing.receipts.length + 1}`,
@@ -180,6 +186,23 @@ describe("synthesizeNarration with a cloned brand voice", () => {
 
     expect(stockSpeak).toHaveBeenCalledTimes(SENTENCES.length);
     expect(narration.cues).toHaveLength(2);
+  });
+
+  it("does not fall back to stock narration when cloned metering blocks a replay", async () => {
+    brandSpeak.mockRejectedValueOnce(new MeterDispatchReplayError());
+
+    await expect(
+      synthesizeNarration(["The launch is live."], "alloy", {
+        clonedVoice: CLONED,
+        billing: {
+          tenantId: 77,
+          refKind: "guidedStoryLine",
+          refId: "line-replay",
+        },
+      }),
+    ).rejects.toBeInstanceOf(MeterDispatchReplayError);
+
+    expect(stockSpeak).not.toHaveBeenCalled();
   });
 
   it("falls back when voice cloning is not configured at all", async () => {
@@ -232,6 +255,13 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     expect(brandSpeak).toHaveBeenCalledWith(
       CLONED,
       "ఇది తెలుగు కథ",
+      expect.objectContaining({
+        tenantId: 77,
+        refKind: "guidedStoryLine",
+        refId: "line-1",
+        operationFamilyKey: expect.stringContaining("sentence:0"),
+        operationKey: expect.stringContaining("sentence:0:attempt:0"),
+      }),
       expect.any(Function),
       "eleven_v3",
       "te",

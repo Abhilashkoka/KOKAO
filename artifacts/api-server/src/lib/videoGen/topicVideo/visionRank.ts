@@ -31,6 +31,7 @@ export interface SceneAssignment {
 }
 
 export async function assignClipsToScenes(params: {
+  tenantId: number;
   tenantAiModel: string;
   topic: string;
   sceneTexts: string[];
@@ -46,6 +47,8 @@ export async function assignClipsToScenes(params: {
 
   try {
     const textGen = await getTextGenClient(params.tenantAiModel, {
+      tenantId: params.tenantId,
+    }, {
       capability: "multimodal",
     });
     const sceneList = params.sceneTexts.map((text, i) => `${i + 1}. ${text}`).join("\n");

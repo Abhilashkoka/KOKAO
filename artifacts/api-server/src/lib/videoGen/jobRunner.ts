@@ -75,6 +75,13 @@ import { generateLipSyncWithReplicate } from "./providers/replicate";
 import { prepareLipSyncSource, MIN_USABLE_HEIGHT } from "./lipSyncSource";
 import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
 import { buildWav, parseWav } from "./topicVideo/narration";
+import {
+  conservativeSpeechDurationSeconds,
+  audioDurationReservationSeconds,
+  speechDurationReservationSeconds,
+  probeAudioDurationSeconds,
+  wavDurationSeconds,
+} from "../audioDuration";
 import { composeTopicVideo } from "./topicVideo/compose";
 import {
   generateBrollStills,
@@ -196,6 +203,7 @@ import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBri
 import { videoPriceCriteria } from "./pricing";
 import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
+import { meter, type MeterContext } from "../meter";
 import {
   assessNativeAudioTranscript,
   guidedSpokenPhoneticText,
@@ -224,6 +232,31 @@ const MAX_MUSIC_BYTES = 15 * 1024 * 1024;
  * to upload to the provider without minutes of dead transfer time. */
 const MAX_SOURCE_VIDEO_BYTES = 100 * 1024 * 1024;
 const ALLOWED_SOURCE_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+
+/** Stable billing identity for a paid lip-sync dispatch in a durable video job. */
+function lipSyncMeterContext(
+  job: Pick<VideoGeneration, "id" | "tenantId">,
+  operation: string,
+): MeterContext {
+  return {
+    tenantId: job.tenantId,
+    refKind: "videoJob",
+    refId: String(job.id),
+    operationKey: `videoJob:${job.id}:${operation}`,
+  };
+}
+
+function videoMeterContext(
+  job: Pick<VideoGeneration, "id" | "tenantId">,
+  operation: string,
+): MeterContext {
+  return {
+    tenantId: job.tenantId,
+    refKind: "videoJob",
+    refId: String(job.id),
+    operationKey: `videoJob:${job.id}:${operation}`,
+  };
+}
 /** Narration WAV parked between planning and approval; a few minutes of 24kHz
  * mono is well under this, and it is our own file rather than an upload. */
 const MAX_NARRATION_BYTES = 60 * 1024 * 1024;
@@ -775,6 +808,7 @@ async function recoverGeneratedStoryboardKeyframe(params: {
   const generated = await generateBrollStills({
     prompts: [recoveryPrompt],
     aspectRatio: params.aspectRatio,
+    meterContext: videoMeterContext(job, `privacy_keyframe:${scene.id}`),
   });
   const result = generated.results[0]!;
   const event: VideoProviderEvent = {
@@ -1436,6 +1470,18 @@ async function speakLocalizedBrandVoiceCue(args: {
       await speakWithClonedVoiceReceipt(
         args.voice,
         args.text,
+        {
+          tenantId: args.tenantId,
+          refKind: "videoJob",
+          refId: `${args.jobId}:${args.cueIndex}`,
+          operationKey: buildBrandVoiceTtsOperationKey(
+            args.voice.voiceId,
+            elevenLabsLanguage.modelId,
+            args.text,
+            { jobId: args.jobId, cueIndex: args.cueIndex },
+            args.languageCode,
+          ),
+        },
         undefined,
         elevenLabsLanguage.modelId,
         elevenLabsLanguage.languageCode,
@@ -1485,7 +1531,18 @@ async function speakLocalizedBrandVoiceCue(args: {
         },
       },
       async (confirmSuccess, recordReceipt) =>
-        speakWithClonedVoiceReceipt(args.voice, args.text, async (receipt) => {
+        speakWithClonedVoiceReceipt(args.voice, args.text, {
+          tenantId: args.tenantId,
+          refKind: "videoJob",
+          refId: `${args.jobId}:${args.cueIndex}`,
+          operationKey: buildBrandVoiceTtsOperationKey(
+            args.voice.voiceId,
+            elevenLabsLanguage.modelId,
+            args.text,
+            { jobId: args.jobId, cueIndex: args.cueIndex },
+            args.languageCode,
+          ),
+        }, async (receipt) => {
           await recordReceipt({
             provider: args.voice.provider,
             model: modelId,
@@ -1570,7 +1627,11 @@ async function resolveMusic(
     const durationSec = musicGenDurationSec(approxDurationSec);
     const criteria = videoPriceCriteria({});
     await requirePricedVideoCall("replicate", MUSICGEN_MODEL, durationSec, criteria);
-    const music = await generateMusicBed(options.musicPrompt, approxDurationSec);
+    const music = await generateMusicBed(
+      options.musicPrompt,
+      approxDurationSec,
+      videoMeterContext(job, "music"),
+    );
     const event: VideoProviderEvent = {
       eventId: videoProviderEventId(job, "music"),
       provider: "replicate",
@@ -1992,6 +2053,7 @@ async function produceVideo(
         seed: options.seed ?? null,
         model,
         operationKey: "text_to_video",
+        meterContext: videoMeterContext(job, "text_to_video"),
       });
       const event = await checkpointProviderRender(
         job, result, "text_to_video", result.effectiveDurationSec ?? model.durationSec,
@@ -2020,6 +2082,7 @@ async function produceVideo(
       seed: options.seed ?? null,
       ...model,
       operationKey: "text_to_video",
+      meterCtx: videoMeterContext(job, "text_to_video"),
     });
     const event = await checkpointProviderRender(
       job, result, "text_to_video", result.effectiveDurationSec ?? model.durationSec,
@@ -2067,6 +2130,7 @@ async function produceVideo(
       ...(endImage ? { endImage } : {}),
       ...model,
       operationKey: "image_to_video",
+      meterCtx: videoMeterContext(job, "image_to_video"),
     });
     const event = await checkpointProviderRender(
       job, result, "image_to_video", result.effectiveDurationSec ?? model.durationSec,
@@ -2199,6 +2263,12 @@ async function produceVideo(
                   // narrator selection. Ownerless replay never picks a role.
                   : (await synthesizeNarration(
                       [line.text], resolveNarrationVoice(options.voice, "alloy"),
+                       { meterContext: {
+                         tenantId: job.tenantId,
+                         refKind: "videoJob",
+                         refId: String(job.id),
+                         operationKey: `video-job:${job.id}:guided-replay-tts:${line.lineId}`,
+                       } },
                     )).wav;
                 return fitGuidedReplayWavToSlot(rawNarration, Math.round(frozenDurationSec * 1000));
               })();
@@ -2285,6 +2355,7 @@ async function produceVideo(
               image: still,
               ...animationModel,
               operationKey: `guided_animation:${line.lineId}`,
+              meterCtx: videoMeterContext(job, `guided_animation:${line.lineId}`),
             });
             const animatedDurationSec = (await verifyRenderedVideo(animated.buffer, {
               minDurationSec: 0.1, label: "Guided Story approved-preview animation",
@@ -2315,6 +2386,8 @@ async function produceVideo(
             // moving face in multi-character frames. LatentSync has no such
             // selector and is never safe for this replay mode.
             audio: { buffer: narration, mimeType: "audio/wav" }, def: SYNC_LIPSYNC_2,
+            durationSec: frozenDurationSec,
+            meterCtx: lipSyncMeterContext(job, `guided_lip_sync:${line.lineId}`),
           }, (await (async () => { const def = getVideoGenProviderDef("replicate"); return def ? resolveVideoGenApiKey(def) : null; })()));
           const syncedDurationSec = (await verifyRenderedVideo(synced.buffer, {
             minDurationSec: 0.1, label: "Guided Story lip-sync provider output",
@@ -2448,6 +2521,12 @@ async function produceVideo(
                 await synthesizeNarration(
                   [scene.text],
                   resolveNarrationVoice(options.voice, presetVoice.speaker),
+                  { meterContext: {
+                    tenantId: job.tenantId,
+                    refKind: "videoJob",
+                    refId: String(job.id),
+                    operationKey: `video-job:${job.id}:dialogue-tts:${scene.id}`,
+                  } },
                 )
               ).wav
             : frozenVoice?.provider === "stock"
@@ -2455,6 +2534,12 @@ async function produceVideo(
                   await synthesizeNarration(
                     [scene.text],
                     frozenVoice.id.slice("stock:".length) as NarrationVoice,
+                    { meterContext: {
+                      tenantId: job.tenantId,
+                      refKind: "videoJob",
+                      refId: String(job.id),
+                      operationKey: `video-job:${job.id}:dialogue-tts:${scene.id}`,
+                    } },
                   )
                 ).wav
               : frozenVoice?.provider === "elevenlabs" &&
@@ -2506,6 +2591,7 @@ async function produceVideo(
             prompt: sourcePlatePrompt, aspectRatio, durationSec: Math.min(30, narrationDurationSec + 0.35),
             model: resolveModelOptions(options, 5),
             operationKey: `character_plate:${scene.id}`,
+            meterContext: videoMeterContext(job, `character_plate:${scene.id}`),
           });
           plate = visual.buffer;
           visualEvent = {
@@ -2571,6 +2657,8 @@ async function produceVideo(
             },
             audio: { buffer: narration, mimeType: "audio/wav" },
             def: lipSyncDef,
+            durationSec: narrationDurationSec,
+            meterCtx: lipSyncMeterContext(job, `lip_sync:${scene.id}`),
           }, (await (async () => {
             const def = getVideoGenProviderDef("replicate");
             return def ? resolveVideoGenApiKey(def) : null;
@@ -2675,7 +2763,11 @@ async function produceVideo(
               requestedDurationSec,
               criteria,
             );
-            music = await generateMusicBed(options.musicPrompt, totalNarrationSec);
+            music = await generateMusicBed(
+              options.musicPrompt,
+              totalNarrationSec,
+              videoMeterContext(job, "character_dialogue_music"),
+            );
             const event: VideoProviderEvent = {
               eventId: videoProviderEventId(job, "character_dialogue_music"),
               provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec,
@@ -2834,6 +2926,7 @@ async function produceVideo(
       durationSec: options.durationSec ?? 5,
       resolvedVideoModel: options.resolvedVideoModel,
       operationKey: "ai_person_plate",
+      meterCtx: videoMeterContext(job, "ai_person_plate"),
     });
     // Provider success is the partial-work boundary. Start with an unmeasured
     // event: flat-per-video models can still resolve an exact cost, while a
@@ -2898,6 +2991,8 @@ async function produceVideo(
           source: { buffer: extendedVisual, mimeType: "video/mp4" },
           audio: { buffer: narration.wav, mimeType: "audio/wav" },
           def: dialogueLipSyncDef,
+          durationSec: narration.totalDurationSec,
+          meterCtx: lipSyncMeterContext(job, "lip_sync"),
         },
         apiKey,
       );
@@ -3102,7 +3197,13 @@ async function produceVideo(
       videoPriceCriteria({ hasReferenceVideo: Boolean(sourcePath) }),
     );
     const result = await generateLipSyncWithReplicate(
-      { source: preparedSource, audio, def: lipSyncDef },
+      {
+        source: preparedSource,
+        audio,
+        def: lipSyncDef,
+        durationSec: audioDurationSec,
+        meterCtx: lipSyncMeterContext(job, "lip_sync"),
+      },
       apiKey,
       modelOverride,
     );
@@ -3343,7 +3444,11 @@ async function produceVideo(
               requestedDurationSec,
               criteria,
             );
-            music = await generateMusicBed(options.musicPrompt, snapshot.durationMs / 1000);
+            music = await generateMusicBed(
+              options.musicPrompt,
+              snapshot.durationMs / 1000,
+              videoMeterContext(job, "presenter_music"),
+            );
             const event: VideoProviderEvent = {
               eventId: videoProviderEventId(job, "presenter_music"),
               provider: "replicate",
@@ -3704,7 +3809,11 @@ async function produceVideo(
               still = (await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Hybrid keyframe")).buffer;
             } else {
               sceneOperation = "storyboard_image_generation";
-              const generated = await generateBrollStills({ prompts: [scene.visual], aspectRatio });
+              const generated = await generateBrollStills({
+                prompts: [scene.visual],
+                aspectRatio,
+                meterContext: videoMeterContext(job, `hybrid_keyframe:${scene.id}`),
+              });
               still = generated.images[0]!;
               const imageEvent: VideoProviderEvent = {
                 eventId: videoProviderEventId(job, `hybrid_keyframe:${scene.id}`),
@@ -3731,6 +3840,7 @@ async function produceVideo(
               scenes: [{ firstCue: 0, lastCue: 0, durationSec: targetSec, text: scene.text }],
               aspectRatio, motionPreset: options.motionPreset ?? null,
               cinematography: options.cinematography ?? null, seed: options.seed ?? null, modelOptions: model,
+              meterContext: videoMeterContext(job, `hybrid_animation:${scene.id}`),
               onCheckpoint: async (receipt) => {
                 animationReceipts.push(receipt);
               },
@@ -3788,6 +3898,7 @@ async function produceVideo(
                 prompt: lipSyncSourcePlatePrompt(scene.visual), aspectRatio, durationSec: Math.min(30, targetSec + .35),
                  model,
                  operationKey: `hybrid_plate:${scene.id}`,
+                 meterContext: videoMeterContext(job, `hybrid_plate:${scene.id}`),
                 keyframe: scene.previewPath
                   ? (await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Saved hybrid character keyframe")).buffer
                   : null,
@@ -3848,6 +3959,8 @@ async function produceVideo(
             const synced = await generateLipSyncWithReplicate({
               source: { buffer: await loopVideoPlateToDuration(plate.buffer, targetSec + .35), mimeType: "video/mp4" },
               audio: { buffer: narration, mimeType: "audio/wav" }, def: lipDef,
+              durationSec: targetSec,
+              meterCtx: lipSyncMeterContext(job, `hybrid_lip_sync:${scene.id}`),
             }, (await (async () => {
               const def = getVideoGenProviderDef("replicate");
               return def ? resolveVideoGenApiKey(def) : null;
@@ -4406,6 +4519,7 @@ async function produceVideo(
       try {
       result = await renderTopicStoryboard({
         storyboard: board,
+        meterCtx: lipSyncMeterContext(job, "character_lip_sync"),
         aspectRatio,
         characterLipSync: options.characterLipSync === true,
         lipSyncedSceneIds: new Set(
@@ -4882,7 +4996,12 @@ async function produceVideo(
               .where(eq(tenantsTable.id, job.tenantId))
               .limit(1)
           )[0];
-          return getTextGenClient(tenant?.aiModel ?? "gpt-5.4");
+          return getTextGenClient(tenant?.aiModel ?? "gpt-5.4", {
+            tenantId: job.tenantId,
+            refKind: "videoJob",
+            refId: String(job.id),
+            operationKey: `localized-dub-repair:${job.id}`,
+          });
         })();
       }
       const textGen = await repairClientPromise;
@@ -4940,6 +5059,8 @@ async function produceVideo(
           source: video,
           audio: { buffer: audioBuffer, mimeType: audioMime },
           def: LATENT_SYNC,
+          durationSec: Math.max(0.1, lastCueEntry.endMs / 1000),
+          meterCtx: lipSyncMeterContext(job, "localized_dub_lip_sync"),
         },
         replicateApiKey,
       );
@@ -4978,19 +5099,35 @@ async function produceVideo(
         );
       }
       onStage("Preserving source voice with ElevenLabs");
-      const elAudio = await elevenLabsDubSourceVoice({
-        apiKey: elApiKey,
-        videoBytes: video.buffer,
-        videoMime: video.mimeType,
-        targetLang: track.locale,
-      });
+      const elAudio = await meter({
+        tenantId: job.tenantId,
+        refKind: "videoJob",
+        refId: String(job.id),
+        provider: "elevenlabs",
+        model: "dubbing",
+        operationKey: `video-job:${job.id}:source-voice-dubbing`,
+      }, "voice", Math.max(0.001, minDurationSec), () => elevenLabsDubSourceVoice({
+          apiKey: elApiKey,
+          videoBytes: video.buffer,
+          videoMime: video.mimeType,
+          targetLang: track.locale,
+        }), async (audio) => ({
+          actualQuantity: await probeAudioDurationSeconds(audio, "elevenlabs-dub-audio"),
+        }), { reservationQuantity: audioDurationReservationSeconds(minDurationSec) });
       const referenceWav = await extractVoiceSampleWav(elAudio);
-      const temporaryVoiceId = await elDef.clone({
-        apiKey: elApiKey,
-        name: `KOKAO localized source ${job.id}`,
-        audio: referenceWav,
-        mimeType: "audio/wav",
-      });
+      const temporaryVoiceId = await meter({
+        tenantId: job.tenantId,
+        refKind: "videoJob",
+        refId: String(job.id),
+        provider: "elevenlabs",
+        model: "instant_voice_clone",
+        operationKey: `video-job:${job.id}:source-voice-clone`,
+      }, "voice", Math.max(0.001, parseWav(referenceWav).durationSec), () => elDef.clone({
+          apiKey: elApiKey,
+          name: `KOKAO localized source ${job.id}`,
+          audio: referenceWav,
+          mimeType: "audio/wav",
+        }));
 
       try {
         onStage("Fitting approved lines to the source voice");
@@ -5001,8 +5138,20 @@ async function produceVideo(
           speaker: "nova",
           cues,
         }, {
-          speakCue: (text) =>
-            elDef.speak({ apiKey: elApiKey, voiceId: temporaryVoiceId, text }),
+          speakCue: (text) => {
+            const cueIndex = cues.find((cue) => cue.text === text)?.index ?? 0;
+            return meter({
+              tenantId: job.tenantId,
+              refKind: "videoJob",
+              refId: `${job.id}:${cueIndex}`,
+              provider: "elevenlabs",
+              model: "eleven_multilingual_v2",
+              operationKey: `video-job:${job.id}:source-voice-tts:cue:${cueIndex}`,
+            }, "voice", conservativeSpeechDurationSeconds(text), () =>
+              elDef.speak({ apiKey: elApiKey, voiceId: temporaryVoiceId, text }),
+            (audio) => ({ actualQuantity: wavDurationSeconds(audio) }),
+            { reservationQuantity: speechDurationReservationSeconds(text) });
+          },
           repairCue: repairOverflowingCue,
           renderVideo: false,
         });
@@ -5138,6 +5287,12 @@ async function produceVideo(
       }, {
         repairCue: repairOverflowingCue,
         renderVideo: false,
+        meterContext: {
+          tenantId: job.tenantId,
+          refKind: "videoJob",
+          refId: String(job.id),
+          operationKey: `video-job:${job.id}:localized-stock-tts`,
+        },
       });
 
       const burnedVideo = await lipSyncAndBurn(
@@ -6284,6 +6439,7 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
     );
     const result = await renderTopicStoryboard({
       storyboard: board,
+      meterCtx: lipSyncMeterContext(claimed, "repair_character_lip_sync"),
       aspectRatio: options.aspectRatio ?? "9:16",
       lipSyncedSceneIds: new Set(
         (options.studioLipSync?.plan ?? []).map((scene) => scene.sceneId),
@@ -6616,6 +6772,11 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
       mimeType: "audio/wav",
       filename: `guided-native-audio-${job.id}.wav`,
       detectLanguage: true,
+    }, {
+      tenantId: job.tenantId,
+      refKind: "videoJob",
+      refId: String(job.id),
+      operationKey: `video-job:${job.id}:native-audio-asr:auto`,
     });
   } catch {
     throw new NativeAudioQualityError(
@@ -6651,6 +6812,11 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
         filename: `guided-native-audio-${job.id}-${snapshot.locale}.wav`,
         detectLanguage: true,
         language: snapshot.locale,
+      }, {
+        tenantId: job.tenantId,
+        refKind: "videoJob",
+        refId: String(job.id),
+        operationKey: `video-job:${job.id}:native-audio-asr:hint:${snapshot.locale}`,
       });
     } catch {
       throw new NativeAudioQualityError(
@@ -6888,6 +7054,12 @@ async function finishGuidedStoryIntrinsicDialogue(
               ? (await synthesizeNarration(
                   [planned.text],
                   resolveNarrationVoice(planned.voiceId, null),
+                  { meterContext: {
+                    tenantId: job.tenantId,
+                    refKind: "videoJob",
+                    refId: String(job.id),
+                    operationKey: `video-job:${job.id}:guided-native-fallback-tts:${snapshot.scenes.indexOf(planned)}`,
+                  } },
                 )).wav
               : await speakLocalizedBrandVoiceCue({
                   tenantId: job.tenantId,
@@ -6966,6 +7138,7 @@ async function finishGuidedStoryIntrinsicDialogue(
           // this silent approved-still plate contract was chosen.
           generateAudio: false,
           operationKey: `guided_intrinsic_animation:${planned.sceneId}`,
+          meterCtx: videoMeterContext(job, `guided_intrinsic_animation:${planned.sceneId}`),
         });
         animationEvent = {
           eventId: videoProviderEventId(job, `guided_intrinsic_animation:${planned.sceneId}`),
@@ -7014,6 +7187,8 @@ async function finishGuidedStoryIntrinsicDialogue(
         },
         audio: { buffer: narration, mimeType: "audio/wav" },
         def: SYNC_LIPSYNC_2,
+        durationSec,
+        meterCtx: lipSyncMeterContext(job, `guided_intrinsic_lipsync:${planned.sceneId}`),
       }, replicateKey);
       const lipSyncEvent: VideoProviderEvent = {
         eventId: videoProviderEventId(job, `guided_intrinsic_lipsync:${planned.sceneId}`),
@@ -7189,7 +7364,13 @@ async function finishWithStudioLipSync(
         );
         const audio = await extractNativeAudio(source);
         audioBytes = audio.byteLength;
-        result = await generateLipSyncWithReplicate({ source: { buffer: source, mimeType: "video/mp4" }, audio: { buffer: audio, mimeType: "audio/wav" }, def: LATENT_SYNC }, apiKey);
+        result = await generateLipSyncWithReplicate({
+          source: { buffer: source, mimeType: "video/mp4" },
+          audio: { buffer: audio, mimeType: "audio/wav" },
+          def: LATENT_SYNC,
+          durationSec: endSec - startSec,
+          meterCtx: lipSyncMeterContext(job, `studio_lip_sync:${scene.sceneId}`),
+        }, apiKey);
       } catch (err) {
         const concurrentOptions = (
           await db.select({ options: videoGenerationsTable.options })

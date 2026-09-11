@@ -7,6 +7,7 @@ import { performImageEdit, type ImageEditOutcome } from "../imageEdit";
 import { uploadBufferToStorage } from "../storageUpload";
 import { buildImageCostMeta } from "../aiCost";
 import type { UsageMeta } from "../usage";
+import { meter, type MeterContext } from "../meter";
 
 /**
  * The AI operations behind the editor's generative tools.
@@ -250,17 +251,28 @@ async function runCutout(
   tenantId: number,
   sourceBuffer: Buffer,
   sourceMimeType: string,
+  meterContext: MeterContext,
 ): Promise<ImageOpOutcome> {
   const startedAt = Date.now();
   const ext = sourceMimeType === "image/jpeg" ? "jpg" : "png";
   const imageFile = await toFile(sourceBuffer, `source.${ext}`, { type: sourceMimeType });
 
-  const response = await openai.images.edit({
-    model: OPENAI_BUILTIN_MODEL,
-    image: imageFile,
-    prompt: CUTOUT_PROMPT,
-    background: "transparent",
-  });
+  const response = await meter(
+    { ...meterContext, provider: "openai", model: OPENAI_BUILTIN_MODEL },
+    "image_edit",
+    1,
+    () =>
+      openai.images.edit({
+        model: OPENAI_BUILTIN_MODEL,
+        image: imageFile,
+        prompt: CUTOUT_PROMPT,
+        background: "transparent",
+      }),
+    (result) => {
+      const usage = (result as { usage?: { output_tokens?: number } }).usage;
+      return typeof usage?.output_tokens === "number" ? { tokens: usage.output_tokens } : null;
+    },
+  );
 
   const b64 = response.data?.[0]?.b64_json ?? "";
   if (!b64) throw new ImageGenProviderError("The image provider returned no image data.");
@@ -393,6 +405,8 @@ export interface RunImageOpInput {
   prompt?: string | null;
   pad?: { left: number; right: number; top: number; bottom: number } | null;
   scale?: number | null;
+  /** Stable route action identity when one exists. */
+  operationKey?: string | null;
 }
 
 function requireMask(input: RunImageOpInput): string {
@@ -433,6 +447,10 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         sourceMimeType: input.sourceMimeType,
         maskB64: requireMask(input),
         prompt,
+        meterContext: {
+          tenantId: input.tenantId,
+          operationKey: input.operationKey ?? null,
+        },
       });
       return toOutcome(edit, source.width, source.height, OP_UNITS.fill);
     }
@@ -445,6 +463,10 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         sourceMimeType: input.sourceMimeType,
         maskB64: requireMask(input),
         prompt: REMOVE_PROMPT,
+        meterContext: {
+          tenantId: input.tenantId,
+          operationKey: input.operationKey ?? null,
+        },
       });
       return toOutcome(edit, source.width, source.height, OP_UNITS.remove);
     }
@@ -459,6 +481,10 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         sourceMimeType: input.sourceMimeType,
         maskB64: requireMask(input),
         prompt: `Replace the background with: ${prompt}. Keep the subject in the opaque region completely unchanged, including its edges, lighting and colour. Match the new background's light direction to the subject's.`,
+        meterContext: {
+          tenantId: input.tenantId,
+          operationKey: input.operationKey ?? null,
+        },
       });
       return toOutcome(edit, source.width, source.height, OP_UNITS["replace-background"]);
     }
@@ -477,6 +503,10 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         sourceMimeType: "image/png",
         maskB64: mask.toString("base64"),
         prompt: EXPAND_PROMPT_PREFIX + ((input.prompt ?? "").trim() || "Keep the scene as it is."),
+        meterContext: {
+          tenantId: input.tenantId,
+          operationKey: input.operationKey ?? null,
+        },
       });
       return toOutcome(edit, plan.canvas.width, plan.canvas.height, OP_UNITS.expand, {
         x: plan.placement.left,
@@ -487,7 +517,10 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
     }
 
     case "cutout":
-      return runCutout(input.tenantId, input.sourceBuffer, input.sourceMimeType);
+      return runCutout(input.tenantId, input.sourceBuffer, input.sourceMimeType, {
+        tenantId: input.tenantId,
+        operationKey: input.operationKey ?? null,
+      });
 
     case "enlarge":
       return runEnlarge(input.tenantId, input.sourceBuffer, input.scale ?? 2);

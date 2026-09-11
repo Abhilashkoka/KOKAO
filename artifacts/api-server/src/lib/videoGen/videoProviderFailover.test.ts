@@ -38,6 +38,7 @@ const savedAtlas = process.env.ATLASCLOUD_API_KEY;
 const params = {
   mode: "text" as const, prompt: "a pastel sunrise over still water",
   aspectRatio: "9:16" as const, durationSec: 5,
+  meterCtx: null,
   resolvedVideoModel: {
     version: 1 as const, source: "explicit" as const, mode: "text" as const,
     provider: "replicate", model: "wan-video/wan-2.5-t2v", catalogModelId: "wan-2.5",
@@ -75,9 +76,22 @@ describe("generateVideo exact-provider behavior", () => {
       buffer: Buffer.from("wrong provider"), provider: "openrouter", model: "kwaivgi/kling-v3.0-std",
     } satisfies VideoGenResult);
 
-    await expect(generateVideo(params)).rejects.toThrow("upstream 503");
+    await expect(generateVideo({
+      ...params,
+      meterCtx: {
+        tenantId: 42,
+        refKind: "videoJob",
+        refId: "88",
+        operationKey: "videoJob:88:scene:one",
+      },
+    })).rejects.toThrow("upstream 503");
     expect(generateWithReplicate).toHaveBeenCalledTimes(1);
     expect(generateWithOpenRouterVideo).not.toHaveBeenCalled();
+    expect(vi.mocked(generateWithReplicate).mock.calls[0]![0].meterContext).toEqual({
+      tenantId: 42, refKind: "videoJob", refId: "88",
+      provider: "replicate", model: "wan-video/wan-2.5-t2v",
+      operationKey: "videoJob:88:scene:one:endframe:1",
+    });
   });
 
   it("still calls the frozen provider when its breaker is open; it never substitutes", async () => {

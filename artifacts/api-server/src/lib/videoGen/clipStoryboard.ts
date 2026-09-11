@@ -92,7 +92,7 @@ export async function decideShotCountFromBrief(
   )[0];
   if (!tenant) throw new VideoGenProviderError("Tenant not found.");
   try {
-    const textGen = await getTextGenClient(tenant.aiModel);
+    const textGen = await getTextGenClient(tenant.aiModel, { tenantId });
     const completion = await textGen.client.chat.completions.create({
       model: textGen.model,
       messages: [
@@ -200,7 +200,7 @@ async function splitBriefIntoShots(
   )[0];
   if (!tenant) throw new VideoGenProviderError("Tenant not found.");
   try {
-    const textGen = await getTextGenClient(tenant.aiModel);
+    const textGen = await getTextGenClient(tenant.aiModel, { tenantId });
     // Prompt Template Kit: this split is the "script" step of a clip
     // storyboard, so a production video_script template replaces the built-in
     // system prompt. Background job: no per-user customization. Fail-open.
@@ -471,6 +471,14 @@ export async function planClipStoryboard(
         visual,
         aspectRatio,
         reference,
+        {
+          tenantId: job.tenantId,
+          refKind: "videoJob",
+          refId: String(job.id),
+          operationKey: `videoJob:${job.id}:storyboard_keyframe:${previewPaths.length}`,
+        },
+        "medium",
+        undefined,
       );
       previewPaths.push(await params.upload(keyframe.buffer, "image/png"));
     } catch (err) {
@@ -719,6 +727,12 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       // wins over the model's generic snap here.
       durationSec: durations[i]!,
       operationKey: `storyboard_scene:${scene.id}`,
+      meterCtx: {
+        tenantId: params.job.tenantId,
+        refKind: "videoJob",
+        refId: String(params.job.id),
+        operationKey: `videoJob:${params.job.id}:storyboard_scene:${scene.id}`,
+      },
         });
     if (!saved?.path) {
       await params.onCheckpoint?.({

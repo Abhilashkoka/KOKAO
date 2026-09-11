@@ -5,6 +5,7 @@ import {
   resolveLipSyncModelRef,
 } from "./index";
 import { LATENT_SYNC } from "./lipSyncModels";
+import type { MeterContext } from "../meter";
 
 /**
  * Lip-sync one generated shot to its slice of the narration.
@@ -22,6 +23,8 @@ import { LATENT_SYNC } from "./lipSyncModels";
 export async function lipSyncClip(args: {
   video: Buffer;
   audio: Buffer;
+  durationSec: number;
+  meterCtx: MeterContext | null;
 }): Promise<{ buffer: Buffer; provider: string; model: string }> {
   const def = getVideoGenProviderDef("replicate");
   const apiKey = def ? await resolveVideoGenApiKey(def) : null;
@@ -30,6 +33,8 @@ export async function lipSyncClip(args: {
       source: { buffer: args.video, mimeType: "video/mp4" },
       audio: { buffer: args.audio, mimeType: "audio/wav" },
       def: LATENT_SYNC,
+      durationSec: args.durationSec,
+      meterCtx: args.meterCtx,
     },
     apiKey,
     await resolveLipSyncModelRef(),

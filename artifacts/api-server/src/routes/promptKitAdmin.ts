@@ -1208,7 +1208,7 @@ router.post(
       )[0];
       // No failover here: the playground exists to show admins how the
       // SELECTED provider behaves, so a masked outage would defeat it.
-      const textGen = await getTextGenClient(tenant?.aiModel ?? "", { failover: false });
+      const textGen = await getTextGenClient(tenant?.aiModel ?? "", null, { failover: false });
       const started = Date.now();
       const completion = await textGen.client.chat.completions.create({
         model: textGen.model,

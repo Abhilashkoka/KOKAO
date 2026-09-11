@@ -1,10 +1,5 @@
-import {
-  db,
-  creditAccountsTable,
-  creditAccountLedgerTable,
-  type CreditAccount,
-} from "@workspace/db";
-import { desc, eq, sql } from "drizzle-orm";
+import { db, creditAccountsTable, creditAccountLedgerTable, type CreditAccount } from "@workspace/db";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { MILLI } from "./creditRates";
 
@@ -42,13 +37,7 @@ export interface CreditBalance {
   grantedExpiresAt: string | null;
 }
 
-export type GrantKind =
-  | "grant_plan"
-  | "grant_signup"
-  | "grant_promo"
-  | "grant_admin"
-  | "purchase"
-  | "migrate";
+export type GrantKind = "grant_plan" | "grant_signup" | "grant_promo" | "grant_admin" | "purchase" | "migrate";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -93,11 +82,7 @@ async function lockAccount(tx: DbTransaction, tenantId: number): Promise<Account
     grantedExpiresAt: row?.grantedExpiresAt ?? null,
   };
 
-  if (
-    state.grantedMilli > 0 &&
-    state.grantedExpiresAt &&
-    state.grantedExpiresAt.getTime() <= Date.now()
-  ) {
+  if (state.grantedMilli > 0 && state.grantedExpiresAt && state.grantedExpiresAt.getTime() <= Date.now()) {
     const lapsed = state.grantedMilli;
     state.grantedMilli = 0;
     state.grantedExpiresAt = null;
@@ -117,11 +102,7 @@ async function lockAccount(tx: DbTransaction, tenantId: number): Promise<Account
   return state;
 }
 
-async function writeState(
-  tx: DbTransaction,
-  tenantId: number,
-  state: AccountState,
-): Promise<void> {
+async function writeState(tx: DbTransaction, tenantId: number, state: AccountState): Promise<void> {
   await tx
     .update(creditAccountsTable)
     .set({
@@ -140,14 +121,8 @@ export async function getCreditBalance(tenantId: number): Promise<CreditBalance>
 
 /** A cheap read that takes no lock, for display where staleness is fine. */
 export async function peekCreditBalance(tenantId: number): Promise<CreditBalance> {
-  const [row] = await db
-    .select()
-    .from(creditAccountsTable)
-    .where(eq(creditAccountsTable.tenantId, tenantId))
-    .limit(1);
-  const lapsed = Boolean(
-    row?.grantedExpiresAt && row.grantedExpiresAt.getTime() <= Date.now(),
-  );
+  const [row] = await db.select().from(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenantId)).limit(1);
+  const lapsed = Boolean(row?.grantedExpiresAt && row.grantedExpiresAt.getTime() <= Date.now());
   return toBalance({
     purchasedMilli: row?.purchasedMilli ?? 0,
     grantedMilli: lapsed ? 0 : (row?.grantedMilli ?? 0),
@@ -187,34 +162,31 @@ export async function grantCredits(input: GrantCreditsInput): Promise<CreditBala
   }
 
   return db.transaction(async (tx) => {
+    const before = await lockAccount(tx, input.tenantId);
     if (input.idempotencyKey) {
       const [seen] = await tx
         .select({ id: creditAccountLedgerTable.id })
         .from(creditAccountLedgerTable)
-        .where(eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey))
+        .where(and(
+          eq(creditAccountLedgerTable.tenantId, input.tenantId),
+          eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey),
+        ))
         .limit(1);
-      if (seen) return toBalance(await lockAccount(tx, input.tenantId));
+      if (seen) return toBalance(before);
     }
 
-    const before = await lockAccount(tx, input.tenantId);
     // A negative admin adjustment can empty a bucket but never drive it below
     // zero. The ledger records what was ACTUALLY applied, so totals reconcile.
     const after: AccountState = {
-      purchasedMilli: toPurchased
-        ? Math.max(0, before.purchasedMilli + deltaMilli)
-        : before.purchasedMilli,
-      grantedMilli: toPurchased
-        ? before.grantedMilli
-        : Math.max(0, before.grantedMilli + deltaMilli),
+      purchasedMilli: toPurchased ? Math.max(0, before.purchasedMilli + deltaMilli) : before.purchasedMilli,
+      grantedMilli: toPurchased ? before.grantedMilli : Math.max(0, before.grantedMilli + deltaMilli),
       grantedExpiresAt: before.grantedExpiresAt,
     };
 
     if (!toPurchased && deltaMilli > 0 && input.expiresInDays) {
       const candidate = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
       after.grantedExpiresAt =
-        after.grantedExpiresAt && after.grantedExpiresAt > candidate
-          ? after.grantedExpiresAt
-          : candidate;
+        after.grantedExpiresAt && after.grantedExpiresAt > candidate ? after.grantedExpiresAt : candidate;
     }
     if (after.grantedMilli === 0) after.grantedExpiresAt = null;
 
@@ -241,6 +213,13 @@ export interface SpendCreditsInput {
   refId?: string | null;
   /** Pass a job's operation key so a retried settle cannot double-charge. */
   idempotencyKey?: string | null;
+  /**
+   * Meter-only retry allocation. The stable idempotency key is treated as a
+   * base identity; another ordinal is allowed only after the prior ordinal has
+   * a persisted matching refund receipt.
+   */
+  retryAfterRefund?: boolean;
+  refundIdempotencyKey?: string | null;
   note?: string | null;
 }
 
@@ -253,46 +232,18 @@ export interface SpendCreditsInput {
  * burning purchased credits while an allowance lapses is the one outcome a
  * customer would rightly complain about.
  */
+export interface SpendCreditsResult {
+  balance: CreditBalance;
+  /** False when this idempotency key had already been debited. */
+  applied: boolean;
+  /** Concrete persisted receipt selected for this attempt. */
+  idempotencyKey?: string | null;
+  /** Matching full-failure refund receipt for this attempt. */
+  refundIdempotencyKey?: string | null;
+  attemptOrdinal?: number | null;
+}
 export async function spendCredits(input: SpendCreditsInput): Promise<CreditBalance> {
-  const costMilli = Math.max(0, Math.round(input.creditsMilli));
-  return db.transaction(async (tx) => {
-    if (input.idempotencyKey) {
-      const [seen] = await tx
-        .select({ id: creditAccountLedgerTable.id })
-        .from(creditAccountLedgerTable)
-        .where(eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey))
-        .limit(1);
-      if (seen) return toBalance(await lockAccount(tx, input.tenantId));
-    }
-
-    const before = await lockAccount(tx, input.tenantId);
-    const available = before.purchasedMilli + before.grantedMilli;
-    if (costMilli > available) throw new InsufficientCreditsError(costMilli, available);
-
-    const fromGranted = Math.min(before.grantedMilli, costMilli);
-    const fromPurchased = costMilli - fromGranted;
-    const after: AccountState = {
-      purchasedMilli: before.purchasedMilli - fromPurchased,
-      grantedMilli: before.grantedMilli - fromGranted,
-      grantedExpiresAt: before.grantedExpiresAt,
-    };
-    if (after.grantedMilli === 0) after.grantedExpiresAt = null;
-
-    await writeState(tx, input.tenantId, after);
-    await tx.insert(creditAccountLedgerTable).values({
-      tenantId: input.tenantId,
-      kind: "spend",
-      purchasedDeltaMilli: -fromPurchased,
-      grantedDeltaMilli: -fromGranted,
-      balanceAfterMilli: after.purchasedMilli + after.grantedMilli,
-      rateKey: input.rateKey ?? null,
-      refKind: input.refKind ?? null,
-      refId: input.refId ?? null,
-      idempotencyKey: input.idempotencyKey ?? null,
-      note: input.note ?? null,
-    });
-    return toBalance(after);
-  });
+  return (await spendCreditsOnce(input)).balance;
 }
 
 /**
@@ -305,17 +256,19 @@ export async function spendCredits(input: SpendCreditsInput): Promise<CreditBala
  */
 export async function refundCredits(input: SpendCreditsInput): Promise<void> {
   const amountMilli = Math.max(0, Math.round(input.creditsMilli));
-  if (amountMilli === 0) return;
   await db.transaction(async (tx) => {
+    const before = await lockAccount(tx, input.tenantId);
     if (input.idempotencyKey) {
       const [seen] = await tx
         .select({ id: creditAccountLedgerTable.id })
         .from(creditAccountLedgerTable)
-        .where(eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey))
+        .where(and(
+          eq(creditAccountLedgerTable.tenantId, input.tenantId),
+          eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey),
+        ))
         .limit(1);
       if (seen) return;
     }
-    const before = await lockAccount(tx, input.tenantId);
     const after: AccountState = {
       ...before,
       purchasedMilli: before.purchasedMilli + amountMilli,
@@ -337,9 +290,7 @@ export async function refundCredits(input: SpendCreditsInput): Promise<void> {
 
 /** Best-effort refund: never let bookkeeping break a user-facing flow. */
 export async function refundCreditsSafely(input: SpendCreditsInput): Promise<void> {
-  await refundCredits(input).catch((err) =>
-    logger.error({ err, tenantId: input.tenantId }, "credit refund failed"),
-  );
+  await refundCredits(input).catch((err) => logger.error({ err, tenantId: input.tenantId }, "credit refund failed"));
 }
 
 export interface CreditHistoryEntry {
@@ -354,10 +305,7 @@ export interface CreditHistoryEntry {
   createdAt: string;
 }
 
-export async function listCreditHistory(
-  tenantId: number,
-  limit = 50,
-): Promise<CreditHistoryEntry[]> {
+export async function listCreditHistory(tenantId: number, limit = 50): Promise<CreditHistoryEntry[]> {
   const rows = await db
     .select()
     .from(creditAccountLedgerTable)
@@ -430,5 +378,130 @@ export function serializeAccount(row: CreditAccount): CreditBalance {
     purchasedMilli: row.purchasedMilli,
     grantedMilli: row.grantedMilli,
     grantedExpiresAt: row.grantedExpiresAt,
+  });
+}
+
+function ordinalForReceipt(key: string, base: string): number | null {
+  if (key === base) return 1; // compatibility with receipts predating ordinals
+  const suffix = key.slice(`${base}:attempt:`.length);
+  if (!key.startsWith(`${base}:attempt:`) || !/^[1-9]\d*$/.test(suffix)) return null;
+  return Number(suffix);
+}
+
+/**
+ * The receipt-bearing form used by the meter. Knowing whether this invocation
+ * actually debited is essential: a replay after an earlier successful call
+ * must not refund that earlier debit if the replayed provider call fails.
+ */
+export async function spendCreditsOnce(input: SpendCreditsInput): Promise<SpendCreditsResult> {
+  const costMilli = Math.max(0, Math.round(input.creditsMilli));
+  return db.transaction(async (tx) => {
+    // Serialize all movements for this workspace before consulting the
+    // idempotency ledger. Checking first leaves a race where two transactions
+    // both observe "unseen", both debit, and only the later ledger INSERT
+    // discovers the unique-key collision (after the balance was calculated).
+    // Rechecking while holding the account row lock makes the receipt and
+    // balance mutation one atomic decision.
+    const before = await lockAccount(tx, input.tenantId);
+    let receiptKey = input.idempotencyKey ?? null;
+    let refundReceiptKey = input.refundIdempotencyKey ?? null;
+    let attemptOrdinal: number | null = null;
+    if (input.idempotencyKey) {
+      if (input.retryAfterRefund && input.refundIdempotencyKey) {
+        const spendBase = input.idempotencyKey;
+        const refundBase = input.refundIdempotencyKey;
+        const receipts = await tx
+          .select({
+            kind: creditAccountLedgerTable.kind,
+            idempotencyKey: creditAccountLedgerTable.idempotencyKey,
+          })
+          .from(creditAccountLedgerTable)
+          .where(and(
+            eq(creditAccountLedgerTable.tenantId, input.tenantId),
+            or(
+              eq(creditAccountLedgerTable.idempotencyKey, spendBase),
+              eq(creditAccountLedgerTable.idempotencyKey, refundBase),
+              sql`starts_with(${creditAccountLedgerTable.idempotencyKey}, ${`${spendBase}:attempt:`})`,
+              sql`starts_with(${creditAccountLedgerTable.idempotencyKey}, ${`${refundBase}:attempt:`})`,
+            ),
+          ));
+        const spent = new Set<number>();
+        const refunded = new Set<number>();
+        for (const row of receipts) {
+          if (!row.idempotencyKey) continue;
+          const spendOrdinal = ordinalForReceipt(row.idempotencyKey, spendBase);
+          if (row.kind === "spend" && spendOrdinal !== null) spent.add(spendOrdinal);
+          const refundOrdinal = ordinalForReceipt(row.idempotencyKey, refundBase);
+          if (row.kind === "refund" && refundOrdinal !== null) refunded.add(refundOrdinal);
+        }
+        const latest = spent.size ? Math.max(...spent) : 0;
+        if (latest > 0 && !refunded.has(latest)) {
+          return {
+            balance: toBalance(before),
+            applied: false,
+            idempotencyKey: latest === 1 && receipts.some((r) => r.idempotencyKey === spendBase)
+              ? spendBase
+              : `${spendBase}:attempt:${latest}`,
+            refundIdempotencyKey: latest === 1 && receipts.some((r) => r.idempotencyKey === refundBase)
+              ? refundBase
+              : `${refundBase}:attempt:${latest}`,
+            attemptOrdinal: latest,
+          };
+        }
+        attemptOrdinal = latest + 1;
+        receiptKey = `${spendBase}:attempt:${attemptOrdinal}`;
+        refundReceiptKey = `${refundBase}:attempt:${attemptOrdinal}`;
+      }
+      const [seen] = await tx
+        .select({ id: creditAccountLedgerTable.id })
+        .from(creditAccountLedgerTable)
+        .where(and(
+          eq(creditAccountLedgerTable.tenantId, input.tenantId),
+          eq(creditAccountLedgerTable.idempotencyKey, receiptKey!),
+        ))
+        .limit(1);
+      if (seen) {
+        return {
+          balance: toBalance(before),
+          applied: false,
+          idempotencyKey: receiptKey,
+          refundIdempotencyKey: refundReceiptKey,
+          attemptOrdinal,
+        };
+      }
+    }
+
+    const available = before.purchasedMilli + before.grantedMilli;
+    if (costMilli > available) throw new InsufficientCreditsError(costMilli, available);
+
+    const fromGranted = Math.min(before.grantedMilli, costMilli);
+    const fromPurchased = costMilli - fromGranted;
+    const after: AccountState = {
+      purchasedMilli: before.purchasedMilli - fromPurchased,
+      grantedMilli: before.grantedMilli - fromGranted,
+      grantedExpiresAt: before.grantedExpiresAt,
+    };
+    if (after.grantedMilli === 0) after.grantedExpiresAt = null;
+
+    await writeState(tx, input.tenantId, after);
+    await tx.insert(creditAccountLedgerTable).values({
+      tenantId: input.tenantId,
+      kind: "spend",
+      purchasedDeltaMilli: -fromPurchased,
+      grantedDeltaMilli: -fromGranted,
+      balanceAfterMilli: after.purchasedMilli + after.grantedMilli,
+      rateKey: input.rateKey ?? null,
+      refKind: input.refKind ?? null,
+      refId: input.refId ?? null,
+      idempotencyKey: receiptKey,
+      note: input.note ?? null,
+    });
+    return {
+      balance: toBalance(after),
+      applied: true,
+      idempotencyKey: receiptKey,
+      refundIdempotencyKey: refundReceiptKey,
+      attemptOrdinal,
+    };
   });
 }

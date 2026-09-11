@@ -90,7 +90,7 @@ export const creditAccountLedgerTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("credit_account_ledger_idem").on(t.idempotencyKey),
+    uniqueIndex("credit_account_ledger_tenant_idem").on(t.tenantId, t.idempotencyKey),
     index("credit_account_ledger_tenant_created").on(t.tenantId, t.createdAt),
     index("credit_account_ledger_ref").on(t.refKind, t.refId),
   ],

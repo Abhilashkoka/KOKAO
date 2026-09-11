@@ -320,6 +320,7 @@ export * from './creditHistoryEntry';
 export * from './creditLedgerEntry';
 export * from './creditMeterReport';
 export * from './creditMeterReportRow';
+export * from './creditMeterReportRowPricingStatus';
 export * from './creditMigrationPlan';
 export * from './creditMigrationResult';
 export * from './creditMigrationRow';

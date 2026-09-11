@@ -36,6 +36,7 @@ async function inputFor(model: string): Promise<Record<string, unknown>> {
   const { bodies } = mockReplicate();
   await generateWithReplicate(
     {
+      meterContext: null,
       prompt: "animate the man",
       aspectRatio: "9:16",
       durationSec: 10,
@@ -109,6 +110,7 @@ describe("replicate failed prediction diagnostics", () => {
     ));
 
     await expect(generateWithReplicate({
+      meterContext: null,
       model: "wan-video/wan-2.2-i2v-fast",
       prompt: "A presenter speaking",
       aspectRatio: "9:16",
@@ -132,6 +134,7 @@ describe("replicate failed prediction diagnostics", () => {
     ));
 
     await expect(generateWithReplicate({
+      meterContext: null,
       model: "wan-video/wan-2.2-i2v-fast",
       prompt: "A presenter speaking",
       aspectRatio: "9:16",

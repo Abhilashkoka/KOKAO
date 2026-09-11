@@ -162,7 +162,9 @@ export async function analyzeScriptIntake(params: {
   variant?: ScriptVariantKey | null;
   hasBrandKit: boolean;
 }): Promise<ScriptIntakeResult> {
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(params.tenantAiModel, {
+    tenantId: params.tenantId,
+  });
   const governed = await getGovernedPrompt({
     flowKey: "video_script_intake",
     tenantId: params.tenantId,

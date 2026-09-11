@@ -6,6 +6,7 @@ import {
 } from "./types";
 import { withRetries, isTransientStatus } from "./retry";
 import { getVideoGenProviderDef, resolveVideoGenApiKey } from "./index";
+import { meter, type MeterContext } from "../meter";
 
 /**
  * AI background-music beds via Replicate's MusicGen (meta/musicgen), using
@@ -42,6 +43,7 @@ function firstUrl(output: unknown): string | null {
 export async function generateMusicBed(
   prompt: string,
   videoDurationSec: number,
+  meterContext: MeterContext | null,
 ): Promise<Buffer> {
   const def = getVideoGenProviderDef("replicate");
   const apiKey = def ? await resolveVideoGenApiKey(def) : null;
@@ -65,23 +67,42 @@ export async function generateMusicBed(
     normalization_strategy: "loudness",
   };
 
+  let submitAttempt = 0;
   let prediction = await withRetries(
     async (): Promise<ReplicatePrediction> => {
-      const res = await videoGenFetch(
-        "https://api.replicate.com/v1/predictions",
-        {
-          method: "POST",
-          headers: { ...headers, Prefer: "wait=60" },
-          body: JSON.stringify({ version: MUSICGEN_VERSION, input }),
+      const attemptIndex = submitAttempt++;
+      return meter(
+        meterContext
+          ? {
+              ...meterContext,
+              provider: "replicate",
+              model: MUSICGEN_MODEL,
+                operationFamilyKey:
+                  meterContext.operationFamilyKey ?? meterContext.operationKey,
+              operationKey:
+                `${meterContext.operationKey ?? "musicgen"}:provider:replicate:model:${MUSICGEN_MODEL}:attempt:${attemptIndex}`,
+            }
+          : null,
+        "video",
+        duration,
+        async () => {
+          const res = await videoGenFetch(
+            "https://api.replicate.com/v1/predictions",
+            {
+              method: "POST",
+              headers: { ...headers, Prefer: "wait=60" },
+              body: JSON.stringify({ version: MUSICGEN_VERSION, input }),
+            },
+          );
+          if (!res.ok) {
+            throw new VideoGenProviderError(
+              `Music generation failed (${res.status}): ${await errorDetail(res)}`,
+              res.status,
+            );
+          }
+          return (await res.json()) as ReplicatePrediction;
         },
       );
-      if (!res.ok) {
-        throw new VideoGenProviderError(
-          `Music generation failed (${res.status}): ${await errorDetail(res)}`,
-          res.status,
-        );
-      }
-      return (await res.json()) as ReplicatePrediction;
     },
     { attempts: 3 },
   );

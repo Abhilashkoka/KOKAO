@@ -12,6 +12,7 @@ import { assignClipsToScenes } from "./visionRank";
 import { videoJobUnits } from "../units";
 import { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 import { VideoGenProviderError } from "../types";
+import { MeterDispatchReplayError } from "../../meterErrors";
 
 const animateState = vi.hoisted(() => ({
   calls: [] as {
@@ -21,6 +22,7 @@ const animateState = vi.hoisted(() => ({
     generateAudio?: boolean;
     image?: Buffer;
     assetIds?: string[];
+    meterCtx?: { operationKey?: string | null; operationFamilyKey?: string | null };
   }[],
   failFirst: false,
   alwaysFail: false,
@@ -49,6 +51,7 @@ vi.mock("../index", () => ({
       generateAudio?: boolean;
       image?: { buffer: Buffer };
       assetIds?: string[];
+      meterCtx?: { operationKey?: string | null; operationFamilyKey?: string | null };
     }) => {
       const queued = animateState.queuedErrors.shift();
       if (queued) {
@@ -87,7 +90,11 @@ const brollState = vi.hoisted(() => ({
   textGenCapabilities: [] as (string | undefined)[],
 }));
 vi.mock("../../textGen", () => ({
-  getTextGenClient: vi.fn(async (_model: string, opts?: { capability?: string }) => ({
+  getTextGenClient: vi.fn(async (
+    _model: string,
+    _meterContext: unknown,
+    opts?: { capability?: string },
+  ) => ({
     provider: "builtin",
     model: "gpt-test",
     client: {
@@ -655,9 +662,22 @@ describe("animateBrollStills", () => {
       visuals: ["flour"],
       scenes: [scenes[0]!],
       aspectRatio: "9:16",
+      meterContext: { tenantId: 1, operationKey: "video-job:9:animation" },
     });
     expect(result.clips).toHaveLength(1);
     expect(animateState.calls).toHaveLength(2);
+    expect(animateState.calls.map((call) => call.meterCtx)).toEqual([
+      {
+        tenantId: 1,
+        operationFamilyKey: "video-job:9:animation:0",
+        operationKey: "video-job:9:animation:0:dispatch:0",
+      },
+      {
+        tenantId: 1,
+        operationFamilyKey: "video-job:9:animation:0",
+        operationKey: "video-job:9:animation:0:dispatch:1",
+      },
+    ]);
 
     animateState.calls.length = 0;
     animateState.alwaysFail = true;
@@ -669,6 +689,22 @@ describe("animateBrollStills", () => {
         aspectRatio: "9:16",
       }),
     ).rejects.toThrow("provider down");
+  });
+
+  it("does not retry a metered replay block through a fresh dispatch suffix", async () => {
+    animateState.queuedErrors.push(new MeterDispatchReplayError());
+
+    await expect(
+      animateBrollStills({
+        images: [Buffer.from("still-a")],
+        visuals: ["flour"],
+        scenes: [scenes[0]!],
+        aspectRatio: "9:16",
+        meterContext: { tenantId: 1, operationKey: "video-job:9:animation" },
+      }),
+    ).rejects.toBeInstanceOf(MeterDispatchReplayError);
+
+    expect(animateState.calls).toHaveLength(1);
   });
 
   it("does not retry a definite provider payment rejection", async () => {
@@ -774,6 +810,7 @@ describe("assignClipsToScenes fail-soft guarantees", () => {
   it("returns null when there are not enough thumbnails to rank", async () => {
     expect(
       await assignClipsToScenes({
+        tenantId: 1,
         tenantAiModel: "auto",
         topic: "coffee",
         sceneTexts: ["A", "B"],
@@ -782,6 +819,7 @@ describe("assignClipsToScenes fail-soft guarantees", () => {
     ).toBeNull();
     expect(
       await assignClipsToScenes({
+        tenantId: 1,
         tenantAiModel: "auto",
         topic: "coffee",
         sceneTexts: [],
@@ -792,6 +830,7 @@ describe("assignClipsToScenes fail-soft guarantees", () => {
 
   it("requests the multimodal text client for thumbnail content parts", async () => {
     const result = await assignClipsToScenes({
+      tenantId: 1,
       tenantAiModel: "auto",
       topic: "coffee",
       sceneTexts: ["First", "Second"],

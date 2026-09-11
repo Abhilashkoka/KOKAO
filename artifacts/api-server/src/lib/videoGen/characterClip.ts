@@ -21,6 +21,7 @@ import type { ResolvedModelOptions } from "./modelCatalog";
 import type { Cinematography } from "./cinematography";
 import type { ImageGenResult } from "../imageGen/types";
 import type { CharacterDetail } from "../characters";
+import type { MeterContext } from "../meter";
 import { characterDetailFromSnapshot, type CharacterSnapshot } from "../characters";
 import {
   isAtlasGenerationReferenceId,
@@ -70,6 +71,7 @@ export async function generateCharacterClip(params: {
   /** Generic enqueue-time wardrobe snapshot used by ordinary character jobs. */
   wardrobeSnapshot?: CharacterSnapshot | null;
   operationKey?: string;
+  meterContext?: MeterContext | null;
 }): Promise<VideoGenResult> {
   if (
     params.snapshot?.atlasAssetReferenceId != null &&
@@ -234,6 +236,7 @@ export async function generateCharacterClip(params: {
       identityLocked: frozenPolicy === true || currentPolicy?.requiresBytePlusAsset === true,
       ...(params.model ?? {}),
       operationKey: params.operationKey,
+      meterCtx: params.meterContext ?? null,
     });
     return {
       buffer: clip.buffer,
@@ -250,6 +253,9 @@ export async function generateCharacterClip(params: {
       scene,
       params.aspectRatio,
       reference,
+      params.meterContext ?? null,
+      "medium",
+      undefined,
     );
   if (generatedKeyframe) await params.onKeyframeProviderSuccess?.(generatedKeyframe);
   const keyframe = generatedKeyframe ?? { buffer: params.keyframe! };
@@ -262,6 +268,7 @@ export async function generateCharacterClip(params: {
     image: { buffer: keyframe.buffer, mimeType: "image/png" },
     ...(params.model ?? {}),
     operationKey: params.operationKey,
+      meterCtx: params.meterContext ?? null,
   });
   return {
     buffer: clip.buffer,

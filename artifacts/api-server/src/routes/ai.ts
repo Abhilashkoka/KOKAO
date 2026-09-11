@@ -26,6 +26,7 @@ import {
   ImageEditInputError,
   ImageEditModerationError,
 } from "../lib/imageEdit";
+import { meter, type MeterContext } from "../lib/meter";
 import {
   runImageOp,
   ImageOpError,
@@ -159,6 +160,41 @@ interface Funding {
    * settled charge can never hand the money back on top of it.
    */
   resolved?: boolean;
+}
+
+function meterOperationKey(funding: Funding, action: string): string | null {
+  if (funding.reservation) return `${action}:wallet:${funding.reservation.id}`;
+  if (funding.quotaReservation) {
+    return `${action}:quota:${funding.quotaReservation.usageEventId}`;
+  }
+  return null;
+}
+
+function serverActionId(): string {
+  // Meter identities are funding receipts, not request correlation ids.
+  // Client-controlled idempotency/request headers cannot be used unless the
+  // HTTP response itself is durably replayed; otherwise a reused header could
+  // authorize another provider call against an old debit.
+  return randomUUID();
+}
+
+function textActionMeterContext(req: Request, action: string): MeterContext {
+  const actionId = serverActionId();
+  return {
+    tenantId: req.tenantId,
+    refKind: "action",
+    refId: `${action}:${actionId}`,
+    operationKey: `text:${action}:${req.tenantId}:${actionId}`,
+  };
+}
+
+function applyFundingMeterKey(
+  context: MeterContext,
+  funding: Funding,
+  action: string,
+): void {
+  context.operationKey =
+    meterOperationKey(funding, `text:${action}`) ?? context.operationKey;
 }
 
 async function reserveFunding(
@@ -340,9 +376,10 @@ async function loadTenant(tenantId: number) {
 async function getTextGenOrRespond(
   res: Response,
   tenantModel: string,
+  meterContext: MeterContext,
 ): Promise<TextGenClient | null> {
   try {
-    return await getTextGenClient(tenantModel);
+    return await getTextGenClient(tenantModel, meterContext);
   } catch (err) {
     if (err instanceof TextGenNotConfiguredError) {
       res.status(503).json({ error: err.message });
@@ -586,7 +623,8 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const meterContext = textActionMeterContext(req, "generate-caption");
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel, meterContext);
   if (!textGen) return;
 
   const limits = await getPlanLimits(tenant.plan);
@@ -607,6 +645,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     });
     return;
   }
+  applyFundingMeterKey(meterContext, captionFunding, "generate-caption");
 
   const { systemPrompt, platform, governed } = await buildCaptionSystemPrompt(
     req.tenantId,
@@ -801,7 +840,8 @@ router.post(
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+    const meterContext = textActionMeterContext(req, "generate-caption-stream");
+    const textGen = await getTextGenOrRespond(res, tenant.aiModel, meterContext);
     if (!textGen) return;
 
     const limits = await getPlanLimits(tenant.plan);
@@ -820,6 +860,7 @@ router.post(
       });
       return;
     }
+    applyFundingMeterKey(meterContext, captionFunding, "generate-caption-stream");
 
     const { systemPrompt, platform, governed } = await buildCaptionSystemPrompt(
       req.tenantId,
@@ -1159,7 +1200,8 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const meterContext = textActionMeterContext(req, "localize-script");
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel, meterContext);
   if (!textGen) return;
 
   const profile = mergeVoiceProfile(parsed.data.voiceProfile);
@@ -1189,6 +1231,12 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
     }
     reservations.push({ locale, funding });
   }
+  meterContext.operationKey = `text:localize-script:${reservations
+    .map(({ locale, funding }) =>
+      meterOperationKey(funding, `localize-script:${locale}`) ??
+      `${serverActionId()}:${locale}`,
+    )
+    .join("+")}`;
 
   const ref = await contentRef(req.tenantId, parsed.data.contentId);
   const completed: {
@@ -1417,6 +1465,11 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       brandKitId: parsed.data.brandKitId ?? null,
       referenceImage,
       selectionPolicy,
+      meterContext: {
+        tenantId: req.tenantId,
+        refKind: "imageRequest",
+        operationKey: `imageRequest:${req.clerkUserId}:${genStartedAt}`,
+      },
     });
     if (imageGoverned) {
       await logCompiledPrompt({
@@ -1534,6 +1587,12 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
       sourceMimeType: source.mimeType,
       maskB64: parsed.data.maskB64,
       prompt: parsed.data.prompt,
+      meterContext: {
+        tenantId: req.tenantId,
+        refKind: parsed.data.contentId ? "content" : null,
+        refId: parsed.data.contentId ? String(parsed.data.contentId) : null,
+        operationKey: meterOperationKey(imageFunding, "image-edit"),
+      },
     });
     const spendPaise = await settleFunding(req, imageFunding, "image", {
       ...outcome.meta,
@@ -1655,6 +1714,7 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
       prompt: parsed.data.prompt ?? null,
       pad: parsed.data.pad ?? null,
       scale: parsed.data.scale ?? null,
+      operationKey: funding ? meterOperationKey(funding, `image-op:${op}`) : null,
     });
 
     if (funding && outcome.meta) {
@@ -1733,7 +1793,11 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const textGen = await getTextGenOrRespond(
+    res,
+    tenant.aiModel,
+    textActionMeterContext(req, "suggest-topics"),
+  );
   if (!textGen) return;
 
   const brand = await loadBrandPayload(
@@ -1827,7 +1891,11 @@ router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const textGen = await getTextGenOrRespond(
+    res,
+    tenant.aiModel,
+    textActionMeterContext(req, "generate-hooks"),
+  );
   if (!textGen) return;
   const brand = await loadBrandPayload(
     req.tenantId,
@@ -1934,7 +2002,8 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const meterContext = textActionMeterContext(req, "platform-pack");
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel, meterContext);
   if (!textGen) return;
 
   const platforms = (
@@ -1959,6 +2028,7 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
     });
     return;
   }
+  applyFundingMeterKey(meterContext, funding, "platform-pack");
 
   const [brand, taste] = await Promise.all([
     loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null),
@@ -2087,7 +2157,11 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const textGen = await getTextGenOrRespond(
+    res,
+    tenant.aiModel,
+    textActionMeterContext(req, "summarize-url"),
+  );
   if (!textGen) return;
 
   let parsedUrl: URL;
@@ -2226,13 +2300,23 @@ router.post("/ai/research", async (req: Request, res: Response) => {
   );
 
   try {
-    const response = await openai.responses.create({
-      model: "gpt-5.4",
-      tools: [{ type: "web_search" }],
-      instructions: guidance.join(" "),
-      input: `Research topic: ${parsed.data.topic}`,
-      max_output_tokens: 4096,
-    });
+    const response = await meter(
+      { tenantId: req.tenantId, provider: "builtin", model: "gpt-5.4" },
+      "caption",
+      1,
+      () =>
+        openai.responses.create({
+          model: "gpt-5.4",
+          tools: [{ type: "web_search" }],
+          instructions: guidance.join(" "),
+          input: `Research topic: ${parsed.data.topic}`,
+          max_output_tokens: 4096,
+        }),
+      (result) =>
+        typeof result.usage?.output_tokens === "number"
+          ? { tokens: result.usage.output_tokens }
+          : null,
+    );
 
     // Collect sources from the model's URL citations, deduped by URL.
     const sources: { title: string; url: string }[] = [];
@@ -2325,7 +2409,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const meterContext = textActionMeterContext(req, "generate-campaign");
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel, meterContext);
   if (!textGen) return;
 
   const platforms = Array.from(
@@ -2384,6 +2469,9 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         return;
       }
     }
+  }
+  if (campaignWallet) {
+    meterContext.operationKey = `text:generate-campaign:wallet:${campaignWallet.id}`;
   }
 
   /**
@@ -2490,6 +2578,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     });
 
   const campaignId = randomUUID();
+  meterContext.refKind = "campaign";
+  meterContext.refId = campaignId;
   const startedAt = Date.now();
   try {
     const completion = await textGen.client.chat.completions.create({
@@ -2806,7 +2896,8 @@ router.post(
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+    const meterContext = textActionMeterContext(req, "generate-campaign-stream");
+    const textGen = await getTextGenOrRespond(res, tenant.aiModel, meterContext);
     if (!textGen) return;
 
     const platforms = Array.from(
@@ -2865,6 +2956,9 @@ router.post(
           return;
         }
       }
+    }
+    if (campaignWallet) {
+      meterContext.operationKey = `text:generate-campaign-stream:wallet:${campaignWallet.id}`;
     }
 
     /**
@@ -2975,6 +3069,8 @@ router.post(
     };
 
     const campaignId = randomUUID();
+    meterContext.refKind = "campaign";
+    meterContext.refId = campaignId;
     const startedAt = Date.now();
     let raw = "";
     let sentTotal = 0;
@@ -3333,7 +3429,8 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  const meterContext = textActionMeterContext(req, "generate-carousel");
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel, meterContext);
   if (!textGen) return;
 
   const slideCount = parsed.data.slideCount ?? 5;
@@ -3356,6 +3453,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     });
     return;
   }
+  applyFundingMeterKey(meterContext, captionFunding, "generate-carousel");
 
   const brand = await loadBrandPayload(
     req.tenantId,
@@ -3425,6 +3523,8 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       });
 
   const carouselId = randomUUID();
+  meterContext.refKind = "carousel";
+  meterContext.refId = carouselId;
   const startedAt = Date.now();
   try {
     // One automatic retry: an incomplete/malformed carousel is usually a
@@ -3631,7 +3731,7 @@ const ALLOWED_AUDIO_TYPES = new Set([
 /**
  * POST /ai/transcribe
  * Transcribe a short voice note using the platform-selected ASR provider.
- * Unmetered helper (like suggest-topics); rate-limited by aiLimiter.
+ * Metered per provider attempt and rate-limited by aiLimiter.
  */
 router.post(
   "/ai/transcribe",
@@ -3652,10 +3752,16 @@ router.post(
       return;
     }
     try {
+      const actionId = serverActionId();
       const result = await transcribeAudio({
         buffer: file.buffer,
         mimeType,
         filename: file.originalname || "voice-note.webm",
+      }, {
+        tenantId: req.tenantId,
+        refKind: "content",
+        refId: `transcribe:${actionId}`,
+        operationKey: `asr:voice-note:${req.tenantId}:${actionId}`,
       });
       res.json(result);
     } catch (error) {

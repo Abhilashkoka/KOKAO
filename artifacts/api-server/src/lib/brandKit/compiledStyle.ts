@@ -29,8 +29,15 @@ const COMPILE_SYSTEM_PROMPT = [
 /** One LLM pass turning brand elements into a reusable style directive. */
 export async function compileBrandStylePrompt(
   brand: BrandKitPayload,
+  tenantId: number,
+  versionId?: number,
 ): Promise<string | null> {
-  const textGen = await getTextGenClient(DEFAULT_AI_MODEL);
+  const textGen = await getTextGenClient(DEFAULT_AI_MODEL, {
+    tenantId,
+    refKind: "brandKitVersion",
+    refId: versionId ? String(versionId) : null,
+    operationKey: versionId ? `brand-style-compile:${versionId}` : null,
+  });
   const completion = await textGen.client.chat.completions.create({
     model: textGen.model,
     messages: [
@@ -55,7 +62,7 @@ export function scheduleStyleCompile(
 ): void {
   enqueueBackgroundJob(async () => {
     try {
-      const compiled = await compileBrandStylePrompt(payload);
+      const compiled = await compileBrandStylePrompt(payload, tenantId, versionId);
       if (!compiled) return;
       await db
         .update(brandKitVersionsTable)

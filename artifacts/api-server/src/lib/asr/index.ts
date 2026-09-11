@@ -1,7 +1,6 @@
 import { db, asrSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../logger";
-import { meter } from "../meter";
 import { recordProviderFailure, recordProviderSuccess, orderByHealth } from "../providerHealth";
 import { isFeatureEnabled } from "../featureFlags";
 import { rankProviders } from "../providerScore";
@@ -18,9 +17,12 @@ import {
 import { AsrProviderError } from "./types";
 import type { TranscribeInput, TranscriptionResult } from "./types";
 import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
+import { meter, type MeterContext } from "../meter";
 
 export { AsrNotConfiguredError, AsrProviderError } from "./types";
 export type { TranscribeInput, TranscriptionResult } from "./types";
+import { probeAudioDurationSeconds } from "../audioDuration";
+import { isMeterDispatchReplayError } from "../meterErrors";
 
 export const DEFAULT_ASR_PROVIDER = "groq";
 
@@ -187,6 +189,7 @@ export function asrHealthKey(providerId: string): string {
 /** Whether a transcription failure is the PROVIDER's fault (429/5xx/network),
  * as opposed to unusable audio or a bad key that would fail anywhere. */
 function isTransientAsrError(error: unknown): boolean {
+  if (isMeterDispatchReplayError(error)) return false;
   if (error instanceof AsrProviderError) {
     if (error.status === undefined) return true; // timeout / network-shaped
     return (
@@ -214,12 +217,30 @@ const ASR_LATENCY_REFERENCE_MS = 20_000;
 async function runAsrProvider(
   def: AsrProviderDef,
   input: TranscribeInput,
+  meterContext: MeterContext | null,
+  attempt: number,
+  quantity: number,
 ): Promise<TranscriptionResult> {
   const apiKey = await resolveAsrApiKey(def);
   const key = asrHealthKey(def.id);
   const startedAt = Date.now();
   try {
-    const result = await def.transcribe(input, apiKey);
+    const result = await meter(
+      meterContext
+        ? {
+            ...meterContext,
+            provider: def.id,
+            model: def.model,
+            operationFamilyKey: meterContext.operationFamilyKey ?? meterContext.operationKey,
+            operationKey: meterContext.operationKey
+              ? `${meterContext.operationKey}:provider:${def.id}:attempt:${attempt}`
+              : null,
+          }
+        : null,
+      "transcription",
+      quantity,
+      () => def.transcribe(input, apiKey),
+    );
     recordProviderSuccess(key, Date.now() - startedAt);
     return result;
   } catch (error) {
@@ -230,6 +251,18 @@ async function runAsrProvider(
   }
 }
 
+/** Prefer the input container's timeline; retain an explicit fallback if probing fails. */
+async function transcriptionSeconds(input: TranscribeInput): Promise<number> {
+  const duration = await probeAudioDurationSeconds(input.buffer, input.filename);
+  if (duration !== null) return Math.max(0.001, duration);
+  // A corrupt/streaming container can lack duration metadata. For enforce
+  // safety reserve one second per encoded byte: every supported real audio
+  // codec consumes more than one byte per second, so this is an intentionally
+  // extreme upper bound rather than the old bitrate estimate. Unprobeable
+  // inputs will therefore be rejected for insufficient funds before dispatch
+  // instead of creating hidden post-provider debt.
+  return Math.max(0.001, input.buffer.length);
+}
 /**
  * Transcribe a voice note using the currently selected provider.
  *
@@ -248,24 +281,18 @@ async function runAsrProvider(
  * A voice note the tenant just recorded cannot be re-recorded on demand, so a
  * bad ten minutes at one vendor should not lose it.
  */
-export async function transcribeAudio(input: TranscribeInput): Promise<TranscriptionResult> {
-  return meter(
-    input.meterTenantId ? { tenantId: input.meterTenantId } : null,
-    "transcription",
-    input.durationSec ?? 0,
-    () => transcribeAudioUnmetered(input),
-  );
-}
-
-async function transcribeAudioUnmetered(
+export async function transcribeAudio(
   input: TranscribeInput,
+  meterContext: MeterContext | null,
 ): Promise<TranscriptionResult> {
   const id = await getSelectedAsrProviderId();
   const def = getProviderDef(id) ?? getProviderDef(DEFAULT_ASR_PROVIDER)!;
+  // Probe once: every fallback transcribes the same authoritative input.
+  const quantity = await transcriptionSeconds(input);
 
   let primaryError: unknown;
   try {
-    return await runAsrProvider(def, input);
+    return await runAsrProvider(def, input, meterContext, 0, quantity);
   } catch (error) {
     primaryError = error;
     if (!isTransientAsrError(error)) throw error;
@@ -302,7 +329,13 @@ async function transcribeAudioUnmetered(
       "Speech-to-text provider failed transiently; trying fallback provider",
     );
     try {
-      return await runAsrProvider(candidate, input);
+      return await runAsrProvider(
+        candidate,
+        input,
+        meterContext,
+        ordered.indexOf(candidate) + 1,
+        quantity,
+      );
     } catch (error) {
       if (!isTransientAsrError(error)) throw error;
     }

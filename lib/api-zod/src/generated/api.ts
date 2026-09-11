@@ -34649,6 +34649,7 @@ export const AdminGetCreditMeterReportResponse = zod.object({
   "totalCredits": zod.number(),
   "totalProviderTokens": zod.number().nullish(),
   "totalProviderUsd": zod.number().nullish(),
+  "unpricedKeys": zod.array(zod.string()).describe('Metered keys absent from the current rate card.'),
   "rows": zod.array(zod.object({
   "rateKey": zod.string(),
   "provider": zod.string().nullish(),
@@ -34657,6 +34658,7 @@ export const AdminGetCreditMeterReportResponse = zod.object({
   "failedCalls": zod.number().describe('Calls the provider billed for that then failed. Nothing else in the app records these, because usage is only written on success.'),
   "quantity": zod.number(),
   "credits": zod.number(),
+  "pricingStatus": zod.enum(['priced', 'free', 'inactive', 'unpriced']).describe('How the key appears on the current rate card. Unpriced means the key is missing, not that it has a configured zero or inactive rate.'),
   "providerTokens": zod.number().nullish().describe('Output tokens the provider reported, when it reports any.'),
   "providerUsd": zod.number().nullish().describe('Actual USD the provider reported, when it reports any.')
 }))

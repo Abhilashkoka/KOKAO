@@ -1,4 +1,5 @@
 import { VideoGenProviderError } from "./types";
+import { isMeterDispatchReplayError } from "../meterErrors";
 
 /**
  * Small bounded retry-with-backoff for the flaky edges of video generation:
@@ -24,6 +25,7 @@ export function isTransientStatus(status: number | undefined): boolean {
 }
 
 function defaultRetryable(error: unknown): boolean {
+  if (isMeterDispatchReplayError(error)) return false;
   if (error instanceof VideoGenProviderError) return isTransientStatus(error.status);
   // Network/abort-level failures (fetch TypeError, socket resets) are
   // transient by nature; anything typed as a permanent provider rejection

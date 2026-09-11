@@ -86,7 +86,7 @@ describe("reference-required routing", () => {
   beforeEach(() => generateImage.mockClear());
 
   it("refuses to render a scene keyframe without the reference reaching the provider", async () => {
-    await generateSceneKeyframe(CHARACTER, OUTFIT, "a corridor", "9:16", REFERENCE);
+    await generateSceneKeyframe(CHARACTER, OUTFIT, "a corridor", "9:16", REFERENCE, null, "medium");
 
     expect(generateImage).toHaveBeenCalledTimes(1);
     const [, , reference, opts] = generateImage.mock.calls[0]!;
@@ -95,7 +95,7 @@ describe("reference-required routing", () => {
   });
 
   it("requires it for costume variants too", async () => {
-    await generateOutfitVariant(CHARACTER, "a white coat", REFERENCE);
+    await generateOutfitVariant(CHARACTER, "a white coat", REFERENCE, null);
 
     const [, , reference, opts] = generateImage.mock.calls[0]!;
     expect(reference).toBe(REFERENCE);
@@ -103,7 +103,7 @@ describe("reference-required routing", () => {
   });
 
   it("uses either uploaded or AI primary portraits as required sheet input", async () => {
-    await generateCharacterReferenceSheet(CHARACTER, REFERENCE);
+    await generateCharacterReferenceSheet(CHARACTER, REFERENCE, null);
 
     const [prompt, size, reference, opts] = generateImage.mock.calls[0]!;
     expect(size).toBe("1536x1024");
@@ -125,6 +125,7 @@ describe("reference-required routing", () => {
       CHARACTER,
       "a white coat",
       REFERENCE,
+      null,
       exactMaskedEdit as never,
       onProviderSuccess,
     );

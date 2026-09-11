@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { buildWav, parseWav } from "./narration";
 import type { ScriptScene } from "./characterScenes";
+import { MeterDispatchReplayError } from "../../meterErrors";
 
 const generateVideo = vi.fn();
 const lipSyncClip = vi.fn();
@@ -82,6 +83,27 @@ async function animate(lipSync: { wav: Buffer } | null) {
 }
 
 describe("character scene lip sync", () => {
+  it("treats a metered replay block as terminal before the outer animation retry", async () => {
+    generateVideo.mockRejectedValueOnce(new MeterDispatchReplayError());
+    const { animateSceneKeyframes } = await import("./characterScenes");
+
+    await expect(
+      animateSceneKeyframes({
+        keyframes: [KEYFRAMES[0]!],
+        plan: [PLAN[0]!],
+        scenes: [SCENES[0]!],
+        aspectRatio: "9:16",
+        meterCtx: { tenantId: 1, operationKey: "video-job:9:animation" },
+      }),
+    ).rejects.toBeInstanceOf(MeterDispatchReplayError);
+
+    expect(generateVideo).toHaveBeenCalledTimes(1);
+    expect(generateVideo.mock.calls[0]?.[0]?.meterCtx).toMatchObject({
+      operationFamilyKey: "video-job:9:animation:0",
+      operationKey: "video-job:9:animation:0:dispatch:0",
+    });
+  });
+
   it("uses Atlas reference assets as text-mode input instead of sending the keyframe", async () => {
     const { animateSceneKeyframes } = await import("./characterScenes");
     const assetIds = ["asset-sheet-1", "asset-outfit-1"];

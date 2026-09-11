@@ -3,6 +3,7 @@ import { decryptCustomProviderKey, customProviderRef } from "./customAiProviders
 import { platformFetch } from "./platformFetch";
 import { getTextGenSelection } from "./textGen";
 import { getImageGenSelection } from "./imageGen";
+import { meter } from "./meter";
 
 /**
  * Live "does this provider actually work?" checks for admin-added
@@ -128,18 +129,24 @@ export async function testCustomAiProvider(
           ? (selection.defaultModel ?? selection.models[0] ?? null)
           : null;
       const model = await resolveModel(configured);
-      const res = await platformFetch(
-        `${baseUrl}/chat/completions`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            model,
-            messages: [{ role: "user", content: "Reply with the single word OK." }],
-            max_tokens: 5,
-          }),
-        },
-        TEXT_TEST_TIMEOUT_MS,
+      const res = await meter(
+        null,
+        "caption",
+        1,
+        () =>
+          platformFetch(
+            `${baseUrl}/chat/completions`,
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                model,
+                messages: [{ role: "user", content: "Reply with the single word OK." }],
+                max_tokens: 5,
+              }),
+            },
+            TEXT_TEST_TIMEOUT_MS,
+          ),
       );
       if (!res.ok) {
         return { useCase: "text", ok: false, message: await responseError(res) };
@@ -165,18 +172,23 @@ export async function testCustomAiProvider(
       const selection = await getImageGenSelection();
       const configured = selection.provider === ref ? selection.model : null;
       const model = await resolveModel(configured);
-      const res = await platformFetch(
-        `${baseUrl}/images/generations`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            model,
-            prompt: "A plain solid blue circle on a white background",
-            n: 1,
-          }),
-        },
-        IMAGE_TEST_TIMEOUT_MS,
+      const res = await meter(
+        null,
+        "image",
+        1,
+        () => platformFetch(
+          `${baseUrl}/images/generations`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              model,
+              prompt: "A plain solid blue circle on a white background",
+              n: 1,
+            }),
+          },
+          IMAGE_TEST_TIMEOUT_MS,
+        ),
       );
       if (!res.ok) {
         return { useCase: "image", ok: false, message: await responseError(res) };

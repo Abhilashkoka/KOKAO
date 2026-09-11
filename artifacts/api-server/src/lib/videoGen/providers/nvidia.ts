@@ -4,12 +4,14 @@ import { boundedProviderFetch } from "../../aiProviderFetch";
 import {
   errorDetail,
   providerAspect,
+  isHdVideoResolution,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
+import { meter } from "../../meter";
 
 export const NVIDIA_NIM_VIDEO_MODEL = NVIDIA_WAN_2_2_VIDEO_MODEL;
 
@@ -69,28 +71,44 @@ export async function generateWithNvidiaNimVideo(
   // Unlike hosted job APIs this NIM route is synchronous, so give the single
   // request the normal whole-generation budget while still enforcing a hard
   // upper bound.
-  const response = await boundedProviderFetch(
-    nvidiaNimVideoEndpoint(deployment.baseUrl),
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
+  const buffer = await meter(
+    input.meterContext
+      ? {
+          ...input.meterContext,
+          provider: input.meterContext.provider ?? "nvidia",
+          model: NVIDIA_NIM_VIDEO_MODEL,
+          operationFamilyKey: input.meterContext.operationFamilyKey
+            ?? input.meterContext.operationKey,
+          operationKey: `${input.meterContext.operationKey ?? "video"}:submit:0`,
+        }
+      : null,
+    isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+    seconds,
+    async () => {
+      const response = await boundedProviderFetch(
+        nvidiaNimVideoEndpoint(deployment.baseUrl),
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        },
+        VIDEO_GEN_TOTAL_DEADLINE_MS,
+        () =>
+          new VideoGenProviderError(
+            `NVIDIA NIM video generation timed out after ${VIDEO_GEN_TOTAL_DEADLINE_MS / 1000}s.`,
+          ),
+      );
+      if (!response.ok) {
+        throw new VideoGenProviderError(
+          `NVIDIA NIM video request failed (${response.status}): ${await errorDetail(response)}`,
+          response.status,
+        );
+      }
+      const payload = (await response.json().catch(() => null)) as
+        | { data?: { b64_json?: unknown } }
+        | null;
+      return decodeVideo(payload?.data?.b64_json);
     },
-    VIDEO_GEN_TOTAL_DEADLINE_MS,
-    () =>
-      new VideoGenProviderError(
-        `NVIDIA NIM video generation timed out after ${VIDEO_GEN_TOTAL_DEADLINE_MS / 1000}s.`,
-      ),
   );
-  if (!response.ok) {
-    throw new VideoGenProviderError(
-      `NVIDIA NIM video request failed (${response.status}): ${await errorDetail(response)}`,
-      response.status,
-    );
-  }
-  const payload = (await response.json().catch(() => null)) as
-    | { data?: { b64_json?: unknown } }
-    | null;
-  const buffer = decodeVideo(payload?.data?.b64_json);
   return { buffer, provider: "nvidia", model: NVIDIA_NIM_VIDEO_MODEL };
 }

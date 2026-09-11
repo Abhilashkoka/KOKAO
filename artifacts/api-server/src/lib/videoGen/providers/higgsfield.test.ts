@@ -13,6 +13,7 @@ import {
 import type { VideoGenInput } from "../types";
 
 const base: VideoGenInput = {
+  meterContext: null,
   prompt: "a doctor speaking to camera",
   aspectRatio: "9:16",
   durationSec: 5,

@@ -6,11 +6,13 @@ import {
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   compiledClipPrompt,
   providerAspect,
+  isHdVideoResolution,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
 import { withRetries, isTransientStatus } from "../retry";
 import { LATENT_SYNC, type LipSyncModelDef } from "../lipSyncModels";
+import { meter, type MeterContext } from "../../meter";
 
 /**
  * Default Replicate video models. Both are the fast WAN 2.2 variants: cheap,
@@ -225,6 +227,10 @@ export async function generateLipSyncWithReplicate(
     audio: { buffer: Buffer; mimeType: string };
     /** Which model, and what its input keys are called. */
     def: LipSyncModelDef;
+    /** Seconds submitted to the paid lip-sync model. */
+    durationSec: number;
+    /** Explicitly null for provider probes and superadmin playground calls. */
+    meterCtx: MeterContext | null;
   },
   apiKey: string | null,
   /**
@@ -257,6 +263,12 @@ export async function generateLipSyncWithReplicate(
     ref,
     { [def.sourceField]: sourceUrl, [def.audioField]: audioUrl },
     apiKey,
+    {
+      meterContext: args.meterCtx,
+      durationSec: args.durationSec,
+      kind: "lipsync",
+      model: ref.split(":")[0] || def.model,
+    },
   );
   // Record the model that actually ran (version suffix stripped) so a job row
   // names the build that produced the file, not the default it overrode.
@@ -278,7 +290,13 @@ export async function generateWithReplicate(
     : input.image
       ? REPLICATE_I2V_MODEL
       : REPLICATE_T2V_MODEL;
-  const buffer = await runReplicatePrediction(model, buildInput(input), apiKey);
+  const buffer = await runReplicatePrediction(model, buildInput(input), apiKey, {
+    meterContext: input.meterContext,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    kind: "video",
+    model,
+  });
   return { buffer, provider: "replicate", model };
 }
 
@@ -287,6 +305,13 @@ async function runReplicatePrediction(
   model: string,
   input: Record<string, unknown>,
   apiKey: string,
+  billing: {
+    meterContext: MeterContext | null;
+    durationSec: number;
+    resolution?: string | null;
+    kind: "video" | "lipsync";
+    model: string;
+  },
 ): Promise<Buffer> {
   const headers = {
     Authorization: `Bearer ${apiKey}`,
@@ -302,25 +327,42 @@ async function runReplicatePrediction(
   const predictionBody = isVersionedCommunityModel
     ? { version: model, input }
     : { input };
+  let submitAttempt = 0;
   let prediction = await withRetries(
     async (): Promise<ReplicatePrediction> => {
-      const res = await videoGenFetch(
-        predictionUrl,
-        {
+      const attemptIndex = submitAttempt++;
+      return meter(
+        billing.meterContext
+          ? {
+              ...billing.meterContext,
+              provider: billing.meterContext.provider ?? "replicate",
+              model: billing.model,
+              operationFamilyKey: billing.meterContext.operationFamilyKey
+                ?? billing.meterContext.operationKey,
+              operationKey: `${billing.meterContext.operationKey ?? billing.kind}:submit:${attemptIndex}`,
+            }
+          : null,
+        billing.kind === "lipsync"
+          ? "lipsync"
+          : isHdVideoResolution(billing.resolution) ? "video_hd" : "video",
+        billing.durationSec,
+        async () => {
+          const res = await videoGenFetch(predictionUrl, {
           method: "POST",
           headers: { ...headers, Prefer: "wait=60" },
           body: JSON.stringify(predictionBody),
+          });
+          if (!res.ok) {
+            throw replicatePredictionError(
+              `Replicate video prediction failed (${res.status}): ${await errorDetail(res)}`,
+              res.status,
+              model,
+              res.headers.get("x-request-id"),
+            );
+          }
+          return (await res.json()) as ReplicatePrediction;
         },
       );
-      if (!res.ok) {
-        throw replicatePredictionError(
-          `Replicate video prediction failed (${res.status}): ${await errorDetail(res)}`,
-          res.status,
-          model,
-          res.headers.get("x-request-id"),
-        );
-      }
-      return (await res.json()) as ReplicatePrediction;
     },
     { attempts: 3 },
   );

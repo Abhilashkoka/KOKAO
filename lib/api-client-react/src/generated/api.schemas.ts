@@ -1296,6 +1296,19 @@ export interface CreditRateCardInput {
   rates: CreditRateInput[];
 }
 
+/**
+ * How the key appears on the current rate card. Unpriced means the key is missing, not that it has a configured zero or inactive rate.
+ */
+export type CreditMeterReportRowPricingStatus = typeof CreditMeterReportRowPricingStatus[keyof typeof CreditMeterReportRowPricingStatus];
+
+
+export const CreditMeterReportRowPricingStatus = {
+  priced: 'priced',
+  free: 'free',
+  inactive: 'inactive',
+  unpriced: 'unpriced',
+} as const;
+
 export interface CreditMeterReportRow {
   rateKey: string;
   /** @nullable */
@@ -1307,6 +1320,8 @@ export interface CreditMeterReportRow {
   failedCalls: number;
   quantity: number;
   credits: number;
+  /** How the key appears on the current rate card. Unpriced means the key is missing, not that it has a configured zero or inactive rate. */
+  pricingStatus: CreditMeterReportRowPricingStatus;
   /**
      * Output tokens the provider reported, when it reports any.
      * @nullable
@@ -1329,6 +1344,8 @@ export interface CreditMeterReport {
   totalProviderTokens?: number | null;
   /** @nullable */
   totalProviderUsd?: number | null;
+  /** Metered keys absent from the current rate card. */
+  unpricedKeys: string[];
   rows: CreditMeterReportRow[];
 }
 

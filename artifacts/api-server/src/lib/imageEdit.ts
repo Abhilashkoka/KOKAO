@@ -6,11 +6,11 @@ import { OPENAI_BUILTIN_MODEL } from "./imageGen/providers/openaiBuiltin";
 import { loadReferenceImage, ReferenceImageError } from "./referenceGuide";
 import { applyMadeWithWatermark } from "./watermark";
 import { getPlan } from "./plans";
-import { meter } from "./meter";
 import { isFeatureEnabled } from "./featureFlags";
 import { uploadBufferToStorage } from "./storageUpload";
 import { buildImageCostMeta } from "./aiCost";
 import type { UsageMeta } from "./usage";
+import { meter, type MeterContext } from "./meter";
 
 /**
  * Mask-based AI image editing (inpainting) for the web image editor.
@@ -62,6 +62,7 @@ export interface ImageEditInput {
   sourceMimeType: string;
   maskB64: string;
   prompt: string;
+  meterContext: MeterContext | null;
 }
 
 export interface ImageEditOutcome {
@@ -150,13 +151,23 @@ export async function performImageEdit(input: ImageEditInput): Promise<ImageEdit
 
   let response;
   try {
-    response = await meter({ tenantId: input.tenantId }, "image_edit", 1, () =>
-      openai.images.edit({
-        model: OPENAI_BUILTIN_MODEL,
-        image: imageFile,
-        mask: maskFile,
-        prompt: input.prompt,
-      }),
+    response = await meter(
+      input.meterContext
+        ? { ...input.meterContext, provider: "openai", model: OPENAI_BUILTIN_MODEL }
+        : null,
+      "image_edit",
+      1,
+      () =>
+        openai.images.edit({
+          model: OPENAI_BUILTIN_MODEL,
+          image: imageFile,
+          mask: maskFile,
+          prompt: input.prompt,
+        }),
+      (result) => {
+        const usage = (result as { usage?: { output_tokens?: number } }).usage;
+        return typeof usage?.output_tokens === "number" ? { tokens: usage.output_tokens } : null;
+      },
     );
   } catch (error) {
     if (isModerationBlocked(error)) {

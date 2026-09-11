@@ -93,12 +93,19 @@ describe("meter enforcement", () => {
     expect(events.some((e) => e.outcome === "failed")).toBe(true);
   });
 
-  it("charges once when a settle is replayed with the same operation key", async () => {
+  it("charges once and blocks a second provider dispatch with the same operation key", async () => {
     await setMeterMode("enforce");
     await grantCredits({ tenantId, credits: 50, kind: "purchase" });
     const ctx = { tenantId, operationKey: "job-99-scene-1" };
+    let calls = 0;
     await meter(ctx, "video", 10, async () => "clip");
-    await meter(ctx, "video", 10, async () => "clip");
+    await expect(
+      meter(ctx, "video", 10, async () => {
+        calls += 1;
+        return "duplicate";
+      }),
+    ).rejects.toThrow(/already dispatched/i);
+    expect(calls).toBe(0);
     expect((await getCreditBalance(tenantId)).total).toBe(40);
   });
 

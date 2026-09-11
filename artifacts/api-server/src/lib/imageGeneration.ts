@@ -15,9 +15,9 @@ import { getPlan } from "./plans";
 import { getTextGenClient } from "./textGen";
 import { buildTasteGuidance } from "./tasteMemory";
 import { buildImageCostMeta } from "./aiCost";
-import { meter } from "./meter";
 import type { UsageMeta } from "./usage";
 import { logger } from "./logger";
+import type { MeterContext } from "./meter";
 
 /**
  * The full image-generation pipeline shared by the synchronous
@@ -49,6 +49,7 @@ export interface ImageGenerationInput {
   referenceImage?: ReferenceImage | null;
   /** Server-owned frozen provider/model policy for durable Guided Story work. */
   selectionPolicy?: ImageGenSelectionPolicy;
+  meterContext: MeterContext;
 }
 
 export interface ImageGenerationOutcome {
@@ -106,9 +107,9 @@ export async function buildImagePrompt(input: {
   // Text-model passes fail soft: if the routed text-gen provider is
   // unconfigured, image generation continues with the base prompt.
   const [softTextGen, softMultimodalTextGen] = await Promise.all([
-    getTextGenClient(tenant.aiModel).catch(() => null),
+    getTextGenClient(tenant.aiModel, { tenantId }).catch(() => null),
     referenceImage
-      ? getTextGenClient(tenant.aiModel, { capability: "multimodal" }).catch(() => null)
+      ? getTextGenClient(tenant.aiModel, { tenantId }, { capability: "multimodal" }).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -179,11 +180,10 @@ export async function performImageGeneration(
     usage: imageUsage,
     fallbackStep,
     routingReason,
-  } = await meter({ tenantId: input.tenantId }, "image", 1, () =>
-    generateImage(prompt, input.size, input.referenceImage ?? undefined, {
-      selectionPolicy: input.selectionPolicy,
-    }),
-  );
+  } = await generateImage(prompt, input.size, input.referenceImage ?? undefined, {
+    selectionPolicy: input.selectionPolicy,
+    meterContext: input.meterContext,
+  });
 
   // Plans with the watermark switch ON get a "Made with KOKAO.in" stamp,
   // subject to the platform-wide "freeWatermark" kill switch (default-ON: a

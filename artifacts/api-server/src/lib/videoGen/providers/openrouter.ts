@@ -5,10 +5,12 @@ import {
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   compiledClipPrompt,
   providerAspect,
+  isHdVideoResolution,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
 import { withRetries, isTransientStatus } from "../retry";
+import { meter } from "../../meter";
 
 /**
  * Default OpenRouter video models. Kling 3.0 Standard supports all three
@@ -266,23 +268,38 @@ export async function generateWithOpenRouterVideo(
 
   // Submit with bounded retries: 429s and transient 5xxs are routine and
   // should never fail a job the tenant already paid a video unit for.
+  let submitAttempt = 0;
   let job = await withRetries(
     async (): Promise<OpenRouterVideoJob> => {
-      const res = await videoGenFetch(videosUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const { full, detail } = await readOpenRouterError(res);
-        const privacyError = parseOpenRouterInputImagePrivacyError(full);
-        if (privacyError) throw privacyError;
-        throw new VideoGenProviderError(
-          `OpenRouter video request failed (${res.status}): ${detail}`,
-          res.status,
-        );
-      }
-      return (await res.json()) as OpenRouterVideoJob;
+      const attemptIndex = submitAttempt++;
+      return meter(
+        input.meterContext
+          ? {
+              ...input.meterContext,
+              provider: input.meterContext.provider ?? "openrouter",
+              model: input.model,
+              operationFamilyKey: input.meterContext.operationFamilyKey
+                ?? input.meterContext.operationKey,
+              operationKey: `${input.meterContext.operationKey ?? "video"}:submit:${attemptIndex}`,
+            }
+          : null,
+        isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+        input.durationSec,
+        async () => {
+          const res = await videoGenFetch(videosUrl, {
+            method: "POST", headers, body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            const { full, detail } = await readOpenRouterError(res);
+            const privacyError = parseOpenRouterInputImagePrivacyError(full);
+            if (privacyError) throw privacyError;
+            throw new VideoGenProviderError(
+              `OpenRouter video request failed (${res.status}): ${detail}`, res.status,
+            );
+          }
+          return (await res.json()) as OpenRouterVideoJob;
+        },
+      );
     },
     { attempts: 3 },
   );

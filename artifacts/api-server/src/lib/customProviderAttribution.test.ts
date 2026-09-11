@@ -152,7 +152,7 @@ describe("image generation through a custom provider", () => {
       customBaseUrl: null,
     });
 
-    const result = await generateImage("a red square", "1024x1024");
+    const result = await generateImage("a red square", "1024x1024", undefined, { meterContext: null });
 
     // This is the string usage/cost rows record via buildImageCostMeta —
     // regressing it silently mis-attributes cost to the "custom" adapter id.
@@ -191,6 +191,7 @@ describe("video generation through the custom video def", () => {
     });
 
     const result = await generateVideo({
+      meterCtx: null,
       mode: "text",
       prompt: "a spinning cube",
       aspectRatio: "9:16",

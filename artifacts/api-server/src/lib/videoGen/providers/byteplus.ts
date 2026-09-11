@@ -1,6 +1,7 @@
 import {
   compiledClipPrompt,
   providerAspect,
+  isHdVideoResolution,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
@@ -10,6 +11,7 @@ import {
 } from "../types";
 import { isTransientStatus } from "../retry";
 import { assertPublicHost } from "../../webFetch";
+import { meter } from "../../meter";
 
 /** BytePlus ModelArk's international (Singapore) API, not the mainland Ark endpoint. */
 const BYTEPLUS_MODELARK_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3";
@@ -360,23 +362,48 @@ export async function generateWithBytePlusModelArk(
   if (resumedTaskId) {
     task = { id: resumedTaskId, status: "queued" };
   } else {
-    const createActive = await fetchWithinDeadline(deadline, TASKS_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(bytePlusRequestBody(input)),
-    });
-    requestId = responseRequestId(createActive.response);
-    if (!createActive.response.ok) {
-      const detail = await modelArkErrorDetail(createActive).finally(() => createActive.dispose());
-      throw new VideoGenProviderError(
-        `BytePlus ModelArk request failed (${createActive.response.status}): ${detail}`,
-        createActive.response.status,
-        undefined,
-        requestId ?? undefined,
-      );
-    }
-    task = await parseModelArkTask(createActive).finally(() => createActive.dispose());
-    requestId = safeProviderId(task.request_id ?? task.requestId) ?? requestId;
+    const submitted = await meter(
+      input.meterContext
+        ? {
+            ...input.meterContext,
+            provider: input.meterContext.provider ?? "byteplus",
+            model: input.model,
+            operationFamilyKey: input.meterContext.operationFamilyKey
+              ?? input.meterContext.operationKey,
+            operationKey: `${input.meterContext.operationKey ?? "video"}:submit:0`,
+          }
+        : null,
+      isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+      input.durationSec,
+      async () => {
+        const createActive = await fetchWithinDeadline(deadline, TASKS_URL, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(bytePlusRequestBody(input)),
+        });
+        const submittedRequestId = responseRequestId(createActive.response);
+        if (!createActive.response.ok) {
+          const detail = await modelArkErrorDetail(createActive)
+            .finally(() => createActive.dispose());
+          throw new VideoGenProviderError(
+            `BytePlus ModelArk request failed (${createActive.response.status}): ${detail}`,
+            createActive.response.status,
+            undefined,
+            submittedRequestId ?? undefined,
+          );
+        }
+        const submittedTask = await parseModelArkTask(createActive)
+          .finally(() => createActive.dispose());
+        return {
+          task: submittedTask,
+          requestId:
+            safeProviderId(submittedTask.request_id ?? submittedTask.requestId) ??
+            submittedRequestId,
+        };
+      },
+    );
+    task = submitted.task;
+    requestId = submitted.requestId;
     const taskId = safeProviderId(task.id);
     if (!taskId) {
       throw new VideoGenProviderError(

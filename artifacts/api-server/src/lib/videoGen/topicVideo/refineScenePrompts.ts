@@ -18,7 +18,10 @@ export async function refineScenePrompts(params: {
   if (originals.length === 0) return originals;
 
   try {
-    const textGen = await getTextGenClient(params.tenantAiModel);
+    const textGen = await getTextGenClient(
+      params.tenantAiModel,
+      params.tenantId ? { tenantId: params.tenantId } : null,
+    );
     const governed = params.tenantId
       ? await getGovernedPrompt({
           flowKey: "video_scene_image",

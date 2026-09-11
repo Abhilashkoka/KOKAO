@@ -36,6 +36,7 @@ import {
   normalizeLocalizedNarrationSelection,
   type LocalizedNarrationSelection,
 } from "../videoGen/topicVideo/tts";
+import type { MeterContext } from "../meter";
 import type { NarrationVoice } from "../videoGen/topicVideo/narration";
 
 const execFileAsync = promisify(execFile);
@@ -471,6 +472,7 @@ export interface LocalizedDubOutput {
  * straightforward without spawning ffmpeg or calling TTS.
  */
 export interface DubOrchestrationDeps {
+  meterContext?: MeterContext | null;
   /** Probe source duration before any TTS or rendering work. */
   probeSourceDurationMs?: (video: Buffer) => Promise<number>;
   /** Speak one cue and return WAV bytes. Defaults to speakIndicCue. */
@@ -546,7 +548,9 @@ export async function orchestrateLocalizedDubFull(
   // Resolve one immutable provider-bound speaker before speaking any cue. We
   // never switch provider after cue synthesis starts, so a track cannot mix
   // Sarvam and OpenAI voices.
-  const providerSpeaker = deps.speakCue ? null : await createLocalizedCueSpeaker(selection);
+  const providerSpeaker = deps.speakCue
+    ? null
+    : await createLocalizedCueSpeaker(selection, deps.meterContext ?? null);
   const speakFn:
     (text: string, speaker: string, selection: LocalizedNarrationSelection) => Promise<Buffer> =
     deps.speakCue ??

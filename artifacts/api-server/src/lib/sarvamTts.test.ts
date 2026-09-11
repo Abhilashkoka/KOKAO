@@ -25,6 +25,7 @@ import {
   sarvamTtsHealthKey,
 } from "./sarvamTts";
 import { VideoGenProviderError } from "./videoGen/types";
+import { MeterDispatchReplayError } from "./meterErrors";
 
 // ---------------------------------------------------------------------------
 // DB-backed tests (hit real dev DB, clean up after themselves)
@@ -68,6 +69,10 @@ describe("Sarvam TTS constants", () => {
 
   it("uses the tts:sarvam health key", () => {
     expect(sarvamTtsHealthKey()).toBe("tts:sarvam");
+  });
+
+  it("classifies a metered replay block as terminal", () => {
+    expect(isSarvamTransientError(new MeterDispatchReplayError())).toBe(false);
   });
 });
 
@@ -260,7 +265,7 @@ describe("Sarvam test status persistence", () => {
 
 describe("createSarvamCueSpeaker", () => {
   it("returns null when no API key is available", async () => {
-    const speaker = await createSarvamCueSpeaker("shubh");
+    const speaker = await createSarvamCueSpeaker("shubh", null);
     expect(speaker).toBeNull();
   });
 
@@ -281,7 +286,7 @@ describe("createSarvamCueSpeaker", () => {
     });
     global.fetch = fetchMock as typeof fetch;
 
-    const speaker = await createSarvamCueSpeaker("priya");
+    const speaker = await createSarvamCueSpeaker("priya", null);
     expect(speaker).not.toBeNull();
     // Rotation/removal after the job has started cannot switch this track to a
     // different credential or provider midway through synthesis.
@@ -315,7 +320,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       json: async () => ({ audios: [fakeAudio] }),
     } as Response);
 
-    const result = await speakWithSarvam("Hello", "fake-key", "hi-IN", "priya");
+    const result = await speakWithSarvam("Hello", "fake-key", "hi-IN", "priya", null);
     expect(result).toBeInstanceOf(Buffer);
     expect(result.length).toBe(100);
     expect(global.fetch).toHaveBeenCalledOnce();
@@ -345,7 +350,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       text: async () => "Unauthorized",
     } as unknown as Response);
 
-    await expect(speakWithSarvam("Hello", "bad-key", "hi-IN", "shubh")).rejects.toThrow(
+    await expect(speakWithSarvam("Hello", "bad-key", "hi-IN", "shubh", null)).rejects.toThrow(
       VideoGenProviderError,
     );
   });
@@ -357,7 +362,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       text: async () => "Rate limit exceeded",
     } as unknown as Response);
 
-    const err = await speakWithSarvam("Hello", "some-key", "hi-IN", "shubh").catch((e) => e);
+    const err = await speakWithSarvam("Hello", "some-key", "hi-IN", "shubh", null).catch((e) => e);
     expect(err).toBeInstanceOf(VideoGenProviderError);
     expect((err as VideoGenProviderError).status).toBe(429);
     expect(isSarvamTransientError(err)).toBe(true);
@@ -369,7 +374,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       json: async () => ({ audios: [] }),
     } as Response);
 
-    await expect(speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh")).rejects.toThrow(
+    await expect(speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh", null)).rejects.toThrow(
       /Sarvam TTS returned no audio data/,
     );
   });
@@ -380,7 +385,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       json: async () => ({}),
     } as Response);
 
-    await expect(speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh")).rejects.toThrow(VideoGenProviderError);
+    await expect(speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh", null)).rejects.toThrow(VideoGenProviderError);
   });
 
   it("throws when decoded audio is too small to be a WAV", async () => {
@@ -390,7 +395,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       json: async () => ({ audios: [tinyBuf.toString("base64")] }),
     } as Response);
 
-    await expect(speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh")).rejects.toThrow(
+    await expect(speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh", null)).rejects.toThrow(
       /too small to be a valid WAV/,
     );
   });
@@ -420,7 +425,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       origAbort.call(this);
     };
     try {
-      const err = await speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh").catch((e) => e);
+      const err = await speakWithSarvam("Hello", "fake-key", "hi-IN", "shubh", null).catch((e) => e);
       expect(err).toBeInstanceOf(VideoGenProviderError);
     } finally {
       AbortController.prototype.abort = origAbort;
@@ -437,7 +442,7 @@ describe("speakWithSarvam (mocked fetch)", () => {
       json: async () => ({ audios: [fakeAudio] }),
     } as Response);
 
-    await speakWithSarvam("Test cue", "fake-key", "te-IN", "neha");
+    await speakWithSarvam("Test cue", "fake-key", "te-IN", "neha", null);
 
     const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
       string,

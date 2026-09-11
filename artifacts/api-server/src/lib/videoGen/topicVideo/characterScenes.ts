@@ -3,7 +3,6 @@ import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
-import { meter } from "../../meter";
 import type { ImageGenResult } from "../../imageGen/types";
 import { generateVideo } from "../index";
 import { isTransientStatus } from "../retry";
@@ -14,6 +13,8 @@ import type { Cinematography } from "../cinematography";
 import { trimClipToStart } from "../postprocess";
 import { MIN_SYNC_HEIGHT } from "../lipSyncSource";
 import { lipSyncClip } from "../lipSyncClip";
+import type { MeterContext } from "../../meter";
+import { isMeterDispatchReplayError } from "../../meterErrors";
 import {
   videoGenReceipt,
   VideoGenProviderError,
@@ -198,7 +199,10 @@ export async function planSceneVisuals(params: {
     };
   }
 
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.tenantId ? { tenantId: params.tenantId } : null,
+  );
   const wardrobe = params.outfits
     .map((o) => `- id ${o.id}: "${o.name}" — ${o.description}`)
     .join("\n");
@@ -418,6 +422,7 @@ export async function generateSceneKeyframes(params: {
   plan: ScenePlanEntry[];
   aspectRatio: VideoAspect;
   onProviderSuccess?: (args: { sceneIndex: number; attemptIndex: number; result: ImageGenResult }) => Promise<void>;
+  meterCtx?: MeterContext | null;
 }): Promise<ImageGenResult[]> {
   const outfitsById = new Map(params.outfits.map((o) => [o.id, o]));
   // Load each worn outfit's reference once, not per scene.
@@ -430,7 +435,12 @@ export async function generateSceneKeyframes(params: {
   const generateAt = async (entry: ScenePlanEntry, i: number, forceFresh = false) => {
     const outfit = outfitsById.get(entry.outfitId)!;
     const reference = references.get(entry.outfitId)!;
-    const attempt = () =>
+    const operationFamilyKey =
+      `${params.meterCtx?.operationKey ?? "character_keyframe"}:${i}:${forceFresh ? 1 : 0}`;
+    let providerAttempt = 0;
+    const attempt = () => {
+      const attemptIndex = providerAttempt++;
+      return (
       generateSceneKeyframe(
         params.character,
         outfit,
@@ -439,20 +449,24 @@ export async function generateSceneKeyframes(params: {
           : entry.visual,
         params.aspectRatio,
         reference,
+        params.meterCtx
+          ? {
+              ...params.meterCtx,
+                operationFamilyKey,
+                operationKey: `${operationFamilyKey}:dispatch:${attemptIndex}`,
+            }
+          : null,
         entry.shotSize,
-      );
-    // Metered per ATTEMPT, not per scene. A keyframe that fails and retries is
-    // two images the provider bills for, and the distinctness rerun below can
-    // add two more — counting only the surviving one is precisely how this
-    // spend went missing before.
-    const metered = () =>
-      meter({ tenantId: params.tenantId, refKind: "videoJob" }, "image", 1, attempt);
+        undefined,
+      ));
+    };
     let result: ImageGenResult;
     try {
-      result = await metered();
+      result = await attempt();
     } catch (err) {
+      if (isMeterDispatchReplayError(err)) throw err;
       logger.warn({ err, scene: i }, "character keyframe generation failed; retrying once");
-      result = await metered();
+      result = await attempt();
     }
     // Persistence/upload failures occur after acknowledged provider work and
     // must never be mistaken for a provider rejection eligible for a rerun.
@@ -526,6 +540,8 @@ export async function animateSceneKeyframes(params: {
   savedClips?: Array<Buffer | null>;
   onCheckpoint?: (args: VideoGenReceipt & { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
   lipSync?: SceneLipSync | null;
+  /** Owning workspace operation; null only for playground/probe rendering. */
+  meterCtx?: MeterContext | null;
   /** Optional provider-specific prompt, resolved from the frozen job model. */
   scenePrompts?: readonly string[];
   /** Seedance generates the dialogue audio in the same provider call. */
@@ -558,7 +574,11 @@ export async function animateSceneKeyframes(params: {
     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
     const scene = params.scenes[i]!;
     const durationSec = clipDurationForScene(scene.durationSec);
+    const operationFamilyKey =
+      `${params.meterCtx?.operationKey ?? "character_scene"}:${i}`;
+    let providerAttempt = 0;
     const attempt = async (): Promise<Buffer> => {
+      const attemptIndex = providerAttempt++;
       const assetIds = await params.resolveAssetIds?.(i) ?? [];
       const clip = await generateVideo({
         mode: assetIds.length ? "text" : "image",
@@ -578,6 +598,13 @@ export async function animateSceneKeyframes(params: {
         // recorded, so the model's own duration snap must not override it.
         durationSec,
         operationKey: `character_scene:${i}`,
+        meterCtx: params.meterCtx
+          ? {
+              ...params.meterCtx,
+                operationFamilyKey,
+                operationKey: `${operationFamilyKey}:dispatch:${attemptIndex}`,
+            }
+          : null,
       });
       provider = clip.provider;
       model = clip.model;
@@ -592,6 +619,7 @@ export async function animateSceneKeyframes(params: {
     try {
       clip = await attempt();
     } catch (err) {
+      if (isMeterDispatchReplayError(err)) throw err;
       if (err instanceof VideoGenProviderError && !isTransientStatus(err.status)) {
         throw err;
       }
@@ -611,7 +639,17 @@ export async function animateSceneKeyframes(params: {
     // region takes one encode, not two.
     const trimmed = await trimClipToStart(clip, scene.durationSec, MIN_SYNC_HEIGHT);
     try {
-      const result = await lipSyncClip({ video: trimmed, audio });
+      const result = await lipSyncClip({
+        video: trimmed,
+        audio,
+        durationSec: scene.durationSec,
+        meterCtx: params.meterCtx
+          ? {
+              ...params.meterCtx,
+              operationKey: `${params.meterCtx.operationKey ?? "character_lip_sync"}:${i}`,
+            }
+          : null,
+      });
       synced[i] = true;
       return result.buffer;
     } catch (err) {
@@ -657,6 +695,7 @@ export async function generateCharacterSceneClips(params: {
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
   lipSync?: SceneLipSync | null;
+  meterCtx?: MeterContext | null;
   scenePrompts?: readonly string[];
   nativeAudio?: boolean;
 }): Promise<CharacterSceneClips> {
@@ -671,6 +710,7 @@ export async function generateCharacterSceneClips(params: {
     seed: params.seed ?? null,
     modelOptions: params.modelOptions,
     lipSync: params.lipSync ?? null,
+    meterCtx: params.meterCtx ?? null,
     scenePrompts: params.scenePrompts,
     nativeAudio: params.nativeAudio,
     resolveAssetIds: undefined,

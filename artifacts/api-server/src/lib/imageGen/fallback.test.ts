@@ -8,6 +8,11 @@ import {
 import { generateImage, setImageGenSelection } from "./index";
 import { ImageGenProviderError, type ImageGenResult } from "./types";
 
+const meterMock = vi.hoisted(() => vi.fn(
+  async (_ctx: unknown, _key: unknown, _quantity: unknown, run: () => Promise<unknown>) => run(),
+));
+vi.mock("../meter", () => ({ meter: meterMock }));
+
 const fallbackOrderState = vi.hoisted(() => ({
   image: undefined as string[] | undefined,
 }));
@@ -70,6 +75,7 @@ describe("generateImage provider fallback", () => {
     vi.mocked(generateWithGemini).mockReset();
     vi.mocked(generateWithSeedream).mockReset();
     vi.mocked(generateWithBfl).mockReset();
+    meterMock.mockClear();
     resetProviderHealthForTests();
     fallbackOrderState.image = undefined;
     for (const key of ENV_KEYS) delete process.env[key];
@@ -93,10 +99,31 @@ describe("generateImage provider fallback", () => {
     );
     vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
 
-    const out = await generateImage("a calm pastel skyline", "1024x1024");
+    const out = await generateImage("a calm pastel skyline", "1024x1024", undefined, {
+      meterContext: {
+        tenantId: 42,
+        refKind: "imageJob",
+        refId: "88",
+        operationKey: "imageJob:88:generate",
+      },
+    });
     expect(out.provider).toBe("gemini");
     expect(generateWithOpenAIBuiltin).toHaveBeenCalledTimes(1);
     expect(generateWithGemini).toHaveBeenCalledTimes(1);
+    expect(meterMock.mock.calls.map((call) => call.slice(0, 3))).toEqual([
+      [{
+        tenantId: 42, refKind: "imageJob", refId: "88",
+        provider: "openai", model: "gpt-image-1",
+        operationFamilyKey: "imageJob:88:generate",
+        operationKey: "imageJob:88:generate:provider:openai:model:gpt-image-1:attempt:0",
+      }, "image", 1],
+      [{
+        tenantId: 42, refKind: "imageJob", refId: "88",
+        provider: "gemini", model: "gemini-2.5-flash-image",
+        operationFamilyKey: "imageJob:88:generate",
+        operationKey: "imageJob:88:generate:provider:gemini:model:gemini-2.5-flash-image:attempt:1",
+      }, "image", 1],
+    ]);
     // Fallback runs with ITS default model, not the selection's override.
     expect(vi.mocked(generateWithGemini).mock.calls[0][0].model).toBe("gemini-2.5-flash-image");
   });
@@ -107,7 +134,7 @@ describe("generateImage provider fallback", () => {
       new ImageGenProviderError("prompt rejected", 400),
     );
 
-    await expect(generateImage("p", "1024x1024")).rejects.toThrow("prompt rejected");
+    await expect(generateImage("p", "1024x1024", undefined, { meterContext: null })).rejects.toThrow("prompt rejected");
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
 
@@ -121,7 +148,7 @@ describe("generateImage provider fallback", () => {
     );
     vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("gemini");
     expect(generateWithGemini).toHaveBeenCalledTimes(1);
   });
@@ -138,7 +165,7 @@ describe("generateImage provider fallback", () => {
     );
     vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("gemini");
     expect(generateWithSeedream).toHaveBeenCalledTimes(1);
     expect(generateWithGemini).toHaveBeenCalledTimes(1);
@@ -157,7 +184,7 @@ describe("generateImage provider fallback", () => {
     );
     vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
 
-    await expect(generateImage("p", "1024x1024")).rejects.toThrow("upstream down");
+    await expect(generateImage("p", "1024x1024", undefined, { meterContext: null })).rejects.toThrow("upstream down");
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
 
@@ -166,7 +193,7 @@ describe("generateImage provider fallback", () => {
       new ImageGenProviderError("rate limited", 429),
     );
 
-    await expect(generateImage("p", "1024x1024")).rejects.toThrow("rate limited");
+    await expect(generateImage("p", "1024x1024", undefined, { meterContext: null })).rejects.toThrow("rate limited");
     expect(generateWithGemini).not.toHaveBeenCalled();
     expect(generateWithSeedream).not.toHaveBeenCalled();
   });
@@ -180,7 +207,7 @@ describe("generateImage provider fallback", () => {
     );
     vi.mocked(generateWithSeedream).mockResolvedValue(result("seedream"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("seedream");
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
@@ -192,7 +219,7 @@ describe("generateImage provider fallback", () => {
     );
 
     await expect(
-      generateImage("p", "1024x1024", { buffer: Buffer.from("ref"), mimeType: "image/png" }),
+      generateImage("p", "1024x1024", { buffer: Buffer.from("ref"), mimeType: "image/png" }, { meterContext: null }),
     ).rejects.toThrow("upstream down");
     expect(generateWithBfl).not.toHaveBeenCalled();
   });
@@ -208,7 +235,7 @@ describe("generateImage provider fallback", () => {
     );
     vi.mocked(generateWithSeedream).mockResolvedValue(result("seedream"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("seedream");
   });
 
@@ -221,7 +248,7 @@ describe("generateImage provider fallback", () => {
     );
     vi.mocked(generateWithSeedream).mockResolvedValue(result("seedream"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("seedream");
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
@@ -233,7 +260,7 @@ describe("generateImage provider fallback", () => {
       new ImageGenProviderError("upstream down", 503),
     );
 
-    await expect(generateImage("p", "1024x1024")).rejects.toThrow("upstream down");
+    await expect(generateImage("p", "1024x1024", undefined, { meterContext: null })).rejects.toThrow("upstream down");
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
 });

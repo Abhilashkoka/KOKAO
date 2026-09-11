@@ -8,7 +8,8 @@ import {
   recordProviderSuccess,
 } from "../providerHealth";
 import { isVideoModelPriced } from "../aiCost";
-import { meter, type MeterContext } from "../meter";
+import type { MeterContext } from "../meter";
+import { isMeterDispatchReplayError } from "../meterErrors";
 import type { VideoJobOptions, VideoPriceCriteria } from "@workspace/db";
 import { videoPriceCriteria } from "./pricing";
 import {
@@ -760,6 +761,7 @@ export function videoGenHealthKey(providerId: string): string {
 /** Whether a video failure is the UPSTREAM's fault (429/5xx/network/timeout),
  * as opposed to a rejected prompt or bad key that would fail on any model. */
 function isTransientVideoGenError(error: unknown): boolean {
+  if (isMeterDispatchReplayError(error)) return false;
   // A missing API token is terminal. Every model in the chain authenticates
   // with the same credential, so walking it cannot help — and it says nothing
   // about whether the provider is up, so it must not reach the breaker. Both
@@ -974,7 +976,7 @@ export interface GenerateVideoParams {
    * meter is a pass-through. Every caller generating on behalf of a tenant
    * should pass it.
    */
-  meterCtx?: MeterContext | null;
+  meterCtx: MeterContext | null;
 }
 
 async function generateVideoUnmetered(
@@ -1052,6 +1054,17 @@ async function generateVideoUnmetered(
     aspectRatio: params.aspectRatio,
     durationSec: dispatchDurationSec,
     model,
+    meterContext: params.meterCtx
+      ? {
+          ...params.meterCtx,
+          provider: snapshot.provider,
+          model,
+          operationFamilyKey: params.meterCtx.operationFamilyKey
+            ?? params.meterCtx.operationKey
+            ?? params.operationKey,
+          operationKey: `${params.meterCtx.operationKey ?? params.operationKey ?? "video"}:endframe:${withEndFrame ? 1 : 0}`,
+        }
+      : null,
     seed: params.seed ?? null,
     resolution: snapshot.resolution,
     quality: snapshot.quality,
@@ -1119,6 +1132,7 @@ async function generateVideoUnmetered(
         effectiveDurationSec: dispatchDurationSec,
       };
     } catch (error) {
+      if (isMeterDispatchReplayError(error)) throw error;
       const rejected =
         error instanceof VideoGenProviderError &&
         typeof error.status === "number" &&
@@ -1168,12 +1182,10 @@ async function generateVideoUnmetered(
 /**
  * Generate a video and meter what it cost.
  *
- * The meter sits HERE, at the provider boundary, rather than at the route that
- * asked for a video — so a clip generated deep inside a multi-scene job, a
- * clip that fails and is retried, and a clip a QA gate later rejects are all
- * counted. Those are the seconds the provider bills and that nothing upstream
- * has ever recorded. Failover is deliberately inside the metered span: a clip
- * served by a substitute provider still costs real money.
+ * Metering is applied by runModel immediately around each provider adapter
+ * invocation, not around this router. That keeps end-frame compatibility
+ * retries and caller retries as separate paid attempts, with the actual
+ * provider/model frozen into each event.
  *
  * The rate key follows RESOLUTION, because that is what actually drives cost.
  * Atlas bills Seedance by output token and a 720p clip can produce many times
@@ -1186,24 +1198,5 @@ export async function generateVideo(
   params: GenerateVideoParams,
   deps: VideoGenFailoverDeps = {},
 ): Promise<VideoGenResult> {
-  const hd = isHdResolution(params.resolution);
-  return meter(
-    params.meterCtx ?? null,
-    hd ? "video_hd" : "video",
-    params.durationSec,
-    () => generateVideoUnmetered(params, deps),
-    (result) => ({
-      tokens: result.videoTokens ?? null,
-      usd: result.providerReportedActualUsd ?? null,
-    }),
-  );
+  return generateVideoUnmetered(params, deps);
 }
-
-/** 720p and above bills as HD. Unknown resolutions bill at the base rate. */
-function isHdResolution(resolution?: string | null): boolean {
-  if (!resolution) return false;
-  const match = /(\d{3,4})\s*[pP]?/.exec(resolution);
-  const value = match ? Number(match[1]) : NaN;
-  return Number.isFinite(value) && value >= 720;
-}
-

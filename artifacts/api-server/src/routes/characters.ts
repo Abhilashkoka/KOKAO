@@ -336,14 +336,24 @@ async function generateAndPersistReferenceSheet(
                 refId: String(character.id),
               },
             },
-            () => generateCharacterReferenceSheet(character, primaryReference),
+            () => generateCharacterReferenceSheet(character, primaryReference, {
+              tenantId: req.tenantId,
+              refKind: "character",
+              refId: String(character.id),
+              operationKey: `character-reference-sheet:${character.id}`,
+            }),
             (result) => ({ provider: result.provider, model: result.model }),
             { isFailureConfirmed: isConfirmedImageFailure },
           )
         : null;
     const result =
       generated?.value ??
-      (await generateCharacterReferenceSheet(character, primaryReference));
+      (await generateCharacterReferenceSheet(character, primaryReference, {
+        tenantId: req.tenantId,
+        refKind: "character",
+        refId: String(character.id),
+        operationKey: `character-reference-sheet:${character.id}`,
+      }));
     successfulAiWork = true;
     await settleImageFunding(
       req,
@@ -600,6 +610,12 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
                 character,
                 description,
                 baseReference,
+                {
+                  tenantId: req.tenantId,
+                  refKind: "presetCharacter",
+                  refId: resolved.preset.stableId,
+                  operationKey: `preset-outfit:${resolved.preset.stableId}`,
+                },
                 exactMaskedEdit,
                 (meta) => confirmSuccess(meta),
               ),
@@ -613,7 +629,14 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
         character,
         description,
         baseReference,
+        {
+          tenantId: req.tenantId,
+          refKind: "presetCharacter",
+          refId: resolved.preset.stableId,
+          operationKey: `preset-outfit:${resolved.preset.stableId}`,
+        },
         exactMaskedEdit,
+        undefined,
       ));
     successfulAiWork = true;
     await settleImageFunding(
@@ -990,12 +1013,22 @@ router.post("/characters", async (req: Request, res: Response) => {
                   refId: name,
                 },
               },
-              () => generateCharacterReference(description),
+              () => generateCharacterReference(description, {
+                tenantId: req.tenantId,
+                refKind: "character",
+                refId: name,
+                operationKey: `character-reference:${req.tenantId}:${name}`,
+              }),
               (result) => ({ provider: result.provider, model: result.model }),
               { isFailureConfirmed: isConfirmedImageFailure },
             )
           : null;
-      const result = generated?.value ?? (await generateCharacterReference(description));
+      const result = generated?.value ?? (await generateCharacterReference(description, {
+        tenantId: req.tenantId,
+        refKind: "character",
+        refId: name,
+        operationKey: `character-reference:${req.tenantId}:${name}`,
+      }));
       // The paid provider result is complete before local object persistence.
       // A later upload failure must not relabel successful provider work as a
       // failure or refund its reservation.
@@ -1601,6 +1634,12 @@ router.post(
                   character,
                   description,
                   baseReference,
+                  {
+                    tenantId: req.tenantId,
+                    refKind: "character",
+                    refId: String(character.id),
+                    operationKey: `character-outfit:${character.id}:${name}`,
+                  },
                   exactMaskedEdit,
                   (meta) => confirmSuccess(meta),
                 ),
@@ -1614,7 +1653,14 @@ router.post(
           character,
           description,
           baseReference,
+          {
+            tenantId: req.tenantId,
+            refKind: "character",
+            refId: String(character.id),
+            operationKey: `character-outfit:${character.id}:${name}`,
+          },
           exactMaskedEdit,
+          undefined,
         ));
       successfulAiWork = true;
       await settleImageFunding(req, funding, {

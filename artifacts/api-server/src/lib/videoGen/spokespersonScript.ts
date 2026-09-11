@@ -270,7 +270,9 @@ export async function generateSpokespersonScript(params: {
   targetLocale?: string | null;
   overrides?: ScriptInputOverrides;
 }): Promise<SpokespersonScriptResult> {
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(params.tenantAiModel, {
+    tenantId: params.tenantId,
+  });
   const inputs = await resolveScriptInputs({
     tenantId: params.tenantId,
     durationSeconds: params.durationSeconds,

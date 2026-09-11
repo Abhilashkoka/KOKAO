@@ -17,6 +17,8 @@ import {
   resolveNvidiaCoreDeployment,
   NVIDIA_TIMEOUT_MS,
 } from "./nvidiaCore";
+import type { MeterContext } from "./meter";
+import { withTextMeter } from "./textMeter";
 
 /**
  * Text generation routing layer.
@@ -299,6 +301,7 @@ export type TextGenChatCapability = "text" | "multimodal";
  */
 export async function getTextGenClient(
   tenantModel: string,
+  meterContext: MeterContext | null,
   opts?: {
     failover?: boolean;
     /**
@@ -398,6 +401,9 @@ export async function getTextGenClient(
       model: resolveTextModel(selection, tenantModel),
     };
   }
-  if (opts?.failover === false) return base;
-  return withTextGenFailover(base, tenantModel);
+  if (opts?.failover === false) {
+    base.client = withTextMeter(base.client, meterContext, base.provider, base.model);
+    return base;
+  }
+  return withTextGenFailover(base, tenantModel, meterContext);
 }

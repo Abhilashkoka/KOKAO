@@ -8,6 +8,11 @@ import {
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "../types";
 import type { VideoGenInput } from "../types";
 
+const meterSpy = vi.hoisted(() =>
+  vi.fn(async (_context, _kind, _quantity, fn: () => Promise<unknown>) => fn()),
+);
+vi.mock("../../meter", () => ({ meter: meterSpy }));
+
 /**
  * The provider talks to OpenRouter through global fetch (via
  * boundedProviderFetch), so tests stub fetch and assert the exact requests:
@@ -15,6 +20,7 @@ import type { VideoGenInput } from "../types";
  */
 
 const baseInput: VideoGenInput = {
+  meterContext: null,
   prompt: "A barista pulling an espresso shot",
   aspectRatio: "9:16",
   durationSec: 6,
@@ -41,9 +47,45 @@ function videoResponse(bytes: Uint8Array): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  meterSpy.mockClear();
 });
 
 describe("generateWithOpenRouterVideo", () => {
+  it("meters every retried paid submit with a distinct stable key", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchSpy = vi.fn()
+        .mockResolvedValueOnce(jsonResponse({ error: "busy" }, 503))
+        .mockResolvedValueOnce(jsonResponse({ error: "busy" }, 503))
+        .mockResolvedValueOnce(jsonResponse({
+          id: "job-retry",
+          status: "completed",
+          unsigned_urls: ["https://videos.example/retry.mp4"],
+        }))
+        .mockResolvedValueOnce(videoResponse(new Uint8Array([1])));
+      vi.stubGlobal("fetch", fetchSpy);
+      const pending = generateWithOpenRouterVideo({
+        ...baseInput,
+        meterContext: {
+          tenantId: 7,
+          refKind: "videoJob",
+          refId: "42",
+          operationKey: "videoJob:42:scene:1",
+        },
+      }, "sk-or-key");
+      await vi.advanceTimersByTimeAsync(4_500);
+      await pending;
+      expect(meterSpy).toHaveBeenCalledTimes(3);
+      expect(meterSpy.mock.calls.map((call) => call[0]?.operationKey)).toEqual([
+        "videoJob:42:scene:1:submit:0",
+        "videoJob:42:scene:1:submit:1",
+        "videoJob:42:scene:1:submit:2",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("throws NotConfigured without a key (never reaches the network)", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

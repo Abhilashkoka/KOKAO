@@ -1,4 +1,5 @@
 import { boundedProviderFetch } from "../aiProviderFetch";
+import type { MeterContext } from "../meter";
 
 /** Supported output aspect ratios (mirrors the /ai/generate-video contract). */
 export type VideoAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
@@ -25,6 +26,14 @@ export const ASPECT_DIMENSIONS: Record<VideoAspect, { width: number; height: num
 
 /** Every aspect ratio the API accepts, in picker order. */
 export const VIDEO_ASPECTS = Object.keys(ASPECT_DIMENSIONS) as VideoAspect[];
+
+/** 720p and above bills as HD. Unknown resolutions bill at the base rate. */
+export function isHdVideoResolution(resolution?: string | null): boolean {
+  if (!resolution) return false;
+  const match = /(\d{3,4})\s*[pP]?/.exec(resolution);
+  const value = match ? Number(match[1]) : NaN;
+  return Number.isFinite(value) && value >= 720;
+}
 
 /**
  * The delivered frame for an aspect at a given short edge.
@@ -110,6 +119,8 @@ export interface VideoGenInput {
   durationSec: number;
   /** Effective model name (settings override or the provider default). */
   model: string;
+  /** Explicit billing context; null marks an intentional unbillable probe/test. */
+  meterContext: MeterContext | null;
   /** Only set for image_to_video. */
   image?: SourceImage;
   /**

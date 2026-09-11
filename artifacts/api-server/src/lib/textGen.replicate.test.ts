@@ -84,7 +84,7 @@ describe("replicate text provider", () => {
       models: ["openai/gpt-oss-20b"],
       defaultModel: null,
     });
-    await expect(getTextGenClient("openai/gpt-oss-20b")).rejects.toBeInstanceOf(
+    await expect(getTextGenClient("openai/gpt-oss-20b", null)).rejects.toBeInstanceOf(
       TextGenNotConfiguredError,
     );
   });
@@ -96,7 +96,7 @@ describe("replicate text provider", () => {
       models: ["openai/gpt-oss-20b"],
       defaultModel: null,
     });
-    const textGen = await getTextGenClient("openai/gpt-oss-20b");
+    const textGen = await getTextGenClient("openai/gpt-oss-20b", null);
     expect(textGen.provider).toBe("replicate");
     expect(textGen.model).toBe("openai/gpt-oss-20b");
     expect(textGen.client.baseURL).toContain("replicate-shim.invalid");

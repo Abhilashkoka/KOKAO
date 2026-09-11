@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const meterMock = vi.hoisted(() =>
+  vi.fn(async <T>(_ctx: unknown, _kind: string, _quantity: number, fn: () => Promise<T>) => fn()),
+);
+vi.mock("../../meter", () => ({ meter: meterMock }));
+
 vi.mock("../../webFetch", () => ({
   assertPublicHost: vi.fn(async () => {}),
 }));
@@ -14,6 +19,7 @@ import {
 import type { VideoGenInput } from "../types";
 
 const input: VideoGenInput = {
+  meterContext: null,
   prompt: "A presenter speaks naturally",
   aspectRatio: "9:16",
   durationSec: 8,
@@ -24,6 +30,7 @@ const input: VideoGenInput = {
 
 describe("BytePlus ModelArk Seedance 2.5", () => {
   afterEach(() => {
+    meterMock.mockClear();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -94,9 +101,24 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
     vi.stubGlobal("fetch", fetch);
 
     const result = await generateWithBytePlusModelArk(
-      { ...input, onProviderTaskAccepted },
+      {
+        ...input,
+        meterContext: { tenantId: 1, operationKey: "byteplus:clip" },
+        onProviderTaskAccepted,
+      },
       "ark-secret",
     );
+    expect(meterMock.mock.calls[0]?.slice(0, 3)).toEqual([
+      {
+        tenantId: 1,
+        operationFamilyKey: "byteplus:clip",
+        operationKey: "byteplus:clip:submit:0",
+        provider: "byteplus",
+        model: BYTEPLUS_SEEDANCE_25_MODEL,
+      },
+      "video_hd",
+      8,
+    ]);
 
     expect(result).toMatchObject({
       provider: "byteplus",

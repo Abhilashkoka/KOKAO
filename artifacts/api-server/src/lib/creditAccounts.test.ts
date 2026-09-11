@@ -6,6 +6,7 @@ import {
   peekCreditBalance,
   grantCredits,
   spendCredits,
+  spendCreditsOnce,
   refundCredits,
   listCreditHistory,
   hasCreditAccount,
@@ -111,6 +112,21 @@ describe("credit accounts", () => {
     expect((await getCreditBalance(tenantId)).total).toBe(15);
   });
 
+  it("scopes an idempotency receipt to its tenant", async () => {
+    const otherTenantId = (await createTenant()).tenantId;
+    const key = "same-external-receipt";
+    try {
+      await grantCredits({ tenantId, credits: 3, kind: "purchase", idempotencyKey: key });
+      await grantCredits({ tenantId: otherTenantId, credits: 7, kind: "purchase", idempotencyKey: key });
+      expect((await getCreditBalance(tenantId)).total).toBe(3);
+      expect((await getCreditBalance(otherTenantId)).total).toBe(7);
+    } finally {
+      await db.delete(creditAccountLedgerTable).where(eq(creditAccountLedgerTable.tenantId, otherTenantId));
+      await db.delete(creditAccountsTable).where(eq(creditAccountsTable.tenantId, otherTenantId));
+      await deleteTenant(otherTenantId);
+    }
+  });
+
   it("never drives a bucket below zero on a negative admin adjustment", async () => {
     await grantCredits({ tenantId, credits: 3, kind: "grant_admin" });
     await grantCredits({ tenantId, credits: -100, kind: "grant_admin" });
@@ -148,6 +164,25 @@ describe("credit accounts", () => {
     const ok = results.filter((r) => r.status === "fulfilled");
     expect(ok).toHaveLength(1);
     expect((await getCreditBalance(tenantId)).total).toBe(3);
+  });
+
+  it("atomically applies concurrent spends with the same key exactly once", async () => {
+    await grantCredits({ tenantId, credits: 10, kind: "purchase" });
+    const input = {
+      tenantId,
+      creditsMilli: 4 * MILLI,
+      idempotencyKey: `concurrent-spend:${tenantId}`,
+    };
+
+    const results = await Promise.all([
+      spendCreditsOnce(input),
+      spendCreditsOnce(input),
+      spendCreditsOnce(input),
+    ]);
+
+    expect(results.filter((result) => result.applied)).toHaveLength(1);
+    expect((await getCreditBalance(tenantId)).total).toBe(6);
+    expect((await listCreditHistory(tenantId)).filter((row) => row.kind === "spend")).toHaveLength(1);
   });
 
   it("reports account existence and platform liability", async () => {

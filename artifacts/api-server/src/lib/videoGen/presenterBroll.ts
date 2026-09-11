@@ -241,11 +241,15 @@ function fallbackBeats(lines: NarrationLine[], durationMs: number): PlannedBeat[
 }
 
 async function planPresenterBeats(params: {
+  tenantId: number;
   tenantAiModel: string;
   lines: NarrationLine[];
   durationMs: number;
 }): Promise<{ beats: PlannedBeat[]; notes: string[] }> {
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.tenantId ? { tenantId: params.tenantId } : null,
+  );
   const active = await loadActiveCasePrompt("video_broll_beats").catch(() => null);
   const templateBlocks = active
     ? [...active.inheritedBlocks, ...active.version.contentSnapshot]
@@ -297,6 +301,7 @@ export async function probePresenterDurationMs(presenterVideo: Buffer): Promise<
  * into unreserved provider work.
  */
 export async function planPresenterBrollTimeline(params: {
+  tenantId: number;
   script: string;
   tenantAiModel: string;
   durationMs: number;
@@ -305,6 +310,7 @@ export async function planPresenterBrollTimeline(params: {
   const lines =
     params.lines ?? proportionalNarrationLines(params.script, params.durationMs);
   const planned = await planPresenterBeats({
+    tenantId: params.tenantId,
     tenantAiModel: params.tenantAiModel,
     lines,
     durationMs: params.durationMs,

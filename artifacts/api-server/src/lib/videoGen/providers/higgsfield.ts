@@ -5,10 +5,12 @@ import {
   VideoGenProviderError,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   compiledClipPrompt,
+  isHdVideoResolution,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
 import { withRetries, isTransientStatus } from "../retry";
+import { meter } from "../../meter";
 import { assertPublicHost } from "../../webFetch";
 
 /**
@@ -323,20 +325,38 @@ export async function generateWithHiggsfield(
     ? await uploadedHiggsfieldImage(input.endImage, apiKey)
     : undefined;
 
+  let submitAttempt = 0;
   let status = await withRetries(
     async () => {
-      const res = await videoGenFetch(`${HIGGSFIELD_BASE_URL}${path}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(higgsfieldRequestBody(input, imageUrl, endImageUrl)),
-      });
-      if (!res.ok) {
-        throw new VideoGenProviderError(
-          `Higgsfield request failed (${res.status}): ${await errorDetail(res)}`,
-          res.status,
-        );
-      }
-      return (await res.json()) as HiggsfieldRequestStatus;
+      const attemptIndex = submitAttempt++;
+      return meter(
+        input.meterContext
+          ? {
+              ...input.meterContext,
+              provider: input.meterContext.provider ?? "higgsfield",
+              model: input.model,
+              operationFamilyKey: input.meterContext.operationFamilyKey
+                ?? input.meterContext.operationKey,
+              operationKey: `${input.meterContext.operationKey ?? "video"}:submit:${attemptIndex}`,
+            }
+          : null,
+        isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+        input.durationSec,
+        async () => {
+          const res = await videoGenFetch(`${HIGGSFIELD_BASE_URL}${path}`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(higgsfieldRequestBody(input, imageUrl, endImageUrl)),
+          });
+          if (!res.ok) {
+            throw new VideoGenProviderError(
+              `Higgsfield request failed (${res.status}): ${await errorDetail(res)}`,
+              res.status,
+            );
+          }
+          return (await res.json()) as HiggsfieldRequestStatus;
+        },
+      );
     },
     { attempts: 3 },
   );

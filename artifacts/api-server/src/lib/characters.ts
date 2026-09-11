@@ -11,6 +11,7 @@ import type {
 } from "./imageGen/types";
 import { bundledPresetAsset, presetPublicAssetRelativePath } from "./presetCharacters";
 import sharp from "sharp";
+import type { MeterContext } from "./meter";
 
 /**
  * Character lock for the Video Studio.
@@ -294,15 +295,20 @@ export async function loadReferenceImage(
 /** Generate a fresh character reference image from a description. */
 export async function generateCharacterReference(
   description: string,
+  meterContext: MeterContext | null,
   selectionPolicy?: ImageGenSelectionPolicy,
 ): Promise<ImageGenResult> {
-  return generateImage(characterReferencePrompt(description), "1024x1536", undefined, { selectionPolicy });
+  return generateImage(characterReferencePrompt(description), "1024x1536", undefined, {
+    selectionPolicy,
+    meterContext,
+  });
 }
 
 /** Generate a review sheet through the provider-independent reference-aware router. */
 export async function generateCharacterReferenceSheet(
   character: Character,
   primaryReference: ReferenceImage,
+  meterContext: MeterContext | null,
   selectionPolicy?: ImageGenSelectionPolicy,
 ): Promise<ImageGenResult> {
   return generateImage(
@@ -313,6 +319,7 @@ export async function generateCharacterReferenceSheet(
       requireReferenceInput: true,
       forceCapabilityFallback: true,
       selectionPolicy,
+      meterContext,
     },
   );
 }
@@ -365,6 +372,7 @@ export async function generateOutfitVariant(
   character: Character,
   outfitDescription: string,
   baseReference: ReferenceImage,
+  meterContext: MeterContext | null,
   exactMaskedEdit?: ExactMaskedEdit,
   onProviderSuccess?: (meta: {
     provider: string;
@@ -379,8 +387,8 @@ export async function generateOutfitVariant(
     // requireReferenceInput: a costume variant that ignored the base reference
     // would be a different person in the right clothes. See generateSceneKeyframe.
     exactMaskedEdit
-      ? { exactMaskedEdit, onProviderSuccess, requireReferenceInput: true, selectionPolicy }
-      : { requireReferenceInput: true, selectionPolicy },
+      ? { exactMaskedEdit, onProviderSuccess, requireReferenceInput: true, selectionPolicy, meterContext }
+      : { requireReferenceInput: true, selectionPolicy, meterContext },
   );
 }
 
@@ -391,6 +399,7 @@ export async function generateSceneKeyframe(
   sceneVisual: string,
   aspect: VideoJobAspect,
   outfitReference: ReferenceImage,
+  meterContext: MeterContext | null,
   shotSize: "wide" | "medium" | "close" = "medium",
   selectionPolicy?: ImageGenSelectionPolicy,
 ): Promise<ImageGenResult> {
@@ -403,6 +412,6 @@ export async function generateSceneKeyframe(
     // — it does a different job, inventing a new face and a new costume per
     // scene from prompt text alone, with nothing in the result to say so.
     // requireReferenceInput reroutes to a capable provider, or refuses.
-    { requireReferenceInput: true, selectionPolicy },
+    { requireReferenceInput: true, selectionPolicy, meterContext },
   );
 }

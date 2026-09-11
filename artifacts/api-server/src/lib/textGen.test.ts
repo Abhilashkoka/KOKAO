@@ -80,7 +80,7 @@ describe("text-gen selection", () => {
     expect(selection.provider).toBe("openrouter");
     expect(() => resolveTextModel(selection, "anything")).toThrow(TextGenNotConfiguredError);
     await setStoredOpenRouterKey("sk-or-test");
-    await expect(getTextGenClient("anything")).rejects.toBeInstanceOf(TextGenNotConfiguredError);
+    await expect(getTextGenClient("anything", null)).rejects.toBeInstanceOf(TextGenNotConfiguredError);
   });
 
   it("falls back to the first model when defaultModel is not in the list", async () => {
@@ -206,7 +206,7 @@ describe("getTextGenClient", () => {
       models: ["a/one"],
       defaultModel: "a/one",
     });
-    await expect(getTextGenClient("a/one")).rejects.toBeInstanceOf(TextGenNotConfiguredError);
+    await expect(getTextGenClient("a/one", null)).rejects.toBeInstanceOf(TextGenNotConfiguredError);
   });
 
   it("returns an openrouter-based client when a key exists", async () => {
@@ -216,14 +216,14 @@ describe("getTextGenClient", () => {
       defaultModel: "a/one",
     });
     await setStoredOpenRouterKey("sk-or-test");
-    const result = await getTextGenClient("a/one");
+    const result = await getTextGenClient("a/one", null);
     expect(result.provider).toBe("openrouter");
     expect(result.model).toBe("a/one");
     expect(String(result.client.baseURL)).toContain("openrouter.ai");
   });
 
   it("uses the builtin client by default", async () => {
-    const result = await getTextGenClient("gpt-5.4");
+    const result = await getTextGenClient("gpt-5.4", null);
     expect(result.provider).toBe("builtin");
     expect(result.model).toBe("gpt-5.4");
   });
@@ -247,8 +247,8 @@ describe("getTextGenClient", () => {
     }));
     nvidiaCoreMocks.isNvidiaCoreDeploymentActivatable.mockResolvedValue(true);
 
-    const plain = await getTextGenClient("vision-model", { failover: false });
-    const vision = await getTextGenClient("text-model", {
+    const plain = await getTextGenClient("vision-model", null, { failover: false });
+    const vision = await getTextGenClient("text-model", null, {
       failover: false,
       capability: "multimodal",
     });

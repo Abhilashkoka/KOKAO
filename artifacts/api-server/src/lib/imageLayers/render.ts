@@ -156,7 +156,14 @@ export async function renderLayeredImage(input: {
       // Shadows render as greyscale on white and composite with multiply, so
       // they need no alpha — which also keeps them off the transparency-capable
       // provider filter and out of its rate limit.
-      { transparent: planned.role === "object" },
+      {
+        transparent: planned.role === "object",
+        meterContext: {
+          tenantId: input.tenantId,
+          refKind: "imageJob",
+          operationKey: `layered-image:${i}:${planned.id}`,
+        },
+      },
     );
 
     provider = result.provider;

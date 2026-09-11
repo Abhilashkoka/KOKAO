@@ -20,6 +20,8 @@ import {
   type TextGenProvider,
 } from "./textGen";
 import { getAiFallbackOrders } from "./aiFallbackSettings";
+import type { MeterContext } from "./meter";
+import { meterTextCreate, type TextCreateFn } from "./textMeter";
 
 /**
  * Text-generation failover: when the admin-selected provider is DOWN
@@ -161,7 +163,7 @@ function notifyOncePerWindow(args: {
 }
 
 type CreateParams = Record<string, unknown> & { model?: string };
-type CreateFn = (params: CreateParams, options?: unknown) => Promise<unknown>;
+type CreateFn = TextCreateFn;
 
 export interface FailoverDeps {
   /** Injected in tests; defaults to resolveTextGenFailoverCandidate. */
@@ -183,6 +185,7 @@ export interface FailoverDeps {
 export function withTextGenFailover(
   primary: TextGenClient,
   tenantModel: string,
+  meterContext: MeterContext | null,
   deps: FailoverDeps = {},
 ): TextGenClient {
   const resolveCandidate = deps.resolveCandidate ?? resolveTextGenFailoverCandidate;
@@ -197,12 +200,14 @@ export function withTextGenFailover(
     model: primary.model,
     capability: primary.capability,
   };
+  let callNumber = 0;
 
   const serveViaCandidate = async (
     candidate: FailoverCandidate,
     params: CreateParams,
     options: unknown,
     cause: unknown,
+    operationKey: string | null,
   ): Promise<unknown> => {
     const candidateKey = textGenHealthKey(candidate.provider);
     const started = Date.now();
@@ -216,7 +221,15 @@ export function withTextGenFailover(
       // and forwarding it would 400 the very failover meant to save the
       // request. `stream_options` is honoured by both backends and stays.
       const { usage: _openrouterUsage, ...portable } = params;
-      const result = await candidateCreate({ ...portable, model: candidate.model }, options);
+      const result = await meterTextCreate(
+        candidateCreate,
+        { ...portable, model: candidate.model },
+        options,
+        meterContext,
+        candidate.provider,
+        candidate.model,
+        operationKey,
+      );
       recordProviderSuccess(candidateKey, Date.now() - started);
       // Cost capture must bill the provider that really served the request.
       wrapped.provider = candidate.provider;
@@ -240,17 +253,29 @@ export function withTextGenFailover(
   };
 
   const create: CreateFn = async (params, options) => {
+    callNumber += 1;
+    const operationKey = meterContext?.operationKey
+      ? `${meterContext.operationKey}:text:${callNumber}`
+      : null;
     // Open breaker: divert immediately when a healthy alternative exists so
     // an ongoing outage doesn't eat a timeout per request. Without an
     // alternative the primary is still attempted (that attempt doubles as
     // the half-open probe once the cooldown lapses).
     if (!isProviderHealthy(primaryKey)) {
       const candidate = await resolveCandidate(primary.provider, tenantModel);
-      if (candidate) return serveViaCandidate(candidate, params, options, null);
+      if (candidate) return serveViaCandidate(candidate, params, options, null, operationKey);
     }
     const started = Date.now();
     try {
-      const result = await primaryCreate(params, options);
+      const result = await meterTextCreate(
+        primaryCreate,
+        params,
+        options,
+        meterContext,
+        primary.provider,
+        primary.model,
+        operationKey,
+      );
       // Recovery: the primary was failing but just served a request again —
       // clear the failover banner and re-arm the once-per-window throttle so
       // the NEXT outage produces a fresh alert. Best-effort, off hot path
@@ -267,7 +292,7 @@ export function withTextGenFailover(
       recordProviderFailure(primaryKey, errorMessage(err));
       const candidate = await resolveCandidate(primary.provider, tenantModel);
       if (!candidate) throw err;
-      return serveViaCandidate(candidate, params, options, err);
+      return serveViaCandidate(candidate, params, options, err, operationKey);
     }
   };
 

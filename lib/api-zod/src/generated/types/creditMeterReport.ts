@@ -17,5 +17,7 @@ export interface CreditMeterReport {
   totalProviderTokens?: number | null;
   /** @nullable */
   totalProviderUsd?: number | null;
+  /** Metered keys absent from the current rate card. */
+  unpricedKeys: string[];
   rows: CreditMeterReportRow[];
 }

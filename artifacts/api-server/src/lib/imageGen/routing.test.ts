@@ -106,7 +106,7 @@ describe("automatic image provider routing", () => {
     await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
     vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
 
-    const out = await generateImage("a calm pastel skyline", "1024x1024");
+    const out = await generateImage("a calm pastel skyline", "1024x1024", undefined, { meterContext: null });
     // Nothing has been tried, so the editorial quality tier decides: 0.9 to 0.85.
     expect(out.provider).toBe("gemini");
     expect(out.fallbackStep).toBe(0);
@@ -124,7 +124,7 @@ describe("automatic image provider routing", () => {
     });
     vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
 
-    await generateImage("p", "1024x1024");
+    await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(vi.mocked(generateWithGemini).mock.calls[0][0].model).toBe("gemini-2.5-flash-image");
   });
 
@@ -137,7 +137,7 @@ describe("automatic image provider routing", () => {
     await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
     vi.mocked(generateWithBfl).mockResolvedValue(result("bfl"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("bfl");
     expect(out.routingReason).toContain("₹1.00");
     expect(generateWithGemini).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe("automatic image provider routing", () => {
     );
     vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("openai");
     expect(out.fallbackStep).toBe(1);
     expect(out.routingReason).toBe("openai served after gemini failed: upstream down");
@@ -163,7 +163,7 @@ describe("automatic image provider routing", () => {
     await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
     vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     // gemini is still the better-rated model; it is also currently broken.
     expect(out.provider).toBe("openai");
     expect(out.fallbackStep).toBe(0);
@@ -177,7 +177,7 @@ describe("automatic image provider routing", () => {
       new ImageGenProviderError("prompt rejected", 400),
     );
 
-    await expect(generateImage("p", "1024x1024")).rejects.toThrow("prompt rejected");
+    await expect(generateImage("p", "1024x1024", undefined, { meterContext: null })).rejects.toThrow("prompt rejected");
     expect(generateWithOpenAIBuiltin).not.toHaveBeenCalled();
   });
 
@@ -186,7 +186,7 @@ describe("automatic image provider routing", () => {
     await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
     vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     expect(out.provider).toBe("openai");
     expect(out.fallbackStep).toBe(0);
   });
@@ -195,7 +195,7 @@ describe("automatic image provider routing", () => {
     await setImageGenSelection({ provider: "openai", model: null, customBaseUrl: null });
     vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
 
-    const out = await generateImage("p", "1024x1024");
+    const out = await generateImage("p", "1024x1024", undefined, { meterContext: null });
     // There was no choice to explain, so there is no reason to store.
     expect(out.fallbackStep).toBe(0);
     expect(out.routingReason).toBeUndefined();
@@ -208,6 +208,7 @@ describe("automatic image provider routing", () => {
 
     const out = await generateImage("p", "1024x1024", REFERENCE, {
       requireReferenceInput: true,
+      meterContext: null,
     });
 
     expect(out.provider).toBe("openai");
@@ -232,6 +233,7 @@ describe("automatic image provider routing", () => {
     const out = await generateImage("p", "1024x1024", REFERENCE, {
       requireReferenceInput: true,
       forceCapabilityFallback: true,
+      meterContext: null,
     });
 
     expect(out.provider).toBe("openai");

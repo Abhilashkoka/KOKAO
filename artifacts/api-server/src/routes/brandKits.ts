@@ -203,7 +203,7 @@ router.post("/brand-kits/draft", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const draft = await draftBrandKit(tenant.aiModel, parsed.data);
+  const draft = await draftBrandKit(tenant.aiModel, parsed.data, req.tenantId);
   res.json(draft);
 });
 
@@ -873,6 +873,11 @@ router.post(
         audio: sample.buffer,
         mimeType: sample.mimeType,
         provider: selectedCloneProvider,
+      }, {
+        tenantId: req.tenantId,
+        refKind: "brandKit",
+        refId: String(ctx.kitId),
+        operationKey: `brand-kit:${ctx.kitId}:voice-clone:${parsed.data.sampleAssetPath}`,
       });
 
       const entry: BrandVoiceEntry = {
@@ -1053,6 +1058,16 @@ router.post(
                 speakWithClonedVoiceReceipt(
                   { provider: bv.provider!, voiceId: bv.provider_voice_id! },
                   text,
+                  {
+                    tenantId: req.tenantId,
+                    refKind: "brandKit",
+                    refId: String(ctx.kitId),
+                    operationKey: buildBrandVoiceTtsOperationKey(
+                      bv.provider_voice_id!,
+                      "eleven_multilingual_v2",
+                      text,
+                    ),
+                  },
                   async (receipt) => {
                     providerCredits = receipt.providerCredits;
                     providerRequestId = receipt.requestId ?? receipt.traceId;
@@ -1098,6 +1113,16 @@ router.post(
         (await speakWithClonedVoiceReceipt(
           { provider: bv.provider, voiceId: bv.provider_voice_id },
           text,
+          {
+            tenantId: req.tenantId,
+            refKind: "brandKit",
+            refId: String(ctx.kitId),
+            operationKey: buildBrandVoiceTtsOperationKey(
+              bv.provider_voice_id,
+              "eleven_multilingual_v2",
+              text,
+            ),
+          },
         ));
       providerCredits ??= result.receipt.providerCredits;
       providerRequestId ??= result.receipt.requestId ?? result.receipt.traceId;
@@ -1183,6 +1208,14 @@ router.post(
       const narration = await synthesizeNarration(
         [DEFAULT_STOCK_PREVIEW_TEXT],
         voice,
+        {
+          meterContext: {
+            tenantId: req.tenantId,
+            refKind: "brandKit",
+            refId: String(ctx.kitId),
+            operationKey: `brand-kit:${ctx.kitId}:stock-voice-preview:${voice}`,
+          },
+        },
       );
       const audioPath = await uploadTenantObject(
         req.tenantId,
@@ -1323,6 +1356,16 @@ router.post(
               speakWithClonedVoiceReceipt(
                 { provider: bv.provider!, voiceId: bv.provider_voice_id! },
                 text,
+                {
+                  tenantId: req.tenantId,
+                  refKind: "brandKit",
+                  refId: String(ctx.kitId),
+                  operationKey: buildBrandVoiceTtsOperationKey(
+                    bv.provider_voice_id!,
+                    "eleven_multilingual_v2",
+                    text,
+                  ),
+                },
                 async (receipt) => {
                   providerCredits = receipt.providerCredits;
                   providerRequestId = receipt.requestId ?? receipt.traceId;
@@ -1367,6 +1410,16 @@ router.post(
         (await speakWithClonedVoiceReceipt(
           { provider: bv.provider, voiceId: bv.provider_voice_id },
           text,
+          {
+            tenantId: req.tenantId,
+            refKind: "brandKit",
+            refId: String(ctx.kitId),
+            operationKey: buildBrandVoiceTtsOperationKey(
+              bv.provider_voice_id,
+              "eleven_multilingual_v2",
+              text,
+            ),
+          },
         ));
       providerCredits ??= result.receipt.providerCredits;
       providerRequestId ??= result.receipt.requestId ?? result.receipt.traceId;

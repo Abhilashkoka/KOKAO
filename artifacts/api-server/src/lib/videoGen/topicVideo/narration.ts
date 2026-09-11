@@ -16,6 +16,8 @@ import {
   speakWithClonedVoiceReceipt,
   type ClonedVoiceRef,
 } from "../../voiceClone";
+import { meter, type MeterContext } from "../../meter";
+import { isMeterDispatchReplayError } from "../../meterErrors";
 import {
   elevenLabsCreditReservationCeiling,
   getAiCostConfig,
@@ -30,6 +32,11 @@ import {
   type WalletReservation,
 } from "../../wallet";
 import { recordUsage } from "../../usage";
+import {
+  conservativeSpeechDurationSeconds,
+  speechDurationReservationSeconds,
+  wavDurationSeconds,
+} from "../../audioDuration";
 
 /**
  * Narration for the Topic to Video engine.
@@ -304,6 +311,7 @@ export function applyNoiseFloor(format: WavFormat, pcm: Buffer): Buffer {
  * fail identically on every provider.
  */
 function isTransientTtsError(error: unknown): boolean {
+  if (isMeterDispatchReplayError(error)) return false;
   if (error instanceof VideoGenProviderError) {
     // No status = timeout, network shape, or unusable audio from this upstream.
     if (error.status === undefined) return true;
@@ -321,15 +329,43 @@ async function narrateWith(
   def: TtsProviderDef,
   sentences: string[],
   voice: NarrationVoice,
+  meterContext: MeterContext | null,
 ): Promise<ParsedWav[]> {
   const apiKey = await resolveTtsApiKey(def);
   const parts: ParsedWav[] = [];
-  for (const sentence of sentences) {
+  for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex += 1) {
+    const sentence = sentences[sentenceIndex]!;
+    const familyBase =
+      meterContext?.operationFamilyKey?.trim() ||
+      meterContext?.operationKey?.trim() ||
+      null;
+    const operationFamilyKey = familyBase
+      ? `${familyBase}:sentence:${sentenceIndex}`
+      : null;
+    let attempt = 0;
     // Bounded + retried: the TTS call may have no abort support of its own,
     // so a hung or transiently-failing upstream gets one clean second chance
     // before the whole track moves to another provider.
     const audio = await withRetries(
-      () => withTimeout(() => def.speak(sentence, voice, apiKey), TTS_TIMEOUT_MS, "Narration"),
+      () => {
+        const thisAttempt = attempt++;
+        return meter(
+          meterContext ? {
+            ...meterContext,
+            provider: def.id,
+            model: voice,
+            operationFamilyKey,
+            operationKey: meterContext.operationKey
+              ? `${meterContext.operationKey}:sentence:${sentenceIndex}:provider:${def.id}:attempt:${thisAttempt}`
+              : null,
+          } : null,
+          "voice",
+          conservativeSpeechDurationSeconds(sentence),
+          () => withTimeout(() => def.speak(sentence, voice, apiKey), TTS_TIMEOUT_MS, "Narration"),
+          (result) => ({ actualQuantity: wavDurationSeconds(result) }),
+          { reservationQuantity: speechDurationReservationSeconds(sentence) },
+        );
+      },
       { attempts: 2 },
     );
     if (audio.length === 0) {
@@ -381,11 +417,22 @@ async function narrateWithBrandVoice(
     );
   }
   const parts: ParsedWav[] = [];
-  for (const sentence of sentences) {
+  for (const [sentenceIndex, sentence] of sentences.entries()) {
+    const clonedSpeechOperationFamilyKey = billing
+      ? `${buildBrandVoiceTtsOperationKey(
+          clonedVoice.voiceId,
+          speechConfig.modelId,
+          sentence,
+          undefined,
+          languageCode,
+        )}:sentence:${sentenceIndex}`
+      : null;
+    let meterAttempt = 0;
     const result = await withRetries(
       () =>
         withTimeout(
           async () => {
+            const thisMeterAttempt = meterAttempt++;
             let reservation: WalletReservation | null = null;
             let operationId: number | null = null;
             let confirmed = false;
@@ -443,6 +490,14 @@ async function narrateWithBrandVoice(
                     speakWithClonedVoiceReceipt(
                       clonedVoice,
                       sentence,
+                      billing ? {
+                        tenantId: billing.tenantId,
+                        refKind: billing.refKind ?? "videoJob",
+                        refId: billing.refId,
+                        operationFamilyKey: clonedSpeechOperationFamilyKey,
+                        operationKey:
+                          `${clonedSpeechOperationFamilyKey}:attempt:${thisMeterAttempt}`,
+                      } : null,
                       async (receipt) => {
                         providerCredits = receipt.providerCredits;
                         providerRequestId = receipt.requestId ?? receipt.traceId;
@@ -536,6 +591,14 @@ async function narrateWithBrandVoice(
             const speech = await speakWithClonedVoiceReceipt(
               clonedVoice,
               sentence,
+              billing ? {
+                tenantId: billing.tenantId,
+                refKind: billing.refKind ?? "videoJob",
+                refId: billing.refId,
+                operationFamilyKey: clonedSpeechOperationFamilyKey,
+                operationKey:
+                  `${clonedSpeechOperationFamilyKey}:attempt:${thisMeterAttempt}`,
+              } : null,
               undefined,
               speechConfig.modelId,
               speechConfig.languageCode,
@@ -592,6 +655,8 @@ async function narrateWithBrandVoice(
 }
 
 export interface SynthesizeNarrationOptions {
+  /** Required by production callers; null marks an explicit admin/test call. */
+  meterContext?: MeterContext | null;
   /** Cloned brand voice to speak the track in (whole track). Stock voices
    * remain the fallback when it fails or is unconfigured. */
   clonedVoice?: ClonedVoiceRef | null;
@@ -654,6 +719,7 @@ export async function synthesizeNarration(
       );
       recordProviderSuccess(ttsHealthKey(`brand:${options.clonedVoice.provider}`));
     } catch (error) {
+      if (isMeterDispatchReplayError(error)) throw error;
       recordProviderFailure(
         ttsHealthKey(`brand:${options.clonedVoice.provider}`),
         error instanceof Error ? error.message : undefined,
@@ -683,7 +749,22 @@ export async function synthesizeNarration(
   for (let i = 0; i < providers.length; i++) {
     const def = providers[i]!;
     try {
-      spoken = await narrateWith(def, sentences, voice);
+      spoken = await narrateWith(
+        def,
+        sentences,
+        voice,
+        options?.meterContext ??
+          (options?.billing
+            ? {
+                tenantId: options.billing.tenantId,
+                refKind: options.billing.refKind ?? "videoJob",
+                refId: options.billing.refId,
+                operationKey: options.billing.refId
+                  ? `narration:${options.billing.refKind ?? "videoJob"}:${options.billing.refId}`
+                  : null,
+              }
+            : null),
+      );
       recordProviderSuccess(ttsHealthKey(def.id));
       return {
         ...stitchNarration(spoken, sentences),

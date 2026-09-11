@@ -5,10 +5,12 @@ import {
   VideoGenProviderError,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   compiledClipPrompt,
+  isHdVideoResolution,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
 import { withRetries, isTransientStatus } from "../retry";
+import { meter } from "../../meter";
 import type { CustomVideoApiMapping } from "@workspace/db";
 import {
   DEFAULT_VIDEO_PENDING_VALUES,
@@ -126,20 +128,36 @@ export async function generateWithMappedVideo(
 
   // Submit with bounded retries — 429s and transient 5xxs are routine and
   // must not fail a job the tenant already paid a video unit for.
+  let submitAttempt = 0;
   let job = await withRetries(
     async (): Promise<unknown> => {
-      const res = await videoGenFetch(submitUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        throw new VideoGenProviderError(
-          `${label} video request failed (${res.status}): ${await errorDetail(res)}`,
-          res.status,
-        );
-      }
-      return res.json();
+      const attemptIndex = submitAttempt++;
+      return meter(
+        input.meterContext
+          ? {
+              ...input.meterContext,
+              provider: input.meterContext.provider ?? label,
+              model: input.model,
+              operationFamilyKey: input.meterContext.operationFamilyKey
+                ?? input.meterContext.operationKey,
+              operationKey: `${input.meterContext.operationKey ?? "video"}:submit:${attemptIndex}`,
+            }
+          : null,
+        isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+        input.durationSec,
+        async () => {
+          const res = await videoGenFetch(submitUrl, {
+            method: "POST", headers, body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            throw new VideoGenProviderError(
+              `${label} video request failed (${res.status}): ${await errorDetail(res)}`,
+              res.status,
+            );
+          }
+          return res.json();
+        },
+      );
     },
     { attempts: 3 },
   );

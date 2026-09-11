@@ -15,6 +15,8 @@ import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import { appendCreativeFragment } from "../creativeBrief";
 import type { Cinematography } from "../cinematography";
+import type { MeterContext } from "../../meter";
+import { isMeterDispatchReplayError } from "../../meterErrors";
 import {
   ASPECT_DIMENSIONS,
   videoGenReceipt,
@@ -104,7 +106,10 @@ export async function planBrollVisuals(params: {
     return { prompts, rawPlan: params.suppliedPlan };
   }
   try {
-    const textGen = await getTextGenClient(params.tenantAiModel);
+    const textGen = await getTextGenClient(
+      params.tenantAiModel,
+      params.tenantId ? { tenantId: params.tenantId } : null,
+    );
     const sceneList = params.scenes.map((s, i) => `${i + 1}. ${s.text}`).join("\n");
     // Prompt Template Kit: a production template for the video_scene_image
     // flow replaces the built-in system prompt. Video jobs run in the
@@ -318,6 +323,7 @@ export async function generateBrollStills(params: {
   priorImages?: Buffer[];
   onProviderSuccess?: (args: { sceneIndex: number; attemptIndex: number; result: ImageGenResult }) => Promise<void>;
   onProviderFailure?: (args: { sceneIndex: number; attemptIndex: number; error: unknown }) => Promise<void>;
+  meterContext?: MeterContext | null;
 }): Promise<{ images: Buffer[]; results: ImageGenResult[]; provider: string; model: string }> {
   const size = imageSizeForAspect(params.aspectRatio);
   let provider = "ai";
@@ -325,7 +331,14 @@ export async function generateBrollStills(params: {
   const initial = await mapWithConcurrency(params.prompts, params.onProviderSuccess || params.onProviderFailure ? 1 : IMAGE_CONCURRENCY, async (prompt, index) => {
     let image: ImageGenResult;
     try {
-      image = await generateImage(privacySafeGeneratedVisualPrompt(prompt), size);
+      image = await generateImage(privacySafeGeneratedVisualPrompt(prompt), size, undefined, {
+        meterContext: params.meterContext
+          ? {
+              ...params.meterContext,
+              operationKey: `${params.meterContext.operationKey ?? "broll_still"}:${index}:0`,
+            }
+          : null,
+      });
     } catch (error) {
       await params.onProviderFailure?.({ sceneIndex: index, attemptIndex: 0, error });
       throw error;
@@ -350,6 +363,15 @@ export async function generateBrollStills(params: {
         replacement = await generateImage(
           `${privacySafeGeneratedVisualPrompt(prompt)}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
           size,
+          undefined,
+          {
+            meterContext: params.meterContext
+              ? {
+                  ...params.meterContext,
+                  operationKey: `${params.meterContext.operationKey ?? "broll_still"}:${index}:1`,
+                }
+              : null,
+          },
         );
       } catch (error) {
         await params.onProviderFailure?.({ sceneIndex: index, attemptIndex: 1, error });
@@ -439,6 +461,7 @@ export async function animateBrollStills(params: {
     sceneIndex: number;
     error: OpenRouterInputImagePrivacyError;
   }) => Promise<Buffer>;
+  meterContext?: MeterContext | null;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string; effectiveDurationSecs: number[] }> {
   let provider = "";
   let model = "";
@@ -456,7 +479,11 @@ export async function animateBrollStills(params: {
     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
     const visual = params.visuals[i]?.trim() || scene.text.slice(0, 240);
     const durationSec = clipDurationForScene(scene.durationSec);
+    const operationFamilyKey =
+      `${params.meterContext?.operationKey ?? "topic_animation"}:${i}`;
+    let providerAttempt = 0;
     const attempt = async (): Promise<Buffer> => {
+      const attemptIndex = providerAttempt++;
       const assetIds = await params.resolveAssetIds?.(i) ?? [];
       const clip = await generateVideo({
         mode: assetIds.length ? "text" : "image",
@@ -475,6 +502,13 @@ export async function animateBrollStills(params: {
             ? params.modelOptions?.generateAudio
             : params.nativeAudio,
         operationKey: `topic_animation:${i}`,
+        meterCtx: params.meterContext
+          ? {
+              ...params.meterContext,
+              operationFamilyKey,
+              operationKey: `${operationFamilyKey}:dispatch:${attemptIndex}`,
+            }
+          : null,
         // Scene lengths come from the narration timing, which the model does
         // not get a vote on — the audio is already recorded.
         durationSec,
@@ -492,6 +526,7 @@ export async function animateBrollStills(params: {
     try {
       return await attempt();
     } catch (err) {
+      if (isMeterDispatchReplayError(err)) throw err;
       if (err instanceof OpenRouterInputImagePrivacyError) {
         if (!params.onPrivacyImageRejected) throw err;
         image = await params.onPrivacyImageRejected({ sceneIndex: i, error: err });

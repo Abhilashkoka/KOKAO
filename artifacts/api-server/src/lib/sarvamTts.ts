@@ -4,7 +4,14 @@ import { createHash } from "node:crypto";
 import { encryptJson, decryptJson } from "./secretCrypto";
 import { recordProviderFailure, recordProviderSuccess } from "./providerHealth";
 import { VideoGenProviderError } from "./videoGen/types";
+import { meter, type MeterContext } from "./meter";
+import { isMeterDispatchReplayError } from "./meterErrors";
 import { isTransientStatus, withRetries } from "./videoGen/retry";
+import {
+  conservativeSpeechDurationSeconds,
+  speechDurationReservationSeconds,
+  wavDurationSeconds,
+} from "./audioDuration";
 
 /**
  * Sarvam AI text-to-speech provider for Indic narration cues.
@@ -351,6 +358,7 @@ export async function getSarvamTestStatus(): Promise<SarvamTestStatus> {
  * surface them immediately and not retry.
  */
 export function isSarvamTransientError(error: unknown): boolean {
+  if (isMeterDispatchReplayError(error)) return false;
   if (error instanceof VideoGenProviderError) {
     if (error.status === undefined) return true; // timeout / network abort
     return isTransientStatus(error.status);
@@ -381,6 +389,7 @@ export async function speakWithSarvam(
   apiKey: string,
   locale: string,
   speaker: SarvamStockSpeaker,
+  meterContext: MeterContext | null,
 ): Promise<Buffer> {
   const target_language_code = resolveSarvamLocale(locale);
 
@@ -389,7 +398,11 @@ export async function speakWithSarvam(
 
   let res: Response;
   try {
-    res = await fetch(SARVAM_TTS_ENDPOINT, {
+    res = await meter(
+      meterContext ? { ...meterContext, provider: "sarvam", model: SARVAM_TTS_MODEL } : null,
+      "voice",
+      conservativeSpeechDurationSeconds(text),
+      () => fetch(SARVAM_TTS_ENDPOINT, {
       method: "POST",
       headers: {
         "api-subscription-key": apiKey,
@@ -403,8 +416,22 @@ export async function speakWithSarvam(
         speech_sample_rate: 24_000,
       }),
       signal: controller.signal,
-    });
+      }),
+      async (response) => {
+        if (!response.ok) return null;
+        try {
+          const body = (await response.clone().json()) as { audios?: string[] };
+          const encoded = body.audios?.[0];
+          if (!encoded) return null;
+          return { actualQuantity: wavDurationSeconds(Buffer.from(encoded, "base64")) };
+        } catch {
+          return null;
+        }
+      },
+      { reservationQuantity: speechDurationReservationSeconds(text) },
+    );
   } catch (error) {
+    if (isMeterDispatchReplayError(error)) throw error;
     if (error instanceof Error && error.name === "AbortError") {
       throw new VideoGenProviderError(
         `Sarvam TTS timed out after ${SARVAM_TTS_TIMEOUT_MS / 1000}s.`,
@@ -471,7 +498,7 @@ export async function speakWithSarvam(
  * Persists the outcome to the app_credentials row.
  */
 export async function testSarvamKey(apiKey: string): Promise<void> {
-  await speakWithSarvam("नमस्ते", apiKey, "hi-IN", "shubh");
+  await speakWithSarvam("नमस्ते", apiKey, "hi-IN", "shubh", null);
 }
 
 // --------------------------------------------------------------------------
@@ -491,18 +518,40 @@ export async function testSarvamKey(apiKey: string): Promise<void> {
  *
  * @returns null if no Sarvam key is available (provider not configured).
  */
-export async function createSarvamCueSpeaker(speaker: SarvamStockSpeaker): Promise<
+export async function createSarvamCueSpeaker(
+  speaker: SarvamStockSpeaker,
+  meterContext: MeterContext | null,
+): Promise<
   ((text: string, locale: string) => Promise<Buffer>) | null
 > {
   const apiKey = await resolveSarvamApiKey();
   if (!apiKey) return null;
 
   const healthKey = sarvamTtsHealthKey();
+  let invocation = 0;
 
   return async function speakSarvamCue(text: string, locale: string): Promise<Buffer> {
     const startedAt = Date.now();
+    const thisInvocation = invocation++;
+    const familyBase =
+      meterContext?.operationFamilyKey?.trim() ||
+      meterContext?.operationKey?.trim() ||
+      null;
+    const operationFamilyKey = familyBase
+      ? `${familyBase}:cue:${thisInvocation}`
+      : null;
 
-    const speak = (): Promise<Buffer> => speakWithSarvam(text, apiKey, locale, speaker);
+    let attempt = 0;
+    const speak = (): Promise<Buffer> => {
+      const thisAttempt = attempt++;
+      return speakWithSarvam(text, apiKey, locale, speaker, meterContext ? {
+        ...meterContext,
+        operationFamilyKey,
+        operationKey: meterContext.operationKey
+          ? `${meterContext.operationKey}:cue:${thisInvocation}:sarvam:attempt:${thisAttempt}`
+          : null,
+      } : null);
+    };
 
     let audio: Buffer;
     try {

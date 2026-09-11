@@ -260,6 +260,23 @@ export async function creditsMilliFor(
   return Math.round(q * rate.creditsMilli);
 }
 
+/** Immutable pricing inputs for one provider dispatch. */
+export interface CreditCostSnapshot {
+  unitRateMilli: number;
+  costMilli: number;
+}
+
+export async function creditCostSnapshotFor(
+  key: string,
+  quantity: number,
+): Promise<CreditCostSnapshot | null> {
+  const rate = (await loadRates()).get(key);
+  if (!rate) return null;
+  const unitRateMilli = rate.active ? rate.creditsMilli : 0;
+  const q = Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
+  return { unitRateMilli, costMilli: Math.round(q * unitRateMilli) };
+}
+
 /** The platform-wide meter mode. Defaults to "shadow" when unset. */
 export async function getMeterMode(): Promise<MeterMode> {
   if (modeCache) return modeCache;
