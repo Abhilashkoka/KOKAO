@@ -2911,7 +2911,7 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
   "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
-  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
@@ -2984,7 +2984,7 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
   "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
-  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
@@ -3059,7 +3059,7 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
   "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
-  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
@@ -3127,7 +3127,7 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
   "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
-  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
@@ -3307,7 +3307,7 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
   "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
-  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
@@ -3375,7 +3375,7 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
   "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
-  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
@@ -13432,7 +13432,7 @@ export const GenerateVideoBody = zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).default(generateVideoBodyAspectRatioDefault).describe('Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.'),
   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('Topic Video templates support a script-derived cap up to 600 seconds. Character Dialogue remains limited to 180 seconds and direct clip providers clamp to the durations they support.'),
   "modelId": zod.string().nullish().describe('The video model to generate with — an id from GET \/ai\/video-models. Omit (or null) to use the platform\'s configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model\'s multiplier so a client can show the price before the user commits.'),
-  "resolution": zod.union([zod.literal('480p'),zod.literal('720p'),zod.literal('1080p'),zod.literal(null)]).nullish().describe('Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.'),
+  "resolution": zod.union([zod.literal('480p'),zod.literal('720p'),zod.literal('1080p'),zod.literal('720p-esr'),zod.literal('1080p-esr'),zod.literal('1440p-esr'),zod.literal('4k-esr'),zod.literal(null)]).nullish().describe('Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.'),
   "quality": zod.union([zod.literal('basic'),zod.literal('high'),zod.literal(null)]).nullish().describe('Quality switch on the models that expose one (see hasQuality in GET \/ai\/video-models). Ignored by models without it.'),
   "generateAudio": zod.boolean().nullish().describe('Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET \/ai\/video-models). Omit to leave the model\'s own default alone, which is today\'s behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.'),
   "cinematography": zod.union([zod.null(),zod.object({
@@ -22028,7 +22028,7 @@ export const ListVideoModelsResponse = zod.object({
   "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
   "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
-  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')

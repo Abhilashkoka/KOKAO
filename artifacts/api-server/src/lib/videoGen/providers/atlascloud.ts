@@ -21,6 +21,65 @@ export const ATLASCLOUD_SEEDANCE_25_I2V_MODEL = "bytedance/seedance-2.5/image-to
 export const ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL =
   "bytedance/seedance-2.5/reference-to-video";
 
+/** Atlas Cloud's six Wan 3.0 Standard and Prime model endpoints. */
+export const ATLASCLOUD_WAN_30_T2V_MODEL = "alibaba/wan-3.0/text-to-video";
+export const ATLASCLOUD_WAN_30_I2V_MODEL = "alibaba/wan-3.0/image-to-video";
+export const ATLASCLOUD_WAN_30_REFERENCE_MODEL = "alibaba/wan-3.0/reference-to-video";
+export const ATLASCLOUD_WAN_30_PRIME_T2V_MODEL = "alibaba/wan-3.0-prime/text-to-video";
+export const ATLASCLOUD_WAN_30_PRIME_I2V_MODEL = "alibaba/wan-3.0-prime/image-to-video";
+export const ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL =
+  "alibaba/wan-3.0-prime/reference-to-video";
+// Verbose aliases make the pricing/model distinction explicit at call sites.
+export const ATLASCLOUD_WAN_30_STANDARD_T2V_MODEL = ATLASCLOUD_WAN_30_T2V_MODEL;
+export const ATLASCLOUD_WAN_30_STANDARD_I2V_MODEL = ATLASCLOUD_WAN_30_I2V_MODEL;
+export const ATLASCLOUD_WAN_30_STANDARD_REFERENCE_MODEL = ATLASCLOUD_WAN_30_REFERENCE_MODEL;
+
+const ATLASCLOUD_WAN_MODELS = new Set([
+  ATLASCLOUD_WAN_30_T2V_MODEL,
+  ATLASCLOUD_WAN_30_I2V_MODEL,
+  ATLASCLOUD_WAN_30_REFERENCE_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_I2V_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL,
+]);
+
+const ATLASCLOUD_REFERENCE_MODELS = new Set([
+  ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
+  ATLASCLOUD_WAN_30_REFERENCE_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL,
+]);
+
+const ATLASCLOUD_WAN_IMAGE_MODELS = new Set([
+  ATLASCLOUD_WAN_30_I2V_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_I2V_MODEL,
+]);
+
+const ATLASCLOUD_WAN_TEXT_MODELS = new Set([
+  ATLASCLOUD_WAN_30_T2V_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
+]);
+
+/** True for Atlas models whose request contract accepts multiple references. */
+export function isAtlasReferenceModel(model: string): boolean {
+  return ATLASCLOUD_REFERENCE_MODELS.has(model);
+}
+
+/** Wan's reference schema accepts public image URLs in `refers`. */
+export function isAtlasWanReferenceModel(model: string): boolean {
+  return model === ATLASCLOUD_WAN_30_REFERENCE_MODEL ||
+    model === ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL;
+}
+
+export const ATLASCLOUD_WAN_RESOLUTIONS = [
+  "480p",
+  "720p",
+  "1080p",
+  "720p-esr",
+  "1080p-esr",
+  "1440p-esr",
+  "4k-esr",
+] as const;
+
 const BASE_URL = "https://api.atlascloud.ai/api/v1/model";
 const GENERATE_URL = `${BASE_URL}/generateVideo`;
 const POLL_INTERVAL_MS = 5_000;
@@ -52,6 +111,15 @@ function safeId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const id = value.trim();
   return /^[A-Za-z0-9][A-Za-z0-9._-]{3,127}$/.test(id) ? id : null;
+}
+
+function isHttpsReferenceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function responseRequestId(response: Response): string | null {
@@ -136,32 +204,61 @@ async function parse(response: Response, operation: string): Promise<Prediction>
 export function atlasCloudRequestBody(input: VideoGenInput): Record<string, unknown> {
   const imageMode = Boolean(input.image);
   const assetIds = input.assetIds ?? [];
-  if (assetIds.some((id) => !isAtlasGenerationReferenceId(id))) {
+  const referenceMode = ATLASCLOUD_REFERENCE_MODELS.has(input.model);
+  const wanMode = ATLASCLOUD_WAN_MODELS.has(input.model);
+  const referencesAreUrls = isAtlasWanReferenceModel(input.model);
+  if (
+    assetIds.some((reference) =>
+      referencesAreUrls
+        ? !isHttpsReferenceUrl(reference)
+        : !isAtlasGenerationReferenceId(reference)
+    )
+  ) {
     throw new VideoGenProviderError(
-      "Atlas Cloud generation received an invalid Asset Library generation reference.",
+      referencesAreUrls
+        ? "Wan reference generation requires resolved https image URLs."
+        : "Atlas Cloud generation received an invalid Asset Library generation reference.",
       400,
     );
   }
-  const referenceMode = input.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL;
-  const model = referenceMode
-    ? ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
-    : imageMode || assetIds.length ? ATLASCLOUD_SEEDANCE_25_I2V_MODEL : input.model;
+  const model = wanMode
+    ? input.model
+    : referenceMode
+      ? ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
+      : imageMode || assetIds.length
+        ? ATLASCLOUD_SEEDANCE_25_I2V_MODEL
+        : input.model;
+  const duration = Math.max(wanMode ? 2 : 4, Math.min(30, Math.round(input.durationSec)));
   const body: Record<string, unknown> = {
     model,
     prompt: compiledClipPrompt(
-      assetIds.length && referenceMode
+      assetIds.length && referenceMode && input.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
         ? `${input.prompt}\n\nUse ${assetIds.map((_, i) => `@Image${i + 1}`).join(" and ")} as the approved fictional character references.`
         : input.prompt,
       input.durationSec,
     ),
-    duration: Math.max(4, Math.min(30, Math.round(input.durationSec))),
+    duration,
     resolution: input.resolution ?? "1080p",
-    ratio: imageMode ? "adaptive" : providerAspect(input.aspectRatio, [
-      "16:9", "4:3", "1:1", "3:4", "9:16", "21:9",
-    ]),
-    generate_audio: input.generateAudio ?? true,
-    output_format: "mp4",
   };
+  if (!wanMode) {
+    body.ratio = imageMode ? "adaptive" : providerAspect(input.aspectRatio, [
+      "16:9", "4:3", "1:1", "3:4", "9:16", "21:9",
+    ]);
+    body.generate_audio = input.generateAudio ?? true;
+    body.output_format = "mp4";
+  } else {
+    // Wan's public schema calls this field `audio`; `generate_audio` is not a
+    // compatible alias and is rejected by the endpoint.
+    body.audio = input.generateAudio ?? true;
+    if (!imageMode || referenceMode) {
+      body.ratio = providerAspect(input.aspectRatio, [
+        "16:9", "4:3", "1:1", "3:4", "9:16",
+      ]);
+    }
+    if (input.seed !== null && input.seed !== undefined) {
+      body.seed = Math.trunc(input.seed);
+    }
+  }
   if (input.image) {
     body.image = `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`;
   }
@@ -170,11 +267,17 @@ export function atlasCloudRequestBody(input: VideoGenInput): Record<string, unkn
       `data:${input.endImage.mimeType};base64,${input.endImage.buffer.toString("base64")}`;
   }
   if (assetIds.length && referenceMode) {
-    body.reference_images = assetIds.map((id) => `asset://${id}`);
-    delete body.ratio;
+    if (input.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL) {
+      body.reference_images = assetIds.map((id) => `asset://${id}`);
+      delete body.ratio;
+    } else {
+      // Wan's Standard and Prime schemas use resolved image URLs in `refers`;
+      // Seedance's asset:// references are not valid here.
+      body.refers = assetIds.map((url) => ({ url, type: "image" }));
+    }
   } else if (assetIds.length === 1) {
     body.image = `asset://${assetIds[0]}`;
-    body.ratio = "adaptive";
+    if (!wanMode) body.ratio = "adaptive";
   }
   return body;
 }
@@ -337,15 +440,42 @@ export async function generateWithAtlasCloud(
     );
   }
   const assetMode = Boolean(input.assetIds?.length);
-  const expected = assetMode
-    ? input.model
-    : input.image ? ATLASCLOUD_SEEDANCE_25_I2V_MODEL : ATLASCLOUD_SEEDANCE_25_T2V_MODEL;
-  if (
-    (!assetMode && input.model !== expected) ||
-    (assetMode &&
-      input.model !== ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL &&
-      (input.model !== ATLASCLOUD_SEEDANCE_25_I2V_MODEL || input.assetIds!.length !== 1))
-  ) {
+  const referenceMode = ATLASCLOUD_REFERENCE_MODELS.has(input.model);
+  const imageMode = Boolean(input.image);
+  const expected = input.model;
+  const knownModel = input.model === ATLASCLOUD_SEEDANCE_25_T2V_MODEL ||
+    input.model === ATLASCLOUD_SEEDANCE_25_I2V_MODEL ||
+    input.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL ||
+    ATLASCLOUD_WAN_MODELS.has(input.model);
+  const expectedMode =
+    input.model === ATLASCLOUD_SEEDANCE_25_T2V_MODEL ||
+    input.model === ATLASCLOUD_SEEDANCE_25_I2V_MODEL ||
+    input.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL ||
+    ATLASCLOUD_WAN_TEXT_MODELS.has(input.model) ||
+    ATLASCLOUD_WAN_IMAGE_MODELS.has(input.model) ||
+    referenceMode;
+  const seedanceExpected = imageMode
+    ? ATLASCLOUD_SEEDANCE_25_I2V_MODEL
+    : ATLASCLOUD_SEEDANCE_25_T2V_MODEL;
+  if (!knownModel || !expectedMode ||
+      (!assetMode &&
+        (input.model === ATLASCLOUD_SEEDANCE_25_T2V_MODEL ||
+          input.model === ATLASCLOUD_SEEDANCE_25_I2V_MODEL) &&
+        input.model !== seedanceExpected) ||
+      (assetMode &&
+        !referenceMode &&
+        (input.model === ATLASCLOUD_SEEDANCE_25_T2V_MODEL ||
+          ATLASCLOUD_WAN_TEXT_MODELS.has(input.model))) ||
+      (!referenceMode && ATLASCLOUD_WAN_TEXT_MODELS.has(input.model) && imageMode) ||
+      (!referenceMode &&
+        ATLASCLOUD_WAN_IMAGE_MODELS.has(input.model) &&
+        !imageMode &&
+        !(assetMode && input.assetIds?.length === 1)) ||
+      (!referenceMode &&
+        input.model === ATLASCLOUD_SEEDANCE_25_I2V_MODEL &&
+        !imageMode &&
+        !(assetMode && input.assetIds?.length === 1)) ||
+      referenceMode && !assetMode) {
     throw new VideoGenProviderError(`Atlas Cloud only supports the official ${expected} model for this request.`, 400);
   }
   const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
@@ -481,7 +611,10 @@ export async function generateWithAtlasCloud(
   if (!buffer.length) throw new VideoGenProviderError("Atlas Cloud returned an empty video.", 502, taskId);
   return {
     buffer, provider: "atlascloud", model: expected,
-    effectiveDurationSec: Math.max(4, Math.min(30, Math.round(input.durationSec))),
+    effectiveDurationSec: Math.max(
+      ATLASCLOUD_WAN_MODELS.has(input.model) ? 2 : 4,
+      Math.min(30, Math.round(input.durationSec)),
+    ),
     providerTaskId: taskId, ...(requestId ? { providerRequestId: requestId } : {}),
     ...atlasVideoReceipt(prediction),
   };

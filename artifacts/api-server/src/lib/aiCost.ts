@@ -13,6 +13,7 @@ import { logger } from "./logger";
 import { platformFetch } from "./platformFetch";
 import type { UsageMeta } from "./usage";
 import type { TextGenClient } from "./textGen";
+import { atlasWanPriceRows } from "./atlascloud/pricing";
 
 /**
  * Actual AI cost computation (superadmin-only reporting).
@@ -187,11 +188,36 @@ export async function seedPublishedModelPrices(): Promise<void> {
       sourceCheckedAt: atlasSourceCheckedAt,
     };
   });
+  const atlasWanRows = [
+    "alibaba/wan-3.0/text-to-video",
+    "alibaba/wan-3.0/image-to-video",
+    "alibaba/wan-3.0/reference-to-video",
+    "alibaba/wan-3.0-prime/text-to-video",
+    "alibaba/wan-3.0-prime/image-to-video",
+    "alibaba/wan-3.0-prime/reference-to-video",
+  ].flatMap((model) =>
+    atlasWanPriceRows(model).map((price) => ({
+      kind: "video",
+      provider: "atlascloud",
+      model: price.model,
+      variantKey: canonicalVideoVariantKey(price.variantCriteria),
+      variantCriteria: price.variantCriteria,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: price.usdPerSecond,
+      usdPerVideo: null,
+      usdPerMillionVideoTokens: null,
+      sourceUrl: price.sourceUrl,
+      sourceCheckedAt: new Date(),
+    })),
+  );
   await db
     .insert(aiModelPricesTable)
     .values([
       ...atlasStandardRows,
       ...atlasReferenceVideoRows,
+      ...atlasWanRows,
       {
         kind: "video",
         provider: "replicate",

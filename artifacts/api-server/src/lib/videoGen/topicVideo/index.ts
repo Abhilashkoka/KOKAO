@@ -8,7 +8,7 @@ import {
 import { eq } from "drizzle-orm";
 import { logger } from "../../logger";
 import { VideoGenProviderError, type VideoAspect, type VideoGenReceipt } from "../types";
-import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "../providers/atlascloud";
+import { isAtlasReferenceModel } from "../providers/atlascloud";
 import type { PromptVariantKey } from "@workspace/db";
 import type { MeterContext } from "../../meter";
 import type { TargetLocale } from "@workspace/localization";
@@ -1740,7 +1740,7 @@ export async function renderTopicStoryboard(params: {
   if (
     params.guidedStory &&
     params.modelOptions?.resolvedVideoModel?.provider === "atlascloud" &&
-    params.modelOptions.resolvedVideoModel.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL &&
+    isAtlasReferenceModel(params.modelOptions.resolvedVideoModel.model) &&
     !params.resolveGuidedAtlasAssetIds
   ) {
     throw new VideoGenProviderError(
@@ -1835,7 +1835,7 @@ export async function renderTopicStoryboard(params: {
               nativeAudio,
               referenceMode:
                 params.modelOptions?.resolvedVideoModel?.provider === "atlascloud" &&
-                params.modelOptions.resolvedVideoModel.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL &&
+                isAtlasReferenceModel(params.modelOptions.resolvedVideoModel.model) &&
                 params.resolveGuidedAtlasAssetIds
                   ? "atlas-character-assets"
                   : params.directNativeAudio

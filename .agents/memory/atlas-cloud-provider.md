@@ -3,6 +3,11 @@ name: Atlas Cloud provider
 description: Safety and lifecycle rules for Atlas Cloud video generation and fictional-character assets.
 ---
 
+Wan reference models must use approved media URLs in their `refers` input, not Seedance Asset Library identifiers. Keep Wan generation on explicit durations until smart-duration reservation and actual-duration settlement are supported together.
+
+**Why:** Sharing an Atlas provider does not imply sharing Seedance's request contract, and an unknown output duration cannot safely use a fixed-duration credit reservation.
+
+**How to apply:** Preserve model-family-specific reference resolution and payload validation when adding Atlas models; never enable smart duration only in the adapter.
 Atlas Cloud is a distinct paid video provider; never reuse BytePlus model contracts, credentials, task IDs, prices, or asset IDs for it.
 
 **Why:** Atlas is an aggregator with its own asynchronous prediction API and account-wide Asset Library. Marketing model names do not imply identical provider behavior.

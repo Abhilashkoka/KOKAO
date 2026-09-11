@@ -23,15 +23,34 @@ import type { VideoAspect } from "./types";
  */
 
 /** Output resolutions a job can request. */
-export type VideoResolution = "480p" | "720p" | "1080p";
+export type VideoResolution =
+  | "480p"
+  | "720p"
+  | "1080p"
+  | "720p-esr"
+  | "1080p-esr"
+  | "1440p-esr"
+  | "4k-esr";
 
-export const VIDEO_RESOLUTIONS: readonly VideoResolution[] = ["480p", "720p", "1080p"];
+export const VIDEO_RESOLUTIONS: readonly VideoResolution[] = [
+  "480p",
+  "720p",
+  "1080p",
+  "720p-esr",
+  "1080p-esr",
+  "1440p-esr",
+  "4k-esr",
+];
 
 /** Short edge in pixels per resolution; the long edge follows the aspect. */
 export const RESOLUTION_SHORT_EDGE: Record<VideoResolution, number> = {
   "480p": 480,
   "720p": 720,
   "1080p": 1080,
+  "720p-esr": 720,
+  "1080p-esr": 1080,
+  "1440p-esr": 1440,
+  "4k-esr": 2160,
 };
 
 /**
@@ -79,6 +98,8 @@ export interface VideoModelDef {
    * nearest, and the studio only offers these. */
   durations: readonly number[];
   resolutions: readonly VideoResolution[];
+  /** Provider's documented default when it exposes multiple quality tiers. */
+  defaultResolution?: VideoResolution;
   /** Whether the model exposes a basic/high quality switch. */
   hasQuality: boolean;
   /** Whether the model can generate its own audio (dialogue, SFX). */
@@ -455,6 +476,110 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     hasQuality: false,
     canGenerateAudio: true,
   },
+  // ── Atlas Cloud Alibaba Wan 3.0 ──────────────────────────────────────────
+  // These six entries mirror the provider's three documented modes for the
+  // Standard and Prime tiers. The ESR values are provider-native quality
+  // choices, not an application-side upscale.
+  {
+    id: "atlascloud-wan-3.0-text-to-video",
+    label: "Wan 3.0 Standard Text-to-Video (Atlas Cloud)",
+    blurb: "Wan 3.0 Standard text-to-video with native audio.",
+    provider: "atlascloud",
+    models: { text: "alibaba/wan-3.0/text-to-video" },
+    tier: "standard",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: Array.from({ length: 29 }, (_, index) => index + 2),
+    resolutions: [
+      "480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr",
+    ],
+    defaultResolution: "1080p",
+    hasQuality: false,
+    canGenerateAudio: true,
+    supportsEndFrame: false,
+  },
+  {
+    id: "atlascloud-wan-3.0-image-to-video",
+    label: "Wan 3.0 Standard Image-to-Video (Atlas Cloud)",
+    blurb: "Wan 3.0 Standard image-to-video with an optional last frame and native audio.",
+    provider: "atlascloud",
+    models: { image: "alibaba/wan-3.0/image-to-video" },
+    tier: "standard",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: Array.from({ length: 29 }, (_, index) => index + 2),
+    resolutions: [
+      "480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr",
+    ],
+    defaultResolution: "1080p",
+    hasQuality: false,
+    canGenerateAudio: true,
+    supportsEndFrame: true,
+  },
+  {
+    id: "atlascloud-wan-3.0-reference",
+    label: "Wan 3.0 Standard Reference (Atlas Cloud)",
+    blurb: "Wan 3.0 Standard all-in-one references with native audio.",
+    provider: "atlascloud",
+    models: { text: "alibaba/wan-3.0/reference-to-video" },
+    tier: "standard",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: Array.from({ length: 29 }, (_, index) => index + 2),
+    resolutions: [
+      "480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr",
+    ],
+    defaultResolution: "1080p",
+    hasQuality: false,
+    canGenerateAudio: true,
+  },
+  {
+    id: "atlascloud-wan-3.0-prime-text-to-video",
+    label: "Wan 3.0 Prime Text-to-Video (Atlas Cloud)",
+    blurb: "Wan 3.0 Prime text-to-video with native audio.",
+    provider: "atlascloud",
+    models: { text: "alibaba/wan-3.0-prime/text-to-video" },
+    tier: "premium",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: Array.from({ length: 29 }, (_, index) => index + 2),
+    resolutions: [
+      "480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr",
+    ],
+    defaultResolution: "1080p",
+    hasQuality: false,
+    canGenerateAudio: true,
+    supportsEndFrame: false,
+  },
+  {
+    id: "atlascloud-wan-3.0-prime-image-to-video",
+    label: "Wan 3.0 Prime Image-to-Video (Atlas Cloud)",
+    blurb: "Wan 3.0 Prime image-to-video with an optional last frame and native audio.",
+    provider: "atlascloud",
+    models: { image: "alibaba/wan-3.0-prime/image-to-video" },
+    tier: "premium",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: Array.from({ length: 29 }, (_, index) => index + 2),
+    resolutions: [
+      "480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr",
+    ],
+    defaultResolution: "1080p",
+    hasQuality: false,
+    canGenerateAudio: true,
+    supportsEndFrame: true,
+  },
+  {
+    id: "atlascloud-wan-3.0-prime-reference",
+    label: "Wan 3.0 Prime Reference (Atlas Cloud)",
+    blurb: "Wan 3.0 Prime all-in-one references with native audio.",
+    provider: "atlascloud",
+    models: { text: "alibaba/wan-3.0-prime/reference-to-video" },
+    tier: "premium",
+    aspects: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: Array.from({ length: 29 }, (_, index) => index + 2),
+    resolutions: [
+      "480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr",
+    ],
+    defaultResolution: "1080p",
+    hasQuality: false,
+    canGenerateAudio: true,
+  },
 ] as const;
 
 const BY_ID = new Map(VIDEO_MODEL_CATALOG.map((def) => [def.id, def]));
@@ -514,6 +639,9 @@ export function resolveResolution(
   requested: VideoResolution | null | undefined,
 ): VideoResolution {
   if (requested && def.resolutions.includes(requested)) return requested;
+  if (def.defaultResolution && def.resolutions.includes(def.defaultResolution)) {
+    return def.defaultResolution;
+  }
   // Highest supported, so an unspecified request keeps today's behaviour of
   // delivering the best the model can do.
   return def.resolutions.reduce((best, candidate) =>

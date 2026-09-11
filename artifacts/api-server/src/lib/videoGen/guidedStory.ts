@@ -1177,7 +1177,7 @@ export function guidedStoryStoryboard(
           : "shared";
     const atlasReferenceLabels =
       snapshot.videoModel?.provider === "atlascloud" &&
-      snapshot.videoModel.model === "bytedance/seedance-2.5/reference-to-video"
+      snapshot.videoModel.model.endsWith("/reference-to-video")
         ? [
             ...sceneCast.flatMap((_member, index) => [
               `@Image${index * 2 + 1}`,

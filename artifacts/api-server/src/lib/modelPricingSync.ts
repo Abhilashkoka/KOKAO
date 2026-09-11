@@ -15,6 +15,7 @@ import {
   lookupBytePlusSeedancePricing,
   type BytePlusSeedancePricing,
 } from "./byteplusPricing";
+import { atlasWanPriceRows, isAtlasWanModel } from "./atlascloud/pricing";
 
 /**
  * Pricing sync for admin model activation.
@@ -316,6 +317,39 @@ export async function syncActivatedModelPricing(args: {
           });
           return saved && hasSavedPrice("video", saved) ? null : model;
         }
+      }
+      if (
+        args.kind === "video" &&
+        args.provider.trim().toLowerCase() === "atlascloud" &&
+        isAtlasWanModel(model)
+      ) {
+        const published = atlasWanPriceRows(model);
+        const sourceCheckedAt = new Date();
+        const prices = published.map((price) => ({
+          kind: "video" as const,
+          provider: "atlascloud",
+          model: price.model,
+          inputUsdPerMtok: null,
+          outputUsdPerMtok: null,
+          usdPerImage: null,
+          usdPerSecond: price.usdPerSecond,
+          usdPerVideo: null,
+          usdPerMillionVideoTokens: null,
+          variantCriteria: price.variantCriteria,
+          sourceUrl: price.sourceUrl,
+          sourceCheckedAt,
+        } satisfies UpsertModelPriceInput));
+        await replaceModelPriceVariantsAtomically({
+          kind: "video",
+          provider: "atlascloud",
+          model,
+          prices,
+          keepVariantKeys: prices.map((price) =>
+            canonicalVideoVariantKey(price.variantCriteria),
+          ),
+          sourceCheckedAt,
+        });
+        return null;
       }
       // Replicate video pages can publish conditional tariffs (for example,
       // Veo with/without generated audio). The aggregate lookup below keeps

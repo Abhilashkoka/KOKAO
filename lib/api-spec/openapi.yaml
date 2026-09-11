@@ -18031,7 +18031,7 @@ components:
           type: array
           items:
             type: string
-            enum: ["480p", "720p", "1080p"]
+            enum: ["480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr"]
         hasQuality:
           type: boolean
           description: Whether the basic/high quality switch applies.
@@ -19167,7 +19167,7 @@ components:
             can show the price before the user commits.
         resolution:
           type: ["string", "null"]
-          enum: ["480p", "720p", "1080p", null]
+          enum: ["480p", "720p", "1080p", "720p-esr", "1080p-esr", "1440p-esr", "4k-esr", null]
           description: >-
             Output resolution. Only meaningful alongside modelId, since it is
             clamped to what that model supports. Omit for the best the model

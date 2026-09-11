@@ -92,7 +92,10 @@ import {
   OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
   OpenRouterInputImagePrivacyError,
 } from "./providers/openrouter";
-import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "./providers/atlascloud";
+import {
+  isAtlasReferenceModel,
+  isAtlasWanReferenceModel,
+} from "./providers/atlascloud";
 import {
   createAtlasAsset,
   deleteAtlasAsset,
@@ -3527,7 +3530,7 @@ async function produceVideo(
     ) {
       if (
         options.resolvedVideoModel?.provider === "atlascloud" &&
-        options.resolvedVideoModel.model !== ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
+        !isAtlasReferenceModel(options.resolvedVideoModel.model)
       ) {
         throw new VideoJobInputError(
           "Guided Story Atlas rendering requires a frozen reference-to-video model.",
@@ -4543,7 +4546,7 @@ async function produceVideo(
         guidedStory: options.guidedStory ?? null,
         resolveGuidedAtlasAssetIds:
           options.resolvedVideoModel?.provider === "atlascloud" &&
-          options.resolvedVideoModel.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL &&
+          isAtlasReferenceModel(options.resolvedVideoModel.model) &&
           options.guidedStory
             ? async (sceneIndex) => {
                 const scene = board.scenes[sceneIndex];
@@ -4599,10 +4602,42 @@ async function produceVideo(
                       `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s frozen Atlas assets for role ${roleId} are no longer active or were replaced. No video provider call was made.`,
                     );
                   }
-                  attached.push(...refs);
+                  if (isAtlasWanReferenceModel(options.resolvedVideoModel!.model)) {
+                    attached.push(
+                      await objectStorageService.getSignedDownloadURL(
+                        member.atlasApprovedReferenceSheetPath,
+                        job.tenantId,
+                        15 * 60,
+                      ),
+                      await objectStorageService.getSignedDownloadURL(
+                        member.outfit.referenceImagePath,
+                        job.tenantId,
+                        15 * 60,
+                      ),
+                    );
+                  } else {
+                    attached.push(...refs);
+                  }
                 }
-                const backdrop = await resolveAtlasBackdropAsset(sceneIndex);
-                attached.push(backdrop.generationReferenceId);
+                if (isAtlasWanReferenceModel(options.resolvedVideoModel!.model)) {
+                  const effective = effectiveGuidedBackdrop(
+                    options.guidedStory!,
+                    guidedScene.scriptSceneId,
+                  );
+                  if (!effective?.reference?.imagePath) {
+                    throw new VideoJobInputError(
+                      `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved backdrop.`,
+                    );
+                  }
+                  attached.push(await objectStorageService.getSignedDownloadURL(
+                    effective.reference.imagePath,
+                    job.tenantId,
+                    15 * 60,
+                  ));
+                } else {
+                  const backdrop = await resolveAtlasBackdropAsset(sceneIndex);
+                  attached.push(backdrop.generationReferenceId);
+                }
                 return attached;
               }
             : undefined,

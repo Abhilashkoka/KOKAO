@@ -73,6 +73,19 @@ describe("video model catalog", () => {
       supportsEndFrame: true,
     });
   });
+
+  it("keeps Wan Standard and Prime references as explicit 2-30 second choices", () => {
+    for (const id of [
+      "atlascloud-wan-3.0-reference",
+      "atlascloud-wan-3.0-prime-reference",
+    ]) {
+      const model = findVideoModel(id)!;
+      expect(model.provider).toBe("atlascloud");
+      expect(model.models.text).toMatch(/reference-to-video$/);
+      expect(model.durations[0]).toBe(2);
+      expect(model.durations.at(-1)).toBe(30);
+    }
+  });
 });
 
 describe("videoModelMultiplier", () => {

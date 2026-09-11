@@ -17,4 +17,8 @@ export const VideoGenerateRequestResolution = {
   '480p': '480p',
   '720p': '720p',
   '1080p': '1080p',
+  '720p-esr': '720p-esr',
+  '1080p-esr': '1080p-esr',
+  '1440p-esr': '1440p-esr',
+  '4k-esr': '4k-esr',
 } as const;

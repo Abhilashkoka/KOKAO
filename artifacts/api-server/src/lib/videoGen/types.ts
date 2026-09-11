@@ -130,7 +130,10 @@ export interface VideoGenInput {
    * animated into whatever the model felt like.
    */
   endImage?: SourceImage;
-  /** Reviewed BytePlus Asset Library references. Only BytePlus consumes these. */
+  /**
+   * Reviewed provider references. BytePlus uses asset ids; Atlas Seedance uses
+   * generation ids and Atlas Wan reference models use resolved https URLs.
+   */
   assetIds?: string[];
   /**
    * Deterministic sampling seed. Omitted (or null) means "let the provider
@@ -139,7 +142,7 @@ export interface VideoGenInput {
    * unknown parameters outright, so they never see it.
    */
   seed?: number | null;
-  /** Requested output resolution ("480p" | "720p" | "1080p"); provider hint. */
+  /** Requested output resolution, including provider-native ESR tiers; provider hint. */
   resolution?: string | null;
   /** Quality switch on models that expose one ("basic" | "high"). */
   quality?: string | null;

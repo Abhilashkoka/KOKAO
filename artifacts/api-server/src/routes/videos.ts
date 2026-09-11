@@ -142,6 +142,7 @@ import {
 } from "../lib/videoGen/motionPresets";
 import {
   TIER_UNIT_MULTIPLIER,
+  VIDEO_MODEL_CATALOG,
   findVideoModel,
   resolveModelOptions,
   supportsEndFrame,
@@ -152,7 +153,9 @@ import {
   OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
   parsePersistedOpenRouterInputImagePrivacyError,
 } from "../lib/videoGen/providers/openrouter";
-import { ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL } from "../lib/videoGen/providers/atlascloud";
+import {
+  isAtlasReferenceModel,
+} from "../lib/videoGen/providers/atlascloud";
 import { availableVideoModels } from "../lib/videoGen";
 import { registerAtlasCharacterAssets } from "../lib/characterAssets";
 import { selectAtlasGenerationReferenceId } from "../lib/atlascloud/assetId";
@@ -326,6 +329,32 @@ const GUIDED_STORY_STOCK_VOICES = [
   "shimmer",
 ] as const;
 const GUIDED_STORY_STOCK_VOICE_SET = new Set<string>(GUIDED_STORY_STOCK_VOICES);
+
+/**
+ * Guided Atlas renders require the reference-to-video contract so approved
+ * cast assets remain attached to every scene. Keep Seedance as the default,
+ * while allowing an explicit Wan Standard/Prime reference catalog choice.
+ */
+function guidedAtlasReferenceModelId(
+  explicitModelId: string | null | undefined,
+  configuredTextModel: string | null | undefined,
+): string {
+  const explicit = findVideoModel(explicitModelId);
+  if (explicitModelId) {
+    return explicit?.provider === "atlascloud" &&
+      explicit.models.text &&
+      isAtlasReferenceModel(explicit.models.text)
+      ? explicit.id
+      : "atlascloud-seedance-2.5-reference";
+  }
+  const configured = VIDEO_MODEL_CATALOG.find((candidate) =>
+    candidate.provider === "atlascloud" &&
+    typeof candidate.models.text === "string" &&
+    candidate.models.text === configuredTextModel &&
+    isAtlasReferenceModel(candidate.models.text),
+  );
+  return configured?.id ?? "atlascloud-seedance-2.5-reference";
+}
 
 type GuidedStoryCloneCatalogItem = {
   id: string;
@@ -10139,8 +10168,8 @@ async function generateVideoHandler(
   if (resolvedMode) {
     try {
       const requestedModel = findVideoModel(options.modelId);
-      const requestedProvider =
-        requestedModel?.provider ?? (await getVideoGenSelection()).provider;
+      const selection = await getVideoGenSelection();
+      const requestedProvider = requestedModel?.provider ?? selection.provider;
       const useAtlasGuidedReferences =
         options.guidedStory != null && requestedProvider === "atlascloud";
       const useGuidedProviderNativeAudio =
@@ -10148,7 +10177,10 @@ async function generateVideoHandler(
       const resolvedVideoModel = await resolveVideoModelSnapshot({
         mode: useAtlasGuidedReferences ? "text" : resolvedMode,
         modelId: useAtlasGuidedReferences
-          ? "atlascloud-seedance-2.5-reference"
+          ? guidedAtlasReferenceModelId(
+              options.modelId,
+              selection.textToVideoModel,
+            )
           : options.modelId,
         durationSec: options.durationSec ?? 5,
         resolution: options.resolution,
@@ -12330,13 +12362,16 @@ router.post(
     if (initial.options?.guidedStory && !recoveryResolvedVideoModel) {
       try {
         const requestedModel = findVideoModel(initial.options.modelId);
-        const requestedProvider =
-          requestedModel?.provider ?? (await getVideoGenSelection()).provider;
+        const selection = await getVideoGenSelection();
+        const requestedProvider = requestedModel?.provider ?? selection.provider;
         const useAtlasGuidedReferences = requestedProvider === "atlascloud";
         recoveryResolvedVideoModel = await resolveVideoModelSnapshot({
           mode: useAtlasGuidedReferences ? "text" : "image",
           modelId: useAtlasGuidedReferences
-            ? "atlascloud-seedance-2.5-reference"
+            ? guidedAtlasReferenceModelId(
+                initial.options.modelId,
+                selection.textToVideoModel,
+              )
             : initial.options.modelId,
           durationSec: initial.options.durationSec ?? 5,
           resolution: initial.options.resolution,
@@ -13448,7 +13483,10 @@ async function prepareFreshRestartOptions(
   const resolved = await resolveVideoModelSnapshot({
     mode: useAtlasGuidedReferences ? "text" : "image",
     modelId: useAtlasGuidedReferences
-      ? "atlascloud-seedance-2.5-reference"
+      ? guidedAtlasReferenceModelId(
+          null,
+          currentSelection.textToVideoModel,
+        )
       : null,
     durationSec: options.durationSec ?? 5,
     resolution: options.resolution,
@@ -13476,10 +13514,7 @@ async function prepareFreshRestartOptions(
       model: resolved.model,
     },
   };
-  if (
-    resolved.provider === "atlascloud" &&
-    resolved.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL
-  ) {
+  if (resolved.provider === "atlascloud" && isAtlasReferenceModel(resolved.model)) {
     const guided = options.guidedStory;
     const participating = new Set(
       guided.script.scenes.flatMap((scene) => scene.roleIds),

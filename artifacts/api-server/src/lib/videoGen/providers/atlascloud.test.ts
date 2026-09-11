@@ -17,6 +17,11 @@ import {
   ATLASCLOUD_SEEDANCE_25_I2V_MODEL,
   ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
   ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
+  ATLASCLOUD_WAN_30_I2V_MODEL,
+  ATLASCLOUD_WAN_30_REFERENCE_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
+  isAtlasReferenceModel,
+  isAtlasWanReferenceModel,
   atlasCloudRequestBody,
   atlasVideoReceipt,
   generateWithAtlasCloud,
@@ -73,6 +78,12 @@ function pinnedDependencies(
 }
 
 describe("Atlas Cloud Seedance 2.5", () => {
+  it("recognizes both Wan reference choices without treating text models as references", () => {
+    expect(isAtlasReferenceModel(ATLASCLOUD_WAN_30_REFERENCE_MODEL)).toBe(true);
+    expect(isAtlasWanReferenceModel(ATLASCLOUD_WAN_30_REFERENCE_MODEL)).toBe(true);
+    expect(isAtlasReferenceModel(ATLASCLOUD_WAN_30_PRIME_T2V_MODEL)).toBe(false);
+  });
+
   beforeEach(() => {
     meterMock.mockClear();
     setAtlasPinnedDownloadForTest(async () => Buffer.from("video-bytes"));
@@ -110,6 +121,58 @@ describe("Atlas Cloud Seedance 2.5", () => {
       image: "data:image/png;base64,Zmlyc3Q=",
       last_image: "data:image/jpeg;base64,bGFzdA==",
     });
+  });
+
+  it("uses Wan Standard's audio/image/last-image schema instead of Seedance fields", () => {
+    const body = atlasCloudRequestBody({
+      ...input,
+      model: ATLASCLOUD_WAN_30_I2V_MODEL,
+      image: { buffer: Buffer.from("first"), mimeType: "image/png" },
+      endImage: { buffer: Buffer.from("last"), mimeType: "image/jpeg" },
+      seed: 17,
+      generateAudio: false,
+      resolution: "1080p-esr",
+    });
+    expect(body).toMatchObject({
+      model: ATLASCLOUD_WAN_30_I2V_MODEL,
+      resolution: "1080p-esr",
+      audio: false,
+      seed: 17,
+      image: "data:image/png;base64,Zmlyc3Q=",
+      last_image: "data:image/jpeg;base64,bGFzdA==",
+    });
+    expect(body).not.toHaveProperty("generate_audio");
+    expect(body).not.toHaveProperty("ratio");
+  });
+
+  it("uses typed refers for Standard and Prime reference requests", () => {
+    const standard = atlasCloudRequestBody({
+      ...input,
+      model: ATLASCLOUD_WAN_30_REFERENCE_MODEL,
+      assetIds: ["https://storage.example/approved-sheet.png"],
+    });
+    const prime = atlasCloudRequestBody({
+      ...input,
+      model: ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
+      prompt: "prime",
+    });
+    expect(standard.refers).toEqual([
+      { url: "https://storage.example/approved-sheet.png", type: "image" },
+    ]);
+    expect(prime).toMatchObject({
+      model: ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
+      audio: true,
+    });
+  });
+
+  it("does not treat Seedance asset references as Wan URLs", () => {
+    expect(() =>
+      atlasCloudRequestBody({
+        ...input,
+        model: ATLASCLOUD_WAN_30_REFERENCE_MODEL,
+        assetIds: ["asset-ref-1abc"],
+      }),
+    ).toThrow(/resolved https image URLs/i);
   });
 
   it("sends only provider asset references for reference-to-video", () => {

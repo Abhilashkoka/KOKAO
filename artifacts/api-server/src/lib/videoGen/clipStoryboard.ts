@@ -12,10 +12,15 @@ import { getTextGenClient } from "../textGen";
 import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../promptKit";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
+import { ObjectStorageService } from "../objectStorage";
 import { isAtlasGenerationReferenceId } from "../atlascloud/assetId";
 import { generateVideo } from "./index";
 import { getMotionInstruction, motionPresetClause } from "./motionPrompt";
 import { resolveModelOptions } from "./modelCatalog";
+import {
+  isAtlasReferenceModel,
+  isAtlasWanReferenceModel,
+} from "./providers/atlascloud";
 import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
 import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
 import {
@@ -37,6 +42,8 @@ import {
   atlasAssetRefsForOutfit,
   requiresVerifiedBytePlusAsset,
 } from "../characterAssets";
+
+const objectStorageService = new ObjectStorageService();
 
 /**
  * Storyboards for the three engines that are not topic mode: text_to_video,
@@ -618,8 +625,8 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
         const frozenProvider = modelOptions.resolvedVideoModel?.provider;
         if (frozenProvider === "atlascloud") {
           if (
-            modelOptions.resolvedVideoModel?.model !==
-            "bytedance/seedance-2.5/reference-to-video"
+            !modelOptions.resolvedVideoModel?.model ||
+            !isAtlasReferenceModel(modelOptions.resolvedVideoModel.model)
           ) {
             throw new VideoGenProviderError(
               "Guided Story Atlas rendering requires a frozen reference-to-video model.",
@@ -672,7 +679,22 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
           if (refs.length !== 2) {
             throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a participating cast member without an active Atlas Cloud asset mapping.`);
           }
-          assetIds.push(...refs);
+          if (isAtlasWanReferenceModel(modelOptions.resolvedVideoModel.model)) {
+            assetIds.push(
+              await objectStorageService.getSignedDownloadURL(
+                member.atlasApprovedReferenceSheetPath,
+                params.job.tenantId,
+                15 * 60,
+              ),
+              await objectStorageService.getSignedDownloadURL(
+                member.outfitReferenceImagePath,
+                params.job.tenantId,
+                15 * 60,
+              ),
+            );
+          } else {
+            assetIds.push(...refs);
+          }
           continue;
         }
         const immutableRequiresAsset =
