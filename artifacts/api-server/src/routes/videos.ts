@@ -155,6 +155,7 @@ import {
 } from "../lib/videoGen/providers/openrouter";
 import {
   isAtlasReferenceModel,
+  isAtlasWanReferenceModel,
 } from "../lib/videoGen/providers/atlascloud";
 import { availableVideoModels } from "../lib/videoGen";
 import { registerAtlasCharacterAssets } from "../lib/characterAssets";
@@ -3105,6 +3106,8 @@ async function prepareAtlasGuidedCastMember(args: {
   member: GuidedStoryCastSnapshot;
   approval: GuidedCastApproval | null | undefined;
   refreshLease?: () => Promise<void>;
+  /** Wan sends approved image URLs and does not use Atlas Asset Library ids. */
+  skipAtlasRegistration?: boolean;
 }): Promise<GuidedStoryCastSnapshot> {
   const { tenantId, member, approval } = args;
   if (member.characterId == null || member.outfitId == null) {
@@ -3205,6 +3208,21 @@ async function prepareAtlasGuidedCastMember(args: {
     throw new Error(
       `Role ${member.roleId}'s current character-sheet or outfit bytes no longer match approval.`,
     );
+  }
+  if (args.skipAtlasRegistration) {
+    return {
+      ...member,
+      referenceSource: "generated",
+      requiresAtlasAsset: false,
+      atlasCharacterLibraryId: null,
+      atlasCharacterReferenceId: null,
+      atlasOutfitLibraryId: null,
+      atlasAssetReferenceId: null,
+      atlasAssetId: null,
+      atlasAssetStatus: null,
+      atlasApprovedReferenceSheetPath: character.referenceSheetImagePath,
+      atlasApprovedReferenceSheetSha256: character.referenceSheetApprovedSha256,
+    };
   }
   await args.refreshLease?.();
   const registered = await registerAtlasCharacterAssets({
@@ -10327,10 +10345,11 @@ async function generateVideoHandler(
       heartbeatAt: leaseNow.toISOString(),
       expiresAt: new Date(leaseNow.getTime() + 2 * 60 * 60 * 1000).toISOString(),
     };
-    // Atlas registration is a live, externally-visible operation. Give the
-    // attempt its durable number first and bind the draft to it in the same
-    // transaction. Duplicate requests can now only observe/reuse this row;
-    // they can never reach a second Asset Library POST.
+    // Atlas registration (when Seedance is selected) and provider reference
+    // preparation are externally visible. Give the attempt its durable number
+    // first and bind the draft to it in the same transaction. Duplicate
+    // requests can now only observe/reuse this row; they can never reach a
+    // second Asset Library POST.
     provisionalGuidedJob = await db.transaction(async (tx) => {
       const [currentDraft] = await tx.select().from(guidedStoryDraftsTable).where(and(
         eq(guidedStoryDraftsTable.id, options.guidedStory!.draftId),
@@ -10375,6 +10394,9 @@ async function generateVideoHandler(
       return;
     }
     try {
+      const wanReferenceModel = isAtlasWanReferenceModel(
+        options.resolvedVideoModel?.model ?? "",
+      );
       const participating = new Set(
         options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
       );
@@ -10390,12 +10412,17 @@ async function generateVideoHandler(
           member,
           approval,
           refreshLease: refreshGuidedCreatingLease,
+          skipAtlasRegistration: wanReferenceModel,
         }));
       }
       options.guidedStory = { ...options.guidedStory, cast: registeredCast };
     } catch (error) {
+      const wanReferenceModel = isAtlasWanReferenceModel(
+        options.resolvedVideoModel?.model ?? "",
+      );
       const message =
-        `Job #${provisionalGuidedJob.id} stopped before funding because Atlas Asset Library registration failed: ` +
+        `Job #${provisionalGuidedJob.id} stopped before funding because ` +
+        `${wanReferenceModel ? "approved Wan references could not be validated" : "Atlas Asset Library registration failed"}: ` +
         `${error instanceof Error ? error.message : "unknown registration error"} Retry after resolving the stated asset issue; any successful registrations will be reused.`;
       const failed = await failProvisionalGuidedJob(message);
       res.status(409).json({
@@ -10404,9 +10431,10 @@ async function generateVideoHandler(
       });
       return;
     }
-    // Freeze the exact successful Atlas mappings and their approved source
-    // evidence before any wallet/quota/credit operation. The draft lock and
-    // rowcount checks make a concurrent edit a numbered, unfunded failure.
+    // Freeze the exact provider references (Atlas mappings for Seedance, or
+    // approved source evidence for Wan) before any wallet/quota/credit
+    // operation. The draft lock and rowcount checks make a concurrent edit a
+    // numbered, unfunded failure.
     const participatingForFreeze = new Set(
       options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
     );
@@ -10660,6 +10688,9 @@ async function generateVideoHandler(
         if (!outfit) return { kind: "validation" as const };
         outfits.set(outfitId, outfit);
       }
+      const wanReferenceModel = isAtlasWanReferenceModel(
+        options.resolvedVideoModel?.model ?? "",
+      );
       for (const member of members) {
         const approval = options.guidedStory.castApprovals?.roles[member.roleId];
         const currentApproval =
@@ -10732,21 +10763,25 @@ async function generateVideoHandler(
           character.referenceSheetStatus !== "approved" ||
           character.referenceSheetImagePath !== member.atlasApprovedReferenceSheetPath ||
           character.referenceSheetApprovedSha256 !== member.atlasApprovedReferenceSheetSha256 ||
-          character.atlasAssetSourcePath !== member.atlasApprovedReferenceSheetPath ||
-          character.atlasAssetSourceSha256 !== member.atlasApprovedReferenceSheetSha256 ||
-          character.atlasAssetStatus !== "Active" ||
-          character.atlasAssetLibraryId !== member.atlasCharacterLibraryId ||
-          characterReferenceId !== member.atlasCharacterReferenceId ||
+          (!wanReferenceModel && (
+            character.atlasAssetSourcePath !== member.atlasApprovedReferenceSheetPath ||
+            character.atlasAssetSourceSha256 !== member.atlasApprovedReferenceSheetSha256 ||
+            character.atlasAssetStatus !== "Active" ||
+            character.atlasAssetLibraryId !== member.atlasCharacterLibraryId ||
+            characterReferenceId !== member.atlasCharacterReferenceId
+          )) ||
           outfit.characterId !== character.id ||
           outfit.status !== "approved" ||
           !outfit.identityVerified ||
           outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
           outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
-          outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
-          outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
-          outfit.atlasAssetStatus !== "Active" ||
-          outfit.atlasAssetLibraryId !== member.atlasOutfitLibraryId ||
-          outfitReferenceId !== member.atlasAssetReferenceId
+          (!wanReferenceModel && (
+            outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
+            outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
+            outfit.atlasAssetStatus !== "Active" ||
+            outfit.atlasAssetLibraryId !== member.atlasOutfitLibraryId ||
+            outfitReferenceId !== member.atlasAssetReferenceId
+          ))
         ) return { kind: "validation" as const };
       }
     }
@@ -12897,6 +12932,9 @@ router.post(
       const participating = new Set(
         options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
       );
+      const wanReferenceModel = isAtlasWanReferenceModel(
+        options.resolvedVideoModel?.model ?? "",
+      );
       const reconciledCast: GuidedStoryCastSnapshot[] = [];
       for (const member of options.guidedStory.cast) {
         if (!participating.has(member.roleId)) {
@@ -13012,6 +13050,22 @@ router.post(
           return;
         }
         await refreshRecoveryCreatingLease();
+        if (wanReferenceModel) {
+          reconciledCast.push({
+            ...member,
+            referenceSource: "generated",
+            requiresAtlasAsset: false,
+            atlasCharacterLibraryId: null,
+            atlasCharacterReferenceId: null,
+            atlasOutfitLibraryId: null,
+            atlasAssetReferenceId: null,
+            atlasAssetId: null,
+            atlasAssetStatus: null,
+            atlasApprovedReferenceSheetPath: character.referenceSheetImagePath,
+            atlasApprovedReferenceSheetSha256: character.referenceSheetApprovedSha256,
+          });
+          continue;
+        }
         const registered = await registerAtlasCharacterAssets({
           tenantId: req.tenantId,
           characterId: character.id,
@@ -13188,6 +13242,9 @@ router.post(
           if (!row) return { kind: "validation" as const };
           outfits.set(id, row);
         }
+        const wanReferenceModel = isAtlasWanReferenceModel(
+          options.resolvedVideoModel?.model ?? "",
+        );
         for (const member of members) {
           const current = draft.state.cast.find((item) => item.roleId === member.roleId);
           const approval = draft.state.castApprovals?.roles[member.roleId];
@@ -13214,23 +13271,27 @@ router.post(
             parent.referenceSheetStatus !== "approved" ||
             parent.referenceSheetImagePath !== member.atlasApprovedReferenceSheetPath ||
             parent.referenceSheetApprovedSha256 !== member.atlasApprovedReferenceSheetSha256 ||
-            parent.atlasAssetSourcePath !== member.atlasApprovedReferenceSheetPath ||
-            parent.atlasAssetSourceSha256 !== member.atlasApprovedReferenceSheetSha256 ||
-            parent.atlasAssetStatus !== "Active" ||
-            parent.atlasAssetLibraryId !== member.atlasCharacterLibraryId ||
-            selectAtlasGenerationReferenceId(parent.atlasAssetReferenceId, parent.atlasAssetId) !==
-              member.atlasCharacterReferenceId ||
+            (!wanReferenceModel && (
+              parent.atlasAssetSourcePath !== member.atlasApprovedReferenceSheetPath ||
+              parent.atlasAssetSourceSha256 !== member.atlasApprovedReferenceSheetSha256 ||
+              parent.atlasAssetStatus !== "Active" ||
+              parent.atlasAssetLibraryId !== member.atlasCharacterLibraryId ||
+              selectAtlasGenerationReferenceId(parent.atlasAssetReferenceId, parent.atlasAssetId) !==
+                member.atlasCharacterReferenceId
+            )) ||
             outfit.characterId !== parent.id ||
             outfit.status !== "approved" ||
             !outfit.identityVerified ||
             outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
             outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
-            outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
-            outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
-            outfit.atlasAssetStatus !== "Active" ||
-            outfit.atlasAssetLibraryId !== member.atlasOutfitLibraryId ||
-            selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId) !==
-              member.atlasAssetReferenceId
+            (!wanReferenceModel && (
+              outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
+              outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
+              outfit.atlasAssetStatus !== "Active" ||
+              outfit.atlasAssetLibraryId !== member.atlasOutfitLibraryId ||
+              selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId) !==
+                member.atlasAssetReferenceId
+            ))
           ) return { kind: "validation" as const };
         }
       }
@@ -13519,6 +13580,7 @@ async function prepareFreshRestartOptions(
     const participating = new Set(
       guided.script.scenes.flatMap((scene) => scene.roleIds),
     );
+    const wanReferenceModel = isAtlasWanReferenceModel(resolved.model);
     const cast = [];
     for (const member of guided.cast) {
       if (!participating.has(member.roleId)) {
@@ -13531,6 +13593,7 @@ async function prepareFreshRestartOptions(
           tenantId,
           member,
           approval,
+          skipAtlasRegistration: wanReferenceModel,
         }));
       } catch (error) {
         const detail =

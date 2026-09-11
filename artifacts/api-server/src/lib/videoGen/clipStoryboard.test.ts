@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   keyframeRefs: [] as (string | null)[],
   generateCalls: [] as { mode: string; prompt: string; durationSec: number; hasImage: boolean; assetIds?: string[] }[],
   assetRefs: ["asset-role-1"] as string[],
+  wanReferenceUrls: ["https://storage.example/sheet.png", "https://storage.example/outfit.png"] as string[],
   atlasAssetCalls: 0,
   detailCalls: [] as Array<[number, number]>,
   detailMissing: false,
@@ -38,6 +39,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../characterAssets", () => ({
   assetRefsForOutfit: vi.fn(async () => state.assetRefs),
+  approvedGuidedReferenceUrls: vi.fn(async () => state.wanReferenceUrls),
   atlasAssetRefsForOutfit: vi.fn(async (args: { characterId: number }) => {
     state.atlasAssetCalls += 1;
     return [`atlas-sheet-${args.characterId}`, `atlas-outfit-${args.characterId}`];
@@ -196,6 +198,7 @@ beforeEach(() => {
   state.systemPrompt = "";
   state.llmCalls = 0;
   state.assetRefs = ["asset-role-1"];
+  state.wanReferenceUrls = ["https://storage.example/sheet.png", "https://storage.example/outfit.png"];
   state.atlasAssetCalls = 0;
   state.detailCalls = [];
   state.detailMissing = false;
@@ -803,6 +806,113 @@ describe("renderClipStoryboard", () => {
       }),
     ]);
     expect(state.atlasAssetCalls).toBe(2);
+  });
+
+  it("sends approved but unregistered Wan references as signed URLs", async () => {
+    const guided = scene({
+      previewPath: null,
+      visual: "Hero's approved sheet is @Image1 and outfit is @Image2.",
+      guidedStory: {
+        scriptSceneId: "script-1",
+        startMs: 0,
+        endMs: 5000,
+        roleIds: ["hero"],
+        lineOwnership: [],
+        cast: [{
+          roleId: "hero",
+          source: "generated",
+          referenceSource: "generated",
+          characterId: 7,
+          outfitId: 3,
+          requiresAtlasAsset: false,
+          requiresBytePlusAsset: false,
+          atlasApprovedReferenceSheetPath: "/objects/1/sheet-7.png",
+          atlasApprovedReferenceSheetSha256: "a".repeat(64),
+          outfitReferenceImagePath: "/objects/1/outfit-7.png",
+          outfitReferenceSha256: "b".repeat(64),
+        }],
+        inconsistencyFlags: [],
+        inputFingerprint: "fp",
+        visuals: {
+          logoPath: null,
+          locationMode: "none",
+          locationImagePath: null,
+          locationDescription: null,
+        },
+      } as never,
+    });
+
+    await renderClipStoryboard({
+      job: makeJob({ options: { aspectRatio: "9:16", resolvedVideoModel: {
+        version: 1,
+        provider: "atlascloud",
+        model: "alibaba/wan-3.0/reference-to-video",
+        resolvedAt: "2026-01-01T00:00:00Z",
+      } } as never }),
+      storyboard: board({ mode: "guided_story", visualsSource: "ai_video", scenes: [guided] }),
+      aspectRatio: "9:16",
+      load: async () => ({ buffer: Buffer.from("approved"), mimeType: "image/png" }),
+    });
+
+    expect(state.generateCalls).toEqual([
+      expect.objectContaining({
+        mode: "text",
+        hasImage: false,
+        assetIds: [
+          "https://storage.example/sheet.png",
+          "https://storage.example/outfit.png",
+        ],
+      }),
+    ]);
+    expect(state.atlasAssetCalls).toBe(0);
+  });
+
+  it("still requires an active Atlas mapping for Seedance references", async () => {
+    const guided = scene({
+      previewPath: null,
+      guidedStory: {
+        scriptSceneId: "script-1",
+        startMs: 0,
+        endMs: 5000,
+        roleIds: ["hero"],
+        lineOwnership: [],
+        cast: [{
+          roleId: "hero",
+          source: "generated",
+          referenceSource: "generated",
+          characterId: 7,
+          outfitId: 3,
+          requiresAtlasAsset: true,
+          requiresBytePlusAsset: false,
+          atlasApprovedReferenceSheetPath: "/objects/1/sheet-7.png",
+          atlasApprovedReferenceSheetSha256: "a".repeat(64),
+          outfitReferenceImagePath: "/objects/1/outfit-7.png",
+          outfitReferenceSha256: "b".repeat(64),
+        }],
+        inconsistencyFlags: [],
+        inputFingerprint: "fp",
+        visuals: {
+          logoPath: null,
+          locationMode: "none",
+          locationImagePath: null,
+          locationDescription: null,
+        },
+      } as never,
+    });
+
+    await expect(renderClipStoryboard({
+      job: makeJob({ options: { aspectRatio: "9:16", resolvedVideoModel: {
+        version: 1,
+        provider: "atlascloud",
+        model: "bytedance/seedance-2.5/reference-to-video",
+        resolvedAt: "2026-01-01T00:00:00Z",
+      } } as never }),
+      storyboard: board({ mode: "guided_story", visualsSource: "ai_video", scenes: [guided] }),
+      aspectRatio: "9:16",
+      load: async () => ({ buffer: Buffer.from("approved"), mimeType: "image/png" }),
+    })).rejects.toThrow(/no tenant-owned Atlas Cloud mapping/);
+    expect(state.atlasAssetCalls).toBe(0);
+    expect(state.generateCalls).toHaveLength(0);
   });
 
   it("fails closed when a participating Guided Story character was deleted", async () => {

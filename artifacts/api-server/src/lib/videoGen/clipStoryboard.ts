@@ -39,6 +39,7 @@ import {
 } from "./types";
 import {
   assetRefsForOutfit,
+  approvedGuidedReferenceUrls,
   atlasAssetRefsForOutfit,
   requiresVerifiedBytePlusAsset,
 } from "../characterAssets";
@@ -632,6 +633,9 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
               "Guided Story Atlas rendering requires a frozen reference-to-video model.",
             );
           }
+          const wanReferenceModel = isAtlasWanReferenceModel(
+            modelOptions.resolvedVideoModel.model,
+          );
           if (member.requiresBytePlusAsset === true) {
             throw new VideoGenProviderError(
               `Guided Story scene ${i + 1} has a BytePlus identity-linked cast member and cannot send that identity to Atlas Cloud.`,
@@ -640,8 +644,41 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
           const requiresAtlas =
             member.requiresAtlasAsset ??
             (member.referenceSource === "generated" ? true : undefined);
-          if (member.referenceSource !== "generated" || !requiresAtlas) {
+          if (
+            member.referenceSource !== "generated" ||
+            (!wanReferenceModel && !requiresAtlas)
+          ) {
             throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a non-fictional, uploaded, or legacy cast reference and cannot use Atlas Cloud.`);
+          }
+          if (wanReferenceModel) {
+            if (
+              member.characterId == null ||
+              member.outfitId == null ||
+              !member.atlasApprovedReferenceSheetPath ||
+              !member.atlasApprovedReferenceSheetSha256 ||
+              !member.outfitReferenceImagePath ||
+              !member.outfitReferenceSha256
+            ) {
+              throw new VideoGenProviderError(
+                `Guided Story scene ${i + 1} has no immutable approved image references for Wan.`,
+              );
+            }
+            const urls = await approvedGuidedReferenceUrls({
+              tenantId: params.job.tenantId,
+              characterId: member.characterId,
+              outfitId: member.outfitId,
+              expectedReferenceSheetPath: member.atlasApprovedReferenceSheetPath,
+              expectedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256,
+              expectedOutfitPath: member.outfitReferenceImagePath,
+              expectedOutfitSha256: member.outfitReferenceSha256,
+            });
+            if (urls.length !== 2) {
+              throw new VideoGenProviderError(
+                `Guided Story scene ${i + 1} has approved references that changed or are no longer valid for Wan.`,
+              );
+            }
+            assetIds.push(...urls);
+            continue;
           }
           const frozenOutfitReferenceId = isAtlasGenerationReferenceId(member.atlasAssetReferenceId)
             ? member.atlasAssetReferenceId

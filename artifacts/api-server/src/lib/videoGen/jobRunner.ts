@@ -103,6 +103,7 @@ import {
   resolveAtlasAssetsKey,
   waitForAtlasAsset,
 } from "../atlascloud/assets";
+import { approvedGuidedReferenceUrls } from "../characterAssets";
 import { assertHybridStoryBeatPlan, planHybridStoryBeats } from "./hybridStory";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import {
@@ -3555,10 +3556,11 @@ async function produceVideo(
       }
       // New Guided Story attempts have already crossed their script, cast,
       // reference-sheet and backdrop approval boundaries. Build the immutable
-      // execution board only as an internal per-scene receipt/checkpoint
-      // container. Atlas reference-to-video attaches every participating
-      // character's approved sheet and outfit; other providers retain the
-      // approved active-speaker opening-frame input.
+       // execution board only as an internal per-scene receipt/checkpoint
+       // container. Atlas reference-to-video attaches every participating
+       // character's approved sheet and outfit (Wan as signed URLs, Seedance
+       // through the Asset Library); other providers retain the approved
+       // active-speaker opening-frame input.
       // No generated preview, preview checkpoint, or review pause is created.
       const storyboard = guidedStoryStoryboard(options.guidedStory);
       storyboard.scenes = storyboard.scenes.map((scene) => {

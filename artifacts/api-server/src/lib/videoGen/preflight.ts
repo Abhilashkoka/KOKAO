@@ -154,8 +154,9 @@ function modeForVideoJob(
     isAtlasReferenceModel(options.resolvedVideoModel.model)
   ) {
     // Atlas references are attached as Asset Library IDs rather than a single
-    // source image, so this catalog route intentionally uses the text-mode
-    // request contract even though it is reference-guided video generation.
+    // source image. Wan references are resolved to signed image URLs later,
+    // but both reference contracts intentionally use the text-mode catalog
+    // route even though they are reference-guided video generations.
     return "text";
   }
   return (

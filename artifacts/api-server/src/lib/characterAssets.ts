@@ -1450,6 +1450,63 @@ export async function atlasAssetRefsForOutfit(args: {
 }
 
 /**
+ * Resolve the exact approved Guided Story sheet and outfit to short-lived
+ * public URLs. Wan reference-to-video consumes image URLs directly and must
+ * not require an Atlas Asset Library mapping, but it still needs the same
+ * tenant, approval, and byte-fingerprint checks as the registry-backed path.
+ */
+export async function approvedGuidedReferenceUrls(args: {
+  tenantId: number;
+  characterId: number;
+  outfitId: number;
+  expectedReferenceSheetPath: string;
+  expectedReferenceSheetSha256: string;
+  expectedOutfitPath: string;
+  expectedOutfitSha256: string;
+}): Promise<string[]> {
+  const [freshReferenceSheetSha256, freshOutfitSha256] = await Promise.all([
+    atlasSourceSha256(args.expectedReferenceSheetPath, args.tenantId),
+    atlasSourceSha256(args.expectedOutfitPath, args.tenantId),
+  ]);
+  if (
+    freshReferenceSheetSha256 !== args.expectedReferenceSheetSha256 ||
+    freshOutfitSha256 !== args.expectedOutfitSha256
+  ) return [];
+
+  const valid = await db.transaction(async (tx) => {
+    const [character] = await tx.select().from(charactersTable).where(and(
+      eq(charactersTable.id, args.characterId),
+      eq(charactersTable.tenantId, args.tenantId),
+    )).for("update").limit(1);
+    if (
+      !character ||
+      character.referenceSource !== "generated" ||
+      character.bytePlusIdentityId !== null ||
+      character.referenceSheetStatus !== "approved" ||
+      character.referenceSheetImagePath !== args.expectedReferenceSheetPath ||
+      character.referenceSheetApprovedSha256 !== args.expectedReferenceSheetSha256
+    ) return false;
+    const [outfit] = await tx.select().from(characterOutfitsTable).where(and(
+      eq(characterOutfitsTable.id, args.outfitId),
+      eq(characterOutfitsTable.characterId, args.characterId),
+      eq(characterOutfitsTable.tenantId, args.tenantId),
+    )).for("update").limit(1);
+    return Boolean(
+      outfit &&
+      outfit.status === "approved" &&
+      outfit.identityVerified &&
+      outfit.referenceImagePath === args.expectedOutfitPath &&
+      outfit.atlasApprovedSourceSha256 === args.expectedOutfitSha256,
+    );
+  });
+  if (!valid) return [];
+  return Promise.all([
+    storage.getSignedDownloadURL(args.expectedReferenceSheetPath, args.tenantId, 15 * 60),
+    storage.getSignedDownloadURL(args.expectedOutfitPath, args.tenantId, 15 * 60),
+  ]);
+}
+
+/**
  * User deletion still requires affirmative GET absence. Provider DELETE is
  * reserved for immediate compensation of a newly-created, numeric record;
  * network/auth ambiguity deliberately blocks local deletion.
