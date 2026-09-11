@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+vi.mock("./creditReconciliationGate", () => ({
+  CREDIT_RECONCILIATION_GATE: { verdict: "go", reason: "enforcement algorithm test override" },
+}));
 import { pool, db, creditAccountsTable, creditAccountLedgerTable, creditMeterEventsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {

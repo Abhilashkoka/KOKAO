@@ -5,6 +5,11 @@ description: Safety and accounting rules for replacing separate quotas with one 
 
 The unified-credit system must start in shadow mode. Meter provider calls where spend occurs, including retries and paid failures, and reconcile those totals against provider invoices before enabling enforcement.
 
+The enforcement release decision requires a complete live shadow billing window
+and matching provider invoice evidence. A partial account audit or development
+test events cannot establish approval; unknown paid-failure or rate-key coverage
+must remain a no-go rather than an accepted zero variance.
+
 **Why:** Route-level quota reservations miss provider work performed deep inside generation pipelines. Charging from an unreconciled rate card can undercharge customers, lose money, or debit inconsistently.
 
 Meter at the innermost paid submission boundary, not around a wrapper that may hide provider retries. Context must be explicit: a tenant context for billable work, or `null` for health checks and admin playground calls.

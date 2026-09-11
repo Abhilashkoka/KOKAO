@@ -302,6 +302,7 @@ import {
   getMeterMode,
   setMeterMode,
 } from "../lib/creditRates";
+import { CREDIT_RECONCILIATION_GATE } from "../lib/creditReconciliationGate";
 import { meterReport } from "../lib/meter";
 import { planCreditMigration, runCreditMigration } from "../lib/creditMigration";
 import {
@@ -5014,6 +5015,12 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
   const parsed = AdminUpdateCreditRatesBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  if (parsed.data.mode === "enforce" && CREDIT_RECONCILIATION_GATE.verdict !== "go") {
+    res.status(409).json({
+      error: `Credit enforcement is locked: ${CREDIT_RECONCILIATION_GATE.reason} Keep the meter in shadow mode until reconciliation is complete.`,
+    });
     return;
   }
   const keys = parsed.data.rates.map((r) => r.key);

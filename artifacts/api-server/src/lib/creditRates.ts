@@ -5,6 +5,7 @@ import {
   type CreditRate,
 } from "@workspace/db";
 import { asc, eq } from "drizzle-orm";
+import { CREDIT_RECONCILIATION_GATE } from "./creditReconciliationGate";
 
 /**
  * The credit rate card: how many credits one unit of each billable action
@@ -120,6 +121,15 @@ const MODE_ROW_ID = 1;
 
 let rateCache: Map<string, CreditRate> | null = null;
 let modeCache: MeterMode | null = null;
+
+export class CreditEnforcementLockedError extends Error {
+  readonly code = "CREDIT_ENFORCEMENT_LOCKED";
+
+  constructor() {
+    super(`Credit enforcement is locked: ${CREDIT_RECONCILIATION_GATE.reason}`);
+    this.name = "CreditEnforcementLockedError";
+  }
+}
 
 export function invalidateCreditRateCache(): void {
   rateCache = null;
@@ -277,21 +287,36 @@ export async function creditCostSnapshotFor(
   return { unitRateMilli, costMilli: Math.round(q * unitRateMilli) };
 }
 
+function effectiveMeterMode(mode: MeterMode): MeterMode {
+  return mode === "enforce" && CREDIT_RECONCILIATION_GATE.verdict !== "go"
+    ? "shadow"
+    : mode;
+}
+
 /** The platform-wide meter mode. Defaults to "shadow" when unset. */
 export async function getMeterMode(): Promise<MeterMode> {
-  if (modeCache) return modeCache;
+  if (modeCache) {
+    // Apply the release gate even to a value left in the in-process cache by
+    // an earlier version or a stale worker.
+    modeCache = effectiveMeterMode(modeCache);
+    return modeCache;
+  }
   const [row] = await db
     .select()
     .from(creditMeterSettingsTable)
     .orderBy(asc(creditMeterSettingsTable.id))
     .limit(1);
-  const mode: MeterMode =
+  const storedMode: MeterMode =
     row?.mode === "off" ? "off" : row?.mode === "enforce" ? "enforce" : "shadow";
+  const mode = effectiveMeterMode(storedMode);
   modeCache = mode;
   return mode;
 }
 
 export async function setMeterMode(mode: MeterMode): Promise<MeterMode> {
+  if (mode === "enforce" && CREDIT_RECONCILIATION_GATE.verdict !== "go") {
+    throw new CreditEnforcementLockedError();
+  }
   await db
     .insert(creditMeterSettingsTable)
     .values({ id: MODE_ROW_ID, mode })
