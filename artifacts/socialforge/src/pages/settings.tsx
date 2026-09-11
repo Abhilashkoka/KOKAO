@@ -24,6 +24,7 @@ import { BillingSettings } from "@/components/billing-settings";
 import { CreditUsageCard, useCreditFunding } from "@/components/credit-balance";
 import { ConsentSettings } from "@/components/consent-settings";
 import { useFeatureFlags } from "@/lib/features";
+import { getDisplayedPlanFeatures } from "@/lib/planFeatures";
 import { useSearch } from "wouter";
 
 /** Friendly display names for the built-in provider's models. */
@@ -236,7 +237,7 @@ export function SettingsPage() {
                       </Button>
                     </div>
                     <ul className="space-y-2.5">
-                      {plan.features.map((feature, i) => (
+                      {getDisplayedPlanFeatures(plan).map((feature, i) => (
                         <li key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
                           <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" /> {feature}
                         </li>

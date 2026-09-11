@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { useBrand } from "@/lib/brand";
 import { usePageMeta } from "@/lib/seo";
+import { getDisplayedPlanFeatures } from "@/lib/planFeatures";
 import { useListPlans } from "@workspace/api-client-react";
 import type { Plan } from "@workspace/api-client-react";
 
@@ -67,12 +68,13 @@ function signUpHref(plan: Plan, annual: boolean): string {
 function buildPricingJsonLd(plans: Plan[]): string {
   const offers = plans.flatMap((plan) => {
     const out: object[] = [];
+    const displayedFeatures = getDisplayedPlanFeatures(plan);
     const priced = structuredPrice(plan);
     if (priced) {
       out.push({
         "@type": "Offer",
         name: `KOKAO ${plan.name} plan`,
-        description: plan.features.join("; "),
+        description: displayedFeatures.join("; "),
         price: priced.price,
         priceCurrency: priced.currency,
         url: `${CANONICAL_ORIGIN}/pricing`,
@@ -86,7 +88,7 @@ function buildPricingJsonLd(plans: Plan[]): string {
       out.push({
         "@type": "Offer",
         name: `KOKAO ${plan.name} plan (annual)`,
-        description: plan.features.join("; "),
+        description: displayedFeatures.join("; "),
         price: (plan.priceInrYearly / 100).toFixed(2),
         priceCurrency: "INR",
         url: `${CANONICAL_ORIGIN}/pricing`,
@@ -240,7 +242,7 @@ export function PricingPage() {
                     <p className="text-3xl font-extrabold mt-2 mb-6">{plan.priceLabel}</p>
                   )}
                   <ul className="space-y-2.5 flex-1">
-                    {plan.features.map((feature, i) => (
+                    {getDisplayedPlanFeatures(plan).map((feature, i) => (
                       <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
                         <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0 mt-0.5" /> {feature}
                       </li>

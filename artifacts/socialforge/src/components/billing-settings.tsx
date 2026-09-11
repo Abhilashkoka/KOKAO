@@ -47,6 +47,7 @@ import {
 } from "@/lib/cashfree-checkout";
 import { WalletCard } from "@/components/wallet-balance";
 import { trackProjectEvent } from "@/lib/analytics";
+import { getDisplayedPlanFeatures } from "@/lib/planFeatures";
 
 /**
  * Build toast props for a verify-payment failure.
@@ -539,6 +540,13 @@ export function BillingSettings() {
                       )}
                     </p>
                   )}
+                  <ul className="space-y-1.5">
+                    {getDisplayedPlanFeatures(plan).map((feature, i) => (
+                      <li key={i} className="text-xs text-muted-foreground">
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
                   <Button
                     size="sm"
                     disabled={

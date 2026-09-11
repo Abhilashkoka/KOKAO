@@ -1,8 +1,14 @@
 import { Link } from "wouter";
 import { useEffect, useState } from "react";
 import { Clock } from "lucide-react";
-import { useGetLandingContent, type LandingContent } from "@workspace/api-client-react";
+import {
+  useGetLandingContent,
+  useListPlans,
+  type LandingContent,
+  type Plan,
+} from "@workspace/api-client-react";
 import { usePageMeta } from "@/lib/seo";
+import { getDisplayedPlanFeatures } from "@/lib/planFeatures";
 import { INACTIVITY_SIGNOUT_FLAG } from "@/hooks/use-idle-logout";
 import defaultContent from "@/content/landing-default.json";
 
@@ -70,8 +76,19 @@ function BrandMark({ site }: { site: LandingContent["site"] }) {
   );
 }
 
+function displayedLandingPlanFeatures(
+  plan: LandingContent["pricing"]["plans"][number],
+  plans: Plan[] | undefined,
+): string[] {
+  const catalogPlan = plans?.find(
+    (candidate) => candidate.name.trim().toLowerCase() === plan.name.trim().toLowerCase(),
+  );
+  return catalogPlan ? getDisplayedPlanFeatures(catalogPlan) : plan.features;
+}
+
 export function LandingPage() {
   const { data } = useGetLandingContent();
+  const { data: plans } = useListPlans();
   const content = data ?? DEFAULT_LANDING;
   const { site, nav, hero, platforms, features, how, pricing, testimonials, faq, cta, footer } =
     content;
@@ -304,7 +321,7 @@ export function LandingPage() {
                   <span className="opacity-70">{plan.period}</span>
                 </p>
                 <ul className="space-y-2 mb-6 flex-1">
-                  {plan.features.map((f) => (
+                  {displayedLandingPlanFeatures(plan, plans).map((f) => (
                     <li key={f} className="flex gap-2 text-sm">
                       <span aria-hidden="true">✓</span>
                       {f}

@@ -44,6 +44,18 @@ const PLANS = [
     priceInr: 249900,
     priceInrYearly: 2499000,
   },
+  {
+    id: "credits",
+    name: "Credits",
+    priceLabel: "₹1,299 / mo",
+    limits: { captions: 500, images: 200, videos: 50, brandKits: 10, scheduledPosts: 200 },
+    features: ["500 AI captions / month", "200 AI images / month", "10 brand kits"],
+    teamSeats: 0,
+    watermark: false,
+    billingMode: "credits",
+    monthlyCredits: 125,
+    priceInr: 129900,
+  },
 ];
 
 vi.mock("@/lib/brand", () => ({
@@ -83,6 +95,24 @@ describe("public pricing page", () => {
     expect(screen.getByText("500 AI captions / month")).toBeTruthy();
   });
 
+  it("uses credit-funded feature copy in the card and its structured offer description", async () => {
+    renderPage();
+    const card = screen.getByTestId("pricing-plan-credits");
+    expect(card.textContent).toContain("125 credits per month");
+    expect(card.textContent).toContain("One shared credit balance");
+    expect(card.textContent).not.toContain("500 AI captions / month");
+    expect(card.textContent).not.toContain("200 AI images / month");
+
+    await waitFor(() => expect(document.getElementById("pricing-jsonld")).not.toBeNull());
+    const jsonLd = JSON.parse(document.getElementById("pricing-jsonld")!.textContent ?? "{}");
+    const creditsOffer = jsonLd.offers.find((offer: { name: string }) =>
+      offer.name.includes("Credits plan"),
+    );
+    expect(creditsOffer.description).toContain("125 credits per month");
+    expect(creditsOffer.description).toContain("One shared credit balance");
+    expect(creditsOffer.description).not.toContain("500 AI captions / month");
+  });
+
   it("injects Product/Offer JSON-LD matching displayed prices and skips unpriced plans", async () => {
     renderPage();
     await waitFor(() =>
@@ -93,12 +123,13 @@ describe("public pricing page", () => {
     );
     expect(jsonLd["@type"]).toBe("Product");
     const offers = jsonLd.offers as Array<{ name: string; price: string; priceCurrency: string }>;
-    // Free: parsed from "$0 / mo". Pro: authoritative paise price wins,
-    // plus an annual offer for its yearly price.
+    // Free: parsed from "$0 / mo". Pro and Credits: authoritative paise
+    // prices win, plus an annual offer for Pro's yearly price.
     expect(offers).toEqual([
       expect.objectContaining({ name: "KOKAO Free plan", price: "0", priceCurrency: "USD" }),
       expect.objectContaining({ name: "KOKAO Pro plan", price: "2499.00", priceCurrency: "INR" }),
       expect.objectContaining({ name: "KOKAO Pro plan (annual)", price: "24990.00", priceCurrency: "INR" }),
+      expect.objectContaining({ name: "KOKAO Credits plan", price: "1299.00", priceCurrency: "INR" }),
     ]);
     // "No monthly fee" is not a price — never invent an Offer for it.
     expect(offers.some((o) => o.name.includes("Pay As You Go"))).toBe(false);
