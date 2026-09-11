@@ -412,12 +412,14 @@ describe("video provider validation guidance", () => {
     );
 
     expect(screen.getByTestId("card-video-gen-provider").textContent).toContain(
-      "Text: wan-video/t2v",
+      "Text / reference to video: wan-video/t2v",
     );
     expect(screen.queryByTestId("video-model-pricing-requirement")).toBeNull();
     await userEvent
       .setup()
       .click(screen.getByTestId("card-video-gen-provider"));
+    expect(screen.getByText("Text-to-Video / Reference-to-Video model")).toBeTruthy();
+    expect(screen.getByText("Image-to-Video model (Animate Photo)")).toBeTruthy();
     expect(
       screen.getByTestId("video-model-pricing-requirement").textContent,
     ).toContain(

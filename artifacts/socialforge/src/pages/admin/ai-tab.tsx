@@ -1985,8 +1985,9 @@ export function VideoGenProviderCard() {
         <CardTitle>Video Generation Provider</CardTitle>
         {expanded && (
           <CardDescription>
-            Which service and models power the Studio's Video tab. "Text to Video"
-            and "Animate Photo" each have their own model; the Slideshow engine
+            Choose the service and models for the Studio's Video tab.
+            Text-to-video / reference-to-video and image-to-video (Animate Photo)
+            have separate model settings; the Slideshow engine
             runs locally and needs no AI model. A model can be saved only when
             that exact provider/model combination has credentials and its own
             authoritative price.
@@ -2005,10 +2006,10 @@ export function VideoGenProviderCard() {
               </Badge>
             </div>
             <span className="text-muted-foreground">
-              Text: {settings.textToVideoModel || shown?.defaultTextToVideoModel || "Default"}
+              Text / reference to video: {settings.textToVideoModel || shown?.defaultTextToVideoModel || "Default"}
             </span>
             <span className="text-muted-foreground">
-              Animate photo: {settings.imageToVideoModel || shown?.defaultImageToVideoModel || "Default"}
+              Image to video (Animate Photo): {settings.imageToVideoModel || shown?.defaultImageToVideoModel || "Default"}
             </span>
             {settings.lipSyncPortraitModel && (
               <span className="text-muted-foreground">
@@ -2065,14 +2066,15 @@ export function VideoGenProviderCard() {
                     Atlas Cloud accepts only the exact model IDs listed in the
                     selectors. You may type an ID, but unsupported model
                     families are rejected before pricing or generation.
-                    Reference IDs are used by Guided Story with approved
-                    references.
+                    For Guided Story, choose a Reference-to-Video model in the
+                    Text-to-Video / Reference-to-Video selector below. It uses
+                    your approved references.
                     Wan Standard/Prime rates are synchronized automatically;
                     Seedance still needs an exact Atlas price row.
                   </p>
                 )}
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">Text to Video model</p>
+                  <p className="text-sm font-medium">Text-to-Video / Reference-to-Video model</p>
                   {shown.textModelOptions && shown.textModelOptions.length > 0 && (
                     <Select
                       value={
@@ -2118,7 +2120,7 @@ export function VideoGenProviderCard() {
                   )}
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">Animate Photo model</p>
+                  <p className="text-sm font-medium">Image-to-Video model (Animate Photo)</p>
                   {shown.imageModelOptions && shown.imageModelOptions.length > 0 && (
                     <Select
                       value={
