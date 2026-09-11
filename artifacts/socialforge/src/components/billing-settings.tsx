@@ -626,9 +626,17 @@ export function BillingSettings() {
                 <div key={pack.id} className="rounded-lg border p-4 space-y-2">
                   <div className="font-semibold">{pack.name}</div>
                   <p className="text-sm text-muted-foreground">
-                    {pack.captionCredits > 0 && `${pack.captionCredits} captions`}
-                    {pack.captionCredits > 0 && pack.imageCredits > 0 && " + "}
-                    {pack.imageCredits > 0 && `${pack.imageCredits} images`}
+                    {/* A credits pack describes itself by its credits. The
+                        caption/image wording is the legacy shape and only
+                        appears for packs that still carry those buckets. */}
+                    {(pack.credits ?? 0) > 0
+                      ? `${pack.credits} credits`
+                      : [
+                          pack.captionCredits > 0 && `${pack.captionCredits} captions`,
+                          pack.imageCredits > 0 && `${pack.imageCredits} images`,
+                        ]
+                          .filter(Boolean)
+                          .join(" + ")}
                     {" — "}
                     {formatInr(pack.pricePaise)}
                   </p>
