@@ -5,6 +5,7 @@ import { getTextGenClient } from "../textGen";
 import { DEFAULT_AI_MODEL } from "../aiModels";
 import { describeBrandForDesign } from "../designSkill";
 import { logger } from "../logger";
+import type { MeterFundingSnapshot } from "../meterFunding";
 
 /**
  * Precompiled brand style prompts.
@@ -32,11 +33,20 @@ export async function compileBrandStylePrompt(
   tenantId: number,
   versionId?: number,
 ): Promise<string | null> {
+  // Background brand compilation is intentionally legacy/no-credit work.
+  // Carry an explicit shadow quota snapshot instead of null so text metering
+  // cannot silently bypass its funding policy.
+  const funding = Object.freeze({
+    rail: "quota" as const,
+    mode: "shadow" as const,
+    tenantId,
+  } satisfies MeterFundingSnapshot);
   const textGen = await getTextGenClient(DEFAULT_AI_MODEL, {
     tenantId,
     refKind: "brandKitVersion",
     refId: versionId ? String(versionId) : null,
     operationKey: versionId ? `brand-style-compile:${versionId}` : null,
+    funding,
   });
   const completion = await textGen.client.chat.completions.create({
     model: textGen.model,

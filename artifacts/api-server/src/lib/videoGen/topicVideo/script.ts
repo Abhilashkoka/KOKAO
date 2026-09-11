@@ -1,5 +1,6 @@
 import type { PromptVariantKey, VideoTemplateRuntimeSettings } from "@workspace/db";
 import { getTextGenClient } from "../../textGen";
+import type { MeterContext } from "../../meter";
 import { usageAccountingParams } from "../../aiCost";
 import { VideoGenProviderError } from "../types";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
@@ -14,6 +15,14 @@ import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
  * battle-tested defaults; search terms stay English-only because Pexels and
  * Pixabay index English tags.
  */
+
+function legacyShadowTextContext(tenantId: number): MeterContext {
+  return {
+    tenantId,
+    funding: Object.freeze({ tenantId, rail: "quota", mode: "shadow" }),
+    operationKey: `topic-script:${tenantId}`,
+  };
+}
 
 export interface TopicScript {
   /** The narration script, plain spoken text. */
@@ -184,6 +193,8 @@ export async function generateTopicScript(params: {
   referenceStyle?: string | null;
   /** Enables the governed prompt (Prompt Template Kit) when provided. */
   tenantId?: number | null;
+  /** Frozen funding receipt from the owning route/job. */
+  meterContext?: MeterContext | null;
   /** Prompt Kit style variant; null keeps the flow's base prompt. */
   variant?: PromptVariantKey | null;
   /** Resolved long-form template settings; null preserves legacy 1..3 sizing. */
@@ -191,7 +202,8 @@ export async function generateTopicScript(params: {
 }): Promise<TopicScript & { model: string }> {
   const textGen = await getTextGenClient(
     params.tenantAiModel,
-    params.tenantId ? { tenantId: params.tenantId } : null,
+    params.meterContext ??
+      (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
   );
 
   // Prompt Template Kit: a production template for the video_script flow

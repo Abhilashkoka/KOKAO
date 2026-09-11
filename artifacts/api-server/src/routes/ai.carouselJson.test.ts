@@ -81,6 +81,19 @@ vi.mock("../lib/wallet", async (importOriginal) => {
   };
 });
 
+// Feature flags: keep the route on the explicitly selected wallet rail
+// without depending on persisted platform flag rows.
+vi.mock("../lib/featureFlags", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/featureFlags")>();
+  return {
+    ...actual,
+    isFeatureEnabled: vi.fn(async (key: string) =>
+      key === "wallet" ? walletState.enabled : false,
+    ),
+    requireFeature: actual.requireFeature,
+  };
+});
+
 // Controllable usage metering: passes through to the real recordUsage
 // unless usageState.recordFails is set, so the settle-then-meter failure
 // ordering can be exercised without touching other tests.
@@ -117,7 +130,14 @@ vi.mock("../lib/textGen", async (importOriginal) => {
   };
 });
 
-import { db, pool, usageEventsTable, creditLedgerTable, creditBalancesTable } from "@workspace/db";
+import {
+  db,
+  pool,
+  tenantsTable,
+  usageEventsTable,
+  creditLedgerTable,
+  creditBalancesTable,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import aiRouter from "./ai";
 import { grantCredits, getCreditBalances } from "../lib/credits";
@@ -194,6 +214,14 @@ function postCarousel(): Promise<{ status: number; body: Record<string, unknown>
     req.on("error", reject);
     req.end(JSON.stringify({ prompt: "Make a carousel about coffee", slideCount: 3 }));
   });
+}
+
+async function enableWalletRail(): Promise<void> {
+  walletState.enabled = true;
+  await db
+    .update(tenantsTable)
+    .set({ billingMode: "wallet" })
+    .where(eq(tenantsTable.id, tenant.tenantId));
 }
 
 async function usageRows() {
@@ -433,7 +461,7 @@ describe("carousel retry across sequential completions", () => {
   });
 
   it("wallet-funded: incomplete first attempt + valid second settles exactly once, no refund", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     scriptSequence(incompleteCarousel, validCarousel);
 
     const res = await postCarousel();
@@ -463,7 +491,7 @@ describe("carousel retry across sequential completions", () => {
   });
 
   it("wallet-funded: two incomplete attempts refund exactly once, no settle", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     scriptSequence(incompleteCarousel, incompleteCarousel);
 
     const res = await postCarousel();
@@ -526,7 +554,7 @@ const isUsageFailure = (call: unknown[]) =>
 
 describe("wallet settle/metering failure after a successful generation", () => {
   it("settleWallet rejection: request still 200, no refund, failure logged", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     walletState.settleFails = true;
     scriptSequence(validCarousel);
 
@@ -553,7 +581,7 @@ describe("wallet settle/metering failure after a successful generation", () => {
   });
 
   it("recordUsage rejection after a settled wallet charge does not refund", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     usageState.recordFails = true;
     scriptSequence(validCarousel);
 

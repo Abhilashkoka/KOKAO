@@ -6,6 +6,7 @@ import { usageAccountingParams } from "../../aiCost";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateImage, type ImageSize } from "../../imageGen";
 import type { ImageGenResult } from "../../imageGen/types";
+import type { MeterContext } from "../../meter";
 import { logger } from "../../logger";
 import { runFfmpeg } from "../slideshow";
 import { generateVideo } from "../index";
@@ -15,7 +16,6 @@ import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import { appendCreativeFragment } from "../creativeBrief";
 import type { Cinematography } from "../cinematography";
-import type { MeterContext } from "../../meter";
 import { isMeterDispatchReplayError } from "../../meterErrors";
 import {
   ASPECT_DIMENSIONS,
@@ -51,6 +51,14 @@ const GENERATED_PERSON_PRIVACY_RULES =
 const GENERATED_PERSON_RECOVERY_RULES =
   "Privacy recovery requirement: preserve the scene meaning but replace any clear or identifiable face with an anonymous fictional adult shown in profile, from behind, at distance, or in a clearly stylized editorial treatment. No photorealistic close-up face and no resemblance to any real person.";
 
+function legacyShadowTextContext(tenantId: number): MeterContext {
+  return {
+    tenantId,
+    funding: Object.freeze({ tenantId, rail: "quota", mode: "shadow" }),
+    operationKey: `topic-broll-plan:${tenantId}`,
+  };
+}
+
 export function privacySafeGeneratedVisualPrompt(
   prompt: string,
   stronger = false,
@@ -85,6 +93,8 @@ export async function planBrollVisuals(params: {
   scenes: ScriptScene[];
   /** Enables the governed prompt (Prompt Template Kit) when provided. */
   tenantId?: number | null;
+  /** Frozen funding receipt from the owning route/job. */
+  meterContext?: MeterContext | null;
   /** A saved/edited plan reused instead of asking the model (validated
    * upstream; still normalized through the same clamps as a live reply). */
   suppliedPlan?: unknown;
@@ -108,7 +118,8 @@ export async function planBrollVisuals(params: {
   try {
     const textGen = await getTextGenClient(
       params.tenantAiModel,
-      params.tenantId ? { tenantId: params.tenantId } : null,
+      params.meterContext ??
+        (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
     );
     const sceneList = params.scenes.map((s, i) => `${i + 1}. ${s.text}`).join("\n");
     // Prompt Template Kit: a production template for the video_scene_image
@@ -566,6 +577,8 @@ export async function generateBrollClips(params: {
   aspectRatio: VideoAspect;
   /** Enables the governed prompt (Prompt Template Kit) when provided. */
   tenantId?: number | null;
+  /** Frozen funding receipt from the owning route/job. */
+  meterContext?: MeterContext | null;
   /** A saved/edited plan reused instead of asking the model. */
   suppliedPlan?: unknown;
   /** True = image-to-video motion per still ("ai_video"); false/omitted = the
@@ -590,6 +603,7 @@ export async function generateBrollClips(params: {
     topic: params.topic,
     scenes: params.scenes,
     tenantId: params.tenantId,
+    meterContext: params.meterContext ?? null,
     suppliedPlan: params.suppliedPlan,
   });
   const prompts = planned.prompts.map((prompt) =>
@@ -598,6 +612,7 @@ export async function generateBrollClips(params: {
   const { images, provider } = await generateBrollStills({
     prompts,
     aspectRatio: params.aspectRatio,
+    meterContext: params.meterContext ?? null,
   });
   if (params.animate) {
     const animated = await animateBrollStills({
@@ -609,6 +624,7 @@ export async function generateBrollClips(params: {
       cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
+      meterContext: params.meterContext ?? null,
     });
     return { clips: animated.clips, sceneMap: animated.sceneMap, provider: animated.provider };
   }

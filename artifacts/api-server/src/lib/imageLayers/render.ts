@@ -10,6 +10,7 @@ import type { UsageMeta } from "../usage";
 import { logger } from "../logger";
 import { layerImagePrompt } from "./planner";
 import { canvasFor, type LayerPlan, type PlannedLayer } from "./types";
+import type { MeterContext } from "../meter";
 
 /**
  * Renders a layer plan into (a) one transparent PNG per element and (b) a
@@ -124,6 +125,7 @@ export async function renderLayeredImage(input: {
   tenant: Tenant;
   plan: LayerPlan;
   size: ImageSize;
+  meterContext?: MeterContext | null;
   /** Called before each layer so the job row can show real progress. */
   onProgress?: (stage: string) => Promise<void> | void;
 }): Promise<LayeredRenderOutcome> {
@@ -161,6 +163,7 @@ export async function renderLayeredImage(input: {
         meterContext: {
           tenantId: input.tenantId,
           refKind: "imageJob",
+          ...(input.meterContext ?? {}),
           operationKey: `layered-image:${i}:${planned.id}`,
         },
       },

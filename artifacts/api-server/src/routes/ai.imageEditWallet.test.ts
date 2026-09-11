@@ -38,7 +38,7 @@ vi.mock("../lib/plans", async (importOriginal) => {
 
 // ---------------------------------------------------------------------------
 // Wallet rail: controllable so tests can assert on reserve/settle/refund
-// counts without touching the platform kill switch or tenant billingMode.
+// counts while the fixture explicitly selects the wallet billing rail.
 // ---------------------------------------------------------------------------
 const walletState = { enabled: false, settleFails: false };
 const walletCalls = {
@@ -92,6 +92,7 @@ type EditOutcome = {
   meta: Record<string, unknown>;
 };
 let editScript: () => Promise<EditOutcome>;
+const editCalls: unknown[] = [];
 
 vi.mock("../lib/imageEdit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/imageEdit")>();
@@ -103,7 +104,10 @@ vi.mock("../lib/imageEdit", async (importOriginal) => {
     })),
     decodeMask: vi.fn(() => Buffer.from("fake-mask")),
     assertMaskMatchesSource: vi.fn(async () => undefined),
-    performImageEdit: vi.fn(async () => editScript()),
+    performImageEdit: vi.fn(async (input: unknown) => {
+      editCalls.push(input);
+      return editScript();
+    }),
   };
 });
 
@@ -119,13 +123,17 @@ type OpOutcome = EditOutcome & {
   units: number;
 };
 let imageOpScript: () => Promise<OpOutcome>;
+const imageOpCalls: unknown[] = [];
 
 vi.mock("../lib/imageEditor/ops", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/imageEditor/ops")>();
   return {
     ...actual,
     OP_UNITS: { ...actual.OP_UNITS, cutout: 1 },
-    runImageOp: vi.fn(async () => imageOpScript()),
+    runImageOp: vi.fn(async (input: unknown) => {
+      imageOpCalls.push(input);
+      return imageOpScript();
+    }),
   };
 });
 
@@ -136,7 +144,9 @@ vi.mock("../lib/featureFlags", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/featureFlags")>();
   return {
     ...actual,
-    isFeatureEnabled: vi.fn(async () => false),
+    isFeatureEnabled: vi.fn(async (key: string) =>
+      key === "wallet" ? walletState.enabled : false,
+    ),
     requireFeature: actual.requireFeature,
   };
 });
@@ -144,7 +154,14 @@ vi.mock("../lib/featureFlags", async (importOriginal) => {
 // ---------------------------------------------------------------------------
 // Imports — after all vi.mock() calls so Vitest hoists correctly.
 // ---------------------------------------------------------------------------
-import { db, pool, usageEventsTable, creditLedgerTable, creditBalancesTable } from "@workspace/db";
+import {
+  db,
+  pool,
+  tenantsTable,
+  usageEventsTable,
+  creditLedgerTable,
+  creditBalancesTable,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import aiRouter from "./ai";
 import { grantCredits, getCreditBalances } from "../lib/credits";
@@ -169,6 +186,8 @@ beforeEach(async () => {
   walletCalls.reserve.length = 0;
   walletCalls.settle.length = 0;
   walletCalls.refund.length = 0;
+  editCalls.length = 0;
+  imageOpCalls.length = 0;
 
   editScript = async () => ({
     imagePath: "tenant/1/images/edited.png",
@@ -275,12 +294,20 @@ async function ledgerRows() {
   return db.select().from(creditLedgerTable).where(eq(creditLedgerTable.tenantId, tenant.tenantId));
 }
 
+async function enableWalletRail(): Promise<void> {
+  walletState.enabled = true;
+  await db
+    .update(tenantsTable)
+    .set({ billingMode: "wallet" })
+    .where(eq(tenantsTable.id, tenant.tenantId));
+}
+
 // ---------------------------------------------------------------------------
 // POST /ai/edit-image — wallet settle and refund ordering
 // ---------------------------------------------------------------------------
 describe("edit-image wallet billing", () => {
   it("wallet-funded success: settled exactly once, never refunded", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
 
     const res = await postEditImage();
     expect(res.status).toBe(200);
@@ -302,7 +329,7 @@ describe("edit-image wallet billing", () => {
   });
 
   it("wallet-funded failure: refunded exactly once, never settled", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     editScript = async () => {
       throw new Error("provider exploded");
     };
@@ -320,7 +347,7 @@ describe("edit-image wallet billing", () => {
     // Core regression guard: a settle failure must stay inside settleFunding's
     // catch — if it ever bubbled into the route's catch, releaseFunding would
     // refund a charge that actually went through.
-    walletState.enabled = true;
+    await enableWalletRail();
     walletState.settleFails = true;
 
     const res = await postEditImage();
@@ -335,7 +362,7 @@ describe("edit-image wallet billing", () => {
   });
 
   it("recordUsage rejection after a wallet settle: returns 200, no refund, logs the error", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     usageState.recordFails = true;
 
     const res = await postEditImage();
@@ -364,6 +391,16 @@ describe("edit-image wallet billing", () => {
     expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(0);
     const kinds = (await ledgerRows()).map((r) => r.kind).sort();
     expect(kinds).toEqual(["admin_grant", "spend"]); // no refund
+    expect(editCalls[0]).toMatchObject({
+      meterContext: {
+        funding: {
+          tenantId: tenant.tenantId,
+          rail: "credit",
+          mode: "shadow",
+        },
+        operationKey: expect.stringMatching(/^image-edit:server:/),
+      },
+    });
   });
 });
 
@@ -372,7 +409,7 @@ describe("edit-image wallet billing", () => {
 // ---------------------------------------------------------------------------
 describe("image-op wallet billing", () => {
   it("wallet-funded success: settled exactly once, never refunded", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
 
     const res = await postImageOp();
     expect(res.status).toBe(200);
@@ -388,7 +425,7 @@ describe("image-op wallet billing", () => {
   });
 
   it("wallet-funded failure: refunded exactly once, never settled", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     imageOpScript = async () => {
       throw new Error("provider exploded");
     };
@@ -403,7 +440,7 @@ describe("image-op wallet billing", () => {
   });
 
   it("settleWallet rejection after a successful op: returns 200, never refunds, logs the error", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     walletState.settleFails = true;
 
     const res = await postImageOp();
@@ -418,7 +455,7 @@ describe("image-op wallet billing", () => {
   });
 
   it("recordUsage rejection after a wallet settle: returns 200, no refund, logs the error", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     usageState.recordFails = true;
 
     const res = await postImageOp();
@@ -430,5 +467,33 @@ describe("image-op wallet billing", () => {
     expect(walletCalls.refund).toHaveLength(0);
     expect(errorLogged("Failed to record usage after settling")).toBe(true);
     expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("credit-funded op reuses one server action key for dispatch and metering", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 1,
+      kind: "admin_grant",
+    });
+
+    const res = await postImageOp();
+    expect(res.status).toBe(200);
+    const call = imageOpCalls[0] as {
+      operationKey: string;
+      meterContext: { funding: object; operationKey: string };
+    };
+    expect(call.operationKey).toMatch(/^image-op:cutout:server:/);
+    expect(call.meterContext.operationKey).toBe(call.operationKey);
+    expect(call.meterContext.funding).toMatchObject({
+      tenantId: tenant.tenantId,
+      rail: "credit",
+      mode: "shadow",
+    });
+    expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(0);
+    expect((await ledgerRows()).map((row) => row.kind).sort()).toEqual([
+      "admin_grant",
+      "spend",
+    ]);
   });
 });

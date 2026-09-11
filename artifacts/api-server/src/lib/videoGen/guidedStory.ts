@@ -22,6 +22,7 @@ import { guidedSceneVisualPrompt, type GuidedBackdropLabel } from "./guidedScene
 import { getTextGenClient } from "../textGen";
 import { VideoGenProviderError } from "./types";
 import { isAtlasGenerationReferenceId } from "../atlascloud/assetId";
+import type { MeterContext } from "../meter";
 
 export const GUIDED_STORY_GENRES: readonly GuidedStoryGenre[] = [
   "action_adventure",
@@ -1470,10 +1471,23 @@ export async function generateGuidedStoryScript(params: {
   /** @deprecated Ignored. Cast size is chosen by the screenplay planner. */
   roleCount?: number;
   brandConstraints: string | null;
+  /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
+  meterContext?: MeterContext | null;
 }) {
-  const textGen = await getTextGenClient(params.tenantAiModel, {
-    tenantId: params.tenantId,
-  });
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.meterContext ?? {
+      tenantId: params.tenantId,
+      refKind: "videoScript",
+      refId: `guided-script:${params.tenantId}`,
+      funding: Object.freeze({
+        tenantId: params.tenantId,
+        rail: "quota",
+        mode: "shadow",
+      }),
+      operationKey: `guided-story-script:${params.tenantId}`,
+    },
+  );
   const maxSpokenWords = guidedStoryMaxSpokenWords(params.durationSeconds);
   const outputFormat = "Return only JSON with title, logline, warnings, roles[{id,name,description}], scenes[{id,startMs,endMs,visualDirection,roleIds,lines[{id,ownerRoleId,kind,text,romanizedPronunciation,englishTranslation,startMs,endMs}]}]. roleIds lists every role visibly present; kind is dialogue or narration; dialogue ownerRoleId must be a role id. For Hindi, Telugu, and Tamil, romanizedPronunciation must be a faithful, readable Latin-letter pronunciation of text and englishTranslation must be its faithful English meaning; both are display only. For English, use null for both.";
   const runtimeContext = [
@@ -1622,10 +1636,23 @@ export async function translateGuidedStoryLine(params: {
   tenantAiModel: string;
   locale: string;
   sourceText: string;
+  /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
+  meterContext?: MeterContext | null;
 }) {
-  const textGen = await getTextGenClient(params.tenantAiModel, {
-    tenantId: params.tenantId,
-  });
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.meterContext ?? {
+      tenantId: params.tenantId,
+      refKind: "videoScript",
+      refId: `guided-line-translation:${params.tenantId}`,
+      funding: Object.freeze({
+        tenantId: params.tenantId,
+        rail: "quota",
+        mode: "shadow",
+      }),
+      operationKey: `guided-line-translation:${params.tenantId}`,
+    },
+  );
   const completion = await textGen.client.chat.completions.create({
     model: textGen.model,
     messages: [
@@ -1884,6 +1911,8 @@ export async function generateGuidedStorySceneInsertion(params: {
   description: string;
   durationSeconds: number;
   locale: string;
+  /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
+  meterContext?: MeterContext | null;
 }) {
   if (
     params.insertionIndex < 0 ||
@@ -1892,9 +1921,20 @@ export async function generateGuidedStorySceneInsertion(params: {
   ) {
     throw new VideoGenProviderError("The scene insertion position is invalid.");
   }
-  const textGen = await getTextGenClient(params.tenantAiModel, {
-    tenantId: params.tenantId,
-  });
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.meterContext ?? {
+      tenantId: params.tenantId,
+      refKind: "videoScript",
+      refId: `guided-scene-insertion:${params.tenantId}`,
+      funding: Object.freeze({
+        tenantId: params.tenantId,
+        rail: "quota",
+        mode: "shadow",
+      }),
+      operationKey: `guided-scene-insertion:${params.tenantId}`,
+    },
+  );
   const previous = params.script.scenes[params.insertionIndex - 1] ?? null;
   const next = params.script.scenes[params.insertionIndex] ?? null;
   const outputFormat =

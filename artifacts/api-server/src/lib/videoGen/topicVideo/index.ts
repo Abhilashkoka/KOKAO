@@ -119,6 +119,8 @@ const STOCK_FALLBACK_LIMIT = 2;
 
 export interface TopicVideoParams {
   tenantId: number;
+  /** Frozen route/job funding receipt propagated to every provider boundary. */
+  meterContext?: MeterContext | null;
   /** Owning durable video job; absent only for pre-job preparation. */
   videoJobId?: number;
   topic: string;
@@ -219,6 +221,7 @@ async function gatherStockClips(
   neededScenes: number,
   startedAt: number,
   ranking: { tenantId: number; tenantAiModel: string; topic: string; sceneTexts: string[] } | null,
+  meterContext?: MeterContext | null,
 ): Promise<{ clips: Buffer[]; provider: string; sceneToClip: number[] | null }> {
   const sources = (await stockCandidates(stockSource)).slice(0, 1 + STOCK_FALLBACK_LIMIT);
   if (sources.length === 0) throw stockNotConfiguredError(stockSource);
@@ -246,6 +249,7 @@ async function gatherStockClips(
         topic: ranking.topic,
         sceneTexts: ranking.sceneTexts,
         candidates,
+        meterContext,
       })
     : null;
 
@@ -521,6 +525,7 @@ function scenesWithinRuntimeBounds(
  */
 async function writeAndVoiceScript(params: {
   tenantId: number;
+  meterContext?: MeterContext | null;
   videoJobId?: number;
   topic: string;
   approvedScript?: string | null;
@@ -569,6 +574,7 @@ async function writeAndVoiceScript(params: {
         referenceStyle: params.referenceStyle ?? null,
         variant: params.scriptVariant ?? null,
         tenantId: params.tenantId,
+        meterContext: params.meterContext ?? null,
       });
   const { script, searchTerms, model, verificationFindings } = generated;
   checkDeadline(params.startedAt, params.deadlineMs);
@@ -581,9 +587,15 @@ async function writeAndVoiceScript(params: {
   params.onStage?.("Voicing the narration");
   const spoken = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
+    meterContext: params.meterContext ?? null,
     billing: params.videoJobId == null
-      ? { tenantId: params.tenantId, refKind: "topicVideo" }
-      : { tenantId: params.tenantId, refKind: "videoJob", refId: `${params.videoJobId}:0` },
+      ? { tenantId: params.tenantId, refKind: "topicVideo", funding: params.meterContext?.funding }
+      : {
+          tenantId: params.tenantId,
+          refKind: "videoJob",
+          refId: `${params.videoJobId}:0`,
+          funding: params.meterContext?.funding,
+        },
   });
   const narration = params.templateRuntime
     ? capNarrationCompleteCues(spoken, params.templateRuntime.maxDurationSeconds)
@@ -613,6 +625,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
 
   const { tenantAiModel, model, searchTerms, verificationFindings, narration } = await writeAndVoiceScript({
     tenantId: params.tenantId,
+    meterContext: params.meterContext ?? null,
     videoJobId: params.videoJobId,
     topic,
     approvedScript: params.approvedScript ?? null,
@@ -652,6 +665,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       scenes,
       aspectRatio: params.aspectRatio,
       tenantId: params.tenantId,
+      meterContext: params.meterContext ?? null,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
       animate: animatedBroll,
       motionPreset: params.motionPreset ?? null,
@@ -680,6 +694,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       cues: narration.cues,
       totalDurationSec: narration.totalDurationSec,
       lipSync: params.characterLipSync ? { wav: narration.wav } : null,
+      meterContext: params.meterContext ?? null,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
       creativeVisualGuidance: params.creativeVisualGuidance ?? null,
     });
@@ -709,6 +724,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
         topic,
         sceneTexts: stockScenes?.map((scene) => scene.text) ?? narration.cues.map((cue) => cue.text),
       },
+      params.meterContext ?? null,
     );
     clips = stock.clips;
     provider = stock.provider;
@@ -790,6 +806,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
  * Shared by the straight-through character render and the storyboard plan. */
 async function planCharacterScenes(params: {
   tenantId: number;
+  meterContext?: MeterContext | null;
   tenantAiModel: string;
   topic: string;
   characterId: number;
@@ -820,6 +837,7 @@ async function planCharacterScenes(params: {
     tenantAiModel: params.tenantAiModel,
     topic: params.topic,
     tenantId: params.tenantId,
+    meterContext: params.meterContext ?? null,
     character: detail.character,
     outfits: detail.outfits,
     lockedOutfitId: lockedOutfit.id,
@@ -834,6 +852,7 @@ async function planCharacterScenes(params: {
 /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
 async function generateCharacterStoryClips(params: {
   tenantId: number;
+  meterContext?: MeterContext | null;
   videoJobId?: number;
   tenantAiModel: string;
   topic: string;
@@ -900,6 +919,7 @@ async function generateCharacterStoryClips(params: {
       tenantId: params.tenantId,
       refKind: params.videoJobId == null ? "topicVideo" : "videoJob",
       refId: params.videoJobId == null ? null : String(params.videoJobId),
+      ...(params.meterContext ?? {}),
       operationKey:
         params.videoJobId == null
           ? "topicVideo:character_lip_sync"
@@ -926,6 +946,8 @@ const NARRATION_TIMELINE_LOCKED = true;
 
 export interface StoryboardPlanParams {
   tenantId: number;
+  /** Frozen route/job funding receipt propagated to planning providers. */
+  meterContext?: MeterContext | null;
   /** Owning durable video job; absent only for pre-job draft work. */
   videoJobId?: number;
   topic: string;
@@ -1002,6 +1024,7 @@ export async function planTopicStoryboard(
     let base = guidedStoryStoryboard(params.guidedStory);
     const narration = await synthesizeGuidedNarration({
       tenantId: params.tenantId,
+      meterContext: params.meterContext ?? null,
       videoJobId: params.videoJobId,
       cast: params.guidedStory.cast,
       script: params.guidedStory.script,
@@ -1090,6 +1113,7 @@ export async function planTopicStoryboard(
       referenceStyle: params.referenceStyle ?? null,
       variant: params.scriptVariant ?? null,
       tenantId: params.tenantId,
+      meterContext: params.meterContext ?? null,
     });
     const sentences = prepareNarrationSegments(script, params.templateRuntime);
     if (sentences.length === 0) {
@@ -1114,6 +1138,7 @@ export async function planTopicStoryboard(
     params.onStage?.("Planning the storyboard");
     const { plan, rawPlan } = await planCharacterScenes({
       tenantId: params.tenantId,
+      meterContext: params.meterContext ?? null,
       tenantAiModel: tenant.aiModel,
       topic,
       characterId: params.characterId ?? 0,
@@ -1195,6 +1220,7 @@ export async function planTopicStoryboard(
       topic,
       scenes,
       tenantId: params.tenantId,
+      meterContext: params.meterContext ?? null,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
     });
     visuals = prompts.map((prompt) =>
@@ -1213,6 +1239,7 @@ export async function planTopicStoryboard(
           tenantId: params.tenantId,
           refKind: params.videoJobId == null ? "videoStoryboard" : "videoJob",
           refId: params.videoJobId == null ? null : String(params.videoJobId),
+          ...(params.meterContext ?? {}),
           operationKey: params.videoJobId == null
             ? "videoStoryboard:preview"
             : `videoJob:${params.videoJobId}:preview`,
@@ -1298,6 +1325,7 @@ export async function planTopicStoryboard(
 
 export async function synthesizeGuidedNarration(params: {
   tenantId: number;
+  meterContext?: MeterContext | null;
   /** Owning durable video job; absent only for pre-job draft work. */
   videoJobId?: number;
   cast: GuidedStoryCastSnapshot[];
@@ -1346,8 +1374,10 @@ export async function synthesizeGuidedNarration(params: {
           tenantId: params.tenantId,
           refKind: params.videoJobId == null ? "guidedStoryLine" : "videoJob",
           refId: params.videoJobId == null ? line.id : `${params.videoJobId}:${cueIndex}`,
+          funding: params.meterContext?.funding,
           onReceipt: (receipt) => { Object.assign(lineBilling, receipt, { exact: true }); },
         },
+        meterContext: params.meterContext ?? null,
         // Guided Story freezes one of its approved locales and must use v3:
         // v2 cannot speak Telugu and does not accept language_code.
         brandVoiceModelId: "eleven_v3",
@@ -1426,6 +1456,7 @@ export async function synthesizeGuidedNarration(params: {
  * by a planning-only Character Story board. */
 export async function prepareCharacterStoryStoryboard(params: {
   tenantId: number;
+  meterContext?: MeterContext | null;
   videoJobId?: number;
   storyboard: VideoStoryboard;
   characterId: number;
@@ -1537,6 +1568,7 @@ export async function prepareCharacterStoryStoryboard(params: {
         tenantId: params.tenantId,
         refKind: params.videoJobId == null ? "videoStoryboard" : "videoJob",
         refId: params.videoJobId == null ? null : String(params.videoJobId),
+        ...(params.meterContext ?? {}),
         operationKey: params.videoJobId == null
           ? "videoStoryboard:character_keyframe"
           : `videoJob:${params.videoJobId}:character_keyframe`,
@@ -1599,6 +1631,7 @@ function normalizeNarrationText(text: string): string {
  */
 export async function refreshEditedNarration(params: {
   tenantId?: number;
+  meterContext?: MeterContext | null;
   videoJobId?: number;
   storyboard: VideoStoryboard;
   voice: NarrationVoice;
@@ -1630,11 +1663,21 @@ export async function refreshEditedNarration(params: {
   }
   const recorded = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
+    meterContext: params.meterContext ?? null,
     billing:
       params.tenantId !== undefined
         ? params.videoJobId == null
-          ? { tenantId: params.tenantId, refKind: "videoStoryboard" }
-          : { tenantId: params.tenantId, refKind: "videoJob", refId: `${params.videoJobId}:0` }
+          ? {
+              tenantId: params.tenantId,
+              refKind: "videoStoryboard",
+              funding: params.meterContext?.funding,
+            }
+          : {
+              tenantId: params.tenantId,
+              refKind: "videoJob",
+              refId: `${params.videoJobId}:0`,
+              funding: params.meterContext?.funding,
+            }
         : null,
   });
   const durations = sceneDurations(recorded.cues, recorded.totalDurationSec);
@@ -1987,6 +2030,7 @@ export async function regenerateStoryboardPreview(params: {
   onProviderFailure?: (args: { attemptIndex: number; error: unknown }) => Promise<void>;
   uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
   imageSelectionPolicy?: ImageGenSelectionPolicy;
+  meterCtx?: MeterContext | null;
 }): Promise<string> {
   if (params.scene.guidedStory) {
     // Old paused attempts predate visual metadata; preserve their exact
@@ -2113,6 +2157,7 @@ export async function regenerateStoryboardPreview(params: {
             tenantId: params.tenantId,
             refKind: "videoStoryboard",
             refId: params.scene.id,
+            ...(params.meterCtx ?? {}),
             operationKey: `videoStoryboard:${params.scene.id}:guided_continuity`,
           },
         },
@@ -2155,6 +2200,7 @@ export async function regenerateStoryboardPreview(params: {
           tenantId: params.tenantId,
           refKind: "videoStoryboard",
           refId: params.scene.id,
+          ...(params.meterCtx ?? {}),
           operationKey: `videoStoryboard:${params.scene.id}:character_keyframe`,
         },
         aspectRatio: params.aspectRatio,
@@ -2180,6 +2226,7 @@ export async function regenerateStoryboardPreview(params: {
       tenantId: params.tenantId,
       refKind: "videoStoryboard",
       refId: params.scene.id,
+      ...(params.meterCtx ?? {}),
       operationKey: `videoStoryboard:${params.scene.id}:regenerate`,
     },
     onProviderSuccess: params.onProviderSuccess

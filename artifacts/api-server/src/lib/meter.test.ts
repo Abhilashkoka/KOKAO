@@ -14,11 +14,30 @@ import {
   invalidateCreditRateCache,
   MILLI,
 } from "./creditRates";
-import { meter, meterReport, tenantMeterCredits, InsufficientCreditsError } from "./meter";
+import {
+  meter,
+  meterReport,
+  tenantMeterCredits,
+  InsufficientCreditsError,
+  MeterFundingSnapshotRequiredError,
+  MeterFundingConfigurationError,
+} from "./meter";
 import { getCreditBalance, grantCredits, listCreditHistory } from "./creditAccounts";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
 let tenantId: number;
+
+function creditsContext(operationKey: string) {
+  return {
+    tenantId,
+    operationKey,
+    funding: Object.freeze({
+      rail: "credits" as const,
+      mode: "enforce" as const,
+      tenantId,
+    }),
+  };
+}
 
 beforeAll(async () => {
   const t = await createTenant();
@@ -48,6 +67,7 @@ async function eventsFor(): Promise<
     creditsMilli: number;
     quantityMilli: number;
     outcome: string;
+    mode: string;
   }[]
 > {
   return db
@@ -56,6 +76,7 @@ async function eventsFor(): Promise<
       creditsMilli: creditMeterEventsTable.creditsMilli,
       quantityMilli: creditMeterEventsTable.quantityMilli,
       outcome: creditMeterEventsTable.outcome,
+      mode: creditMeterEventsTable.mode,
     })
     .from(creditMeterEventsTable)
     .where(eq(creditMeterEventsTable.tenantId, tenantId));
@@ -221,10 +242,118 @@ describe("meter", () => {
     expect((await listCreditHistory(tenantId)).filter((row) => row.kind === "spend")).toHaveLength(0);
   });
 
+  it("refuses an unscoped provider dispatch when global enforcement is active", async () => {
+    await setMeterMode("enforce");
+    let providerCalled = false;
+
+    await expect(
+      meter({ tenantId, operationKey: "missing-funding" }, "video", 1, async () => {
+        providerCalled = true;
+        return "must-not-run";
+      }),
+    ).rejects.toBeInstanceOf(MeterFundingSnapshotRequiredError);
+
+    expect(providerCalled).toBe(false);
+    expect(await eventsFor()).toHaveLength(0);
+  });
+
+  it("uses the frozen enforce credits rail after the global mode changes", async () => {
+    await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+    await setMeterMode("enforce");
+    const ctx = creditsContext("frozen-mode");
+    await setMeterMode("shadow");
+
+    await meter(ctx, "video", 5, async () => "clip");
+
+    expect((await getCreditBalance(tenantId)).total).toBe(15);
+  });
+
+  it("rejects a credits snapshot that is not frozen in enforce mode", async () => {
+    let providerCalled = false;
+    const ctx = {
+      tenantId,
+      operationKey: "credits-shadow-snapshot",
+      funding: Object.freeze({
+        rail: "credits" as const,
+        mode: "shadow" as const,
+        tenantId,
+      }),
+    };
+
+    await expect(
+      meter(ctx, "video", 1, async () => {
+        providerCalled = true;
+        return "must-not-run";
+      }),
+    ).rejects.toBeInstanceOf(MeterFundingConfigurationError);
+
+    expect(providerCalled).toBe(false);
+  });
+
+  it("never debits a legacy rail even when its snapshot says enforce", async () => {
+    await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+    await setMeterMode("enforce");
+    const ctx = {
+      tenantId,
+      operationKey: "legacy-enforce",
+      funding: Object.freeze({
+        rail: "credit" as const,
+        mode: "enforce" as const,
+        tenantId,
+      }),
+    };
+
+    await meter(ctx, "video", 5, async () => "clip");
+
+    expect((await getCreditBalance(tenantId)).total).toBe(20);
+    expect((await listCreditHistory(tenantId)).filter((row) => row.kind === "spend")).toHaveLength(0);
+    expect((await eventsFor())[0]?.mode).toBe("shadow");
+  });
+
+  it("does not dispatch frozen enforce credits when price configuration is missing", async () => {
+    await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+    await setMeterMode("enforce");
+    let providerCalled = false;
+
+    await expect(
+      meter(creditsContext("missing-price"), "meter_test_missing_price", 1, async () => {
+        providerCalled = true;
+        return "must-not-run";
+      }),
+    ).rejects.toBeInstanceOf(MeterFundingConfigurationError);
+
+    expect(providerCalled).toBe(false);
+    expect((await getCreditBalance(tenantId)).total).toBe(20);
+  });
+
+  it("does not dispatch frozen enforce credits without an operation identity", async () => {
+    await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+    await setMeterMode("enforce");
+    let providerCalled = false;
+    const ctx = {
+      tenantId,
+      funding: Object.freeze({
+        rail: "credits" as const,
+        mode: "enforce" as const,
+        tenantId,
+      }),
+    };
+
+    await expect(
+      meter(ctx, "video", 1, async () => {
+        providerCalled = true;
+        return "must-not-run";
+      }),
+    ).rejects.toBeInstanceOf(MeterFundingConfigurationError);
+
+    expect(providerCalled).toBe(false);
+    expect((await getCreditBalance(tenantId)).total).toBe(20);
+  });
+
   it("does not dispatch a new provider call against an old debit receipt", async () => {
     await grantCredits({ tenantId, credits: 20, kind: "purchase" });
     await setMeterMode("enforce");
-    const ctx = { tenantId, operationKey: "meter-idempotent-success" };
+    const ctx = creditsContext("meter-idempotent-success");
     let calls = 0;
 
     await meter(ctx, "video", 5, async () => {
@@ -249,7 +378,7 @@ describe("meter", () => {
     await setMeterMode("enforce");
 
     await expect(
-      meter({ tenantId, operationKey: "meter-failure-refund" }, "video", 5, async () => {
+      meter(creditsContext("meter-failure-refund"), "video", 5, async () => {
         throw new Error("provider failed");
       }),
     ).rejects.toThrow("provider failed");
@@ -263,7 +392,7 @@ describe("meter", () => {
   it("does not refund an earlier successful debit when its replay fails", async () => {
     await grantCredits({ tenantId, credits: 20, kind: "purchase" });
     await setMeterMode("enforce");
-    const ctx = { tenantId, operationKey: "meter-success-then-failed-replay" };
+    const ctx = creditsContext("meter-success-then-failed-replay");
 
     await meter(ctx, "video", 5, async () => "first");
     let replayCalled = false;
@@ -284,12 +413,12 @@ describe("meter", () => {
     await setMeterMode("enforce");
 
     await expect(
-      meter({ tenantId, operationKey: "retry-operation" }, "video", 5, async () => {
+      meter(creditsContext("retry-operation"), "video", 5, async () => {
         throw new Error("transient provider failure");
       }),
     ).rejects.toThrow("transient provider failure");
     await expect(
-      meter({ tenantId, operationKey: "retry-operation" }, "video", 5, async () => "recovered"),
+      meter(creditsContext("retry-operation"), "video", 5, async () => "recovered"),
     ).resolves.toBe("recovered");
 
     expect((await getCreditBalance(tenantId)).total).toBe(15);
@@ -326,7 +455,10 @@ describe("meter", () => {
 
     await expect(
       meter(
-        { tenantId, operationKey: `${family}:submit:0`, operationFamilyKey: family },
+        {
+          ...creditsContext(`${family}:submit:0`),
+          operationFamilyKey: family,
+        },
         "video",
         5,
         async () => {
@@ -336,7 +468,10 @@ describe("meter", () => {
     ).rejects.toThrow("transient submit failure");
     await expect(
       meter(
-        { tenantId, operationKey: `${family}:submit:1`, operationFamilyKey: family },
+        {
+          ...creditsContext(`${family}:submit:1`),
+          operationFamilyKey: family,
+        },
         "video",
         5,
         async () => "recovered",
@@ -346,7 +481,10 @@ describe("meter", () => {
     let replayCalled = false;
     await expect(
       meter(
-        { tenantId, operationKey: `${family}:submit:0`, operationFamilyKey: family },
+        {
+          ...creditsContext(`${family}:submit:0`),
+          operationFamilyKey: family,
+        },
         "video",
         5,
         async () => {
@@ -367,7 +505,7 @@ describe("meter", () => {
     await grantCredits({ tenantId, credits: 20, kind: "purchase" });
     await setMeterMode("enforce");
     let providerCalls = 0;
-    const ctx = { tenantId, operationKey: "concurrent-meter-operation" };
+    const ctx = creditsContext("concurrent-meter-operation");
     const invoke = () => meter(ctx, "video", 5, async () => {
       providerCalls += 1;
       return "ok";
@@ -384,7 +522,7 @@ describe("meter", () => {
     await grantCredits({ tenantId, credits: 20, kind: "purchase" });
     await setMeterMode("enforce");
     await meter(
-      { tenantId, operationKey: "voice-settle-down" },
+      creditsContext("voice-settle-down"),
       "voice",
       10,
       async () => ({ durationSec: 3.25 }),
@@ -402,7 +540,7 @@ describe("meter", () => {
     await grantCredits({ tenantId, credits: 20, kind: "purchase" });
     await setMeterMode("enforce");
     await meter(
-      { tenantId, operationKey: "voice-settle-up" },
+      creditsContext("voice-settle-up"),
       "voice",
       10,
       async () => ({ durationSec: 12 }),
@@ -442,7 +580,7 @@ describe("meter", () => {
       await grantCredits({ tenantId, credits: 20, kind: "purchase" });
       await setMeterMode("enforce");
       await meter(
-        { tenantId, operationKey: "actual-snapshot" },
+        creditsContext("actual-snapshot"),
         key,
         3,
         async () => {
@@ -467,7 +605,7 @@ describe("meter", () => {
 
     await expect(
       meter(
-        { tenantId, operationKey: "voice-insufficient-bound" },
+        creditsContext("voice-insufficient-bound"),
         "voice",
         1,
         async () => {

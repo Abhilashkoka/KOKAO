@@ -3,6 +3,7 @@ import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
 import { getTextGenClient } from "../textGen";
 import { parseModelJsonObject } from "../modelJson";
 import { sanitizeLine, type ScriptVariantKey } from "./scriptInputs";
+import type { MeterContext } from "../meter";
 
 /**
  * Script intake — the cheap pre-pass that turns a free-text topic into
@@ -161,10 +162,23 @@ export async function analyzeScriptIntake(params: {
   topic: string;
   variant?: ScriptVariantKey | null;
   hasBrandKit: boolean;
+  /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
+  meterContext?: MeterContext | null;
 }): Promise<ScriptIntakeResult> {
-  const textGen = await getTextGenClient(params.tenantAiModel, {
-    tenantId: params.tenantId,
-  });
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.meterContext ?? {
+      tenantId: params.tenantId,
+      refKind: "videoScript",
+      refId: `intake:${params.tenantId}`,
+      funding: Object.freeze({
+        tenantId: params.tenantId,
+        rail: "quota",
+        mode: "shadow",
+      }),
+      operationKey: `video-script-intake:${params.tenantId}`,
+    },
+  );
   const governed = await getGovernedPrompt({
     flowKey: "video_script_intake",
     tenantId: params.tenantId,

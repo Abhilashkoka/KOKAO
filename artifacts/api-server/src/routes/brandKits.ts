@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import type { MeterFundingSnapshot } from "../lib/meterFunding";
 import {
   db,
   tenantsTable,
@@ -101,6 +102,13 @@ import {
 import { VideoGenProviderError } from "../lib/videoGen/types";
 
 const router: IRouter = Router();
+
+function legacyPreviewFunding(
+  tenantId: number,
+  rail: "quota" | "wallet",
+): MeterFundingSnapshot {
+  return Object.freeze({ tenantId, rail, mode: "shadow" });
+}
 
 /** A provider operation acknowledged paid work, even if local handling failed. */
 function successfulProviderOperationId(error: unknown): number | null {
@@ -857,6 +865,13 @@ router.post(
     }
 
     const selectedCloneProvider = await getSelectedVoiceCloneProviderId();
+    // Voice cloning is an independently funded brand-voice operation. It
+    // remains shadow-funded, but still carries the rail selected for this
+    // request so the provider boundary cannot consult live tenant settings.
+    const cloneFunding = legacyPreviewFunding(
+      req.tenantId,
+      (await isWalletFunded(req.tenantId)) ? "wallet" : "quota",
+    );
 
     const label = parsed.data.label?.trim() || "Brand voice";
     /** Set once the provider clone exists, so failures can compensate. */
@@ -877,6 +892,7 @@ router.post(
         tenantId: req.tenantId,
         refKind: "brandKit",
         refId: String(ctx.kitId),
+        funding: cloneFunding,
         operationKey: `brand-kit:${ctx.kitId}:voice-clone:${parsed.data.sampleAssetPath}`,
       });
 
@@ -1032,6 +1048,15 @@ router.post(
     let providerCredits: string | null = null;
     let providerRequestId: string | null = null;
     let providerCostPaise: number | null = null;
+    const ttsFunding = legacyPreviewFunding(
+      req.tenantId,
+      reservation ? "wallet" : "quota",
+    );
+    const ttsOperationKey = buildBrandVoiceTtsOperationKey(
+      bv.provider_voice_id,
+      "eleven_multilingual_v2",
+      text,
+    );
     try {
       const speech = reservation
         ? (
@@ -1040,11 +1065,7 @@ router.post(
                 tenantId: req.tenantId,
                 reservation,
                 operationKind: "brand_voice_tts",
-                operationKey: buildBrandVoiceTtsOperationKey(
-                  bv.provider_voice_id,
-                  "eleven_multilingual_v2",
-                  text,
-                ),
+                operationKey: ttsOperationKey,
                 settlement: {
                   kind: "caption",
                   costPaise: reservationCeilingPaise,
@@ -1062,11 +1083,8 @@ router.post(
                     tenantId: req.tenantId,
                     refKind: "brandKit",
                     refId: String(ctx.kitId),
-                    operationKey: buildBrandVoiceTtsOperationKey(
-                      bv.provider_voice_id!,
-                      "eleven_multilingual_v2",
-                      text,
-                    ),
+                    funding: ttsFunding,
+                    operationKey: ttsOperationKey,
                   },
                   async (receipt) => {
                     providerCredits = receipt.providerCredits;
@@ -1117,11 +1135,8 @@ router.post(
             tenantId: req.tenantId,
             refKind: "brandKit",
             refId: String(ctx.kitId),
-            operationKey: buildBrandVoiceTtsOperationKey(
-              bv.provider_voice_id,
-              "eleven_multilingual_v2",
-              text,
-            ),
+            funding: ttsFunding,
+            operationKey: ttsOperationKey,
           },
         ));
       providerCredits ??= result.receipt.providerCredits;
@@ -1213,6 +1228,10 @@ router.post(
             tenantId: req.tenantId,
             refKind: "brandKit",
             refId: String(ctx.kitId),
+            funding: legacyPreviewFunding(
+              req.tenantId,
+              reservation ? "wallet" : "quota",
+            ),
             operationKey: `brand-kit:${ctx.kitId}:stock-voice-preview:${voice}`,
           },
         },
@@ -1331,6 +1350,15 @@ router.post(
     let providerCredits: string | null = null;
     let providerRequestId: string | null = null;
     let providerCostPaise: number | null = null;
+    const ttsFunding = legacyPreviewFunding(
+      req.tenantId,
+      reservation ? "wallet" : "quota",
+    );
+    const ttsOperationKey = buildBrandVoiceTtsOperationKey(
+      bv.provider_voice_id,
+      "eleven_multilingual_v2",
+      text,
+    );
     try {
       const operation = reservation
         ? await executeWalletProviderOperation(
@@ -1338,11 +1366,7 @@ router.post(
               tenantId: req.tenantId,
               reservation,
               operationKind: "brand_voice_tts",
-              operationKey: buildBrandVoiceTtsOperationKey(
-                bv.provider_voice_id,
-                "eleven_multilingual_v2",
-                text,
-              ),
+              operationKey: ttsOperationKey,
               settlement: {
                 kind: "caption",
                 costPaise: reservationCeilingPaise,
@@ -1360,11 +1384,8 @@ router.post(
                   tenantId: req.tenantId,
                   refKind: "brandKit",
                   refId: String(ctx.kitId),
-                  operationKey: buildBrandVoiceTtsOperationKey(
-                    bv.provider_voice_id!,
-                    "eleven_multilingual_v2",
-                    text,
-                  ),
+                   funding: ttsFunding,
+                   operationKey: ttsOperationKey,
                 },
                 async (receipt) => {
                   providerCredits = receipt.providerCredits;
@@ -1414,11 +1435,8 @@ router.post(
             tenantId: req.tenantId,
             refKind: "brandKit",
             refId: String(ctx.kitId),
-            operationKey: buildBrandVoiceTtsOperationKey(
-              bv.provider_voice_id,
-              "eleven_multilingual_v2",
-              text,
-            ),
+            funding: ttsFunding,
+            operationKey: ttsOperationKey,
           },
         ));
       providerCredits ??= result.receipt.providerCredits;

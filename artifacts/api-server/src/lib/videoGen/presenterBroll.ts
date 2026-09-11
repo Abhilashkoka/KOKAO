@@ -31,6 +31,7 @@ import { VideoGenProviderError, type VideoAspect } from "./types";
 import { getTextGenClient } from "../textGen";
 import { loadActiveCasePrompt } from "../promptKit";
 import type { TranscriptSegment } from "../asr/types";
+import type { MeterContext } from "../meter";
 
 export type PresenterBrollSnapshot = NonNullable<VideoJobOptions["presenterBroll"]>;
 type PresenterBeat = PresenterBrollSnapshot["beats"][number];
@@ -245,10 +246,21 @@ async function planPresenterBeats(params: {
   tenantAiModel: string;
   lines: NarrationLine[];
   durationMs: number;
+  meterContext?: MeterContext | null;
 }): Promise<{ beats: PlannedBeat[]; notes: string[] }> {
   const textGen = await getTextGenClient(
     params.tenantAiModel,
-    params.tenantId ? { tenantId: params.tenantId } : null,
+    params.meterContext ?? {
+      tenantId: params.tenantId,
+      refKind: "videoScript",
+      refId: `presenter-broll:${params.tenantId}`,
+      funding: Object.freeze({
+        tenantId: params.tenantId,
+        rail: "quota",
+        mode: "shadow",
+      }),
+      operationKey: `presenter-broll:${params.tenantId}`,
+    },
   );
   const active = await loadActiveCasePrompt("video_broll_beats").catch(() => null);
   const templateBlocks = active
@@ -306,6 +318,8 @@ export async function planPresenterBrollTimeline(params: {
   tenantAiModel: string;
   durationMs: number;
   lines?: NarrationLine[];
+  /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
+  meterContext?: MeterContext | null;
 }): Promise<PresenterBrollSnapshot> {
   const lines =
     params.lines ?? proportionalNarrationLines(params.script, params.durationMs);
@@ -314,6 +328,7 @@ export async function planPresenterBrollTimeline(params: {
     tenantAiModel: params.tenantAiModel,
     lines,
     durationMs: params.durationMs,
+    meterContext: params.meterContext,
   });
   const beats = evenlyBoundBeats(planned.beats);
   if (beats.length === 0) {

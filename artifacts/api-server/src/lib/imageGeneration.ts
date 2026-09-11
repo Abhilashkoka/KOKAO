@@ -86,8 +86,16 @@ export async function buildImagePrompt(input: {
   userPrompt: string;
   brandKitId: number | null;
   referenceImage?: ReferenceImage | null;
+  meterContext: MeterContext;
 }): Promise<string> {
-  const { tenantId, tenant, userPrompt, brandKitId, referenceImage } = input;
+  const {
+    tenantId,
+    tenant,
+    userPrompt,
+    brandKitId,
+    referenceImage,
+    meterContext,
+  } = input;
 
   const resolved = await loadActivePayload(tenantId, brandKitId);
   const brand = resolved?.payload ?? null;
@@ -106,10 +114,21 @@ export async function buildImagePrompt(input: {
 
   // Text-model passes fail soft: if the routed text-gen provider is
   // unconfigured, image generation continues with the base prompt.
+  const childContext = (operation: string): MeterContext => ({
+    ...meterContext,
+    operationKey: meterContext.operationKey
+      ? `${meterContext.operationKey}:${operation}`
+      : null,
+    operationFamilyKey: meterContext.operationFamilyKey
+      ? `${meterContext.operationFamilyKey}:${operation}`
+      : null,
+  });
   const [softTextGen, softMultimodalTextGen] = await Promise.all([
-    getTextGenClient(tenant.aiModel, { tenantId }).catch(() => null),
+    getTextGenClient(tenant.aiModel, childContext("design")).catch(() => null),
     referenceImage
-      ? getTextGenClient(tenant.aiModel, { tenantId }, { capability: "multimodal" }).catch(() => null)
+      ? getTextGenClient(tenant.aiModel, childContext("reference"), { capability: "multimodal" }).catch(
+          () => null,
+        )
       : Promise.resolve(null),
   ]);
 

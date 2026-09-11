@@ -1,4 +1,5 @@
 import { getTextGenClient } from "../../textGen";
+import type { MeterContext } from "../../meter";
 import { usageAccountingParams } from "../../aiCost";
 import { logger } from "../../logger";
 import { withTimeout } from "../retry";
@@ -22,6 +23,14 @@ import type { StockClip } from "./stockSources";
 /** Most thumbnails one call carries; keeps vision payloads and cost sane. */
 export const MAX_RANKED_CANDIDATES = 12;
 
+function legacyShadowTextContext(tenantId: number): MeterContext {
+  return {
+    tenantId,
+    funding: Object.freeze({ tenantId, rail: "quota", mode: "shadow" }),
+    operationKey: `topic-vision-rank:${tenantId}`,
+  };
+}
+
 /** One vision call, bounded — ranking is an enhancement, not a dependency. */
 const RANK_TIMEOUT_MS = 60_000;
 
@@ -36,6 +45,8 @@ export async function assignClipsToScenes(params: {
   topic: string;
   sceneTexts: string[];
   candidates: StockClip[];
+  /** Frozen funding receipt from the owning route/job. */
+  meterContext?: MeterContext | null;
 }): Promise<SceneAssignment | null> {
   const withThumbs = params.candidates
     .map((clip, index) => ({ clip, index }))
@@ -46,11 +57,13 @@ export async function assignClipsToScenes(params: {
   if (withThumbs.length < 2 || params.sceneTexts.length === 0) return null;
 
   try {
-    const textGen = await getTextGenClient(params.tenantAiModel, {
-      tenantId: params.tenantId,
-    }, {
-      capability: "multimodal",
-    });
+    const textGen = await getTextGenClient(
+      params.tenantAiModel,
+      params.meterContext ?? legacyShadowTextContext(params.tenantId),
+      {
+        capability: "multimodal",
+      },
+    );
     const sceneList = params.sceneTexts.map((text, i) => `${i + 1}. ${text}`).join("\n");
     const content: (
       | { type: "text"; text: string }

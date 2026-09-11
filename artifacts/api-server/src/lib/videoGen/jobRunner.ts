@@ -208,6 +208,7 @@ import { videoPriceCriteria } from "./pricing";
 import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
 import { meter, type MeterContext } from "../meter";
+import type { MeterFundingSnapshot } from "../meterFunding";
 import {
   assessNativeAudioTranscript,
   guidedSpokenPhoneticText,
@@ -239,25 +240,39 @@ const ALLOWED_SOURCE_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "vid
 
 /** Stable billing identity for a paid lip-sync dispatch in a durable video job. */
 function lipSyncMeterContext(
-  job: Pick<VideoGeneration, "id" | "tenantId">,
+  job: Pick<VideoGeneration, "id" | "tenantId" | "funding">,
   operation: string,
 ): MeterContext {
   return {
     tenantId: job.tenantId,
     refKind: "videoJob",
     refId: String(job.id),
+    // Video jobs are legacy-funded (quota, wallet, or the old credit rail).
+    // Older rows predate the persisted rail; quota is the historical default.
+    funding: Object.freeze({
+      tenantId: job.tenantId,
+      rail: job.funding ?? "quota",
+      mode: "shadow",
+    } satisfies MeterFundingSnapshot),
     operationKey: `videoJob:${job.id}:${operation}`,
   };
 }
 
 function videoMeterContext(
-  job: Pick<VideoGeneration, "id" | "tenantId">,
+  job: Pick<VideoGeneration, "id" | "tenantId" | "funding">,
   operation: string,
 ): MeterContext {
   return {
     tenantId: job.tenantId,
     refKind: "videoJob",
     refId: String(job.id),
+    // Video jobs are legacy-funded (quota, wallet, or the old credit rail).
+    // Older rows predate the persisted rail; quota is the historical default.
+    funding: Object.freeze({
+      tenantId: job.tenantId,
+      rail: job.funding ?? "quota",
+      mode: "shadow",
+    } satisfies MeterFundingSnapshot),
     operationKey: `videoJob:${job.id}:${operation}`,
   };
 }
@@ -1478,6 +1493,14 @@ async function speakLocalizedBrandVoiceCue(args: {
           tenantId: args.tenantId,
           refKind: "videoJob",
           refId: `${args.jobId}:${args.cueIndex}`,
+          // No independent wallet reservation exists on this legacy path.
+          // Keep the cue explicitly shadow-funded instead of bypassing text
+          // metering with a null/tenant-only context.
+          funding: Object.freeze({
+            tenantId: args.tenantId,
+            rail: "quota" as const,
+            mode: "shadow" as const,
+          }),
           operationKey: buildBrandVoiceTtsOperationKey(
             args.voice.voiceId,
             elevenLabsLanguage.modelId,
@@ -1539,6 +1562,14 @@ async function speakLocalizedBrandVoiceCue(args: {
           tenantId: args.tenantId,
           refKind: "videoJob",
           refId: `${args.jobId}:${args.cueIndex}`,
+          // This cue owns an independent wallet reservation, so its provider
+          // meter must carry the wallet rail even when the parent video job
+          // was funded by quota or the legacy credit rail.
+          funding: Object.freeze({
+            tenantId: args.tenantId,
+            rail: "wallet" as const,
+            mode: "shadow" as const,
+          }),
           operationKey: buildBrandVoiceTtsOperationKey(
             args.voice.voiceId,
             elevenLabsLanguage.modelId,
@@ -2271,6 +2302,7 @@ async function produceVideo(
                          tenantId: job.tenantId,
                          refKind: "videoJob",
                          refId: String(job.id),
+                          funding: videoMeterContext(job, "guided-dialogue-replay-tts").funding,
                          operationKey: `video-job:${job.id}:guided-replay-tts:${line.lineId}`,
                        } },
                     )).wav;
@@ -2529,6 +2561,7 @@ async function produceVideo(
                     tenantId: job.tenantId,
                     refKind: "videoJob",
                     refId: String(job.id),
+                    funding: videoMeterContext(job, "dialogue-tts").funding,
                     operationKey: `video-job:${job.id}:dialogue-tts:${scene.id}`,
                   } },
                 )
@@ -2542,6 +2575,7 @@ async function produceVideo(
                       tenantId: job.tenantId,
                       refKind: "videoJob",
                       refId: String(job.id),
+                      funding: videoMeterContext(job, "dialogue-tts").funding,
                       operationKey: `video-job:${job.id}:dialogue-tts:${scene.id}`,
                     } },
                   )
@@ -2913,7 +2947,9 @@ async function produceVideo(
         tenantId: job.tenantId,
         refKind: "videoJob",
         refId: String(job.id),
+        funding: videoMeterContext(job, "dialogue-tts").funding,
       },
+      meterContext: videoMeterContext(job, "dialogue-tts"),
     });
     // WAN's default model produces a short plate regardless of duration
     // wording. Synthesize first so the plate is composed to the real speech
@@ -3155,7 +3191,9 @@ async function produceVideo(
           tenantId: job.tenantId,
           refKind: "videoJob",
           refId: String(job.id),
+          funding: videoMeterContext(job, "lip-sync-tts").funding,
         },
+        meterContext: videoMeterContext(job, "lip-sync-tts"),
       });
       audio = { buffer: narration.wav, mimeType: "audio/wav" };
     }
@@ -3617,7 +3655,8 @@ async function produceVideo(
       }
       const drafted = await planTopicStoryboard({
         characterSnapshot: options.characterSnapshot,
-        tenantId: job.tenantId, videoJobId: job.id, topic: job.prompt ?? "", aspectRatio, voice: effectiveVoice, clonedVoice,
+        tenantId: job.tenantId, meterContext: videoMeterContext(job, "hybrid-planner"),
+        videoJobId: job.id, topic: job.prompt ?? "", aspectRatio, voice: effectiveVoice, clonedVoice,
         paragraphCount: options.paragraphCount ?? 1, templateRuntime: options.templateRuntime ?? null,
         visualsSource: "ai_video", characterId: null, outfitId: null, wardrobeNotes: null,
         brandVoice: branding?.voiceHint ?? null, referenceStyle: compiledReferenceStyle,
@@ -3722,6 +3761,7 @@ async function produceVideo(
         }
         const refreshed = await refreshEditedNarration({
           tenantId: job.tenantId,
+          meterContext: videoMeterContext(job, "hybrid-narration"),
           videoJobId: job.id,
           storyboard: board,
           voice: effectiveVoice,
@@ -4218,6 +4258,7 @@ async function produceVideo(
             storyboard: board,
             scene,
             aspectRatio,
+            meterCtx: videoMeterContext(job, `storyboard-preview:${scene.id}`),
             characterId: null,
             upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
             priorImages: priorSelectedImages,
@@ -4319,6 +4360,7 @@ async function produceVideo(
         }
         const narration = await synthesizeGuidedNarration({
           tenantId: job.tenantId,
+          meterContext: videoMeterContext(job, "guided-narration"),
           videoJobId: job.id,
           cast: guidedSnapshot.cast,
           script: guidedSnapshot.script,
@@ -4337,6 +4379,7 @@ async function produceVideo(
       // a render retry must resume from the recording it will actually use.
       const refreshed = directGuidedNativeAudio ? null : await refreshEditedNarration({
         tenantId: job.tenantId,
+        meterContext: videoMeterContext(job, "guided-narration"),
         videoJobId: job.id,
         storyboard: board,
         voice: effectiveVoice,
@@ -4817,6 +4860,7 @@ async function produceVideo(
       let storyboard = await planTopicStoryboard({
         characterSnapshot: options.characterSnapshot,
         tenantId: job.tenantId,
+        meterContext: videoMeterContext(job, "storyboard-planner"),
         videoJobId: job.id,
         topic: job.prompt ?? "",
         approvedScript: options.guidedStory
@@ -4890,6 +4934,7 @@ async function produceVideo(
     const music = await resolveMusic(job, options, 30, onStage);
     const result = await generateTopicVideo({
       tenantId: job.tenantId,
+      meterContext: videoMeterContext(job, "topic-video"),
       videoJobId: job.id,
       topic: job.prompt ?? "",
       aspectRatio,
@@ -5037,6 +5082,7 @@ async function produceVideo(
             tenantId: job.tenantId,
             refKind: "videoJob",
             refId: String(job.id),
+            funding: videoMeterContext(job, "localized-dub-repair").funding,
             operationKey: `localized-dub-repair:${job.id}`,
           });
         })();
@@ -5137,9 +5183,7 @@ async function produceVideo(
       }
       onStage("Preserving source voice with ElevenLabs");
       const elAudio = await meter({
-        tenantId: job.tenantId,
-        refKind: "videoJob",
-        refId: String(job.id),
+        ...videoMeterContext(job, "source-voice-dubbing"),
         provider: "elevenlabs",
         model: "dubbing",
         operationKey: `video-job:${job.id}:source-voice-dubbing`,
@@ -5153,9 +5197,7 @@ async function produceVideo(
         }), { reservationQuantity: audioDurationReservationSeconds(minDurationSec) });
       const referenceWav = await extractVoiceSampleWav(elAudio);
       const temporaryVoiceId = await meter({
-        tenantId: job.tenantId,
-        refKind: "videoJob",
-        refId: String(job.id),
+        ...videoMeterContext(job, "source-voice-clone"),
         provider: "elevenlabs",
         model: "instant_voice_clone",
         operationKey: `video-job:${job.id}:source-voice-clone`,
@@ -5178,8 +5220,7 @@ async function produceVideo(
           speakCue: (text) => {
             const cueIndex = cues.find((cue) => cue.text === text)?.index ?? 0;
             return meter({
-              tenantId: job.tenantId,
-              refKind: "videoJob",
+              ...videoMeterContext(job, `source-voice-tts:cue:${cueIndex}`),
               refId: `${job.id}:${cueIndex}`,
               provider: "elevenlabs",
               model: "eleven_multilingual_v2",
@@ -5328,6 +5369,7 @@ async function produceVideo(
           tenantId: job.tenantId,
           refKind: "videoJob",
           refId: String(job.id),
+          funding: videoMeterContext(job, "localized-stock-tts").funding,
           operationKey: `video-job:${job.id}:localized-stock-tts`,
         },
       });
@@ -5626,6 +5668,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         storyboard: board,
         scene,
         aspectRatio: claimed.options?.aspectRatio ?? "9:16",
+        meterCtx: videoMeterContext(claimed, `storyboard-preview:${scene.id}`),
         characterId: null,
         upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
         priorImages: guidedContinuityImages(scene, latestByRole),
@@ -5912,6 +5955,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         storyboard: board,
         scene,
         aspectRatio: claimed.options?.aspectRatio ?? "9:16",
+        meterCtx: videoMeterContext(claimed, `storyboard-preview:${scene.id}`),
         characterId: null,
         upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
         priorImages: guidedContinuityImages(scene, latestByRole),
@@ -6211,6 +6255,7 @@ export async function runGuidedSceneCorrectionJob(
       storyboard: claimedStoryboard,
       scene: correctedScene,
       aspectRatio: claimedJob.options?.aspectRatio ?? "9:16",
+      meterCtx: videoMeterContext(claimedJob, `storyboard-preview:${scene.id}`),
       upload: (bytes, contentType) => uploadToStorage(claimedJob.tenantId, bytes, contentType),
       priorImages,
       imageSelectionPolicy: claimedJob.options?.guidedStory?.imageModelSnapshot,
@@ -6665,6 +6710,7 @@ export async function refreshStoryboardScenePreview(
     storyboard,
     scene,
     aspectRatio: job.options?.aspectRatio ?? "9:16",
+    meterCtx: videoMeterContext(job, `storyboard-preview:${scene.id}`),
     characterId: job.options?.characterId ?? null,
     selectedOutfitId: job.options?.outfitId ?? null,
     characterSnapshot: job.options?.characterSnapshot,
@@ -6813,6 +6859,7 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
       tenantId: job.tenantId,
       refKind: "videoJob",
       refId: String(job.id),
+      funding: videoMeterContext(job, "native-audio-asr:auto").funding,
       operationKey: `video-job:${job.id}:native-audio-asr:auto`,
     });
   } catch {
@@ -6853,6 +6900,7 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
         tenantId: job.tenantId,
         refKind: "videoJob",
         refId: String(job.id),
+        funding: videoMeterContext(job, `native-audio-asr:hint:${snapshot.locale}`).funding,
         operationKey: `video-job:${job.id}:native-audio-asr:hint:${snapshot.locale}`,
       });
     } catch {
@@ -7095,6 +7143,7 @@ async function finishGuidedStoryIntrinsicDialogue(
                     tenantId: job.tenantId,
                     refKind: "videoJob",
                     refId: String(job.id),
+                    funding: videoMeterContext(job, "guided-native-fallback-tts").funding,
                     operationKey: `video-job:${job.id}:guided-native-fallback-tts:${snapshot.scenes.indexOf(planned)}`,
                   } },
                 )).wav

@@ -106,7 +106,10 @@ describe("Guided Story preview references", () => {
 
     expect(state.loadedPaths).toEqual([characterPath, outfitPath, backdropPath]);
     expect(state.generated).toHaveLength(1);
-    expect(state.generated[0]!.opts).toEqual({ requireReferenceInput: true });
+    expect(state.generated[0]!.opts).toEqual(expect.objectContaining({
+      requireReferenceInput: true,
+      meterContext: expect.objectContaining({ tenantId: 7 }),
+    }));
     expect(state.generated[0]!.prompt).toContain("APPROVED SHARED BACKDROP");
     const metadata = await sharp(state.generated[0]!.referenceImage.buffer).metadata();
     expect(metadata.width).toBe(1536);

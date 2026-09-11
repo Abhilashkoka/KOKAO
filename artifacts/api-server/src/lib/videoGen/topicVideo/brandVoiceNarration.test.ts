@@ -12,6 +12,7 @@ const billing = vi.hoisted(() => ({
   receipts: [] as unknown[],
   usage: [] as unknown[],
   refunds: [] as unknown[],
+  walletFunded: true,
 }));
 
 vi.mock("@workspace/integrations-openai-ai-server/audio", () => ({
@@ -33,7 +34,7 @@ vi.mock("../../wallet", async () => {
   const actual = await vi.importActual<typeof import("../../wallet")>("../../wallet");
   return {
     ...actual,
-    isWalletFunded: vi.fn(async () => true),
+    isWalletFunded: vi.fn(async () => billing.walletFunded),
     reserveWallet: vi.fn(async (...args: unknown[]) => {
       billing.reserves.push(args);
       return { id: 100 + billing.reserves.length, amountPaise: 12, units: 1 };
@@ -119,6 +120,7 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     billing.receipts.length = 0;
     billing.usage.length = 0;
     billing.refunds.length = 0;
+    billing.walletFunded = true;
     resetProviderHealthForTests();
   });
 
@@ -161,7 +163,19 @@ describe("synthesizeNarration with a cloned brand voice", () => {
 
     await synthesizeNarration(SENTENCES, "alloy", {
       clonedVoice: CLONED,
-      billing: { tenantId: 77, refKind: "videoJob", refId: "42" },
+      billing: {
+        tenantId: 77,
+        refKind: "videoJob",
+        refId: "42",
+        // Simulate an enforce-mode parent route. The independently reserved
+        // cloned narration must still use wallet-shadow and never debit the
+        // credit account.
+        funding: Object.freeze({
+          tenantId: 77,
+          rail: "credits" as const,
+          mode: "enforce" as const,
+        }),
+      },
     });
 
     expect(billing.reserves).toHaveLength(2);
@@ -169,6 +183,20 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     expect(billing.receipts).toHaveLength(2);
     expect(billing.settlements).toEqual([201, 202]);
     expect(billing.usage).toHaveLength(2);
+    expect(brandSpeak.mock.calls).toHaveLength(2);
+    for (const [, , meterContext] of brandSpeak.mock.calls) {
+      expect(meterContext).toEqual(
+        expect.objectContaining({
+          tenantId: 77,
+          funding: expect.objectContaining({
+            tenantId: 77,
+            rail: "wallet",
+            mode: "shadow",
+          }),
+        }),
+      );
+      expect(Object.isFrozen(meterContext?.funding)).toBe(true);
+    }
   });
 
   it("falls back to the stock voices for the ENTIRE track when the brand voice fails", async () => {
@@ -203,6 +231,46 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     ).rejects.toBeInstanceOf(MeterDispatchReplayError);
 
     expect(stockSpeak).not.toHaveBeenCalled();
+  });
+
+  it("keeps a required cloned voice on the frozen enforce rail", async () => {
+    billing.walletFunded = false;
+    brandSpeak.mockRejectedValue(new VoiceCloneError("voice unavailable", 400));
+
+    await expect(
+      synthesizeNarration(["The launch is live."], "alloy", {
+        clonedVoice: CLONED,
+        requireClonedVoice: true,
+        billing: {
+          tenantId: 77,
+          refKind: "guidedStoryLine",
+          refId: "line-enforce",
+          funding: Object.freeze({
+            tenantId: 77,
+            rail: "credits" as const,
+            mode: "enforce" as const,
+          }),
+        },
+      }),
+    ).rejects.toThrow(/voice unavailable/u);
+
+    expect(stockSpeak).not.toHaveBeenCalled();
+    expect(billing.reserves).toHaveLength(0);
+    expect(billing.operations).toHaveLength(0);
+    expect(brandSpeak).toHaveBeenCalledWith(
+      CLONED,
+      "The launch is live.",
+      expect.objectContaining({
+        funding: expect.objectContaining({
+          tenantId: 77,
+          rail: "credits",
+          mode: "enforce",
+        }),
+      }),
+      undefined,
+      "eleven_multilingual_v2",
+      undefined,
+    );
   });
 
   it("falls back when voice cloning is not configured at all", async () => {

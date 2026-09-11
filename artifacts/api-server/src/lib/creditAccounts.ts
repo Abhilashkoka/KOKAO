@@ -7,7 +7,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { MILLI, getMeterMode } from "./creditRates";
+import { MILLI, getMeterMode, type MeterMode } from "./creditRates";
 
 /**
  * The credit balance: grant, spend, refund, expire.
@@ -404,9 +404,12 @@ export function serializeAccount(row: CreditAccount): CreditBalance {
  *
  * Fails CLOSED to the existing rail on any error.
  */
-export async function isCreditFunded(tenantId: number): Promise<boolean> {
+export async function isCreditFunded(tenantId: number, frozenMode?: MeterMode): Promise<boolean> {
   try {
-    if ((await getMeterMode()) !== "enforce") return false;
+    // Callers that are freezing a route funding decision pass the mode they
+    // already read. Re-reading the mutable platform setting here would allow
+    // a transition between reservation and provider dispatch to change rails.
+    if ((frozenMode ?? (await getMeterMode())) !== "enforce") return false;
     const [tenant] = await db
       .select({ billingMode: tenantsTable.billingMode })
       .from(tenantsTable)

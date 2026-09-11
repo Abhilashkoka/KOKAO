@@ -9,6 +9,14 @@ import { computeDisplayPaise, getAiSpendConfig } from "./aiSpend";
 import { refundCredits } from "./credits";
 import { settleWallet, refundWallet, reservationFromRow } from "./wallet";
 import { logger } from "./logger";
+import type { MeterFundingSnapshot } from "./meterFunding";
+
+function legacyImageFunding(
+  tenantId: number,
+  rail: "quota" | "credit" | "wallet",
+): MeterFundingSnapshot {
+  return Object.freeze({ tenantId, rail, mode: "shadow" });
+}
 
 /**
  * Executes one queued image_generations row to completion, mirroring the
@@ -79,6 +87,7 @@ export async function runImageGenerationJob(
         tenantId: job.tenantId,
         refKind: "imageJob",
         refId: String(job.id),
+        funding: legacyImageFunding(job.tenantId, funding),
         operationKey: `imageJob:${job.id}:generate`,
       },
     });

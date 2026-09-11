@@ -33,17 +33,39 @@ vi.mock("../lib/plans", async (importOriginal) => {
   };
 });
 
+type TestMeterMode = "off" | "shadow" | "enforce";
+const meterModeTest = vi.hoisted(() => {
+  const state: { sequence: TestMeterMode[]; index: number } = {
+    sequence: ["shadow"],
+    index: 0,
+  };
+  const getMeterMode = vi.fn(async (): Promise<TestMeterMode> => {
+    const offset = Math.min(state.index++, state.sequence.length - 1);
+    return state.sequence[offset] ?? "shadow";
+  });
+  return { state, getMeterMode };
+});
+const meterModeState = meterModeTest.state;
+const getMeterModeMock = meterModeTest.getMeterMode;
+vi.mock("../lib/creditRates", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/creditRates")>();
+  return { ...actual, getMeterMode: meterModeTest.getMeterMode };
+});
+
 type Completion = {
   choices: Array<{ message: { content: string } }>;
 };
 let completionScript: () => Promise<Completion>;
 const completionCreate = vi.fn(async () => completionScript());
+const textGenContexts: unknown[] = [];
 
 vi.mock("../lib/textGen", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/textGen")>();
   return {
     ...actual,
-    getTextGenClient: vi.fn(async () => ({
+    getTextGenClient: vi.fn(async (_tenantModel: string, meterContext: unknown) => {
+      textGenContexts.push(meterContext);
+      return {
       provider: "builtin",
       model: "test-model",
       client: {
@@ -53,7 +75,8 @@ vi.mock("../lib/textGen", async (importOriginal) => {
           },
         },
       },
-    })),
+      };
+    }),
   };
 });
 
@@ -62,6 +85,7 @@ import {
   creditLedgerTable,
   db,
   pool,
+  tenantsTable,
   usageEventsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -78,6 +102,10 @@ beforeEach(async () => {
   tenant = await createTenant();
   planState.captions = 0;
   completionCreate.mockClear();
+  textGenContexts.length = 0;
+  meterModeState.sequence = ["shadow"];
+  meterModeState.index = 0;
+  getMeterModeMock.mockClear();
   completionScript = async () => ({
     choices: [
       {
@@ -188,6 +216,41 @@ describe("localize-script funding", () => {
     expect(completionCreate).toHaveBeenCalledTimes(3);
     expect(await usageFunding()).toEqual(["credit", "credit", "quota"]);
     expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(0);
+  });
+
+  it.each([
+    ["enforce", "shadow", "credits"],
+    ["shadow", "enforce", "quota"],
+  ] as const)("freezes one funding decision across %s → %s between locale reservations", async (initial, later, rail) => {
+    planState.captions = 2;
+    await db
+      .update(tenantsTable)
+      .set({ billingMode: "credits" })
+      .where(eq(tenantsTable.id, tenant.tenantId));
+    // A second getMeterMode call would make the second reservation fall back
+    // to the legacy quota/credit rail. The route must read this exactly once
+    // before the locale loop and reuse the enforce snapshot for every locale.
+    meterModeState.sequence = [initial, later];
+
+    const response = await postLocalization(["te", "ta"]);
+
+    expect(response.status).toBe(200);
+    expect(getMeterModeMock).toHaveBeenCalledTimes(1);
+    expect(textGenContexts).toHaveLength(1);
+    const context = textGenContexts[0] as {
+      funding: {
+        tenantId: number;
+        rail: string;
+        mode: string;
+      };
+    };
+    expect(context.funding).toEqual({
+      tenantId: tenant.tenantId,
+      rail,
+      mode: initial,
+    });
+    expect(Object.isFrozen(context.funding)).toBe(true);
+    expect(await usageFunding()).toEqual([rail, rail]);
   });
 
   it("reassigns a failed locale's quota slot before charging a successful locale credit", async () => {

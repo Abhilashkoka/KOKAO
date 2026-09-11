@@ -42,6 +42,14 @@ const SCENE_CONCURRENCY = 3;
 /** Providers accept short clips; scenes are trimmed/looped by the compositor. */
 const SCENE_CLIP_CHOICES = [5, 8, 10] as const;
 
+function legacyShadowTextContext(tenantId: number): MeterContext {
+  return {
+    tenantId,
+    funding: Object.freeze({ tenantId, rail: "quota", mode: "shadow" }),
+    operationKey: `topic-character-plan:${tenantId}`,
+  };
+}
+
 export interface ScriptScene {
   /** Cue index range (inclusive) this scene spans. */
   firstCue: number;
@@ -152,6 +160,8 @@ export async function planSceneVisuals(params: {
   topic: string;
   /** Enables the governed prompt (Prompt Template Kit) when provided. */
   tenantId?: number | null;
+  /** Frozen funding receipt from the owning route/job. */
+  meterContext?: MeterContext | null;
   character: Character;
   outfits: CharacterOutfit[];
   lockedOutfitId: number;
@@ -201,7 +211,8 @@ export async function planSceneVisuals(params: {
 
   const textGen = await getTextGenClient(
     params.tenantAiModel,
-    params.tenantId ? { tenantId: params.tenantId } : null,
+    params.meterContext ??
+      (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
   );
   const wardrobe = params.outfits
     .map((o) => `- id ${o.id}: "${o.name}" — ${o.description}`)
@@ -329,6 +340,7 @@ ${sceneList}`;
     tenantAiModel: params.tenantAiModel,
     prompts: plan.map((entry) => entry.visual),
     tenantId: params.tenantId,
+    meterContext: params.meterContext ?? null,
   });
   plan.forEach((entry, i) => {
     entry.visual = refinedVisuals[i] ?? entry.visual;

@@ -183,6 +183,7 @@ vi.mock("../lib/characters", async (importOriginal) => {
       _c: unknown,
       description: string,
       _base: unknown,
+      _meterContext: unknown,
       _edit: unknown,
       onProviderSuccess?: (meta: { provider: string; model: string }) => Promise<void>,
     ) => {

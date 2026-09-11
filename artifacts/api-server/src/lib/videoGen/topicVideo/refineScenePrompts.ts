@@ -2,6 +2,15 @@ import { usageAccountingParams } from "../../aiCost";
 import { logger } from "../../logger";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { getTextGenClient } from "../../textGen";
+import type { MeterContext } from "../../meter";
+
+function legacyShadowTextContext(tenantId: number): MeterContext {
+  return {
+    tenantId,
+    funding: Object.freeze({ tenantId, rail: "quota", mode: "shadow" }),
+    operationKey: `topic-scene-polish:${tenantId}`,
+  };
+}
 
 /**
  * Best-effort cinematic polish shared by prompt-video shots and topic-video
@@ -13,6 +22,8 @@ export async function refineScenePrompts(params: {
   prompts: string[];
   /** Enables Prompt Template Kit governance when the tenant is known. */
   tenantId?: number | null;
+  /** Frozen funding receipt from the owning route/job. */
+  meterContext?: MeterContext | null;
 }): Promise<string[]> {
   const originals = params.prompts;
   if (originals.length === 0) return originals;
@@ -20,7 +31,8 @@ export async function refineScenePrompts(params: {
   try {
     const textGen = await getTextGenClient(
       params.tenantAiModel,
-      params.tenantId ? { tenantId: params.tenantId } : null,
+      params.meterContext ??
+        (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
     );
     const governed = params.tenantId
       ? await getGovernedPrompt({

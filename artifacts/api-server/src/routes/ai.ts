@@ -27,6 +27,7 @@ import {
   ImageEditModerationError,
 } from "../lib/imageEdit";
 import { meter, type MeterContext } from "../lib/meter";
+import type { MeterFundingSnapshot } from "../lib/meterFunding";
 import {
   runImageOp,
   ImageOpError,
@@ -74,12 +75,11 @@ import {
   type UsageMeta,
 } from "../lib/usage";
 import { spendCredit, refundCredits, type CreditKind } from "../lib/credits";
-import { isCreditFunded } from "../lib/creditAccounts";
 import {
-  isWalletFunded,
   reserveWallet,
   settleWallet,
   refundWallet,
+  isWalletFunded,
   type WalletReservation,
 } from "../lib/wallet";
 import { loadActivePayload } from "../lib/brandKit/service";
@@ -93,6 +93,7 @@ import {
   ReferenceImageError,
 } from "../lib/referenceGuide";
 import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
+import { getMeterMode, type MeterMode } from "../lib/creditRates";
 import { applyMadeWithWatermark } from "../lib/watermark";
 import { getTextGenClient, listTenantModelChoices } from "../lib/textGen";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
@@ -152,6 +153,8 @@ const objectStorageService = new ObjectStorageService();
  */
 interface Funding {
   source: "quota" | "credit" | "wallet" | "credits";
+  /** Funding receipt frozen before the provider is dispatched. */
+  funding: MeterFundingSnapshot;
   reservation?: WalletReservation;
   quotaReservation?: QuotaUsageReservation;
   stopQuotaLease?: () => void;
@@ -163,12 +166,61 @@ interface Funding {
   resolved?: boolean;
 }
 
-function meterOperationKey(funding: Funding, action: string): string | null {
+interface FundingDecision {
+  meterMode: MeterMode;
+  billingMode: "quota" | "wallet" | "credits";
+  walletEnabled: boolean;
+}
+
+function fundingSnapshot(
+  tenantId: number,
+  rail: MeterFundingSnapshot["rail"],
+  mode: MeterMode,
+): MeterFundingSnapshot {
+  return Object.freeze({
+    rail,
+    // Legacy route-funded work must not be debited again by the provider
+    // meter. Credits-only work is charged at the provider boundary.
+    mode,
+    tenantId,
+  });
+}
+
+async function readFundingDecision(
+  tenantId: number,
+  billingMode?: FundingDecision["billingMode"],
+): Promise<FundingDecision> {
+  const [meterMode, tenant] = await Promise.all([
+    getMeterMode(),
+    billingMode
+      ? Promise.resolve({ billingMode })
+      : db
+          .select({ billingMode: tenantsTable.billingMode })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, tenantId))
+          .limit(1)
+          .then((rows) => rows[0]),
+  ]);
+  return {
+    meterMode,
+    billingMode:
+      tenant?.billingMode === "wallet" || tenant?.billingMode === "credits"
+        ? tenant.billingMode
+        : "quota",
+    walletEnabled: await isFeatureEnabled("wallet"),
+  };
+}
+
+function meterOperationKey(funding: Funding, action: string): string {
   if (funding.reservation) return `${action}:wallet:${funding.reservation.id}`;
   if (funding.quotaReservation) {
     return `${action}:quota:${funding.quotaReservation.usageEventId}`;
   }
-  return null;
+  // Credits are reserved at the provider boundary, so there is no route-side
+  // reservation id to identify this dispatch. Keep one server-owned operation
+  // identity for the whole provider call rather than leaving it null (which
+  // the credits meter correctly rejects).
+  return `${action}:server:${serverActionId()}`;
 }
 
 function serverActionId(): string {
@@ -194,35 +246,58 @@ function applyFundingMeterKey(
   funding: Funding,
   action: string,
 ): void {
-  context.operationKey =
-    meterOperationKey(funding, `text:${action}`) ?? context.operationKey;
+  context.funding = funding.funding;
+  context.operationKey = meterOperationKey(funding, `text:${action}`);
 }
 
 async function reserveFunding(
   tenantId: number,
   limit: number,
   kind: CreditKind,
+  decision?: FundingDecision,
 ): Promise<Funding | null> {
-  // Credit-funded workspaces reserve nothing here. The credit meter debits at
-  // the provider boundary, which is the only place that knows what the call
-  // actually cost — reserving a second time at the route would charge twice
-  // for one generation, and refuse work the balance could afford.
-  if (await isCreditFunded(tenantId)) return { source: "credits" };
-  if (await isWalletFunded(tenantId)) {
-    const reservation = await reserveWallet(tenantId, kind);
-    return reservation ? { source: "wallet", reservation } : null;
+  const resolved = decision ?? (await readFundingDecision(tenantId));
+  // A credits tenant is funded at the provider boundary only while the meter
+  // is enforcing. During off/shadow rollout retain the old route reservation,
+  // avoiding a mode-flip window where dispatch becomes free.
+  if (resolved.billingMode === "credits" && resolved.meterMode === "enforce") {
+    return {
+      source: "credits",
+      funding: fundingSnapshot(tenantId, "credits", resolved.meterMode),
+    };
   }
-  if (limit === -1) return { source: "quota" };
+  if (resolved.billingMode === "wallet" && resolved.walletEnabled) {
+    const reservation = await reserveWallet(tenantId, kind);
+    return reservation
+      ? {
+          source: "wallet",
+          reservation,
+          funding: fundingSnapshot(tenantId, "wallet", resolved.meterMode),
+        }
+      : null;
+  }
+  if (limit === -1) {
+    return {
+      source: "quota",
+      funding: fundingSnapshot(tenantId, "quota", resolved.meterMode),
+    };
+  }
   const quotaReservation = await reserveQuotaUsage(tenantId, kind, limit);
   if (quotaReservation) {
     return {
       source: "quota",
+      funding: fundingSnapshot(tenantId, "quota", resolved.meterMode),
       quotaReservation,
       stopQuotaLease: startQuotaUsageLease(tenantId, quotaReservation),
     };
   }
   const reserved = await spendCredit(tenantId, kind);
-  return reserved ? { source: "credit" } : null;
+  return reserved
+    ? {
+        source: "credit",
+        funding: fundingSnapshot(tenantId, "credit", resolved.meterMode),
+      }
+    : null;
 }
 
 /**
@@ -1217,11 +1292,13 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
   // slots are durable usage-ledger holds, so concurrent requests cannot both
   // claim the tenant's last slot before either model returns.
   const reservations: { locale: TargetLocale; funding: Funding }[] = [];
+  const localizationDecision = await readFundingDecision(req.tenantId);
   for (const locale of locales) {
     const funding = await reserveFunding(
       req.tenantId,
       limits.captions,
       "caption",
+      localizationDecision,
     );
     if (!funding) {
       for (const held of reservations)
@@ -1239,10 +1316,14 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
   }
   meterContext.operationKey = `text:localize-script:${reservations
     .map(({ locale, funding }) =>
-      meterOperationKey(funding, `localize-script:${locale}`) ??
-      `${serverActionId()}:${locale}`,
+      meterOperationKey(funding, `localize-script:${locale}`),
     )
     .join("+")}`;
+  // The transcreation client closes over this context. All reservations in a
+  // localization request are the same provider-billing policy; mixed legacy
+  // quota/credit reservations remain shadowed, while credits mode remains on
+  // the provider meter.
+  meterContext.funding = reservations[0]?.funding.funding;
 
   const ref = await contentRef(req.tenantId, parsed.data.contentId);
   const completed: {
@@ -1474,6 +1555,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       meterContext: {
         tenantId: req.tenantId,
         refKind: "imageRequest",
+        funding: imageFunding.funding,
         operationKey: `imageRequest:${req.clerkUserId}:${genStartedAt}`,
       },
     });
@@ -1586,6 +1668,7 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
   }
 
   try {
+    const imageEditOperationKey = meterOperationKey(imageFunding, "image-edit");
     const outcome = await performImageEdit({
       tenantId: req.tenantId,
       tenant,
@@ -1597,7 +1680,8 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
         tenantId: req.tenantId,
         refKind: parsed.data.contentId ? "content" : null,
         refId: parsed.data.contentId ? String(parsed.data.contentId) : null,
-        operationKey: meterOperationKey(imageFunding, "image-edit"),
+        funding: imageFunding.funding,
+        operationKey: imageEditOperationKey,
       },
     });
     const spendPaise = await settleFunding(req, imageFunding, "image", {
@@ -1710,6 +1794,9 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
   }
 
   try {
+    const imageOpOperationKey = funding
+      ? meterOperationKey(funding, `image-op:${op}`)
+      : null;
     const outcome = await runImageOp({
       op,
       tenantId: req.tenantId,
@@ -1720,7 +1807,14 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
       prompt: parsed.data.prompt ?? null,
       pad: parsed.data.pad ?? null,
       scale: parsed.data.scale ?? null,
-      operationKey: funding ? meterOperationKey(funding, `image-op:${op}`) : null,
+      operationKey: imageOpOperationKey,
+      meterContext: funding
+        ? {
+            tenantId: req.tenantId,
+            funding: funding.funding,
+            operationKey: imageOpOperationKey,
+          }
+        : null,
     });
 
     if (funding && outcome.meta) {
@@ -1799,12 +1893,29 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const suggestMeterContext = textActionMeterContext(req, "suggest-topics");
   const textGen = await getTextGenOrRespond(
     res,
     tenant.aiModel,
-    textActionMeterContext(req, "suggest-topics"),
+    suggestMeterContext,
   );
   if (!textGen) return;
+  const suggestFunding = await reserveFunding(
+    req.tenantId,
+    (await getPlanLimits(tenant.plan)).captions,
+    "caption",
+  );
+  if (!suggestFunding) {
+    res.status(402).json({
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
+        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+      ),
+    });
+    return;
+  }
+  suggestMeterContext.funding = suggestFunding.funding;
 
   const brand = await loadBrandPayload(
     req.tenantId,
@@ -1853,8 +1964,13 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
       ideas = [];
     }
 
+    await settleFunding(req, suggestFunding, "caption", {
+      model: textGen.model,
+      provider: textGen.provider,
+    });
     res.json({ ideas });
   } catch (error) {
+    await releaseFunding(req, suggestFunding, "caption");
     req.log.error({ err: error }, "Topic suggestion failed");
     res.status(500).json({ error: "Failed to suggest topics" });
   }
@@ -1897,12 +2013,29 @@ router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const hooksMeterContext = textActionMeterContext(req, "generate-hooks");
   const textGen = await getTextGenOrRespond(
     res,
     tenant.aiModel,
-    textActionMeterContext(req, "generate-hooks"),
+    hooksMeterContext,
   );
   if (!textGen) return;
+  const hooksFunding = await reserveFunding(
+    req.tenantId,
+    (await getPlanLimits(tenant.plan)).captions,
+    "caption",
+  );
+  if (!hooksFunding) {
+    res.status(402).json({
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
+        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+      ),
+    });
+    return;
+  }
+  hooksMeterContext.funding = hooksFunding.funding;
   const brand = await loadBrandPayload(
     req.tenantId,
     parsed.data.brandKitId ?? null,
@@ -1962,8 +2095,13 @@ router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
     } catch {
       hooks = [];
     }
+    await settleFunding(req, hooksFunding, "caption", {
+      model: textGen.model,
+      provider: textGen.provider,
+    });
     res.json({ hooks });
   } catch (error) {
+    await releaseFunding(req, hooksFunding, "caption");
     req.log.error({ err: error }, "Hook generation failed");
     res.status(500).json({ error: "Failed to write hooks" });
   }
@@ -2163,10 +2301,11 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const summarizeMeterContext = textActionMeterContext(req, "summarize-url");
   const textGen = await getTextGenOrRespond(
     res,
     tenant.aiModel,
-    textActionMeterContext(req, "summarize-url"),
+    summarizeMeterContext,
   );
   if (!textGen) return;
 
@@ -2219,6 +2358,23 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
     return;
   }
 
+  const summarizeFunding = await reserveFunding(
+    req.tenantId,
+    (await getPlanLimits(tenant.plan)).captions,
+    "caption",
+  );
+  if (!summarizeFunding) {
+    res.status(402).json({
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
+        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+      ),
+    });
+    return;
+  }
+  summarizeMeterContext.funding = summarizeFunding.funding;
+
   try {
     const completion = await textGen.client.chat.completions.create({
       model: textGen.model,
@@ -2253,12 +2409,20 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
     }
 
     if (!summary) {
+      await releaseFunding(req, summarizeFunding, "caption");
       res.status(422).json({ error: "Could not summarize that URL." });
       return;
     }
 
+    await settleFunding(req, summarizeFunding, "caption", {
+      model: textGen.model,
+      provider: textGen.provider,
+      requestBytes: Buffer.byteLength(text),
+      responseBytes: Buffer.byteLength(raw),
+    });
     res.json({ title, summary });
   } catch (error) {
+    await releaseFunding(req, summarizeFunding, "caption");
     req.log.error({ err: error }, "URL summarization failed");
     res.status(500).json({ error: "Failed to summarize URL" });
   }
@@ -2305,9 +2469,36 @@ router.post("/ai/research", async (req: Request, res: Response) => {
       "Do not include markdown, citations markers, or a sources list in the JSON; sources are collected separately.",
   );
 
+  const researchFunding = await reserveFunding(
+    req.tenantId,
+    (await getPlanLimits(tenant.plan)).captions,
+    "caption",
+  );
+  if (!researchFunding) {
+    res.status(402).json({
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
+        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+      ),
+    });
+    return;
+  }
+  const researchMeterContext: MeterContext = {
+    tenantId: req.tenantId,
+    refKind: "action",
+    refId: `research:${serverActionId()}`,
+    funding: researchFunding.funding,
+    operationKey: `text:research:${serverActionId()}`,
+  };
+
   try {
     const response = await meter(
-      { tenantId: req.tenantId, provider: "builtin", model: "gpt-5.4" },
+      {
+        ...researchMeterContext,
+        provider: "builtin",
+        model: "gpt-5.4",
+      },
       "caption",
       1,
       () =>
@@ -2384,6 +2575,7 @@ router.post("/ai/research", async (req: Request, res: Response) => {
     }
 
     if (!summary) {
+      await releaseFunding(req, researchFunding, "caption");
       res.status(422).json({
         error:
           "Research produced no usable results. Try a more specific topic.",
@@ -2391,6 +2583,11 @@ router.post("/ai/research", async (req: Request, res: Response) => {
       return;
     }
 
+    await settleFunding(req, researchFunding, "caption", {
+      model: "gpt-5.4",
+      provider: "builtin",
+      requestBytes: Buffer.byteLength(guidance.join(" ") + parsed.data.topic),
+    });
     res.json({
       summary,
       keyFindings,
@@ -2398,6 +2595,7 @@ router.post("/ai/research", async (req: Request, res: Response) => {
       suggestedAngles,
     });
   } catch (error) {
+    await releaseFunding(req, researchFunding, "caption");
     req.log.error({ err: error }, "Web research failed");
     res.status(500).json({ error: "Failed to research that topic" });
   }
@@ -2438,7 +2636,18 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
   // all-or-nothing debit covering every platform, settled to the real
   // provider cost once the model reports back. Quota workspaces keep the
   // original split — as much as the plan allows, the rest from credits.
-  const campaignOnWallet = await isWalletFunded(req.tenantId);
+  const campaignDecision = await readFundingDecision(
+    req.tenantId,
+    tenant.billingMode === "wallet" ||
+      tenant.billingMode === "credits"
+      ? tenant.billingMode
+      : "quota",
+  );
+  const campaignOnCredits =
+    campaignDecision.billingMode === "credits" &&
+    campaignDecision.meterMode === "enforce";
+  const campaignOnWallet =
+    campaignDecision.billingMode === "wallet" && campaignDecision.walletEnabled;
   const campaignWallet = campaignOnWallet
     ? await reserveWallet(
         req.tenantId,
@@ -2449,7 +2658,15 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     : null;
   let quotaFunded = platforms.length;
   let creditFunded = 0;
-  if (campaignOnWallet) {
+  if (campaignOnCredits) {
+    quotaFunded = 0;
+    creditFunded = 0;
+    meterContext.funding = fundingSnapshot(
+      req.tenantId,
+      "credits",
+      campaignDecision.meterMode,
+    );
+  } else if (campaignOnWallet) {
     quotaFunded = 0;
     if (!campaignWallet) {
       res.status(402).json({
@@ -2475,6 +2692,17 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         return;
       }
     }
+  }
+  if (!meterContext.funding) {
+    meterContext.funding = fundingSnapshot(
+      req.tenantId,
+      campaignOnWallet
+        ? "wallet"
+        : quotaFunded > 0
+          ? "quota"
+          : "credit",
+      campaignDecision.meterMode,
+    );
   }
   if (campaignWallet) {
     meterContext.operationKey = `text:generate-campaign:wallet:${campaignWallet.id}`;
@@ -2704,7 +2932,9 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         recordUsage(req.tenantId, "caption", {
           funding: campaignWallet
             ? "wallet"
-            : i < quotaFunded
+            : campaignOnCredits
+              ? "credits"
+              : i < quotaFunded
               ? "quota"
               : "credit",
           requestBytes: perPlatformRequest,
@@ -2924,7 +3154,18 @@ router.post(
     // all-or-nothing debit covering every platform, settled to the real
     // provider cost once the model reports back. Quota workspaces keep the
     // original split — as much as the plan allows, the rest from credits.
-    const campaignOnWallet = await isWalletFunded(req.tenantId);
+    const campaignDecision = await readFundingDecision(
+      req.tenantId,
+      tenant.billingMode === "wallet" ||
+        tenant.billingMode === "credits"
+        ? tenant.billingMode
+        : "quota",
+    );
+    const campaignOnCredits =
+      campaignDecision.billingMode === "credits" &&
+      campaignDecision.meterMode === "enforce";
+    const campaignOnWallet =
+      campaignDecision.billingMode === "wallet" && campaignDecision.walletEnabled;
     const campaignWallet = campaignOnWallet
       ? await reserveWallet(
           req.tenantId,
@@ -2935,7 +3176,15 @@ router.post(
       : null;
     let quotaFunded = platforms.length;
     let creditFunded = 0;
-    if (campaignOnWallet) {
+    if (campaignOnCredits) {
+      quotaFunded = 0;
+      creditFunded = 0;
+      meterContext.funding = fundingSnapshot(
+        req.tenantId,
+        "credits",
+        campaignDecision.meterMode,
+      );
+    } else if (campaignOnWallet) {
       quotaFunded = 0;
       if (!campaignWallet) {
         res.status(402).json({
@@ -2962,6 +3211,17 @@ router.post(
           return;
         }
       }
+    }
+    if (!meterContext.funding) {
+      meterContext.funding = fundingSnapshot(
+        req.tenantId,
+        campaignOnWallet
+          ? "wallet"
+          : quotaFunded > 0
+            ? "quota"
+            : "credit",
+        campaignDecision.meterMode,
+      );
     }
     if (campaignWallet) {
       meterContext.operationKey = `text:generate-campaign-stream:wallet:${campaignWallet.id}`;
@@ -3123,9 +3383,11 @@ router.post(
             recordUsage(req.tenantId, "caption", {
               funding: campaignWallet
                 ? "wallet"
-                : i < quotaFunded
-                  ? "quota"
-                  : "credit",
+                : campaignOnCredits
+                  ? "credits"
+                  : i < quotaFunded
+                    ? "quota"
+                    : "credit",
               requestBytes: perPlatformRequest,
               responseBytes: Buffer.byteLength(JSON.stringify(post)),
               durationMs: Date.now() - startedAt,
@@ -3767,6 +4029,12 @@ router.post(
         tenantId: req.tenantId,
         refKind: "content",
         refId: `transcribe:${actionId}`,
+        // Voice-note transcription remains an included, non-credit-billed action.
+        funding: Object.freeze({
+          tenantId: req.tenantId,
+          rail: "quota",
+          mode: "shadow",
+        }),
         operationKey: `asr:voice-note:${req.tenantId}:${actionId}`,
       });
       res.json(result);

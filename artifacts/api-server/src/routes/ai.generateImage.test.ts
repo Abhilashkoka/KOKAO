@@ -37,7 +37,7 @@ vi.mock("../lib/plans", async (importOriginal) => {
 
 // ---------------------------------------------------------------------------
 // Wallet rail: controllable so tests can assert on reserve/settle/refund
-// counts without touching the platform kill switch or tenant billingMode.
+// counts while the fixture explicitly selects the wallet billing rail.
 // ---------------------------------------------------------------------------
 const walletState = { enabled: false, settleFails: false };
 const walletCalls = {
@@ -106,7 +106,9 @@ vi.mock("../lib/featureFlags", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/featureFlags")>();
   return {
     ...actual,
-    isFeatureEnabled: vi.fn(async () => false),
+    isFeatureEnabled: vi.fn(async (key: string) =>
+      key === "wallet" ? walletState.enabled : false,
+    ),
     requireFeature: actual.requireFeature,
   };
 });
@@ -126,6 +128,7 @@ vi.mock("../lib/promptKit", async (importOriginal) => {
 import {
   db,
   pool,
+  tenantsTable,
   usageEventsTable,
   creditLedgerTable,
   creditBalancesTable,
@@ -262,6 +265,14 @@ async function ledgerRows() {
   return db.select().from(creditLedgerTable).where(eq(creditLedgerTable.tenantId, tenant.tenantId));
 }
 
+async function enableWalletRail(): Promise<void> {
+  walletState.enabled = true;
+  await db
+    .update(tenantsTable)
+    .set({ billingMode: "wallet" })
+    .where(eq(tenantsTable.id, tenant.tenantId));
+}
+
 // ---------------------------------------------------------------------------
 // Core billing invariants
 // ---------------------------------------------------------------------------
@@ -338,6 +349,15 @@ describe("image generation endpoint billing", () => {
     expect(rows[0].kind).toBe("image");
     expect(rows[0].funding).toBe("quota");
     expect(await ledgerRows()).toHaveLength(0);
+    expect(imageGenerationCalls[0]).toMatchObject({
+      meterContext: {
+        funding: {
+          tenantId: tenant.tenantId,
+          rail: "quota",
+          mode: "shadow",
+        },
+      },
+    });
   });
 
   it("records exactly one credit-funded usage event on success (credit stays spent)", async () => {
@@ -358,6 +378,50 @@ describe("image generation endpoint billing", () => {
     expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(0);
     const kinds = (await ledgerRows()).map((r) => r.kind).sort();
     expect(kinds).toEqual(["admin_grant", "spend"]); // no refund
+    expect(imageGenerationCalls[0]).toMatchObject({
+      meterContext: {
+        funding: {
+          tenantId: tenant.tenantId,
+          rail: "credit",
+          mode: "shadow",
+        },
+      },
+    });
+  });
+
+  it("keeps the route funding snapshot when tenant billing changes during provider work", async () => {
+    planState.images = 100;
+    imageGenScript = async () => {
+      await db
+        .update(tenantsTable)
+        .set({ billingMode: "wallet" })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+      expect(imageGenerationCalls[0]).toMatchObject({
+        meterContext: {
+          funding: {
+            tenantId: tenant.tenantId,
+            rail: "quota",
+            mode: "shadow",
+          },
+        },
+      });
+      const captured = (
+        imageGenerationCalls[0] as {
+          meterContext: { funding: object };
+        }
+      ).meterContext.funding;
+      expect(Object.isFrozen(captured)).toBe(true);
+      return {
+        imagePath: "tenant/1/images/test.png",
+        b64Json: "aGVsbG8=",
+        meta: { provider: "builtin", model: "dall-e-3", costPaise: 800 },
+      };
+    };
+
+    const res = await postImage();
+    expect(res.status).toBe(200);
+    expect((await usageRows()).map((row) => row.funding)).toEqual(["quota"]);
+    expect(await ledgerRows()).toHaveLength(0);
   });
 
   it("refunds the reserved credit when the image provider throws", async () => {
@@ -404,7 +468,7 @@ describe("image generation endpoint billing", () => {
 // ---------------------------------------------------------------------------
 describe("image generation wallet billing", () => {
   it("wallet-funded success: settled exactly once, never refunded", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
 
     const res = await postImage();
     expect(res.status).toBe(200);
@@ -427,7 +491,7 @@ describe("image generation wallet billing", () => {
   });
 
   it("wallet-funded failure: refunded exactly once, never settled", async () => {
-    walletState.enabled = true;
+    await enableWalletRail();
     imageGenScript = async () => {
       throw new Error("provider down");
     };
@@ -453,7 +517,7 @@ describe("image generation wallet billing", () => {
     // were removed or broken, a settle failure could bubble into the route's
     // catch block where releaseFunding would refund a charge that actually
     // went through (because funding.resolved is set before the settle attempt).
-    walletState.enabled = true;
+    await enableWalletRail();
     walletState.settleFails = true;
 
     const res = await postImage();
@@ -480,7 +544,7 @@ describe("image generation wallet billing", () => {
     // A recordUsage failure inside settleFunding must not be re-thrown into
     // the route's catch block — doing so would trigger a refund of an already-
     // settled charge.
-    walletState.enabled = true;
+    await enableWalletRail();
     usageState.recordFails = true;
 
     const res = await postImage();

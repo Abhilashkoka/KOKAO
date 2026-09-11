@@ -8,8 +8,11 @@ import {
   refundCreditsSafely,
   InsufficientCreditsError,
 } from "./creditAccounts";
+import { type MeterFundingSnapshot } from "./meterFunding";
+import type { MeterMode } from "./creditRates";
 import { MeterDispatchReplayError } from "./meterErrors";
 export { MeterDispatchReplayError } from "./meterErrors";
+export type { MeterFundingSnapshot } from "./meterFunding";
 
 /**
  * THE METER.
@@ -26,9 +29,11 @@ export { MeterDispatchReplayError } from "./meterErrors";
  *
  * Two rules make it safe to drop into hot paths:
  *
- *   1. It NEVER changes the outcome of the wrapped call. Metering failures are
- *      logged and swallowed; a provider result is returned, and a provider
- *      error is rethrown, exactly as if the wrapper were not there.
+ *   1. Legacy rails and shadow mode NEVER change the outcome of the wrapped
+ *      call. Their metering failures are logged and swallowed; a provider
+ *      result is returned, and a provider error is rethrown, exactly as if the
+ *      wrapper were not there. An explicitly frozen enforce credits decision
+ *      is different: it refuses an unfunded or ambiguous dispatch.
  *   2. In "shadow" mode — the default, and the mode to launch in — it records
  *      and charges nothing. Debiting arrives with the credit wallet in the
  *      next phase, deliberately after these numbers have been reconciled
@@ -42,6 +47,12 @@ export { MeterDispatchReplayError } from "./meterErrors";
 
 export interface MeterContext {
   tenantId: number;
+  /**
+   * Funding selected by the route before dispatch. Credits are debited only
+   * when this snapshot explicitly names the `credits` rail and freezes
+   * `enforce`; legacy rails never debit the credit account.
+   */
+  funding?: MeterFundingSnapshot;
   /** What the spend was for: videoJob | imageJob | content | campaign. */
   refKind?: string | null;
   refId?: string | null;
@@ -105,6 +116,26 @@ export class ActualQuantityExceedsReservationError extends Error {
   }
 }
 
+/** A provider call cannot be dispatched without a route funding decision. */
+export class MeterFundingSnapshotRequiredError extends Error {
+  readonly code = "METER_FUNDING_SNAPSHOT_REQUIRED";
+
+  constructor() {
+    super("Meter funding snapshot is required while credit enforcement is active");
+    this.name = "MeterFundingSnapshotRequiredError";
+  }
+}
+
+/** The route supplied a funding snapshot that cannot safely authorize a call. */
+export class MeterFundingConfigurationError extends Error {
+  readonly code = "METER_FUNDING_CONFIGURATION_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "MeterFundingConfigurationError";
+  }
+}
+
 async function recordMeterEvent(args: {
   ctx: MeterContext;
   key: string;
@@ -164,15 +195,65 @@ export async function meter<T>(
 ): Promise<T> {
   if (!ctx) return fn();
 
-  let mode: string;
-  try {
-    mode = await getMeterMode();
-  } catch (err) {
-    logger.warn({ err }, "credit meter: could not read mode; running unmetered");
-    return fn();
+  const funding = ctx.funding;
+  let mode: MeterMode;
+  if (funding) {
+    if (
+      !Number.isSafeInteger(funding.tenantId) ||
+      funding.tenantId <= 0 ||
+      funding.tenantId !== ctx.tenantId
+    ) {
+      throw new MeterFundingConfigurationError(
+        "Meter funding snapshot does not match the provider tenant",
+      );
+    }
+    if (
+      funding.mode !== "off" &&
+      funding.mode !== "shadow" &&
+      funding.mode !== "enforce"
+    ) {
+      throw new MeterFundingConfigurationError("Meter funding snapshot has an invalid mode");
+    }
+    if (
+      funding.rail !== "quota" &&
+      funding.rail !== "credit" &&
+      funding.rail !== "wallet" &&
+      funding.rail !== "credits"
+    ) {
+      throw new MeterFundingConfigurationError("Meter funding snapshot has an invalid rail");
+    }
+    if (funding.rail === "credits" && funding.mode !== "enforce") {
+      throw new MeterFundingConfigurationError(
+        "The credits funding rail requires a frozen enforce mode",
+      );
+    }
+    // A funding snapshot is the route's immutable decision. In particular, an
+    // enforce credits snapshot must not observe a later global mode change.
+    mode = funding.mode;
+  } else {
+    try {
+      mode = await getMeterMode();
+    } catch (err) {
+      // Without a snapshot there is no safe way to know which rail authorized
+      // this call. Dispatching after a settings outage could become free work
+      // if enforcement was active, so fail closed rather than infer credits
+      // from the tenant row.
+      logger.warn({ err }, "credit meter: could not read mode; refusing unscoped dispatch");
+      throw new MeterFundingConfigurationError(
+        "Meter mode could not be read; provider dispatch was refused",
+      );
+    }
+    if (mode === "enforce") throw new MeterFundingSnapshotRequiredError();
   }
   if (mode === "off") return fn();
 
+  // An enforce snapshot on a legacy rail means the route is still reserving
+  // quota, wallet, or legacy credits. It must not be represented as an
+  // enforce-mode credit-account charge in the meter ledger. Keep `off` as the
+  // true pass-through above; all other legacy recordings are effectively
+  // shadowed.
+  const effectiveMode: MeterMode =
+    funding?.rail !== "credits" && mode === "enforce" ? "shadow" : mode;
   const requestedReservation = options.reservationQuantity;
   const reservationQuantity =
     typeof requestedReservation === "number" &&
@@ -180,8 +261,43 @@ export async function meter<T>(
     requestedReservation >= 0
       ? Math.max(Number.isFinite(quantity) ? quantity : 0, requestedReservation)
       : quantity;
-  const priceSnapshot = await creditCostSnapshotFor(key, reservationQuantity).catch(() => null);
+  const creditsEnforced = funding?.rail === "credits" && mode === "enforce";
+  if (
+    creditsEnforced &&
+    (!Number.isFinite(quantity) || quantity < 0)
+  ) {
+    throw new MeterFundingConfigurationError(
+      "Metered quantity is invalid for enforced credit funding",
+    );
+  }
+  if (
+    creditsEnforced &&
+    requestedReservation !== undefined &&
+    (!Number.isFinite(requestedReservation) || requestedReservation < 0)
+  ) {
+    throw new MeterFundingConfigurationError(
+      "Metered reservation is invalid for enforced credit funding",
+    );
+  }
+
+  let priceSnapshot: { unitRateMilli: number; costMilli: number } | null;
+  try {
+    priceSnapshot = await creditCostSnapshotFor(key, reservationQuantity);
+  } catch (err) {
+    if (creditsEnforced) {
+      throw new MeterFundingConfigurationError(
+        "Credit pricing could not be loaded; provider dispatch was refused",
+      );
+    }
+    logger.warn({ err, key }, "credit meter: could not read rate; recording at zero");
+    priceSnapshot = null;
+  }
   const costMilli = priceSnapshot?.costMilli ?? 0;
+  if (creditsEnforced && !priceSnapshot) {
+    throw new MeterFundingConfigurationError(
+      `No credit price is configured for metered key "${key}"`,
+    );
+  }
 
   // ENFORCE: debit BEFORE the provider call, so two concurrent generations
   // cannot both spend the last credit, and refund if the call then fails.
@@ -194,14 +310,20 @@ export async function meter<T>(
   // A paid rate gets a receipt even when the conservative reservation rounds
   // to zero. The authoritative result can then be settled after success, and
   // a failed zero-estimate attempt can persist its matching refund marker.
-  if (mode === "enforce" && (priceSnapshot?.unitRateMilli ?? 0) > 0) {
+  if (creditsEnforced && (priceSnapshot?.unitRateMilli ?? 0) > 0) {
     const familyKey = ctx.operationFamilyKey?.trim() || null;
+    const operationKey = ctx.operationKey?.trim() || null;
+    if (!familyKey && !operationKey) {
+      throw new MeterFundingConfigurationError(
+        "Enforced credit funding requires a stable provider operation identity",
+      );
+    }
     const spendBase = familyKey
       ? `spend-family:${familyKey}`
-      : ctx.operationKey ? `spend:${ctx.operationKey}:${key}` : null;
+      : operationKey ? `spend:${operationKey}:${key}` : null;
     const refundBase = familyKey
       ? `refund-family:${familyKey}`
-      : ctx.operationKey ? `refund:${ctx.operationKey}:${key}` : null;
+      : operationKey ? `refund:${operationKey}:${key}` : null;
     const debit = await spendCreditsOnce({
       tenantId: ctx.tenantId,
       creditsMilli: costMilli,
@@ -234,7 +356,7 @@ export async function meter<T>(
         ? reported.actualQuantity
         : quantity;
     if (
-      mode === "enforce" &&
+      creditsEnforced &&
       reported?.actualQuantity !== undefined &&
       Number.isFinite(actualQuantity) &&
       Number.isFinite(reservationQuantity) &&
@@ -249,7 +371,7 @@ export async function meter<T>(
       ? Math.round(actualQuantity * priceSnapshot.unitRateMilli)
       : costMilli;
     let settledCostMilli = costMilli;
-    if (mode === "enforce" && debited && authoritativeCostMilli !== costMilli) {
+    if (creditsEnforced && debited && authoritativeCostMilli !== costMilli) {
       if (authoritativeCostMilli < costMilli) {
         try {
           await refundCredits({
@@ -265,7 +387,7 @@ export async function meter<T>(
           logger.warn({ err, key }, "credit meter: failed to settle quantity refund");
         }
       }
-    } else if (mode !== "enforce") {
+    } else if (effectiveMode !== "enforce") {
       settledCostMilli = authoritativeCostMilli;
     }
     await recordMeterEvent({
@@ -274,7 +396,7 @@ export async function meter<T>(
       quantity: actualQuantity,
       creditsMilli: settledCostMilli,
       outcome: "ok",
-      mode,
+      mode: effectiveMode,
       reported,
     }).catch((err) => logger.warn({ err, key }, "credit meter: failed to record a successful call"));
     return result;
@@ -290,7 +412,7 @@ export async function meter<T>(
       quantity,
       creditsMilli: costMilli,
       outcome: "failed",
-      mode,
+      mode: effectiveMode,
     }).catch((err) => logger.warn({ err, key }, "credit meter: failed to record a failed call"));
     if (debited) {
       await refundCreditsSafely({

@@ -4,6 +4,8 @@ import { loadActivePayload } from "../brandKit/service";
 import { describeBrandForDesign } from "../designSkill";
 import { logger } from "../logger";
 import type { ImageSize } from "../imageGen";
+import type { MeterContext } from "../meter";
+import type { MeterFundingSnapshot } from "../meterFunding";
 import {
   MAX_PLANNED_LAYERS,
   canvasFor,
@@ -57,6 +59,24 @@ function brandBlock(brand: BrandKitPayload | null): string {
   return `This image is for a specific brand. Build styleDna's palette and aesthetic from these brand elements (mandatory): ${describeBrandForDesign(brand)}`;
 }
 
+/**
+ * Layer planning runs before image funding is reserved and is intentionally
+ * legacy/no-credit work. Keep that policy explicit instead of passing null,
+ * which would silently bypass the text meter.
+ */
+function shadowQuotaMeterContext(tenantId: number): MeterContext {
+  const funding = Object.freeze({
+    rail: "quota" as const,
+    mode: "shadow" as const,
+    tenantId,
+  } satisfies MeterFundingSnapshot);
+  return {
+    tenantId,
+    funding,
+    operationKey: `image-layer-plan:${tenantId}`,
+  };
+}
+
 export async function planImageLayers(input: {
   tenantId: number;
   tenant: Tenant;
@@ -70,9 +90,10 @@ export async function planImageLayers(input: {
   // Unlike the design-skill pass, this one fails LOUDLY. A soft failure would
   // mean silently generating a flat image after the user chose (and was
   // quoted for) a layered one.
-  const textGen = await getTextGenClient(input.tenant.aiModel, {
-    tenantId: input.tenantId,
-  }).catch((err) => {
+  const textGen = await getTextGenClient(
+    input.tenant.aiModel,
+    shadowQuotaMeterContext(input.tenantId),
+  ).catch((err) => {
     logger.error({ err }, "Layer planner could not resolve a text-gen client");
     return null;
   });

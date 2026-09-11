@@ -17,6 +17,7 @@ import {
   type ClonedVoiceRef,
 } from "../../voiceClone";
 import { meter, type MeterContext } from "../../meter";
+import type { MeterFundingSnapshot } from "../../meterFunding";
 import { isMeterDispatchReplayError } from "../../meterErrors";
 import {
   elevenLabsCreditReservationCeiling,
@@ -37,6 +38,13 @@ import {
   speechDurationReservationSeconds,
   wavDurationSeconds,
 } from "../../audioDuration";
+
+function legacyNarrationFunding(tenantId: number): MeterFundingSnapshot {
+  // No independent wallet reservation exists on this legacy path. Keep the
+  // provider call explicitly shadow-funded rather than bypassing the meter
+  // with a tenant-only/null context.
+  return Object.freeze({ tenantId, rail: "quota", mode: "shadow" });
+}
 
 /**
  * Narration for the Topic to Video engine.
@@ -494,6 +502,14 @@ async function narrateWithBrandVoice(
                         tenantId: billing.tenantId,
                         refKind: billing.refKind ?? "videoJob",
                         refId: billing.refId,
+                        // This branch owns an independent wallet
+                        // reservation. Never let the parent legacy/credits
+                        // rail debit the credit account as well.
+                        funding: Object.freeze({
+                          tenantId: billing.tenantId,
+                          rail: "wallet" as const,
+                          mode: "shadow" as const,
+                        }),
                         operationFamilyKey: clonedSpeechOperationFamilyKey,
                         operationKey:
                           `${clonedSpeechOperationFamilyKey}:attempt:${thisMeterAttempt}`,
@@ -595,6 +611,12 @@ async function narrateWithBrandVoice(
                 tenantId: billing.tenantId,
                 refKind: billing.refKind ?? "videoJob",
                 refId: billing.refId,
+                // Preserve the owning route's frozen decision when present
+                // (including an explicitly enforced credits rail); older
+                // callers remain explicitly quota-shadowed.
+                funding:
+                  billing.funding ??
+                  legacyNarrationFunding(billing.tenantId),
                 operationFamilyKey: clonedSpeechOperationFamilyKey,
                 operationKey:
                   `${clonedSpeechOperationFamilyKey}:attempt:${thisMeterAttempt}`,
@@ -673,6 +695,8 @@ export interface BrandVoiceNarrationBilling {
   tenantId: number;
   refKind?: string | null;
   refId?: string | null;
+  /** Frozen rail for the stock fallback when no parent context exists. */
+  funding?: MeterFundingSnapshot;
   onReceipt?: (receipt: {
     rawProviderCostPaise: number | null;
     provider: string;
@@ -759,6 +783,9 @@ export async function synthesizeNarration(
                 tenantId: options.billing.tenantId,
                 refKind: options.billing.refKind ?? "videoJob",
                 refId: options.billing.refId,
+                funding:
+                  options.billing.funding ??
+                  legacyNarrationFunding(options.billing.tenantId),
                 operationKey: options.billing.refId
                   ? `narration:${options.billing.refKind ?? "videoJob"}:${options.billing.refId}`
                   : null,

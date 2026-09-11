@@ -25,6 +25,18 @@ import { createTenant, deleteTenant } from "../test/dbHelpers";
 
 let tenantId: number;
 
+function creditsContext(operationKey: string) {
+  return {
+    tenantId,
+    operationKey,
+    funding: Object.freeze({
+      rail: "credits" as const,
+      mode: "enforce" as const,
+      tenantId,
+    }),
+  };
+}
+
 beforeAll(async () => {
   tenantId = (await createTenant()).tenantId;
 });
@@ -55,7 +67,7 @@ describe("meter enforcement", () => {
   it("debits the balance in enforce mode", async () => {
     await setMeterMode("enforce");
     await grantCredits({ tenantId, credits: 50, kind: "purchase" });
-    await meter({ tenantId }, "video", 10, async () => "clip");
+    await meter(creditsContext("enforcement-debit"), "video", 10, async () => "clip");
     expect((await getCreditBalance(tenantId)).total).toBe(40);
   });
 
@@ -64,7 +76,7 @@ describe("meter enforcement", () => {
     await grantCredits({ tenantId, credits: 3, kind: "purchase" });
     let ran = false;
     await expect(
-      meter({ tenantId }, "video", 10, async () => {
+      meter(creditsContext("enforcement-insufficient"), "video", 10, async () => {
         ran = true;
         return "clip";
       }),
@@ -78,7 +90,7 @@ describe("meter enforcement", () => {
     await setMeterMode("enforce");
     await grantCredits({ tenantId, credits: 50, kind: "purchase" });
     await expect(
-      meter({ tenantId }, "video", 10, async () => {
+      meter(creditsContext("enforcement-provider-failure"), "video", 10, async () => {
         throw new Error("provider rejected the prompt");
       }),
     ).rejects.toThrow("provider rejected");
@@ -99,7 +111,7 @@ describe("meter enforcement", () => {
   it("charges once and blocks a second provider dispatch with the same operation key", async () => {
     await setMeterMode("enforce");
     await grantCredits({ tenantId, credits: 50, kind: "purchase" });
-    const ctx = { tenantId, operationKey: "job-99-scene-1" };
+    const ctx = creditsContext("job-99-scene-1");
     let calls = 0;
     await meter(ctx, "video", 10, async () => "clip");
     await expect(

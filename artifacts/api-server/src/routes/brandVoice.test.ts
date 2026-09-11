@@ -1164,6 +1164,19 @@ describe("POST /brand-kits/:id/voice/stock-preview", () => {
     expect(synthesizeNarrationMock).toHaveBeenCalledWith(
       [expect.stringContaining("selected stock voice")],
       "nova",
+      {
+        meterContext: {
+          tenantId: tenant.tenantId,
+          refKind: "brandKit",
+          refId: String(kitId),
+          funding: {
+            tenantId: tenant.tenantId,
+            rail: "quota",
+            mode: "shadow",
+          },
+          operationKey: `brand-kit:${kitId}:stock-voice-preview:nova`,
+        },
+      },
     );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "https://storage.example/upload/preview-1?sig=x",

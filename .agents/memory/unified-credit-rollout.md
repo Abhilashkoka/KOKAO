@@ -27,3 +27,9 @@ Enforcement readiness also requires billing-rail isolation and one consistent fu
 **Why:** Invoice reconciliation alone cannot prevent a quota/wallet reservation followed by a second debit from the global credit meter, or a mode change between those boundaries.
 
 **How to apply:** Require whole-flow quota, wallet, and credits tests (including mode changes) before enabling enforcement. Do not treat a passed reconciliation gate as sufficient authorization to charge customers.
+
+Provider credit enforcement is authorized by the server's frozen funding decision, not by a fresh global-mode or tenant-mode lookup. Legacy-funded pipelines remain on their original quota/wallet rail; adding metering does not migrate them to credits.
+
+**Why:** A mode switch after acceptance must neither add a second charge to reserved work nor remove the only charge from credits-funded work. Nested operations with their own wallet reservation must not inherit credit-debit authorization from their parent.
+
+**How to apply:** Carry the funding decision through provider context copies and asynchronous job boundaries. Charge credits only for explicitly credit-funded work; retain legacy accounting for pipelines not migrated as a complete unit.

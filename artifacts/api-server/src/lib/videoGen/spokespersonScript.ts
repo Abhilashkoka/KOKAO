@@ -13,6 +13,7 @@ import {
   type ScriptInputOverrides,
   type ScriptVariantKey,
 } from "./scriptInputs";
+import type { MeterContext } from "../meter";
 
 /**
  * Direct-to-camera spokesperson scripts.
@@ -269,10 +270,23 @@ export async function generateSpokespersonScript(params: {
   styleProfileId?: number | null;
   targetLocale?: string | null;
   overrides?: ScriptInputOverrides;
+  /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
+  meterContext?: MeterContext | null;
 }): Promise<SpokespersonScriptResult> {
-  const textGen = await getTextGenClient(params.tenantAiModel, {
-    tenantId: params.tenantId,
-  });
+  const textGen = await getTextGenClient(
+    params.tenantAiModel,
+    params.meterContext ?? {
+      tenantId: params.tenantId,
+      refKind: "videoScript",
+      refId: `spokesperson:${params.tenantId}`,
+      funding: Object.freeze({
+        tenantId: params.tenantId,
+        rail: "quota",
+        mode: "shadow",
+      }),
+      operationKey: `video-script-spokesperson:${params.tenantId}`,
+    },
+  );
   const inputs = await resolveScriptInputs({
     tenantId: params.tenantId,
     durationSeconds: params.durationSeconds,

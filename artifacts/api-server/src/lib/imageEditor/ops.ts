@@ -407,6 +407,8 @@ export interface RunImageOpInput {
   scale?: number | null;
   /** Stable route action identity when one exists. */
   operationKey?: string | null;
+  /** Funding receipt frozen by the route before dispatch. */
+  meterContext?: MeterContext | null;
 }
 
 function requireMask(input: RunImageOpInput): string {
@@ -449,6 +451,7 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         prompt,
         meterContext: {
           tenantId: input.tenantId,
+          ...(input.meterContext ?? {}),
           operationKey: input.operationKey ?? null,
         },
       });
@@ -465,6 +468,7 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         prompt: REMOVE_PROMPT,
         meterContext: {
           tenantId: input.tenantId,
+          ...(input.meterContext ?? {}),
           operationKey: input.operationKey ?? null,
         },
       });
@@ -483,6 +487,7 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         prompt: `Replace the background with: ${prompt}. Keep the subject in the opaque region completely unchanged, including its edges, lighting and colour. Match the new background's light direction to the subject's.`,
         meterContext: {
           tenantId: input.tenantId,
+          ...(input.meterContext ?? {}),
           operationKey: input.operationKey ?? null,
         },
       });
@@ -505,6 +510,7 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
         prompt: EXPAND_PROMPT_PREFIX + ((input.prompt ?? "").trim() || "Keep the scene as it is."),
         meterContext: {
           tenantId: input.tenantId,
+          ...(input.meterContext ?? {}),
           operationKey: input.operationKey ?? null,
         },
       });
@@ -519,6 +525,7 @@ export async function runImageOp(input: RunImageOpInput): Promise<ImageOpOutcome
     case "cutout":
       return runCutout(input.tenantId, input.sourceBuffer, input.sourceMimeType, {
         tenantId: input.tenantId,
+        ...(input.meterContext ?? {}),
         operationKey: input.operationKey ?? null,
       });
 

@@ -9,6 +9,8 @@ import {
 import { eq } from "drizzle-orm";
 import { characterDetailFromSnapshot, getCharacterDetail, resolveOutfit, loadReferenceImage, generateSceneKeyframe } from "../characters";
 import { getTextGenClient } from "../textGen";
+import type { MeterContext } from "../meter";
+import type { MeterFundingSnapshot } from "../meterFunding";
 import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../promptKit";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
@@ -80,6 +82,49 @@ export const MAX_CLIP_SHOTS = 10;
 const AUTO_SHOT_FALLBACK = 3;
 
 /**
+ * Planning and background polish predate credit-account funding and are
+ * intentionally no-credit work. Keep that policy explicit in the meter rather
+ * than passing null (which would silently bypass metering altogether).
+ */
+function shadowQuotaFunding(tenantId: number): MeterFundingSnapshot {
+  return Object.freeze({
+    rail: "quota" as const,
+    mode: "shadow" as const,
+    tenantId,
+  });
+}
+
+function plannerMeterContext(
+  tenantId: number,
+  base: MeterContext | null | undefined,
+  operation: string,
+): MeterContext {
+  const baseOperation = base?.operationKey?.trim() || `clip-storyboard:${tenantId}`;
+  return {
+    ...base,
+    tenantId,
+    funding: base?.funding ?? shadowQuotaFunding(tenantId),
+    operationKey: `${baseOperation}:${operation}`,
+  };
+}
+
+function videoStoryboardMeterContext(
+  tenantId: number,
+  jobId: number,
+  base: MeterContext | null | undefined,
+  operation: string,
+): MeterContext {
+  const fallback = base ?? {
+    tenantId,
+    refKind: "videoJob",
+    refId: String(jobId),
+    funding: shadowQuotaFunding(tenantId),
+    operationKey: `videoJob:${jobId}`,
+  };
+  return plannerMeterContext(tenantId, fallback, operation);
+}
+
+/**
  * "Auto" shot count: one small LLM call, at ENQUEUE time, that reads the brief
  * and decides how many shots (1..MAX_CLIP_SHOTS) it naturally breaks into.
  *
@@ -100,7 +145,10 @@ export async function decideShotCountFromBrief(
   )[0];
   if (!tenant) throw new VideoGenProviderError("Tenant not found.");
   try {
-    const textGen = await getTextGenClient(tenant.aiModel, { tenantId });
+    const textGen = await getTextGenClient(
+      tenant.aiModel,
+      plannerMeterContext(tenantId, null, "shot-count"),
+    );
     const completion = await textGen.client.chat.completions.create({
       model: textGen.model,
       messages: [
@@ -200,6 +248,7 @@ async function splitBriefIntoShots(
   tenantId: number,
   brief: string,
   shotCount: number,
+  meterContext?: MeterContext | null,
 ): Promise<string[]> {
   if (shotCount <= 1) return [brief];
   const fallback = new Array(shotCount).fill(brief);
@@ -208,7 +257,10 @@ async function splitBriefIntoShots(
   )[0];
   if (!tenant) throw new VideoGenProviderError("Tenant not found.");
   try {
-    const textGen = await getTextGenClient(tenant.aiModel, { tenantId });
+    const textGen = await getTextGenClient(
+      tenant.aiModel,
+      plannerMeterContext(tenantId, meterContext, "split-brief"),
+    );
     // Prompt Template Kit: this split is the "script" step of a clip
     // storyboard, so a production video_script template replaces the built-in
     // system prompt. Background job: no per-user customization. Fail-open.
@@ -328,6 +380,7 @@ async function logGovernedTrace(
 async function refineShotVisuals(
   tenantId: number,
   shots: string[],
+  meterContext?: MeterContext | null,
 ): Promise<string[]> {
   if (shots.length === 0) return shots;
   try {
@@ -339,6 +392,7 @@ async function refineShotVisuals(
       tenantAiModel: tenant.aiModel,
       tenantId,
       prompts: shots,
+      meterContext: plannerMeterContext(tenantId, meterContext, "polish-prompts"),
     });
   } catch (err) {
     logger.warn({ err, tenantId }, "Shot prompt polish failed; using the approved texts as-is");
@@ -357,6 +411,7 @@ async function refineShotVisuals(
 export async function polishStoryboardPrompts(
   tenantId: number,
   storyboard: VideoStoryboard,
+  meterContext?: MeterContext | null,
 ): Promise<boolean> {
   if (storyboard.visualsSource !== "prompt") return false;
   const pending = storyboard.scenes.filter((scene) => scene.renderVisual == null);
@@ -364,6 +419,7 @@ export async function polishStoryboardPrompts(
   const polished = await refineShotVisuals(
     tenantId,
     pending.map((scene) => scene.visual),
+    meterContext,
   );
   pending.forEach((scene, i) => {
     scene.renderVisual = polished[i] ?? scene.visual;
@@ -375,6 +431,11 @@ export interface ClipStoryboardPlanParams {
   job: VideoGeneration;
   source: VideoStoryboardSource;
   aspectRatio: VideoAspect;
+  /**
+   * Frozen legacy funding from the video job. Omitted only for older callers;
+   * those planning calls use an explicit shadow quota snapshot.
+   */
+  meterContext?: MeterContext | null;
   /** Reads a tenant photo back for keyframing; unused by slide/photo plans. */
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   onStage?: (stage: string) => void;
@@ -434,7 +495,12 @@ export async function planClipStoryboard(
   const shotCount = clipShotCount(options.shotCount);
   const perScene = clamp(options.durationSec ?? DEFAULT_CLIP_SEC);
   params.onStage?.(shotCount > 1 ? "Planning your shots" : "Planning your shot");
-  const visuals = await splitBriefIntoShots(job.tenantId, brief, shotCount);
+  const visuals = await splitBriefIntoShots(
+    job.tenantId,
+    brief,
+    shotCount,
+    params.meterContext,
+  );
 
   if (source === "prompt") {
     return {
@@ -479,12 +545,12 @@ export async function planClipStoryboard(
         visual,
         aspectRatio,
         reference,
-        {
-          tenantId: job.tenantId,
-          refKind: "videoJob",
-          refId: String(job.id),
-          operationKey: `videoJob:${job.id}:storyboard_keyframe:${previewPaths.length}`,
-        },
+        videoStoryboardMeterContext(
+          job.tenantId,
+          job.id,
+          params.meterContext,
+          `storyboard_keyframe:${previewPaths.length}`,
+        ),
         "medium",
         undefined,
       );
@@ -518,6 +584,11 @@ export interface ClipStoryboardRenderParams {
   job: VideoGeneration;
   storyboard: VideoStoryboard;
   aspectRatio: VideoAspect;
+  /**
+   * Frozen legacy funding from the owning video job. Older callers use an
+   * explicit shadow quota snapshot rather than leaving the meter context null.
+   */
+  meterContext?: MeterContext | null;
   music?: Buffer | null;
   /** Reads photos and keyframes back out of tenant storage. */
   load: (objectPath: string) => Promise<{ buffer: Buffer; mimeType: string }>;
@@ -786,13 +857,13 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       // wins over the model's generic snap here.
       durationSec: durations[i]!,
       operationKey: `storyboard_scene:${scene.id}`,
-      meterCtx: {
-        tenantId: params.job.tenantId,
-        refKind: "videoJob",
-        refId: String(params.job.id),
-        operationKey: `videoJob:${params.job.id}:storyboard_scene:${scene.id}`,
-      },
-        });
+      meterCtx: videoStoryboardMeterContext(
+        params.job.tenantId,
+        params.job.id,
+        params.meterContext,
+        `storyboard_scene:${scene.id}`,
+      ),
+    });
     if (!saved?.path) {
       await params.onCheckpoint?.({
         sceneIndex: i,

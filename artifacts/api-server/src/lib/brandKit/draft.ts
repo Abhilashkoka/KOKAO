@@ -430,7 +430,13 @@ export async function draftBrandKit(
 
   try {
     const completion = await meter(
-      { tenantId, provider: "builtin", model: aiModel },
+      {
+        tenantId,
+        provider: "builtin",
+        model: aiModel,
+        // Draft inference is an included brand-kit action, not a credits migration.
+        funding: Object.freeze({ tenantId, rail: "quota", mode: "shadow" }),
+      },
       "caption",
       1,
       () =>

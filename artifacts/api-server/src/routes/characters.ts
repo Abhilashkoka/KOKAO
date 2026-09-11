@@ -69,6 +69,7 @@ import {
   listBytePlusIdentities,
   startBytePlusIdentityVerification,
 } from "../lib/bytePlusIdentity";
+import { freezeMeterMode, type MeterFundingSnapshot } from "../lib/meterFunding";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -189,6 +190,8 @@ function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
 interface Funding {
   source: "quota" | "credit" | "wallet";
   reservation?: WalletReservation;
+  /** Frozen rail/mode carried into the provider-bound image meter. */
+  meterFunding: MeterFundingSnapshot;
 }
 
 /**
@@ -200,14 +203,31 @@ export async function reserveImageFunding(req: Request): Promise<Funding | null>
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
   )[0];
   if (!tenant) return null;
+  // Freeze the route's mode before moving any funding. Character generation
+  // still uses the legacy quota/credit reservation, so even an enforce-mode
+  // snapshot must remain a legacy rail and must not debit credit accounts in
+  // the provider meter.
+  const mode = await freezeMeterMode();
+  const funded = (
+    source: Funding["source"],
+    reservation?: WalletReservation,
+  ): Funding => ({
+    source,
+    ...(reservation ? { reservation } : {}),
+    meterFunding: Object.freeze({
+      rail: source,
+      mode,
+      tenantId: req.tenantId,
+    }),
+  });
   if (await isWalletFunded(req.tenantId)) {
     const reservation = await reserveWallet(req.tenantId, "image");
-    return reservation ? { source: "wallet", reservation } : null;
+    return reservation ? funded("wallet", reservation) : null;
   }
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  if (limits.images === -1 || usage.images < limits.images) return { source: "quota" };
-  if (await spendCredit(req.tenantId, "image")) return { source: "credit" };
+  if (limits.images === -1 || usage.images < limits.images) return funded("quota");
+  if (await spendCredit(req.tenantId, "image")) return funded("credit");
   return null;
 }
 
@@ -317,6 +337,7 @@ async function generateAndPersistReferenceSheet(
         "Image funding is unavailable. Add image credits or recharge, then retry.",
       );
     }
+    const reservedFunding = funding;
     const primaryReference = await loadReferenceImage(
       character.referenceImagePath,
       req.tenantId,
@@ -341,6 +362,7 @@ async function generateAndPersistReferenceSheet(
               refKind: "character",
               refId: String(character.id),
               operationKey: `character-reference-sheet:${character.id}`,
+              funding: reservedFunding.meterFunding,
             }),
             (result) => ({ provider: result.provider, model: result.model }),
             { isFailureConfirmed: isConfirmedImageFailure },
@@ -353,6 +375,7 @@ async function generateAndPersistReferenceSheet(
         refKind: "character",
         refId: String(character.id),
         operationKey: `character-reference-sheet:${character.id}`,
+        funding: reservedFunding.meterFunding,
       }));
     successfulAiWork = true;
     await settleImageFunding(
@@ -549,6 +572,7 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       });
       return;
     }
+    const reservedFunding = funding;
     const baseReference = await loadReferenceImage(
       resolved.outfit.referenceImagePath,
       req.tenantId,
@@ -615,6 +639,7 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
                   refKind: "presetCharacter",
                   refId: resolved.preset.stableId,
                   operationKey: `preset-outfit:${resolved.preset.stableId}`,
+                  funding: reservedFunding.meterFunding,
                 },
                 exactMaskedEdit,
                 (meta) => confirmSuccess(meta),
@@ -634,6 +659,7 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
           refKind: "presetCharacter",
           refId: resolved.preset.stableId,
           operationKey: `preset-outfit:${resolved.preset.stableId}`,
+          funding: reservedFunding.meterFunding,
         },
         exactMaskedEdit,
         undefined,
@@ -998,6 +1024,7 @@ router.post("/characters", async (req: Request, res: Response) => {
         });
         return;
       }
+      const reservedFunding = funding;
       const generated =
         funding.source === "wallet" && funding.reservation
           ? await executeWalletProviderOperation(
@@ -1018,6 +1045,7 @@ router.post("/characters", async (req: Request, res: Response) => {
                 refKind: "character",
                 refId: name,
                 operationKey: `character-reference:${req.tenantId}:${name}`,
+                funding: reservedFunding.meterFunding,
               }),
               (result) => ({ provider: result.provider, model: result.model }),
               { isFailureConfirmed: isConfirmedImageFailure },
@@ -1028,6 +1056,7 @@ router.post("/characters", async (req: Request, res: Response) => {
         refKind: "character",
         refId: name,
         operationKey: `character-reference:${req.tenantId}:${name}`,
+        funding: reservedFunding.meterFunding,
       }));
       // The paid provider result is complete before local object persistence.
       // A later upload failure must not relabel successful provider work as a
@@ -1606,6 +1635,7 @@ router.post(
         });
         return;
       }
+      const reservedFunding = funding;
       const baseReference = await loadReferenceImage(
         character.referenceImagePath,
         req.tenantId,
@@ -1639,6 +1669,7 @@ router.post(
                     refKind: "character",
                     refId: String(character.id),
                     operationKey: `character-outfit:${character.id}:${name}`,
+                    funding: reservedFunding.meterFunding,
                   },
                   exactMaskedEdit,
                   (meta) => confirmSuccess(meta),
@@ -1658,6 +1689,7 @@ router.post(
             refKind: "character",
             refId: String(character.id),
             operationKey: `character-outfit:${character.id}:${name}`,
+            funding: reservedFunding.meterFunding,
           },
           exactMaskedEdit,
           undefined,

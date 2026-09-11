@@ -9,6 +9,14 @@ import { settleWallet, refundWallet, reservationFromRow } from "../wallet";
 import { logger } from "../logger";
 import { renderLayeredImage } from "./render";
 import { normalizeLayerPlan } from "./types";
+import type { MeterFundingSnapshot } from "../meterFunding";
+
+function legacyImageFunding(
+  tenantId: number,
+  rail: "quota" | "credit" | "wallet",
+): MeterFundingSnapshot {
+  return Object.freeze({ tenantId, rail, mode: "shadow" });
+}
 
 /**
  * Runs one queued LAYERED image_generations row to completion.
@@ -60,6 +68,13 @@ export async function runLayeredImageJob(
       tenant,
       plan,
       size,
+      meterContext: {
+        tenantId: job.tenantId,
+        refKind: "imageJob",
+        refId: String(job.id),
+        funding: legacyImageFunding(job.tenantId, funding),
+        operationKey: `imageJob:${job.id}:layered`,
+      },
       onProgress: async (stage) => {
         // Best-effort: a progress write that loses a race with the sweep must
         // never take the render down with it.

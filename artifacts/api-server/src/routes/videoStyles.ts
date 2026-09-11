@@ -28,6 +28,7 @@ import {
   ReferenceProviderIndeterminateError,
 } from "../lib/videoGen/referenceAnalyzer";
 import { TextGenNotConfiguredError } from "../lib/textGen";
+import type { MeterFundingSnapshot } from "../lib/meterFunding";
 
 const router: IRouter = Router();
 
@@ -75,19 +76,43 @@ function serializeProfile(profile: VideoStyleProfile) {
 
 interface Funding {
   source: "quota" | "credit" | "wallet";
+  funding: MeterFundingSnapshot;
   reservation?: WalletReservation;
+}
+
+function legacyStyleFunding(
+  tenantId: number,
+  rail: Funding["source"],
+): MeterFundingSnapshot {
+  return Object.freeze({ tenantId, rail, mode: "shadow" });
 }
 
 /** Reserve caption funding on whichever rail this workspace is on. */
 async function reserveCaptionFunding(tenantId: number, plan: string): Promise<Funding | null> {
   if (await isWalletFunded(tenantId)) {
     const reservation = await reserveWallet(tenantId, "caption");
-    return reservation ? { source: "wallet", reservation } : null;
+    return reservation
+      ? {
+          source: "wallet",
+          reservation,
+          funding: legacyStyleFunding(tenantId, "wallet"),
+        }
+      : null;
   }
   const limits = await getPlanLimits(plan);
   const usage = await getUsage(tenantId);
-  if (limits.captions === -1 || usage.captions < limits.captions) return { source: "quota" };
-  if (await spendCredit(tenantId, "caption")) return { source: "credit" };
+  if (limits.captions === -1 || usage.captions < limits.captions) {
+    return {
+      source: "quota",
+      funding: legacyStyleFunding(tenantId, "quota"),
+    };
+  }
+  if (await spendCredit(tenantId, "caption")) {
+    return {
+      source: "credit",
+      funding: legacyStyleFunding(tenantId, "credit"),
+    };
+  }
   return null;
 }
 
@@ -242,6 +267,7 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
               tenantId: req.tenantId,
               refKind: "video_style_profile",
               refId: sourceVideoPath,
+               funding: funding.funding,
               operationKey: `video-style-analysis:${sourceVideoPath}`,
             },
             onProviderSuccess: confirmSuccess,
@@ -264,6 +290,7 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
           tenantId: req.tenantId,
           refKind: "video_style_profile",
           refId: sourceVideoPath,
+           funding: funding.funding,
           operationKey: `video-style-analysis:${sourceVideoPath}`,
         },
       });

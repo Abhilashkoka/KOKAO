@@ -74,6 +74,8 @@ import {
   studioLipSyncWorkflow,
 } from "../lib/videoGen/studioLipSyncAnalytics";
 import { spendCredit, refundCredits } from "../lib/credits";
+import type { MeterContext } from "../lib/meter";
+import type { MeterFundingSnapshot } from "../lib/meterFunding";
 import { getAiSpendConfig, getAiSpendRates, withFee } from "../lib/aiSpend";
 import {
   actualChargePaise,
@@ -313,6 +315,13 @@ import {
 import { refuseIfShortOfCredits } from "../lib/creditPreflight";
 
 const router: IRouter = Router();
+
+function legacyVideoFunding(
+  tenantId: number,
+  rail: "quota" | "credit" | "wallet",
+): MeterFundingSnapshot {
+  return Object.freeze({ tenantId, rail, mode: "shadow" });
+}
 const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
 const MAX_PRESENTER_VIDEO_BYTES = 100 * 1024 * 1024;
 const PRESENTER_VIDEO_TYPES = new Set([
@@ -582,7 +591,8 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     WalletProviderOperationKind,
     "video_script_intake" | "video_script_draft" | "guided_line_translation"
   >;
-  perform: () => Promise<T>;
+  /** The frozen funding snapshot for this provider call. */
+  perform: (meterContext: MeterContext) => Promise<T>;
   /** Runs after provider completion, before success persistence or settlement. */
   beforeSettlement?: (
     result: T,
@@ -606,7 +616,13 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     if (args.onFundingReady && !(await args.onFundingReady("unmetered"))) {
       throw new StaleBillableScriptOperationError();
     }
-    const result = await args.perform();
+    const result = await args.perform({
+      tenantId: args.req.tenantId,
+      refKind: "videoScript",
+      refId: `${args.operationKind}:quota-shadow`,
+      funding: legacyVideoFunding(args.req.tenantId, "quota"),
+      operationKey: args.operationKey ?? `${args.operationKind}:quota-shadow`,
+    });
     if (args.beforeSettlement && !(await args.beforeSettlement(result, {
       operationId: null,
       reservationId: null,
@@ -625,11 +641,13 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     };
   }
 
-  const selectedTextGen = await getTextGenClient(args.tenantModel, {
+  const pricingMeterContext: MeterContext = {
     tenantId: args.req.tenantId,
     refKind: "videoScript",
     operationKey: args.operationKey ?? null,
-  });
+    funding: legacyVideoFunding(args.req.tenantId, "wallet"),
+  };
+  const selectedTextGen = await getTextGenClient(args.tenantModel, pricingMeterContext);
   // Reserve against the model's full synchronous context/output envelope, not
   // the much smaller display-rate estimate. The final settle still uses the
   // provider's actual receipt (or one caption unit when unmetered), so nearly
@@ -673,7 +691,12 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
         },
       },
       async () => {
-        const result = await args.perform();
+        const result = await args.perform({
+          ...pricingMeterContext,
+          refId: `${args.operationKind}:${reservation.id}`,
+          operationKey:
+            args.operationKey ?? `${args.operationKind}:${reservation.id}`,
+        });
         if (
           !args.settleProviderSuccessBeforePersistence &&
           args.beforeSettlement &&
@@ -1386,13 +1409,14 @@ router.post("/ai/script-intake", async (req: Request, res: Response) => {
       req,
       tenantModel: tenant.aiModel,
       operationKind: "video_script_intake",
-      perform: () =>
+      perform: (meterContext) =>
         analyzeScriptIntake({
           tenantId: req.tenantId,
           tenantAiModel: tenant.aiModel,
           topic: body.topic.trim(),
           variant: isPromptVariantKey(body.variant) ? body.variant : null,
           hasBrandKit: Boolean(body.brandKitId),
+          meterContext,
         }),
     });
     if (!billed) {
@@ -1489,7 +1513,7 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
       req,
       tenantModel: tenant.aiModel,
       operationKind: "video_script_draft",
-      perform: () =>
+      perform: (meterContext) =>
         generateSpokespersonScript({
           tenantId: req.tenantId,
           tenantAiModel: tenant.aiModel,
@@ -1510,6 +1534,7 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
             sourceFacts: body.sourceFacts ?? null,
             bannedTerms: body.bannedTerms ?? null,
           },
+          meterContext,
         }),
     });
     if (!billed) {
@@ -3677,12 +3702,13 @@ router.post(
         tenantModel: tenant.aiModel,
         operationKind: "guided_line_translation",
         settleProviderSuccessBeforePersistence: true,
-        perform: () =>
+        perform: (meterContext) =>
           translateGuidedStoryLine({
             tenantId: req.tenantId,
             tenantAiModel: tenant.aiModel,
             locale: row.state.setup!.locale,
             sourceText: sourceLine.text,
+            meterContext,
           }),
         beforeSettlement: async (result) => {
           saved = await saveGuidedLineTranslation({
@@ -3897,7 +3923,9 @@ router.post(
     }
     const startedAt = Date.now();
     try {
-      const billed = await runBillableScriptRequest({
+      const billed = await runBillableScriptRequest<
+        Awaited<ReturnType<typeof generateGuidedStorySceneInsertion>>
+      >({
         req,
         tenantModel: tenant.aiModel,
         operationKind: "video_script_draft",
@@ -3918,7 +3946,7 @@ router.post(
             },
           );
         },
-        perform: () =>
+        perform: (meterContext) =>
           generateGuidedStorySceneInsertion({
             tenantId: req.tenantId,
             tenantAiModel: tenant.aiModel,
@@ -3927,6 +3955,7 @@ router.post(
             description: parsed.data.description.trim(),
             durationSeconds: row.state.setup!.durationSeconds,
             locale: row.state.setup!.locale,
+            meterContext,
           }),
       });
       if (!billed) {
@@ -4100,7 +4129,7 @@ router.post(
         operationKind: "video_script_draft",
         operationKey: `guided-script:${claimed.id}:${claimed.revision}`,
         settleProviderSuccessBeforePersistence: true,
-        perform: () =>
+        perform: (meterContext) =>
           generateGuidedStoryScript({
             tenantId: req.tenantId,
             tenantAiModel: tenant.aiModel,
@@ -4115,6 +4144,7 @@ router.post(
                   ...activeBrand.payload.voice.traits,
                 ].join(", ")
               : null,
+            meterContext,
           }),
         beforeSettlement: async (result, meta) => {
           const receipt = {
@@ -5003,9 +5033,11 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         let funding: {
           source: "quota" | "credit" | "wallet";
           reservation?: WalletReservation;
+          meterFunding: MeterFundingSnapshot;
         } | null = operation.funding
           ? {
               source: operation.funding,
+              meterFunding: legacyVideoFunding(req.tenantId, operation.funding),
               ...(operation.walletReservation
                 ? { reservation: operation.walletReservation }
                 : {}),
@@ -5128,6 +5160,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               throw new Error("Cast provider boundary checkpoint CAS failed.");
             }
             row = running;
+            const fundingSnapshot = funding.meterFunding;
             const executed =
               funding.source === "wallet" && funding.reservation
                 ? await executeWalletProviderOperation(
@@ -5147,6 +5180,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                       tenantId: req.tenantId,
                       refKind: "guidedStoryCast",
                       refId: `${row!.id}:${row!.revision}:${role.id}`,
+                      funding: fundingSnapshot,
                       operationKey,
                     }, row?.state.imageModelSnapshot),
                     (result) => ({
@@ -5162,6 +5196,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 tenantId: req.tenantId,
                 refKind: "guidedStoryCast",
                 refId: `${row!.id}:${row!.revision}:${role.id}`,
+                funding: fundingSnapshot,
                 operationKey,
               }, row?.state.imageModelSnapshot));
             operationId = executed?.operationId ?? null;
@@ -5475,9 +5510,14 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           let sheetFunding: {
             source: "quota" | "credit" | "wallet";
             reservation?: WalletReservation;
+            meterFunding: MeterFundingSnapshot;
           } | null = sheetOperation?.funding
             ? {
                 source: sheetOperation.funding,
+                meterFunding: legacyVideoFunding(
+                  req.tenantId,
+                  sheetOperation.funding,
+                ),
                 ...(sheetOperation.walletReservation
                   ? { reservation: sheetOperation.walletReservation }
                   : {}),
@@ -5565,6 +5605,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 updatedAt: new Date().toISOString(),
               });
               try {
+                const fundingSnapshot = sheetFunding.meterFunding;
                 const walletSheet =
                   sheetFunding.source === "wallet" && sheetFunding.reservation
                     ? await executeWalletProviderOperation(
@@ -5588,6 +5629,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                               tenantId: req.tenantId,
                               refKind: "character",
                               refId: String(owned.characterId),
+                              funding: fundingSnapshot,
                               operationKey: sheetOperationKey,
                             },
                             owned.row.state.imageModelSnapshot,
@@ -5608,6 +5650,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                       tenantId: req.tenantId,
                       refKind: "character",
                       refId: String(owned.characterId),
+                      funding: fundingSnapshot,
                       operationKey: sheetOperationKey,
                     },
                     owned.row.state.imageModelSnapshot,
@@ -7177,6 +7220,7 @@ router.post(
       const funding = checkpoint?.funding
         ? {
             source: checkpoint.funding,
+            meterFunding: legacyVideoFunding(req.tenantId, checkpoint.funding),
             ...(checkpoint.walletReservation
               ? { reservation: checkpoint.walletReservation }
               : {}),
@@ -7208,6 +7252,7 @@ router.post(
       let durableCheckpoint: NonNullable<GuidedStoryDraftState["referenceOperations"]>[string]["checkpoint"] =
         checkpoint?.checkpoint;
       try {
+        const fundingSnapshot = funding.meterFunding;
         const generate = async () => {
           if (input.kind === "character") {
             const boundary = await persist({
@@ -7221,6 +7266,7 @@ router.post(
               tenantId: req.tenantId,
               refKind: "guidedStoryReference",
               refId: operationId,
+              funding: fundingSnapshot,
               operationKey: `guidedStoryReference:${operationId}`,
             }, row?.state.imageModelSnapshot);
           }
@@ -7254,6 +7300,7 @@ router.post(
               tenantId: req.tenantId,
               refKind: "guidedStoryReference",
               refId: operationId,
+              funding: fundingSnapshot,
               operationKey: `guidedStoryReference:${operationId}`,
             },
             mask,
@@ -9603,17 +9650,20 @@ async function generateVideoHandler(
       }
       const durationMs = await probePresenterDurationMs(presenterVideo);
       const presenterAudio = await extractVoiceSampleFromVideo(presenterVideo);
+      const presenterFunding = legacyVideoFunding(req.tenantId, "quota");
+      const presenterAsrContext: MeterContext = {
+        tenantId: req.tenantId,
+        refKind: "content",
+        refId: body.presenterVideoPath,
+        funding: presenterFunding,
+        operationKey: `asr:presenter:${req.tenantId}:${body.presenterVideoPath}`,
+      };
       const transcription = await transcribeAudio({
         buffer: presenterAudio,
         mimeType: "audio/mpeg",
         filename: "presenter-audio.mp3",
         timestamps: true,
-      }, {
-        tenantId: req.tenantId,
-        refKind: "content",
-        refId: body.presenterVideoPath,
-        operationKey: `asr:presenter:${req.tenantId}:${body.presenterVideoPath}`,
-      });
+      }, presenterAsrContext);
       const lines = alignPresenterNarration({
         script: body.prompt?.trim() ?? "",
         durationMs,
@@ -9626,6 +9676,10 @@ async function generateVideoHandler(
         tenantAiModel: tenant.aiModel,
         durationMs,
         lines,
+        meterContext: {
+          ...presenterAsrContext,
+          operationKey: `${presenterAsrContext.operationKey}:broll`,
+        },
       });
     } catch (error) {
       if (error instanceof ObjectNotFoundError) {
@@ -11217,6 +11271,9 @@ router.post(
                 tenantId: req.tenantId,
                 refKind: "videoJobCover",
                 refId: String(job.id),
+                ...(job.funding
+                  ? { funding: legacyVideoFunding(req.tenantId, job.funding) }
+                  : {}),
                 operationKey: `videoJob:${job.id}:cover:${intensity}`,
               },
             },
