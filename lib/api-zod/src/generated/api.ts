@@ -2927,7 +2927,7 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "defaultTextToVideoModel": zod.string(),
   "defaultImageToVideoModel": zod.string(),
   "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
-  "supportsModelOverride": zod.boolean(),
+  "supportsModelOverride": zod.boolean().describe('Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists.'),
   "textModelOptions": zod.array(zod.object({
   "value": zod.string(),
   "label": zod.string()
@@ -2954,8 +2954,8 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
  */
 export const AdminUpdateVideoGenSettingsBody = zod.object({
   "provider": zod.string().describe('Provider id from the catalog.'),
-  "textToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
-  "imageToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
+  "textToVideoModel": zod.string().nullish().describe('Optional exact provider-native text-to-video model ID (empty\/null = provider default). Atlas Cloud rejects IDs outside its documented T2V/reference contract allowlist.'),
+  "imageToVideoModel": zod.string().nullish().describe('Optional exact provider-native image-to-video model ID (empty\/null = provider default). Atlas Cloud rejects IDs outside its documented I2V contract allowlist.'),
   "lipSyncPortraitModel": zod.string().nullish().describe('Replicate model for PORTRAIT lip sync — \"owner\/name\", or \"owner\/name:version\" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.'),
   "studioLipSyncDefault": zod.boolean().optional().describe('Admin default for new compatible jobs; each job remains an explicit choice.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.')

@@ -20835,6 +20835,10 @@ components:
           description: Whether the API key needed by this provider is set.
         supportsModelOverride:
           type: boolean
+          description: >-
+            Whether the provider card may save a model override. Atlas Cloud
+            accepts only the exact model IDs returned in its textModelOptions
+            and imageModelOptions lists.
         textModelOptions:
           type: array
           items:
@@ -21700,10 +21704,16 @@ components:
           description: Provider id from the catalog.
         textToVideoModel:
           type: ["string", "null"]
-          description: Optional model override (empty/null = provider default).
+          description: >-
+            Optional exact provider-native text-to-video model ID (empty/null =
+            provider default). Atlas Cloud rejects IDs outside its documented
+            T2V/reference contract allowlist.
         imageToVideoModel:
           type: ["string", "null"]
-          description: Optional model override (empty/null = provider default).
+          description: >-
+            Optional exact provider-native image-to-video model ID (empty/null =
+            provider default). Atlas Cloud rejects IDs outside its documented
+            I2V contract allowlist.
         lipSyncPortraitModel:
           type: ["string", "null"]
           description: >-

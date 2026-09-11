@@ -268,6 +268,58 @@ beforeEach(() => {
 });
 
 describe("video provider validation guidance", () => {
+  it("shows Atlas's contract options and typed model-id fields", async () => {
+    mockState.videoSettings = {
+      provider: "atlascloud",
+      textToVideoModel: null,
+      imageToVideoModel: null,
+      lipSyncPortraitModel: null,
+      studioLipSyncDefault: false,
+      providers: [
+        {
+          id: "atlascloud",
+          label: "Atlas Cloud",
+          defaultTextToVideoModel: "bytedance/seedance-2.5/text-to-video",
+          defaultImageToVideoModel: "bytedance/seedance-2.5/image-to-video",
+          configured: true,
+          supportsModelOverride: true,
+          textModelOptions: [
+            {
+              value: "alibaba/wan-3.0/reference-to-video",
+              label: "Wan Standard Reference",
+            },
+          ],
+          imageModelOptions: [
+            {
+              value: "alibaba/wan-3.0-prime/image-to-video",
+              label: "Wan Prime Image",
+            },
+          ],
+          envKey: "ATLASCLOUD_API_KEY",
+          keySource: "env",
+        },
+      ],
+      stockSources: [],
+      replicatePricingModels: [],
+      modelCatalog: [],
+    };
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <VideoGenProviderCard />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByTestId("card-video-gen-provider"));
+
+    expect(screen.getByTestId("select-video-gen-text-model")).toBeTruthy();
+    expect(screen.getByTestId("select-video-gen-image-model")).toBeTruthy();
+    expect(screen.getByTestId("input-video-gen-text-model")).toBeTruthy();
+    expect(screen.getByTestId("input-video-gen-image-model")).toBeTruthy();
+    expect(screen.getByTestId("atlas-model-contract-requirement").textContent).toContain(
+      "unsupported model families are rejected",
+    );
+  });
+
   it("turns a pricing rejection into actionable inline guidance", async () => {
     mockState.videoSettings = {
       provider: "openrouter",

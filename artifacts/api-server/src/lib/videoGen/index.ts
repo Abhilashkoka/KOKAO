@@ -55,6 +55,8 @@ import {
   ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
   ATLASCLOUD_WAN_30_PRIME_I2V_MODEL,
   ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL,
+  atlasCloudModelIdsForMode,
+  isAtlasCloudModelForMode,
   generateWithAtlasCloud,
 } from "./providers/atlascloud";
 import { isTransientStatus } from "./retry";
@@ -122,7 +124,7 @@ export interface VideoGenProviderDef {
   envKey: string;
   /** Whether the admin may override the model names for this provider. */
   supportsModelOverride: boolean;
-  /** Suggested model choices shown in the admin UI (free text still allowed). */
+  /** Suggested model choices shown in the admin UI; typed values are provider-validated. */
   textModelOptions?: readonly { value: string; label: string }[];
   imageModelOptions?: readonly { value: string; label: string }[];
   generate: (input: VideoGenInput, apiKey: string | null) => Promise<VideoGenResult>;
@@ -165,7 +167,7 @@ export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
     defaultTextToVideoModel: ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
     defaultImageToVideoModel: ATLASCLOUD_SEEDANCE_25_I2V_MODEL,
     envKey: "ATLASCLOUD_API_KEY",
-    supportsModelOverride: false,
+    supportsModelOverride: true,
     textModelOptions: catalogModelOptions("atlascloud", "text"),
     imageModelOptions: catalogModelOptions("atlascloud", "image"),
     generate: generateWithAtlasCloud,
@@ -235,6 +237,24 @@ export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
 
 export function getVideoGenProviderDef(id: string): VideoGenProviderDef | undefined {
   return VIDEO_GEN_PROVIDERS.find((p) => p.id === id);
+}
+
+/**
+ * Validate the two Atlas admin overrides against the request contracts this
+ * adapter actually implements. Other providers intentionally retain their
+ * existing free-text override behaviour; Atlas is different because its API
+ * exposes several model families with incompatible payloads and silently
+ * accepting an arbitrary family would fail only after a paid submit.
+ */
+export function atlasCloudModelOverrideError(
+  mode: VideoGenMode,
+  model: string | null | undefined,
+): string | null {
+  const trimmed = model?.trim() ?? "";
+  if (!trimmed || isAtlasCloudModelForMode(trimmed, mode)) return null;
+  const modeLabel = mode === "text" ? "text-to-video" : "image-to-video";
+  return `Atlas Cloud does not support "${trimmed}" as a ${modeLabel} model. ` +
+    `Supported Atlas Cloud ${modeLabel} model IDs: ${atlasCloudModelIdsForMode(mode).join(", ")}.`;
 }
 
 /**
@@ -601,6 +621,17 @@ export async function resolveVideoModelSnapshot(args: {
       provider,
       model || null,
     );
+  }
+  if (def.id === "atlascloud") {
+    const invalidOverride = atlasCloudModelOverrideError(args.mode, model);
+    if (invalidOverride) {
+      throw new VideoModelResolutionError(
+        invalidOverride,
+        "video_model_invalid",
+        provider,
+        model,
+      );
+    }
   }
   const catalogModel = picked ?? VIDEO_MODEL_CATALOG.find((candidate) =>
     candidate.provider === provider && candidate.models[args.mode] === model,

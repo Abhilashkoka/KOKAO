@@ -10,7 +10,11 @@ import {
   supportsMode,
   videoModelMultiplier,
 } from "./modelCatalog";
-import { VIDEO_GEN_PROVIDERS } from "./index";
+import {
+  atlasCloudModelOverrideError,
+  effectiveVideoModel,
+  VIDEO_GEN_PROVIDERS,
+} from "./index";
 import { VIDEO_ASPECTS } from "./types";
 import { videoJobUnits } from "./units";
 
@@ -72,6 +76,60 @@ describe("video model catalog", () => {
       canGenerateAudio: true,
       supportsEndFrame: true,
     });
+  });
+
+  it("exposes only implemented Atlas contracts as admin override options", () => {
+    const provider = VIDEO_GEN_PROVIDERS.find((item) => item.id === "atlascloud");
+    expect(provider).toMatchObject({
+      supportsModelOverride: true,
+      defaultTextToVideoModel: "bytedance/seedance-2.5/text-to-video",
+      defaultImageToVideoModel: "bytedance/seedance-2.5/image-to-video",
+    });
+    expect(provider?.textModelOptions?.map((option) => option.value)).toEqual([
+      "bytedance/seedance-2.5/text-to-video",
+      "bytedance/seedance-2.5/reference-to-video",
+      "alibaba/wan-3.0/text-to-video",
+      "alibaba/wan-3.0/reference-to-video",
+      "alibaba/wan-3.0-prime/text-to-video",
+      "alibaba/wan-3.0-prime/reference-to-video",
+    ]);
+    expect(provider?.imageModelOptions?.map((option) => option.value)).toEqual([
+      "bytedance/seedance-2.5/image-to-video",
+      "alibaba/wan-3.0/image-to-video",
+      "alibaba/wan-3.0-prime/image-to-video",
+    ]);
+  });
+
+  it("rejects unsupported Atlas families before pricing or provider submission", () => {
+    expect(
+      atlasCloudModelOverrideError("text", "alibaba/wan-3.0/image-to-video"),
+    ).toMatch(/does not support.*text-to-video model/i);
+    expect(
+      atlasCloudModelOverrideError("image", "vendor/unsupported-family/image-to-video"),
+    ).toMatch(/supported Atlas Cloud image-to-video model IDs/i);
+    expect(
+      atlasCloudModelOverrideError("text", "alibaba/wan-3.0/reference-to-video"),
+    ).toBeNull();
+  });
+
+  it("uses the saved Atlas override while preserving the default for null", () => {
+    const provider = VIDEO_GEN_PROVIDERS.find((item) => item.id === "atlascloud")!;
+    expect(effectiveVideoModel(provider, "text", null)).toBe(
+      "bytedance/seedance-2.5/text-to-video",
+    );
+    expect(effectiveVideoModel(provider, "image", null)).toBe(
+      "bytedance/seedance-2.5/image-to-video",
+    );
+    expect(effectiveVideoModel(
+      provider,
+      "text",
+      "alibaba/wan-3.0-prime/text-to-video",
+    )).toBe("alibaba/wan-3.0-prime/text-to-video");
+    expect(effectiveVideoModel(
+      provider,
+      "image",
+      "alibaba/wan-3.0-prime/image-to-video",
+    )).toBe("alibaba/wan-3.0-prime/image-to-video");
   });
 
   it("keeps Wan Standard and Prime references as explicit 2-30 second choices", () => {

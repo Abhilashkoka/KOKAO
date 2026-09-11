@@ -7835,6 +7835,7 @@ export interface VideoGenProviderInfo {
   defaultImageToVideoModel: string;
   /** Whether the API key needed by this provider is set. */
   configured: boolean;
+  /** Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists. */
   supportsModelOverride: boolean;
   textModelOptions?: ImageGenModelOption[];
   imageModelOptions?: ImageGenModelOption[];
@@ -8737,12 +8738,12 @@ export interface UpdateVideoGenSettingsRequest {
   /** Provider id from the catalog. */
   provider: string;
   /**
-     * Optional model override (empty/null = provider default).
+     * Optional exact provider-native text-to-video model ID (empty/null = provider default). Atlas Cloud rejects IDs outside its documented T2V/reference contract allowlist.
      * @nullable
      */
   textToVideoModel?: string | null;
   /**
-     * Optional model override (empty/null = provider default).
+     * Optional exact provider-native image-to-video model ID (empty/null = provider default). Atlas Cloud rejects IDs outside its documented I2V contract allowlist.
      * @nullable
      */
   imageToVideoModel?: string | null;

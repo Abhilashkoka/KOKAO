@@ -59,6 +59,55 @@ const ATLASCLOUD_WAN_TEXT_MODELS = new Set([
   ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
 ]);
 
+/**
+ * The admin model override is deliberately narrower than Atlas' arbitrary
+ * provider API surface. These are the model ids whose request contracts are
+ * implemented by this adapter. Reference models live in the text list because
+ * Guided Story resolves its configured model through the text-to-video
+ * setting, then upgrades the request to reference-to-video with approved
+ * assets.
+ */
+const ATLASCLOUD_TEXT_MODEL_IDS = [
+  ATLASCLOUD_SEEDANCE_25_T2V_MODEL,
+  ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL,
+  ATLASCLOUD_WAN_30_T2V_MODEL,
+  ATLASCLOUD_WAN_30_REFERENCE_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL,
+] as const;
+const ATLASCLOUD_IMAGE_MODEL_IDS = [
+  ATLASCLOUD_SEEDANCE_25_I2V_MODEL,
+  ATLASCLOUD_WAN_30_I2V_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_I2V_MODEL,
+] as const;
+const ATLASCLOUD_TEXT_MODEL_ID_SET = new Set<string>(ATLASCLOUD_TEXT_MODEL_IDS);
+const ATLASCLOUD_IMAGE_MODEL_ID_SET = new Set<string>(ATLASCLOUD_IMAGE_MODEL_IDS);
+const ATLASCLOUD_SUPPORTED_MODEL_IDS = new Set<string>([
+  ...ATLASCLOUD_TEXT_MODEL_IDS,
+  ...ATLASCLOUD_IMAGE_MODEL_IDS,
+]);
+
+/** Exact Atlas model ids accepted for an admin engine override. */
+export function isAtlasCloudModelForMode(
+  model: string,
+  mode: "text" | "image",
+): boolean {
+  return (mode === "text" ? ATLASCLOUD_TEXT_MODEL_ID_SET : ATLASCLOUD_IMAGE_MODEL_ID_SET)
+    .has(model);
+}
+
+/** Ordered, exact Atlas ids used in validation errors and admin guidance. */
+export function atlasCloudModelIdsForMode(
+  mode: "text" | "image",
+): readonly string[] {
+  return mode === "text" ? ATLASCLOUD_TEXT_MODEL_IDS : ATLASCLOUD_IMAGE_MODEL_IDS;
+}
+
+/** Whether this adapter implements the supplied Atlas model contract. */
+export function isAtlasCloudModelId(model: string): boolean {
+  return ATLASCLOUD_SUPPORTED_MODEL_IDS.has(model);
+}
+
 /** True for Atlas models whose request contract accepts multiple references. */
 export function isAtlasReferenceModel(model: string): boolean {
   return ATLASCLOUD_REFERENCE_MODELS.has(model);
@@ -443,10 +492,7 @@ export async function generateWithAtlasCloud(
   const referenceMode = ATLASCLOUD_REFERENCE_MODELS.has(input.model);
   const imageMode = Boolean(input.image);
   const expected = input.model;
-  const knownModel = input.model === ATLASCLOUD_SEEDANCE_25_T2V_MODEL ||
-    input.model === ATLASCLOUD_SEEDANCE_25_I2V_MODEL ||
-    input.model === ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL ||
-    ATLASCLOUD_WAN_MODELS.has(input.model);
+  const knownModel = isAtlasCloudModelId(input.model);
   const expectedMode =
     input.model === ATLASCLOUD_SEEDANCE_25_T2V_MODEL ||
     input.model === ATLASCLOUD_SEEDANCE_25_I2V_MODEL ||

@@ -114,6 +114,7 @@ import {
   setStoredVideoGenKey,
   clearStoredVideoGenKey,
   resolveVideoGenProviderDef,
+  atlasCloudModelOverrideError,
   availableVideoModels,
   isCatalogVideoModelPriced,
 } from "../lib/videoGen";
@@ -1880,6 +1881,15 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
   }
   const textToVideoModel = parsed.data.textToVideoModel?.trim() || null;
   const imageToVideoModel = parsed.data.imageToVideoModel?.trim() || null;
+  if (def.id === "atlascloud") {
+    const invalidOverride =
+      atlasCloudModelOverrideError("text", textToVideoModel) ??
+      atlasCloudModelOverrideError("image", imageToVideoModel);
+    if (invalidOverride) {
+      res.status(400).json({ error: invalidOverride });
+      return;
+    }
+  }
   // Custom providers have no default models — both engines must be set.
   if (parseCustomProviderId(def.id) !== null && (!textToVideoModel || !imageToVideoModel)) {
     res.status(400).json({

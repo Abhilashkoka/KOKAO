@@ -15,6 +15,7 @@ export interface VideoGenProviderInfo {
   defaultImageToVideoModel: string;
   /** Whether the API key needed by this provider is set. */
   configured: boolean;
+  /** Whether the provider card may save a model override. Atlas Cloud accepts only the exact model IDs returned in its textModelOptions and imageModelOptions lists. */
   supportsModelOverride: boolean;
   textModelOptions?: ImageGenModelOption[];
   imageModelOptions?: ImageGenModelOption[];

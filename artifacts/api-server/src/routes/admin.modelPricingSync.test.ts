@@ -489,6 +489,53 @@ describe("PUT /admin/text-gen-settings pricing gate", () => {
 });
 
 describe("PUT /admin/video-gen-settings pricing gate", () => {
+  it("exposes Atlas contract choices and persists the selected T2V/I2V models", async () => {
+    const settings = await request(app).get("/api/admin/video-gen-settings");
+    expect(settings.status).toBe(200);
+    const atlas = settings.body.providers.find(
+      (provider: { id: string }) => provider.id === "atlascloud",
+    );
+    expect(atlas).toMatchObject({
+      supportsModelOverride: true,
+      textModelOptions: expect.arrayContaining([
+        expect.objectContaining({ value: "alibaba/wan-3.0/text-to-video" }),
+        expect.objectContaining({ value: "alibaba/wan-3.0/reference-to-video" }),
+        expect.objectContaining({ value: "alibaba/wan-3.0-prime/text-to-video" }),
+        expect.objectContaining({ value: "alibaba/wan-3.0-prime/reference-to-video" }),
+      ]),
+      imageModelOptions: expect.arrayContaining([
+        expect.objectContaining({ value: "alibaba/wan-3.0/image-to-video" }),
+        expect.objectContaining({ value: "alibaba/wan-3.0-prime/image-to-video" }),
+      ]),
+    });
+
+    const saved = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "atlascloud",
+      textToVideoModel: "alibaba/wan-3.0-prime/text-to-video",
+      imageToVideoModel: "alibaba/wan-3.0/image-to-video",
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.textToVideoModel).toBe("alibaba/wan-3.0-prime/text-to-video");
+    expect(saved.body.imageToVideoModel).toBe("alibaba/wan-3.0/image-to-video");
+    expect(await getVideoGenSelection()).toMatchObject({
+      provider: "atlascloud",
+      textToVideoModel: "alibaba/wan-3.0-prime/text-to-video",
+      imageToVideoModel: "alibaba/wan-3.0/image-to-video",
+    });
+  });
+
+  it("rejects an unsupported Atlas model family without changing saved settings", async () => {
+    const before = await getVideoGenSelection();
+    const res = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "atlascloud",
+      textToVideoModel: "alibaba/wan-3.0-unsupported/text-to-video",
+      imageToVideoModel: "alibaba/wan-3.0/image-to-video",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/does not support.*text-to-video model/i);
+    expect(await getVideoGenSelection()).toEqual(before);
+  });
+
   it("serializes keyless self-hosted NVIDIA video as deployment-configured", async () => {
     const model = "wan-ai/wan2.2";
     await setNvidiaCoreDeployment({

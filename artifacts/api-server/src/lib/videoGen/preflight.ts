@@ -11,6 +11,7 @@ import {
   getVideoGenProviderDef,
   resolveVideoGenProviderDef,
   getVideoGenSelection,
+  atlasCloudModelOverrideError,
   hasNativeSynchronizedAudio,
   isVideoGenProviderConfigured,
   videoGenFailoverProviderIds,
@@ -290,6 +291,12 @@ export async function preflightVideoJob(
         mode,
         mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel,
       );
+      if (selectedDef.id === "atlascloud") {
+        const invalidOverride = atlasCloudModelOverrideError(mode, selectedModel);
+        if (invalidOverride) {
+          return { status: 400, message: invalidOverride };
+        }
+      }
       if (
         !(await isVideoModelPriced({
           provider: selectedDef.id,

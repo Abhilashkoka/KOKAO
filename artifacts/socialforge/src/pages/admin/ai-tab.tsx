@@ -2060,6 +2060,17 @@ export function VideoGenProviderCard() {
                   credentials, mode support, or pricing will be rejected
                   without changing the current defaults.
                 </p>
+                {effectiveProvider === "atlascloud" && (
+                  <p className="text-xs text-muted-foreground" data-testid="atlas-model-contract-requirement">
+                    Atlas Cloud accepts only the exact model IDs listed in the
+                    selectors. You may type an ID, but unsupported model
+                    families are rejected before pricing or generation.
+                    Reference IDs are used by Guided Story with approved
+                    references.
+                    Wan Standard/Prime rates are synchronized automatically;
+                    Seedance still needs an exact Atlas price row.
+                  </p>
+                )}
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Text to Video model</p>
                   {shown.textModelOptions && shown.textModelOptions.length > 0 && (
