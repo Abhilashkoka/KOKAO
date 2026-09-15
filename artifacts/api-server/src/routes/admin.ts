@@ -319,6 +319,8 @@ import {
   deleteCreditRate,
   getMeterMode,
   setMeterMode,
+  getCreditPricePaise,
+  setCreditPricePaise,
   MILLI,
 } from "../lib/creditRates";
 import { CREDIT_RECONCILIATION_GATE } from "../lib/creditReconciliationGate";
@@ -5614,7 +5616,8 @@ router.put(
 // ---------------------------------------------------------------------------
 
 /**
- * GET /admin/credit-rates — the rate card plus the platform meter mode.
+ * GET /admin/credit-rates — the rate card, rupee conversion and platform meter
+ * mode.
  *
  * This is the screen that replaces per-plan quotas. Instead of "how many
  * images does this plan include", a superadmin sets what one image, one
@@ -5622,11 +5625,15 @@ router.put(
  * COST in credits, and every workspace draws from the same card.
  */
 router.get("/admin/credit-rates", async (_req: Request, res: Response) => {
-  res.json({ mode: await getMeterMode(), rates: await listCreditRates() });
+  res.json({
+    mode: await getMeterMode(),
+    rates: await listCreditRates(),
+    creditPricePaise: await getCreditPricePaise(),
+  });
 });
 
 /**
- * PUT /admin/credit-rates — replace the card and the meter mode (audited).
+ * PUT /admin/credit-rates — replace the card and rupee conversion (audited).
  *
  * Rows are upserted by key and rows the payload omits are deleted, so the
  * admin screen saves the whole table in one call and a removed cost centre
@@ -5648,14 +5655,38 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
     });
     return;
   }
+  if (
+    !Number.isSafeInteger(parsed.data.creditPricePaise) ||
+    parsed.data.creditPricePaise <= 0
+  ) {
+    res.status(400).json({
+      error: "Credit price must be a positive finite whole number of paise.",
+    });
+    return;
+  }
   const keys = parsed.data.rates.map((r) => r.key);
   if (new Set(keys).size !== keys.length) {
     res.status(400).json({ error: "Rate keys must be unique" });
     return;
   }
-  const before = { mode: await getMeterMode(), rates: await listCreditRates() };
+  if (
+    parsed.data.rates.some(
+      (rate) => !Number.isFinite(rate.credits) || rate.credits < 0,
+    )
+  ) {
+    res.status(400).json({
+      error: "Each credit rate must be a finite number that is 0 or more.",
+    });
+    return;
+  }
+  const before = {
+    mode: await getMeterMode(),
+    rates: await listCreditRates(),
+    creditPricePaise: await getCreditPricePaise(),
+  };
 
   await setMeterMode(parsed.data.mode);
+  await setCreditPricePaise(parsed.data.creditPricePaise);
   for (const rate of parsed.data.rates) {
     await upsertCreditRate({
       key: rate.key,
@@ -5672,7 +5703,11 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
     if (!submitted.has(existing.key)) await deleteCreditRate(existing.key);
   }
 
-  const after = { mode: await getMeterMode(), rates: await listCreditRates() };
+  const after = {
+    mode: await getMeterMode(),
+    rates: await listCreditRates(),
+    creditPricePaise: await getCreditPricePaise(),
+  };
   if (JSON.stringify(before) !== JSON.stringify(after)) {
     try {
       await recordAdminAction({

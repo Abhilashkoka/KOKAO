@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
+import { CreditRatesCard } from "./credit-rates-card";
 
 interface PlanDraft {
   name: string;
@@ -1393,6 +1394,7 @@ export function PlansTab() {
   return (
     <div className="space-y-8">
       <PlansCard />
+      <CreditRatesCard showMeterMode={false} context="plans" />
       <CreditPacksCard />
       <GamificationPlansCard />
     </div>

@@ -79,6 +79,14 @@ export const creditMeterSettingsTable = pgTable("credit_meter_settings", {
   id: serial("id").primaryKey(),
   /** "off" | "shadow" | "enforce" */
   mode: text("mode").notNull().default("shadow"),
+  /**
+   * Rupees per one credit, stored as paise. This is the authoritative
+   * conversion used when a legacy rupee wallet is migrated to credits.
+   * Existing installations retain the historical CREDIT_PRICE_PAISE (₹45
+   * when unset) fallback when this additive column is introduced. Null means
+   * that fallback is still in effect.
+   */
+  creditPricePaise: integer("credit_price_paise"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

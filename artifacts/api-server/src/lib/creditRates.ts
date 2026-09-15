@@ -22,6 +22,19 @@ export const MILLI = 1000;
 export type CreditRateUnit = "item" | "second";
 export type MeterMode = "off" | "shadow" | "enforce";
 
+/**
+ * Historical wallet migration used CREDIT_PRICE_PAISE (₹45 per credit when
+ * unset). Keep that fallback for an installation that has not yet written the
+ * additive persisted setting; once the settings row exists, its value is
+ * authoritative.
+ */
+const configuredDefaultCreditPricePaise = Number(process.env.CREDIT_PRICE_PAISE ?? 4500);
+export const DEFAULT_CREDIT_PRICE_PAISE =
+  Number.isSafeInteger(configuredDefaultCreditPricePaise) &&
+  configuredDefaultCreditPricePaise > 0
+    ? configuredDefaultCreditPricePaise
+    : 4500;
+
 export interface CreditRateView {
   key: string;
   label: string;
@@ -121,6 +134,7 @@ const MODE_ROW_ID = 1;
 
 let rateCache: Map<string, CreditRate> | null = null;
 let modeCache: MeterMode | null = null;
+let creditPricePaiseCache: number | null = null;
 
 export class CreditEnforcementLockedError extends Error {
   readonly code = "CREDIT_ENFORCEMENT_LOCKED";
@@ -134,6 +148,7 @@ export class CreditEnforcementLockedError extends Error {
 export function invalidateCreditRateCache(): void {
   rateCache = null;
   modeCache = null;
+  creditPricePaiseCache = null;
 }
 
 function toView(row: CreditRate): CreditRateView {
@@ -326,4 +341,42 @@ export async function setMeterMode(mode: MeterMode): Promise<MeterMode> {
     });
   invalidateCreditRateCache();
   return mode;
+}
+
+function validCreditPricePaise(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
+}
+
+/**
+ * The persisted rupee price of one credit. This is intentionally separate
+ * from the provider rate card: changing it only affects conversion of legacy
+ * rupee balances, never the explicit credits in a purchased pack or an
+ * immutable meter event snapshot.
+ */
+export async function getCreditPricePaise(): Promise<number> {
+  if (creditPricePaiseCache !== null) return creditPricePaiseCache;
+  const [row] = await db
+    .select({ creditPricePaise: creditMeterSettingsTable.creditPricePaise })
+    .from(creditMeterSettingsTable)
+    .orderBy(asc(creditMeterSettingsTable.id))
+    .limit(1);
+  creditPricePaiseCache = validCreditPricePaise(row?.creditPricePaise)
+    ? row.creditPricePaise
+    : DEFAULT_CREDIT_PRICE_PAISE;
+  return creditPricePaiseCache;
+}
+
+export async function setCreditPricePaise(pricePaise: number): Promise<number> {
+  if (!validCreditPricePaise(pricePaise)) {
+    throw new Error("Credit price must be a positive whole number of paise.");
+  }
+  await db
+    .insert(creditMeterSettingsTable)
+    .values({ id: MODE_ROW_ID, creditPricePaise: pricePaise })
+    .onConflictDoUpdate({
+      target: creditMeterSettingsTable.id,
+      set: { creditPricePaise: pricePaise, updatedAt: new Date() },
+    });
+  invalidateCreditRateCache();
+  return pricePaise;
 }

@@ -12456,7 +12456,7 @@ paths:
     get:
       operationId: adminGetCreditRates
       tags: [admin]
-      summary: Get the credit rate card and meter mode (superadmin only)
+      summary: Get the credit rate card, rupee conversion and meter mode (superadmin only)
       responses:
         "200":
           description: Credit rate card
@@ -12473,7 +12473,7 @@ paths:
     put:
       operationId: adminUpdateCreditRates
       tags: [admin]
-      summary: Replace the credit rate card and meter mode (superadmin only)
+      summary: Replace the credit rate card and rupee conversion (superadmin only)
       requestBody:
         required: true
         content:
@@ -14477,7 +14477,7 @@ components:
           type: ["string", "null"]
     CreditRateCard:
       type: object
-      required: [mode, rates]
+      required: [mode, rates, creditPricePaise]
       properties:
         mode:
           type: string
@@ -14489,6 +14489,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CreditRate"
+        creditPricePaise:
+          type: integer
+          minimum: 1
+          maximum: 100000000
+          description: >-
+            Rupees per one credit, in paise. For example 4500 means ₹45 = 1
+            credit and ₹1 = 0.0222 credits. Used for legacy rupee-wallet
+            migration only; purchased packs retain their explicit credits.
     CreditRateInput:
       type: object
       required: [key, label, unit, credits, active]
@@ -14520,7 +14528,7 @@ components:
           maxLength: 500
     CreditRateCardInput:
       type: object
-      required: [mode, rates]
+      required: [mode, rates, creditPricePaise]
       properties:
         mode:
           type: string
@@ -14530,6 +14538,11 @@ components:
           maxItems: 200
           items:
             $ref: "#/components/schemas/CreditRateInput"
+        creditPricePaise:
+          type: integer
+          minimum: 1
+          maximum: 100000000
+          description: Rupees per one credit, in paise.
     CreditMeterReportRow:
       type: object
       required: [rateKey, calls, failedCalls, quantity, credits, pricingStatus]

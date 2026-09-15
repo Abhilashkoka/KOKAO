@@ -11,6 +11,8 @@ import {
   deleteCreditRate,
   setMeterMode,
   getMeterMode,
+  getCreditPricePaise,
+  setCreditPricePaise,
   invalidateCreditRateCache,
   MILLI,
 } from "./creditRates";
@@ -126,6 +128,16 @@ describe("credit rate card", () => {
       expect(await creditsMilliFor(key, 5)).toBe(0);
     } finally {
       await deleteCreditRate(key);
+    }
+  });
+
+  it("persists a positive rupee-per-credit conversion independently of meter rates", async () => {
+    const previous = await getCreditPricePaise();
+    try {
+      await setCreditPricePaise(5025);
+      expect(await getCreditPricePaise()).toBe(5025);
+    } finally {
+      await setCreditPricePaise(previous);
     }
   });
 });

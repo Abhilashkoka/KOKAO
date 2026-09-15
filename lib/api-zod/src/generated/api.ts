@@ -34712,8 +34712,12 @@ export const QuoteCreditsResponse = zod.object({
 
 
 /**
- * @summary Get the credit rate card and meter mode (superadmin only)
+ * @summary Get the credit rate card, rupee conversion and meter mode (superadmin only)
  */
+export const adminGetCreditRatesResponseCreditPricePaiseMax = 100000000;
+
+
+
 export const AdminGetCreditRatesResponse = zod.object({
   "mode": zod.enum(['off', 'shadow', 'enforce']).describe('shadow records every metered provider call and charges nothing; enforce also debits the workspace balance; off disables the meter.'),
   "rates": zod.array(zod.object({
@@ -34724,12 +34728,13 @@ export const AdminGetCreditRatesResponse = zod.object({
   "active": zod.boolean(),
   "sortOrder": zod.number(),
   "notes": zod.string().nullish()
-}).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.'))
+}).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.')),
+  "creditPricePaise": zod.number().min(1).max(adminGetCreditRatesResponseCreditPricePaiseMax).describe('Rupees per one credit, in paise. For example 4500 means ₹45 = 1 credit and ₹1 = 0.0222 credits. Used for legacy rupee-wallet migration only; purchased packs retain their explicit credits.')
 })
 
 
 /**
- * @summary Replace the credit rate card and meter mode (superadmin only)
+ * @summary Replace the credit rate card and rupee conversion (superadmin only)
  */
 export const adminUpdateCreditRatesBodyRatesItemKeyMax = 64;
 
@@ -34747,6 +34752,8 @@ export const adminUpdateCreditRatesBodyRatesItemNotesMax = 500;
 
 export const adminUpdateCreditRatesBodyRatesMax = 200;
 
+export const adminUpdateCreditRatesBodyCreditPricePaiseMax = 100000000;
+
 
 
 export const AdminUpdateCreditRatesBody = zod.object({
@@ -34759,8 +34766,13 @@ export const AdminUpdateCreditRatesBody = zod.object({
   "active": zod.boolean(),
   "sortOrder": zod.number().min(adminUpdateCreditRatesBodyRatesItemSortOrderMin).max(adminUpdateCreditRatesBodyRatesItemSortOrderMax).optional(),
   "notes": zod.string().max(adminUpdateCreditRatesBodyRatesItemNotesMax).nullish()
-})).max(adminUpdateCreditRatesBodyRatesMax)
+})).max(adminUpdateCreditRatesBodyRatesMax),
+  "creditPricePaise": zod.number().min(1).max(adminUpdateCreditRatesBodyCreditPricePaiseMax).describe('Rupees per one credit, in paise.')
 })
+
+export const adminUpdateCreditRatesResponseCreditPricePaiseMax = 100000000;
+
+
 
 export const AdminUpdateCreditRatesResponse = zod.object({
   "mode": zod.enum(['off', 'shadow', 'enforce']).describe('shadow records every metered provider call and charges nothing; enforce also debits the workspace balance; off disables the meter.'),
@@ -34772,7 +34784,8 @@ export const AdminUpdateCreditRatesResponse = zod.object({
   "active": zod.boolean(),
   "sortOrder": zod.number(),
   "notes": zod.string().nullish()
-}).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.'))
+}).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.')),
+  "creditPricePaise": zod.number().min(1).max(adminUpdateCreditRatesResponseCreditPricePaiseMax).describe('Rupees per one credit, in paise. For example 4500 means ₹45 = 1 credit and ₹1 = 0.0222 credits. Used for legacy rupee-wallet migration only; purchased packs retain their explicit credits.')
 })
 
 

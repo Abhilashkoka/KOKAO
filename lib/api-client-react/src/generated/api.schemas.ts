@@ -1289,6 +1289,12 @@ export interface CreditRateCard {
   /** shadow records every metered provider call and charges nothing; enforce also debits the workspace balance; off disables the meter. */
   mode: CreditRateCardMode;
   rates: CreditRate[];
+  /**
+     * Rupees per one credit, in paise. For example 4500 means ₹45 = 1 credit and ₹1 = 0.0222 credits. Used for legacy rupee-wallet migration only; purchased packs retain their explicit credits.
+     * @minimum 1
+     * @maximum 100000000
+     */
+  creditPricePaise: number;
 }
 
 export type CreditRateInputUnit = typeof CreditRateInputUnit[keyof typeof CreditRateInputUnit];
@@ -1343,6 +1349,12 @@ export interface CreditRateCardInput {
   mode: CreditRateCardInputMode;
   /** @maxItems 200 */
   rates: CreditRateInput[];
+  /**
+     * Rupees per one credit, in paise.
+     * @minimum 1
+     * @maximum 100000000
+     */
+  creditPricePaise: number;
 }
 
 /**

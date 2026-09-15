@@ -12,4 +12,10 @@ export interface CreditRateCardInput {
   mode: CreditRateCardInputMode;
   /** @maxItems 200 */
   rates: CreditRateInput[];
+  /**
+     * Rupees per one credit, in paise.
+     * @minimum 1
+     * @maximum 100000000
+     */
+  creditPricePaise: number;
 }

@@ -33592,7 +33592,7 @@ export const getAdminGetCreditRatesUrl = () => {
 }
 
 /**
- * @summary Get the credit rate card and meter mode (superadmin only)
+ * @summary Get the credit rate card, rupee conversion and meter mode (superadmin only)
  */
 export const adminGetCreditRates = async ( options?: RequestInit): Promise<CreditRateCard> => {
 
@@ -33639,7 +33639,7 @@ export type AdminGetCreditRatesQueryError = ErrorType<ErrorEnvelope>
 
 
 /**
- * @summary Get the credit rate card and meter mode (superadmin only)
+ * @summary Get the credit rate card, rupee conversion and meter mode (superadmin only)
  */
 
 export function useAdminGetCreditRates<TData = Awaited<ReturnType<typeof adminGetCreditRates>>, TError = ErrorType<ErrorEnvelope>>(
@@ -33669,7 +33669,7 @@ export const getAdminUpdateCreditRatesUrl = () => {
 }
 
 /**
- * @summary Replace the credit rate card and meter mode (superadmin only)
+ * @summary Replace the credit rate card and rupee conversion (superadmin only)
  */
 export const adminUpdateCreditRates = async (creditRateCardInput: CreditRateCardInput, options?: RequestInit): Promise<CreditRateCard> => {
 
@@ -33717,7 +33717,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AdminUpdateCreditRatesMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Replace the credit rate card and meter mode (superadmin only)
+ * @summary Replace the credit rate card and rupee conversion (superadmin only)
  */
 export const useAdminUpdateCreditRates = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditRates>>, TError,{data: BodyType<CreditRateCardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

@@ -9,7 +9,16 @@ import {
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { grantCredits, hasMigrationReceipt } from "./creditAccounts";
-import { creditsMilliFor, MILLI } from "./creditRates";
+import {
+  creditsMilliFor,
+  getCreditPricePaise,
+  DEFAULT_CREDIT_PRICE_PAISE,
+  MILLI,
+} from "./creditRates";
+
+// Preserve the migration module's historical public constant for callers and
+// tests; the actual conversion now reads the persisted setting above.
+export { DEFAULT_CREDIT_PRICE_PAISE };
 
 /**
  * One-time conversion of every existing workspace onto the credit balance.
@@ -121,11 +130,6 @@ export async function getLegacyConversionStatusesByTenant(): Promise<
   return statuses;
 }
 
-/** The default credit price in paise, for converting a rupee wallet. */
-export const DEFAULT_CREDIT_PRICE_PAISE = Number(
-  process.env.CREDIT_PRICE_PAISE ?? 4500,
-);
-
 function roundUpCredits(milli: number): number {
   return Math.ceil(milli / MILLI);
 }
@@ -146,11 +150,12 @@ export async function planCreditMigration(): Promise<MigrationPlanRow[]> {
     })
     .from(tenantsTable);
 
-  const [captionMilli, imageMilli, videoMilli] = await Promise.all([
+  const [captionMilli, imageMilli, videoMilli, creditPricePaise] = await Promise.all([
     creditsMilliFor("caption", 1),
     creditsMilliFor("image", 1),
     // A video "credit" was one generation; price it as one short clip.
     creditsMilliFor("video", 10),
+    getCreditPricePaise(),
   ]);
 
   const rows: MigrationPlanRow[] = [];
@@ -170,7 +175,7 @@ export async function planCreditMigration(): Promise<MigrationPlanRow[]> {
         plan: tenant.plan,
         source: "wallet",
         detail: `₹${(paise / 100).toFixed(2)} wallet balance`,
-        credits: Math.ceil(paise / DEFAULT_CREDIT_PRICE_PAISE),
+        credits: Math.ceil(paise / creditPricePaise),
       });
       continue;
     }

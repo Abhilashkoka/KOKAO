@@ -47,8 +47,9 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
  *
  * This is what replaces per-plan quotas. Instead of "how many images does this
  * plan include", a superadmin sets what one unit of each billable action COSTS
- * in credits — per image, per caption, per second of video, per second of
- * voice, per second of lip sync — and every workspace draws from the same card.
+ * in credits — per image, per text-generation request, per second of video,
+ * per second of voice, per second of lip sync — and every workspace draws from
+ * the same card.
  *
  * The anchor is 1 credit = 1 second of standard-resolution video. Every other
  * rate is set relative to that, which is what keeps a number like "0.2"
@@ -57,6 +58,15 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 type RateUnit = "item" | "second";
 type MeterMode = "off" | "shadow" | "enforce";
+
+type CreditRatesCardProps = {
+  /**
+   * The Plans card edits pricing without exposing the release-gated meter
+   * switch. The AI card keeps the switch for the existing rollout workflow.
+   */
+  showMeterMode?: boolean;
+  context?: "ai" | "plans";
+};
 
 interface RateRow {
   key: string;
@@ -87,7 +97,35 @@ const MODE_COPY: Record<MeterMode, { title: string; detail: string }> = {
   },
 };
 
-export function CreditRatesCard() {
+function unitLabel(row: Pick<RateRow, "key" | "unit">): string {
+  switch (row.key) {
+    case "caption":
+      // Text is currently metered once per text-generation request, not per
+      // caption, character or token. Keep this wording honest until a
+      // token-level meter is wired at the provider boundary.
+      return row.unit === "item" ? "text request" : "second";
+    case "image":
+      return row.unit === "item" ? "image" : "second";
+    case "image_edit":
+      return row.unit === "item" ? "image edit" : "second";
+    case "video":
+    case "video_hd":
+      return row.unit === "second" ? "video second" : "item";
+    case "voice":
+      return row.unit === "second" ? "audio second" : "item";
+    case "lipsync":
+      return row.unit === "second" ? "lip-sync second" : "item";
+    case "transcription":
+      return row.unit === "second" ? "audio second" : "item";
+    default:
+      return row.unit === "second" ? "second" : "item";
+  }
+}
+
+export function CreditRatesCard({
+  showMeterMode = true,
+  context = "ai",
+}: CreditRatesCardProps = {}) {
   const { data, isLoading } = useAdminGetCreditRates();
   const update = useAdminUpdateCreditRates();
   const queryClient = useQueryClient();
@@ -95,10 +133,18 @@ export function CreditRatesCard() {
 
   const [mode, setMode] = useState<MeterMode>("shadow");
   const [rows, setRows] = useState<RateRow[]>([]);
+  const [creditPriceRupees, setCreditPriceRupees] = useState("45");
 
   useEffect(() => {
     if (!data) return;
     setMode((data.mode as MeterMode) ?? "shadow");
+    setCreditPriceRupees(
+      String(
+        (typeof data.creditPricePaise === "number" && data.creditPricePaise > 0
+          ? data.creditPricePaise
+          : 4500) / 100,
+      ),
+    );
     setRows(
       data.rates.map((r) => ({
         key: r.key,
@@ -133,12 +179,40 @@ export function CreditRatesCard() {
 
   const handleSave = () => {
     const cleaned = rows.map((r) => ({ ...r, key: r.key.trim(), label: r.label.trim() }));
+    const priceRupees = Number(creditPriceRupees.trim());
+    const pricePaise = Math.round(priceRupees * 100);
 
     if (cleaned.some((r) => !KEY_PATTERN.test(r.key))) {
       toast({
         title: "Check the keys",
         description:
           "A key is what the meter looks up in code. Lowercase letters, digits and underscores only.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (
+      !Number.isFinite(priceRupees) ||
+      priceRupees <= 0 ||
+      !Number.isSafeInteger(pricePaise) ||
+      pricePaise <= 0
+    ) {
+      toast({
+        title: "Check the credit conversion",
+        description: "The price of one credit must be a positive finite rupee amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (
+      cleaned.some((r) => {
+        const credits = Number(r.credits);
+        return !Number.isFinite(credits) || credits < 0;
+      })
+    ) {
+      toast({
+        title: "Check the credit rates",
+        description: "Each active rate must be a finite number of credits that is 0 or more.",
         variant: "destructive",
       });
       return;
@@ -166,6 +240,7 @@ export function CreditRatesCard() {
       {
         data: {
           mode,
+          creditPricePaise: pricePaise,
           rates: cleaned.map((r) => ({
             key: r.key,
             label: r.label,
@@ -179,6 +254,7 @@ export function CreditRatesCard() {
       },
       {
         onSuccess: () => {
+          setCreditPriceRupees(String(pricePaise / 100));
           toast({ title: "Rate card saved" });
           queryClient.invalidateQueries({ queryKey: getAdminGetCreditRatesQueryKey() });
         },
@@ -193,17 +269,21 @@ export function CreditRatesCard() {
   };
 
   return (
-    <Card className="border-border shadow-sm" data-testid="card-credit-rates">
+    <Card
+      className="border-border shadow-sm"
+      data-testid={context === "plans" ? "card-credit-rates-plans" : "card-credit-rates"}
+    >
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Coins className="h-5 w-5 text-primary" /> Credit rate card
+          <Coins className="h-5 w-5 text-primary" />{" "}
+          {context === "plans" ? "Credit usage pricing" : "Credit rate card"}
         </CardTitle>
         <CardDescription>
-          What one unit of each billable action costs in credits — per image,
-          per caption, per second of video, voice or lip sync. The anchor is 1
-          credit = 1 second of standard-resolution video; price everything else
-          relative to that. Add a row for any new cost centre; the meter starts
-          using it as soon as code passes the matching key.
+          Set the credits debited for each supported request. The unit is shown
+          in plain language: per image, text request, video second, audio
+          second or lip-sync second. Text generation is currently priced per
+          request, not per caption, character or token. The meter uses this
+          same rate card everywhere.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -212,20 +292,61 @@ export function CreditRatesCard() {
         ) : (
           <>
             <div className="space-y-2 rounded-md border border-border p-3">
-              <Label htmlFor="meter-mode">Meter mode</Label>
-              <Select value={mode} onValueChange={(v) => setMode(v as MeterMode)}>
-                <SelectTrigger id="meter-mode" className="max-w-xs" data-testid="select-meter-mode">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="off">Off</SelectItem>
-                  <SelectItem value="shadow">Record only (shadow)</SelectItem>
-                  <SelectItem value="enforce">Charge workspaces (enforce)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm font-medium">{MODE_COPY[mode].title}</p>
-              <p className="text-sm text-muted-foreground">{MODE_COPY[mode].detail}</p>
+              <Label htmlFor={`credit-price-rupees-${context}`}>Credit conversion</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">₹</span>
+                <Input
+                  id={`credit-price-rupees-${context}`}
+                  aria-label="Rupees per credit"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={creditPriceRupees}
+                  onChange={(e) => setCreditPriceRupees(e.target.value)}
+                  className="max-w-[11rem]"
+                  data-testid={`input-credit-price-${context}`}
+                />
+                <span className="text-sm text-muted-foreground">per credit</span>
+              </div>
+              <p className="text-sm font-medium" data-testid={`text-credit-conversion-${context}`}>
+                {(() => {
+                  const enteredRupees = Number(creditPriceRupees);
+                  const pricePaise = Math.round(enteredRupees * 100);
+                  if (
+                    !Number.isFinite(enteredRupees) ||
+                    enteredRupees <= 0 ||
+                    !Number.isSafeInteger(pricePaise) ||
+                    pricePaise <= 0
+                  ) {
+                    return "Enter a positive price to preview ₹1 in credits.";
+                  }
+                  const rupees = pricePaise / 100;
+                  return `₹1 = ${(1 / rupees).toFixed(4)} credits (₹${rupees.toFixed(2)} = 1 credit)`;
+                })()}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Used for legacy rupee-wallet conversion only. Purchased packs
+                keep their explicit credits, and GST and payment amounts are
+                unchanged.
+              </p>
             </div>
+            {showMeterMode && (
+              <div className="space-y-2 rounded-md border border-border p-3">
+                <Label htmlFor="meter-mode">Meter mode</Label>
+                <Select value={mode} onValueChange={(v) => setMode(v as MeterMode)}>
+                  <SelectTrigger id="meter-mode" className="max-w-xs" data-testid="select-meter-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">Off</SelectItem>
+                    <SelectItem value="shadow">Record only (shadow)</SelectItem>
+                    <SelectItem value="enforce">Charge workspaces (enforce)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-sm font-medium">{MODE_COPY[mode].title}</p>
+                <p className="text-sm text-muted-foreground">{MODE_COPY[mode].detail}</p>
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <Table>
@@ -233,7 +354,7 @@ export function CreditRatesCard() {
                   <TableRow>
                     <TableHead className="min-w-[150px]">Action</TableHead>
                     <TableHead className="min-w-[110px]">Key</TableHead>
-                    <TableHead className="min-w-[110px]">Per</TableHead>
+                    <TableHead className="min-w-[140px]">Unit</TableHead>
                     <TableHead className="min-w-[110px]">Credits</TableHead>
                     <TableHead className="min-w-[70px]">On</TableHead>
                     <TableHead className="w-[52px]" />
@@ -265,11 +386,15 @@ export function CreditRatesCard() {
                           onValueChange={(v) => patchRow(index, { unit: v as RateUnit })}
                         >
                           <SelectTrigger data-testid={`select-rate-unit-${index}`}>
-                            <SelectValue />
+                            <SelectValue placeholder={unitLabel(row)} />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="item">item</SelectItem>
-                            <SelectItem value="second">second</SelectItem>
+                            <SelectItem value="item">
+                              {row.unit === "item" ? unitLabel(row) : "item"}
+                            </SelectItem>
+                            <SelectItem value="second">
+                              {row.unit === "second" ? unitLabel(row) : "second"}
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </TableCell>
@@ -278,7 +403,7 @@ export function CreditRatesCard() {
                           aria-label="Credits per unit"
                           type="number"
                           min={0}
-                          step="0.01"
+                          step="0.001"
                           value={row.credits}
                           onChange={(e) => patchRow(index, { credits: e.target.value })}
                           data-testid={`input-rate-credits-${index}`}
