@@ -54,6 +54,7 @@ export * from './adminSweepRunResult';
 export * from './adminTenant';
 export * from './adminTenantBillingMode';
 export * from './adminTenantCounts';
+export * from './adminTenantEffectiveBillingMode';
 export * from './adminUpdateGamificationPlanRequest';
 export * from './adminUpdateGamificationPlanRequestRewardCreditOverrides';
 export * from './adminUpdateTenantBillingMode200';

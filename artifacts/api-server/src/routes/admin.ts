@@ -327,10 +327,12 @@ import {
   planCreditMigration,
   runCreditMigration,
   getLegacyConversionStatus,
+  getLegacyConversionStatusesByTenant,
 } from "../lib/creditMigration";
 import {
   grantCredits as grantAccountCredits,
   peekCreditBalance,
+  peekCreditBalancesByTenant,
   listCreditHistory as listAccountCreditHistory,
 } from "../lib/creditAccounts";
 import {
@@ -356,6 +358,7 @@ import {
   FEATURES,
   getFeatureFlags,
   isKnownFeature,
+  isFeatureEnabled,
   invalidateFeatureFlagCache,
   requireFeature,
 } from "../lib/featureFlags";
@@ -741,7 +744,13 @@ function gatewayPlanError(
     : `${gateway} rejected the plan price. Check the API keys and try again.`;
 }
 
-function serializeAdminTenant(t: Tenant, walletBalancePaise = 0) {
+type AdminEffectiveBillingMode = "quota" | "wallet" | "credits";
+
+function serializeAdminTenant(
+  t: Tenant,
+  walletBalancePaise = 0,
+  effectiveBillingMode?: AdminEffectiveBillingMode,
+) {
   const isAllowlisted = isSuperadminEmail(t.email);
   return {
     id: t.id,
@@ -761,6 +770,7 @@ function serializeAdminTenant(t: Tenant, walletBalancePaise = 0) {
       t.billingMode === "wallet" || t.billingMode === "credits"
         ? t.billingMode
         : "quota",
+    ...(effectiveBillingMode ? { effectiveBillingMode } : {}),
     walletBalancePaise,
     createdAt: t.createdAt.toISOString(),
   };
@@ -772,7 +782,7 @@ async function walletBalancesByTenant(): Promise<Map<number, number>> {
   return new Map(rows.map((r) => [r.tenantId, r.balancePaise]));
 }
 
-/** Prepaid credit balances per tenant, for the admin tenants table Credits column. */
+/** Legacy unit-credit balances per tenant, retained for admin detail views. */
 async function creditBalancesByTenant(): Promise<
   Map<
     number,
@@ -791,6 +801,20 @@ async function creditBalancesByTenant(): Promise<
     ]),
   );
 }
+
+const emptyCreditBalance = () => ({
+  purchased: 0,
+  granted: 0,
+  total: 0,
+  grantedExpiresAt: null,
+});
+
+const emptyLegacyConversion = () => ({
+  pending: true,
+  captionCredits: 0,
+  imageCredits: 0,
+  videoCredits: 0,
+});
 
 async function countByTenant(
   table:
@@ -825,6 +849,10 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
     usageRows,
     walletBalances,
     creditBalances,
+    canonicalBalances,
+    legacyConversions,
+    meterMode,
+    walletEnabled,
   ] = await Promise.all([
     db.select().from(tenantsTable).orderBy(desc(tenantsTable.createdAt)),
     countByTenant(contentItemsTable),
@@ -842,6 +870,10 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
       .groupBy(usageEventsTable.tenantId, usageEventsTable.kind),
     walletBalancesByTenant(),
     creditBalancesByTenant(),
+    peekCreditBalancesByTenant(),
+    getLegacyConversionStatusesByTenant(),
+    getMeterMode(),
+    isFeatureEnabled("wallet"),
   ]);
 
   const captionUsage = new Map<number, number>();
@@ -853,7 +885,18 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
 
   res.json(
     tenants.map((t) => ({
-      ...serializeAdminTenant(t, walletBalances.get(t.id) ?? 0),
+      ...serializeAdminTenant(
+        t,
+        walletBalances.get(t.id) ?? 0,
+        // This is deliberately separate from the selected mode: credits are
+        // only active while enforcing, and wallet is only active while its
+        // platform switch is enabled.
+        t.billingMode === "credits" && meterMode === "enforce"
+          ? "credits"
+          : t.billingMode === "wallet" && walletEnabled
+            ? "wallet"
+            : "quota",
+      ),
       counts: {
         content: contentCounts.get(t.id) ?? 0,
         brandKits: brandKitCounts.get(t.id) ?? 0,
@@ -870,6 +913,9 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
         imageCredits: 0,
         videoCredits: 0,
       },
+      balance: canonicalBalances.get(t.id) ?? emptyCreditBalance(),
+      creditAccountExists: canonicalBalances.has(t.id),
+      legacyConversion: legacyConversions.get(t.id) ?? emptyLegacyConversion(),
     })),
   );
 });

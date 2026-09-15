@@ -5,7 +5,7 @@ import {
   tenantsTable,
   type CreditAccount,
 } from "@workspace/db";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { MILLI, getMeterMode, type MeterMode } from "./creditRates";
 
@@ -166,6 +166,41 @@ export async function peekCreditBalance(
     grantedMilli: lapsed ? 0 : (row?.grantedMilli ?? 0),
     grantedExpiresAt: lapsed ? null : (row?.grantedExpiresAt ?? null),
   });
+}
+
+/**
+ * Read every canonical account in one query for admin listings. This is the
+ * display equivalent of peekCreditBalance: expired grants are omitted without
+ * creating an account or writing an expiry receipt. Keeping this batched is
+ * important because the admin workspace table can contain hundreds of rows.
+ */
+export async function peekCreditBalancesByTenant(
+  tenantIds?: number[],
+): Promise<Map<number, CreditBalance>> {
+  const rows = await db
+    .select()
+    .from(creditAccountsTable)
+    .where(
+      tenantIds && tenantIds.length > 0
+        ? inArray(creditAccountsTable.tenantId, tenantIds)
+        : undefined,
+    );
+  const now = Date.now();
+  return new Map(
+    rows.map((row) => {
+      const expired = Boolean(
+        row.grantedExpiresAt && row.grantedExpiresAt.getTime() <= now,
+      );
+      return [
+        row.tenantId,
+        toBalance({
+          purchasedMilli: row.purchasedMilli,
+          grantedMilli: expired ? 0 : row.grantedMilli,
+          grantedExpiresAt: expired ? null : row.grantedExpiresAt,
+        }),
+      ];
+    }),
+  );
 }
 
 export interface GrantCreditsInput {

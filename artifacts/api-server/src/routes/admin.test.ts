@@ -46,6 +46,7 @@ import {
   db,
   adminAuditLogsTable,
   appCredentialsTable,
+  creditAccountsTable,
   bytePlusIdentityCleanupsTable,
   videoGenerationsTable,
 } from "@workspace/db";
@@ -507,6 +508,55 @@ describe("GET /admin/tenants — cross-tenant list stays admin-only", () => {
     } finally {
       await deleteTenant(actor.tenantId);
       await deleteTenant(other.tenantId);
+    }
+  });
+
+  it("returns canonical balances and keeps legacy conversion disclosure batched and explicit", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `credit-${randomUUID()}@example.com`,
+    });
+    try {
+      await db.insert(creditAccountsTable).values({
+        tenantId: target.tenantId,
+        purchasedMilli: 2500,
+        grantedMilli: 1500,
+        grantedExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      });
+      actAs(actor.clerkUserId, actor.email);
+
+      const res = await request(app).get("/api/admin/tenants");
+      expect(res.status).toBe(200);
+      const row = (res.body as Array<Record<string, any>>).find(
+        (tenant) => tenant.id === target.tenantId,
+      );
+      expect(row).toMatchObject({
+        balance: {
+          purchased: 2.5,
+          granted: 1.5,
+          total: 4,
+        },
+        creditAccountExists: true,
+        legacyConversion: {
+          pending: true,
+          captionCredits: 0,
+          imageCredits: 0,
+          videoCredits: 0,
+        },
+        effectiveBillingMode: "quota",
+      });
+      // The selected legacy rail remains visible; the canonical balance is
+      // display-only while the platform meter stays out of enforcement.
+      expect(row?.billingMode).toBe("quota");
+    } finally {
+      await db
+        .delete(creditAccountsTable)
+        .where(eq(creditAccountsTable.tenantId, target.tenantId));
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
     }
   });
 

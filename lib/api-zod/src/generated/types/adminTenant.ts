@@ -7,7 +7,10 @@
  */
 import type { AdminTenantBillingMode } from './adminTenantBillingMode';
 import type { AdminTenantCounts } from './adminTenantCounts';
+import type { AdminTenantEffectiveBillingMode } from './adminTenantEffectiveBillingMode';
+import type { CreditBalance } from './creditBalance';
 import type { CreditBalances } from './creditBalances';
+import type { LegacyConversionStatus } from './legacyConversionStatus';
 import type { Usage } from './usage';
 
 export interface AdminTenant {
@@ -26,12 +29,18 @@ export interface AdminTenant {
      * @nullable
      */
   designSkillEnabled?: boolean | null;
-  /** Which rail funds this workspace's generations. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota. */
+  /** The manually selected funding rail. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. */
   billingMode: AdminTenantBillingMode;
+  /** The rail currently funding generations. This remains "quota" when a selected wallet is disabled or selected credits are still in shadow mode; it must not be inferred from billingMode. */
+  effectiveBillingMode?: AdminTenantEffectiveBillingMode;
   /** Prepaid rupee wallet balance, GST-exclusive paise. */
   walletBalancePaise: number;
   createdAt: Date;
   counts?: AdminTenantCounts;
   usage?: Usage;
   credits?: CreditBalances;
+  balance?: CreditBalance;
+  /** Whether this workspace has a canonical unified credit account. */
+  creditAccountExists?: boolean;
+  legacyConversion?: LegacyConversionStatus;
 }

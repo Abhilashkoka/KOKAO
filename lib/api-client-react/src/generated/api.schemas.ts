@@ -1634,12 +1634,24 @@ export interface AdminTenantCounts {
 }
 
 /**
- * Which rail funds this workspace's generations. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.
+ * The manually selected funding rail. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing.
  */
 export type AdminTenantBillingMode = typeof AdminTenantBillingMode[keyof typeof AdminTenantBillingMode];
 
 
 export const AdminTenantBillingMode = {
+  quota: 'quota',
+  wallet: 'wallet',
+  credits: 'credits',
+} as const;
+
+/**
+ * The rail currently funding generations. This remains "quota" when a selected wallet is disabled or selected credits are still in shadow mode; it must not be inferred from billingMode.
+ */
+export type AdminTenantEffectiveBillingMode = typeof AdminTenantEffectiveBillingMode[keyof typeof AdminTenantEffectiveBillingMode];
+
+
+export const AdminTenantEffectiveBillingMode = {
   quota: 'quota',
   wallet: 'wallet',
   credits: 'credits',
@@ -1661,14 +1673,20 @@ export interface AdminTenant {
      * @nullable
      */
   designSkillEnabled?: boolean | null;
-  /** Which rail funds this workspace's generations. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota. */
+  /** The manually selected funding rail. "wallet" takes effect only while the platform `wallet` switch is on; "credits" only while the credit meter is enforcing. */
   billingMode: AdminTenantBillingMode;
+  /** The rail currently funding generations. This remains "quota" when a selected wallet is disabled or selected credits are still in shadow mode; it must not be inferred from billingMode. */
+  effectiveBillingMode?: AdminTenantEffectiveBillingMode;
   /** Prepaid rupee wallet balance, GST-exclusive paise. */
   walletBalancePaise: number;
   createdAt: string;
   counts?: AdminTenantCounts;
   usage?: Usage;
   credits?: CreditBalances;
+  balance?: CreditBalance;
+  /** Whether this workspace has a canonical unified credit account. */
+  creditAccountExists?: boolean;
+  legacyConversion?: LegacyConversionStatus;
 }
 
 export interface DesignSkillSettings {

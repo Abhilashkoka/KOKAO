@@ -14932,10 +14932,16 @@ components:
           type: string
           enum: [quota, wallet, credits]
           description: >-
-            Which rail funds this workspace's generations. "wallet" takes
-            effect only while the platform `wallet` switch is on; "credits"
-            only while the credit meter is enforcing. Otherwise the workspace
-            stays on plan quota.
+            The manually selected funding rail. "wallet" takes effect only
+            while the platform `wallet` switch is on; "credits" only while the
+            credit meter is enforcing.
+        effectiveBillingMode:
+          type: string
+          enum: [quota, wallet, credits]
+          description: >-
+            The rail currently funding generations. This remains "quota" when
+            a selected wallet is disabled or selected credits are still in
+            shadow mode; it must not be inferred from billingMode.
         walletBalancePaise:
           type: integer
           description: Prepaid rupee wallet balance, GST-exclusive paise.
@@ -14948,6 +14954,13 @@ components:
           $ref: "#/components/schemas/Usage"
         credits:
           $ref: "#/components/schemas/CreditBalances"
+        balance:
+          $ref: "#/components/schemas/CreditBalance"
+        creditAccountExists:
+          type: boolean
+          description: Whether this workspace has a canonical unified credit account.
+        legacyConversion:
+          $ref: "#/components/schemas/LegacyConversionStatus"
     DesignSkillSettings:
       type: object
       required: [enabled]

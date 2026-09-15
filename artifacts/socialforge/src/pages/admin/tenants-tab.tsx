@@ -6,6 +6,7 @@ import {
   useAdminUpdateTenantSuperadmin,
   useAdminUpdateTenantDesignSkill,
   useAdminGrantCredits,
+  useAdminGrantCreditAccount,
   useAdminUpdateTenantBillingMode,
   useAdminAdjustTenantWallet,
   useAdminListSeatRequests,
@@ -18,6 +19,7 @@ import {
   useGetMe,
   useAdminGetAiSpendSettings,
   useAdminGetAiCostConfig,
+  type AdminTenant,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -69,6 +71,36 @@ function formatInr(paise: number): string {
     minimumFractionDigits: paise % 100 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function formatCredits(credits: number): string {
+  return credits.toLocaleString("en-IN", {
+    maximumFractionDigits: 3,
+  });
+}
+
+function billingModeLabel(mode: "quota" | "wallet" | "credits"): string {
+  if (mode === "credits") return "Credits";
+  if (mode === "wallet") return "Legacy wallet";
+  return "Legacy quota";
+}
+
+function hasLegacyCreditBalance(
+  conversion:
+    | {
+        captionCredits: number;
+        imageCredits: number;
+        videoCredits: number;
+      }
+    | null
+    | undefined,
+): boolean {
+  return (
+    (conversion?.captionCredits ?? 0) +
+      (conversion?.imageCredits ?? 0) +
+      (conversion?.videoCredits ?? 0) >
+    0
+  );
 }
 
 function SeatRequestsCard() {
@@ -258,8 +290,14 @@ export function TenantsTab() {
   const { data: planCatalog } = useListPlans();
   const updatePlan = useAdminUpdateTenantPlan();
   const grantCredits = useAdminGrantCredits();
+  const grantCreditAccount = useAdminGrantCreditAccount();
   const [tenantsOpen, setTenantsOpen] = useState(true);
-  const [grantTarget, setGrantTarget] = useState<{ id: number; name: string } | null>(null);
+  const [grantTarget, setGrantTarget] = useState<{
+    id: number;
+    name: string;
+    canonical: boolean;
+  } | null>(null);
+  const [detailsTarget, setDetailsTarget] = useState<AdminTenant | null>(null);
   const [planOverrideConfirm, setPlanOverrideConfirm] = useState<{
     tenantId: number;
     plan: string;
@@ -267,6 +305,7 @@ export function TenantsTab() {
   const [grantCaptions, setGrantCaptions] = useState("0");
   const [grantImages, setGrantImages] = useState("0");
   const [grantVideos, setGrantVideos] = useState("0");
+  const [grantUnified, setGrantUnified] = useState("0");
   const [grantNote, setGrantNote] = useState("");
   // Money → video credits converter. The admin types an amount in ₹ or $ and
   // it converts to whole videos at the per-video display rate; USD uses the
@@ -288,8 +327,8 @@ export function TenantsTab() {
     videoRatePaise > 0 ? Math.floor(convertPaise / videoRatePaise) : 0;
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
   const updateTenantDesignSkill = useAdminUpdateTenantDesignSkill();
-  // Wallet billing: hidden entirely unless the platform switch is on, so the
-  // table looks exactly as it did before when the feature is off.
+  // Wallet adjustments stay disabled unless the platform switch is on, while
+  // the table still shows the selected and actual rail explicitly.
   const { flags } = useFeatureFlags();
   const walletEnabled = flags.wallet;
   const updateBillingMode = useAdminUpdateTenantBillingMode();
@@ -315,16 +354,26 @@ export function TenantsTab() {
 
   const handleBillingModeChange = (tenantId: number, mode: string) => {
     updateBillingMode.mutate(
-      { id: tenantId, data: { billingMode: mode as "quota" | "wallet" } },
+      {
+        id: tenantId,
+        data: { billingMode: mode as "quota" | "wallet" | "credits" },
+      },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getAdminListTenantsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
           toast({
-            title: mode === "wallet" ? "Moved to wallet billing" : "Moved to quota billing",
+            title:
+              mode === "wallet"
+                ? "Moved to legacy wallet billing"
+                : mode === "credits"
+                  ? "Credits mode selected"
+                  : "Moved to legacy quota billing",
             description:
               mode === "wallet"
                 ? "Generations for this workspace are now charged to its ₹ wallet."
+                : mode === "credits"
+                  ? "The workspace is marked for unified credits; enforcement remains controlled by the platform credit meter."
                 : "This workspace is back on plan quotas and unit credits.",
           });
         },
@@ -452,7 +501,7 @@ export function TenantsTab() {
       <Card>
         <CollapsibleCardHeader
           title="Tenants"
-          description="Every workspace on the platform. Change a plan to override quotas."
+          description="Every workspace on the platform. Unified credits are shown first; legacy quota details remain available per workspace."
           open={tenantsOpen}
           onToggle={() => setTenantsOpen((o) => !o)}
           testId="toggle-tenants-card"
@@ -490,18 +539,14 @@ export function TenantsTab() {
                   <TableRow>
                     <TableHead>Workspace</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead className="text-right">Captions</TableHead>
-                    <TableHead className="text-right">Images</TableHead>
                     <TableHead className="text-right">Content</TableHead>
                     <TableHead className="text-right">Brand Kits</TableHead>
                     <TableHead className="text-right">Accounts</TableHead>
                     <TableHead>Plan</TableHead>
                     <TableHead>Design Skill</TableHead>
-                    <TableHead>Credits</TableHead>
-                    {walletEnabled && <TableHead>Billing</TableHead>}
-                    {walletEnabled && (
-                      <TableHead className="text-right">Wallet</TableHead>
-                    )}
+                    <TableHead>Unified Credits</TableHead>
+                    <TableHead>Billing mode</TableHead>
+                    <TableHead className="text-right">Wallet</TableHead>
                     <TableHead>Superadmin</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -520,12 +565,6 @@ export function TenantsTab() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {t.email ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {t.usage?.captions ?? 0}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {t.usage?.images ?? 0}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {t.counts?.content ?? 0}
@@ -586,66 +625,111 @@ export function TenantsTab() {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="text-xs text-muted-foreground tabular-nums whitespace-nowrap"
-                            data-testid={`text-credits-${t.id}`}
-                            title="Caption / image / video credits"
+                        <div className="flex min-w-[210px] items-center gap-3">
+                          <button
+                            type="button"
+                            className="text-left underline-offset-4 hover:underline"
+                            onClick={() => setDetailsTarget(t)}
+                            data-testid={`button-credit-details-${t.id}`}
+                            aria-label={`View credit details for ${t.name}`}
                           >
-                            {t.credits?.captionCredits ?? 0}C · {t.credits?.imageCredits ?? 0}I ·{" "}
-                            {t.credits?.videoCredits ?? 0}V
-                          </span>
+                            <span
+                              className="block text-base font-semibold tabular-nums"
+                              data-testid={`text-unified-credits-${t.id}`}
+                            >
+                              {formatCredits(t.balance?.total ?? 0)} credits
+                            </span>
+                            <span className="block text-xs text-muted-foreground tabular-nums">
+                              {formatCredits(t.balance?.purchased ?? 0)} purchased ·{" "}
+                              {formatCredits(t.balance?.granted ?? 0)} granted
+                            </span>
+                          </button>
+                          {t.legacyConversion?.pending &&
+                            hasLegacyCreditBalance(t.legacyConversion) && (
+                            <Badge variant="outline" className="text-xs whitespace-nowrap">
+                              Migration pending
+                            </Badge>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() =>
-                              setGrantTarget({ id: t.id, name: t.name })
+                              setGrantTarget({
+                                id: t.id,
+                                name: t.name,
+                                canonical: t.creditAccountExists === true,
+                              })
                             }
                           >
-                            Grant
+                            Adjust
                           </Button>
                         </div>
                       </TableCell>
-                      {walletEnabled && (
-                        <TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
                           <Select
-                            value={t.billingMode === "wallet" ? "wallet" : "quota"}
+                            value={t.billingMode}
                             onValueChange={(value) =>
                               handleBillingModeChange(t.id, value)
                             }
                             disabled={updateBillingMode.isPending}
                           >
                             <SelectTrigger
-                              className="w-28"
+                              className="w-36"
                               data-testid={`select-billing-mode-${t.id}`}
                             >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="quota">Quota</SelectItem>
-                              <SelectItem value="wallet">Wallet</SelectItem>
+                              <SelectItem value="quota">Legacy quota</SelectItem>
+                              <SelectItem value="wallet">Legacy wallet</SelectItem>
+                              <SelectItem value="credits" disabled>
+                                Credits (meter-controlled)
+                              </SelectItem>
                             </SelectContent>
                           </Select>
-                        </TableCell>
-                      )}
-                      {walletEnabled && (
-                        <TableCell className="text-right">
-                          <button
-                            type="button"
-                            className="tabular-nums underline-offset-4 hover:underline"
-                            onClick={() =>
+                          <span
+                            className="block text-xs text-muted-foreground"
+                            data-testid={`text-effective-billing-mode-${t.id}`}
+                          >
+                            Actual: {billingModeLabel(t.effectiveBillingMode ?? t.billingMode)}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <button
+                          type="button"
+                          className="tabular-nums underline-offset-4 hover:underline"
+                          disabled={!walletEnabled}
+                          onClick={() => {
+                            if (walletEnabled) {
                               setWalletTarget({
                                 id: t.id,
                                 name: t.name,
                                 balancePaise: t.walletBalancePaise ?? 0,
-                              })
+                              });
                             }
-                            data-testid={`button-wallet-${t.id}`}
-                          >
-                            {formatInr(t.walletBalancePaise ?? 0)}
-                          </button>
-                        </TableCell>
-                      )}
+                          }}
+                          data-testid={`button-wallet-${t.id}`}
+                          aria-label={
+                            walletEnabled
+                              ? `Adjust wallet for ${t.name}`
+                              : `Wallet balance for ${t.name}`
+                          }
+                          title={
+                            walletEnabled
+                              ? "Adjust legacy wallet"
+                              : "Legacy wallet adjustments are disabled"
+                          }
+                        >
+                          {formatInr(t.walletBalancePaise ?? 0)}
+                        </button>
+                        {!walletEnabled && (
+                          <span className="block text-xs text-muted-foreground">
+                            Legacy balance
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Switch
@@ -708,6 +792,7 @@ export function TenantsTab() {
             setGrantCaptions("0");
             setGrantImages("0");
             setGrantVideos("0");
+            setGrantUnified("0");
             setGrantNote("");
             setConvertAmount("");
             setConvertCurrency("INR");
@@ -717,88 +802,103 @@ export function TenantsTab() {
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>
-              Adjust credits{grantTarget ? ` for ${grantTarget.name}` : ""}
+              {grantTarget?.canonical ? "Adjust unified credits" : "Adjust legacy credits"}
+              {grantTarget ? ` for ${grantTarget.name}` : ""}
             </DialogTitle>
             <DialogDescription>
-              Adds or deducts caption, image, and video credits for this
-              workspace (use negative numbers to deduct; balances never go
-              below zero). Credits are used after the monthly plan quota runs
-              out.
+              {grantTarget?.canonical
+                ? "Adjusts the canonical unified credit account for this workspace. Use a negative number to deduct; the balance never goes below zero."
+                : "This workspace has no canonical credit account yet. These are legacy unit-credit controls, kept separate from unified credits; use negative numbers to deduct."}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-3 gap-3">
+          {grantTarget?.canonical ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium">Caption credits</label>
-              <Input
-                value={grantCaptions}
-                onChange={(e) => setGrantCaptions(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Image credits</label>
-              <Input
-                value={grantImages}
-                onChange={(e) => setGrantImages(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Video credits</label>
-              <Input
-                value={grantVideos}
-                onChange={(e) => setGrantVideos(e.target.value)}
-                data-testid="input-grant-videos"
-              />
-            </div>
-          </div>
-          <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
-            <label className="text-sm font-medium">
-              Convert money into video credits
-            </label>
-            <div className="flex items-center gap-2">
-              <Select
-                value={convertCurrency}
-                onValueChange={(v) => setConvertCurrency(v as "INR" | "USD")}
-              >
-                <SelectTrigger className="w-20" data-testid="select-convert-currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="INR">₹</SelectItem>
-                  <SelectItem value="USD">$</SelectItem>
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium">Unified credits</label>
               <Input
                 type="number"
-                min="0"
-                placeholder="Amount"
-                value={convertAmount}
-                onChange={(e) => setConvertAmount(e.target.value)}
-                data-testid="input-convert-amount"
+                step="0.001"
+                value={grantUnified}
+                onChange={(e) => setGrantUnified(e.target.value)}
+                data-testid="input-grant-unified"
               />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={convertedVideos <= 0}
-                onClick={() => setGrantVideos(String(convertedVideos))}
-                data-testid="button-apply-conversion"
-              >
-                Apply
-              </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {videoRatePaise <= 0
-                ? "Set a per-video rate in the AI tab's spend display card first."
-                : convertCurrency === "USD" && usdToInrPaise <= 0
-                  ? "Set the USD→INR rate in the AI tab first to convert dollars."
-                  : convertPaise > 0
-                    ? `= ${convertedVideos} video credit${convertedVideos === 1 ? "" : "s"} at ₹${(videoRatePaise / 100).toFixed(2)} per video${
-                        convertCurrency === "USD"
-                          ? ` (₹${(convertPaise / 100).toFixed(2)})`
-                          : ""
-                      }`
-                    : `Rate: ₹${(videoRatePaise / 100).toFixed(2)} per video. Enter an amount to see the conversion.`}
-            </p>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Legacy captions</label>
+                  <Input
+                    value={grantCaptions}
+                    onChange={(e) => setGrantCaptions(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Legacy images</label>
+                  <Input
+                    value={grantImages}
+                    onChange={(e) => setGrantImages(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Legacy videos</label>
+                  <Input
+                    value={grantVideos}
+                    onChange={(e) => setGrantVideos(e.target.value)}
+                    data-testid="input-grant-videos"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <label className="text-sm font-medium">
+                  Convert money into legacy video credits
+                </label>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={convertCurrency}
+                    onValueChange={(v) => setConvertCurrency(v as "INR" | "USD")}
+                  >
+                    <SelectTrigger className="w-20" data-testid="select-convert-currency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="INR">₹</SelectItem>
+                      <SelectItem value="USD">$</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    min="0"
+                    placeholder="Amount"
+                    value={convertAmount}
+                    onChange={(e) => setConvertAmount(e.target.value)}
+                    data-testid="input-convert-amount"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={convertedVideos <= 0}
+                    onClick={() => setGrantVideos(String(convertedVideos))}
+                    data-testid="button-apply-conversion"
+                  >
+                    Apply
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {videoRatePaise <= 0
+                    ? "Set a per-video rate in the AI tab's spend display card first."
+                    : convertCurrency === "USD" && usdToInrPaise <= 0
+                      ? "Set the USD→INR rate in the AI tab first to convert dollars."
+                      : convertPaise > 0
+                        ? `= ${convertedVideos} legacy video credit${convertedVideos === 1 ? "" : "s"} at ₹${(videoRatePaise / 100).toFixed(2)} per video${
+                            convertCurrency === "USD"
+                              ? ` (₹${(convertPaise / 100).toFixed(2)})`
+                              : ""
+                          }`
+                        : `Rate: ₹${(videoRatePaise / 100).toFixed(2)} per video. Enter an amount to see the conversion.`}
+                </p>
+              </div>
+            </>
+          )}
           <div className="space-y-2">
             <label className="text-sm font-medium">Note (optional)</label>
             <Input
@@ -809,9 +909,60 @@ export function TenantsTab() {
           </div>
           <DialogFooter>
             <Button
-              disabled={grantCredits.isPending}
+              disabled={grantCredits.isPending || grantCreditAccount.isPending}
               onClick={() => {
                 if (!grantTarget) return;
+                if (grantTarget.canonical) {
+                  const credits = Number(grantUnified);
+                  if (!Number.isFinite(credits) || credits === 0) {
+                    toast({
+                      variant: "destructive",
+                      title: "Check the amount",
+                      description:
+                        "Enter a non-zero number of unified credits (negative to deduct).",
+                    });
+                    return;
+                  }
+                  grantCreditAccount.mutate(
+                    {
+                      id: grantTarget.id,
+                      data: {
+                        credits,
+                        note: grantNote.trim() || undefined,
+                      },
+                    },
+                    {
+                      onSuccess: () => {
+                        queryClient.invalidateQueries({
+                          queryKey: getAdminListTenantsQueryKey(),
+                        });
+                        queryClient.invalidateQueries({
+                          queryKey: getAdminListAuditLogsQueryKey(),
+                        });
+                        toast({
+                          title: "Unified credits updated",
+                          description: `Balance adjusted for ${grantTarget.name}.`,
+                        });
+                        setGrantTarget(null);
+                        setGrantCaptions("0");
+                        setGrantImages("0");
+                        setGrantVideos("0");
+                        setGrantUnified("0");
+                        setGrantNote("");
+                        setConvertAmount("");
+                        setConvertCurrency("INR");
+                      },
+                      onError: (err: any) => {
+                        toast({
+                          variant: "destructive",
+                          title: "Could not adjust unified credits",
+                          description: apiErrorMessage(err, "Please try again."),
+                        });
+                      },
+                    },
+                  );
+                  return;
+                }
                 const captions = Number(grantCaptions);
                 const images = Number(grantImages);
                 const videos = Number(grantVideos);
@@ -842,16 +993,20 @@ export function TenantsTab() {
                   {
                     onSuccess: () => {
                       queryClient.invalidateQueries({
+                        queryKey: getAdminListTenantsQueryKey(),
+                      });
+                      queryClient.invalidateQueries({
                         queryKey: getAdminListAuditLogsQueryKey(),
                       });
                       toast({
-                        title: "Credits updated",
+                        title: "Legacy credits updated",
                         description: `Balance adjusted for ${grantTarget.name}.`,
                       });
                       setGrantTarget(null);
                       setGrantCaptions("0");
                       setGrantImages("0");
                       setGrantVideos("0");
+                      setGrantUnified("0");
                       setGrantNote("");
                       setConvertAmount("");
                       setConvertCurrency("INR");
@@ -868,13 +1023,98 @@ export function TenantsTab() {
                 );
               }}
             >
-              {grantCredits.isPending ? (
+              {grantCredits.isPending || grantCreditAccount.isPending ? (
                 <>
                   <RippleSpinner className="h-4 w-4 mr-2" /> Granting...
                 </>
               ) : (
                 "Apply adjustment"
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={detailsTarget !== null}
+        onOpenChange={(open) => !open && setDetailsTarget(null)}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              Credit details{detailsTarget ? ` — ${detailsTarget.name}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Unified balances are the canonical purchased/granted account.
+              Legacy unit quotas and credit buckets are shown separately and
+              are not silently converted here.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border p-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-medium">Unified credits</span>
+                <span
+                  className="text-lg font-semibold tabular-nums"
+                  data-testid="text-details-unified-total"
+                >
+                  {formatCredits(detailsTarget?.balance?.total ?? 0)}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                {formatCredits(detailsTarget?.balance?.purchased ?? 0)} purchased
+                {" · "}
+                {formatCredits(detailsTarget?.balance?.granted ?? 0)} granted
+                {detailsTarget?.balance?.grantedExpiresAt
+                  ? ` · expires ${new Date(detailsTarget.balance.grantedExpiresAt).toLocaleDateString()}`
+                  : ""}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {detailsTarget?.creditAccountExists
+                  ? "Canonical account"
+                  : "No canonical account; adjustments use legacy buckets"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-sm font-medium">Legacy balance (not unified)</p>
+              <p className="mt-1 text-sm text-muted-foreground tabular-nums">
+                {detailsTarget?.legacyConversion?.captionCredits ?? 0} captions ·{" "}
+                {detailsTarget?.legacyConversion?.imageCredits ?? 0} images ·{" "}
+                {detailsTarget?.legacyConversion?.videoCredits ?? 0} videos
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+                Quota usage: {detailsTarget?.usage?.captions ?? 0} captions ·{" "}
+                {detailsTarget?.usage?.images ?? 0} images
+                {" · "}
+                Wallet: {formatInr(detailsTarget?.walletBalancePaise ?? 0)}
+              </p>
+              {detailsTarget?.legacyConversion?.pending &&
+                hasLegacyCreditBalance(detailsTarget.legacyConversion) && (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                  Migration pending. No customer migration was run by this view.
+                </p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-muted-foreground">Selected mode</p>
+                <p className="font-medium">{billingModeLabel(detailsTarget?.billingMode ?? "quota")}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Actual funding</p>
+                <p className="font-medium">
+                  {billingModeLabel(
+                    detailsTarget?.effectiveBillingMode ??
+                      detailsTarget?.billingMode ??
+                      "quota",
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailsTarget(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -893,11 +1133,11 @@ export function TenantsTab() {
       >
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle>Adjust wallet — {walletTarget?.name}</DialogTitle>
+            <DialogTitle>Adjust legacy wallet — {walletTarget?.name}</DialogTitle>
             <DialogDescription>
-              Current balance {formatInr(walletTarget?.balancePaise ?? 0)}. Enter
-              a positive amount in ₹ to add, or a negative one to deduct. No GST
-              is applied — an admin adjustment is not a sale.
+              Legacy wallet balance: {formatInr(walletTarget?.balancePaise ?? 0)}.
+              Enter a positive amount in ₹ to add, or a negative one to deduct.
+              No GST is applied — an admin adjustment is not a sale.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1007,7 +1247,7 @@ export function TenantsTab() {
                       setWalletCurrency("INR");
                       setWalletNote("");
                       toast({
-                        title: "Wallet updated",
+                        title: "Legacy wallet updated",
                         description: `New balance ${formatInr(result.balancePaise)}.`,
                       });
                     },

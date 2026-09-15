@@ -2164,7 +2164,8 @@ export const AdminListTenantsResponseItem = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('The manually selected funding rail. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing.'),
+  "effectiveBillingMode": zod.enum(['quota', 'wallet', 'credits']).optional().describe('The rail currently funding generations. This remains \"quota\" when a selected wallet is disabled or selected credits are still in shadow mode; it must not be inferred from billingMode.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2183,6 +2184,19 @@ export const AdminListTenantsResponseItem = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
+}).optional(),
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+}).optional(),
+  "creditAccountExists": zod.boolean().optional().describe('Whether this workspace has a canonical unified credit account.'),
+  "legacyConversion": zod.object({
+  "pending": zod.boolean().describe('True until an administrator explicitly approves legacy conversion.'),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
 }).optional()
 })
 export const AdminListTenantsResponse = zod.array(AdminListTenantsResponseItem)
@@ -2213,7 +2227,8 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('The manually selected funding rail. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing.'),
+  "effectiveBillingMode": zod.enum(['quota', 'wallet', 'credits']).optional().describe('The rail currently funding generations. This remains \"quota\" when a selected wallet is disabled or selected credits are still in shadow mode; it must not be inferred from billingMode.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2232,6 +2247,19 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
+}).optional(),
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+}).optional(),
+  "creditAccountExists": zod.boolean().optional().describe('Whether this workspace has a canonical unified credit account.'),
+  "legacyConversion": zod.object({
+  "pending": zod.boolean().describe('True until an administrator explicitly approves legacy conversion.'),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
 }).optional()
 })
 
@@ -2420,7 +2448,8 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('The manually selected funding rail. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing.'),
+  "effectiveBillingMode": zod.enum(['quota', 'wallet', 'credits']).optional().describe('The rail currently funding generations. This remains \"quota\" when a selected wallet is disabled or selected credits are still in shadow mode; it must not be inferred from billingMode.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2439,6 +2468,19 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
+}).optional(),
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+}).optional(),
+  "creditAccountExists": zod.boolean().optional().describe('Whether this workspace has a canonical unified credit account.'),
+  "legacyConversion": zod.object({
+  "pending": zod.boolean().describe('True until an administrator explicitly approves legacy conversion.'),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
 }).optional()
 })
 
@@ -2463,7 +2505,8 @@ export const AdminUpdateTenantDesignSkillResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
-  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('Which rail funds this workspace\'s generations. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing. Otherwise the workspace stays on plan quota.'),
+  "billingMode": zod.enum(['quota', 'wallet', 'credits']).describe('The manually selected funding rail. \"wallet\" takes effect only while the platform `wallet` switch is on; \"credits\" only while the credit meter is enforcing.'),
+  "effectiveBillingMode": zod.enum(['quota', 'wallet', 'credits']).optional().describe('The rail currently funding generations. This remains \"quota\" when a selected wallet is disabled or selected credits are still in shadow mode; it must not be inferred from billingMode.'),
   "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
@@ -2482,6 +2525,19 @@ export const AdminUpdateTenantDesignSkillResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
+}).optional(),
+  "balance": zod.object({
+  "purchased": zod.number().describe('Paid-for credits. Never expire.'),
+  "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
+  "total": zod.number(),
+  "grantedExpiresAt": zod.string().nullish()
+}).optional(),
+  "creditAccountExists": zod.boolean().optional().describe('Whether this workspace has a canonical unified credit account.'),
+  "legacyConversion": zod.object({
+  "pending": zod.boolean().describe('True until an administrator explicitly approves legacy conversion.'),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
 }).optional()
 })
 

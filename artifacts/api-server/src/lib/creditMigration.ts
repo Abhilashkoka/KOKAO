@@ -2,6 +2,7 @@ import {
   db,
   tenantsTable,
   creditBalancesTable,
+  creditAccountLedgerTable,
   walletBalancesTable,
   planSettingsTable,
 } from "@workspace/db";
@@ -80,6 +81,44 @@ export async function getLegacyConversionStatus(
     imageCredits: legacy?.imageCredits ?? 0,
     videoCredits: legacy?.videoCredits ?? 0,
   };
+}
+
+/**
+ * Batched read-only conversion disclosure for the admin workspace table.
+ * Unlike the detail endpoint, this must not perform one legacy/migration query
+ * per workspace.
+ */
+export async function getLegacyConversionStatusesByTenant(): Promise<
+  Map<number, LegacyConversionStatus>
+> {
+  const [legacyRows, migrationRows] = await Promise.all([
+    db.select().from(creditBalancesTable),
+    db
+      .select({ tenantId: creditAccountLedgerTable.tenantId })
+      .from(creditAccountLedgerTable)
+      .where(eq(creditAccountLedgerTable.kind, "migrate")),
+  ]);
+  const migrated = new Set(migrationRows.map((row) => row.tenantId));
+  const statuses = new Map<number, LegacyConversionStatus>();
+  for (const legacy of legacyRows) {
+    statuses.set(legacy.tenantId, {
+      pending: !migrated.has(legacy.tenantId),
+      captionCredits: legacy.captionCredits ?? 0,
+      imageCredits: legacy.imageCredits ?? 0,
+      videoCredits: legacy.videoCredits ?? 0,
+    });
+  }
+  for (const tenantId of migrated) {
+    if (!statuses.has(tenantId)) {
+      statuses.set(tenantId, {
+        pending: false,
+        captionCredits: 0,
+        imageCredits: 0,
+        videoCredits: 0,
+      });
+    }
+  }
+  return statuses;
 }
 
 /** The default credit price in paise, for converting a rupee wallet. */
