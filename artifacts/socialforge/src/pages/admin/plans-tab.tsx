@@ -15,6 +15,7 @@ import {
   useAdminUpdateCreditPack,
   useAdminDeleteCreditPack,
   getAdminListCreditPacksQueryKey,
+  getBillingGetOverviewQueryKey,
   useAdminGetCreditRates,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -266,6 +267,7 @@ interface CreditPackDraft {
   credits: string;
   captionCredits: string;
   imageCredits: string;
+  videoCredits: string;
   active: boolean;
 }
 
@@ -275,10 +277,11 @@ const EMPTY_PACK: CreditPackDraft = {
   credits: "0",
   captionCredits: "0",
   imageCredits: "0",
+  videoCredits: "0",
   active: true,
 };
 
-function CreditPacksCard() {
+export function CreditPacksCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: packs, isLoading } = useAdminListCreditPacks();
@@ -303,6 +306,7 @@ function CreditPacksCard() {
             credits: String(p.credits ?? 0),
             captionCredits: String(p.captionCredits),
             imageCredits: String(p.imageCredits),
+            videoCredits: String(p.videoCredits ?? 0),
             active: p.active,
           };
         }
@@ -313,6 +317,7 @@ function CreditPacksCard() {
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: getAdminListCreditPacksQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getBillingGetOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
   };
 
@@ -321,6 +326,7 @@ function CreditPacksCard() {
     const credits = Number(draft.credits);
     const captions = Number(draft.captionCredits);
     const images = Number(draft.imageCredits);
+    const videos = Number(draft.videoCredits);
     if (
       !draft.name.trim() ||
       !Number.isFinite(price) ||
@@ -333,13 +339,13 @@ function CreditPacksCard() {
       images < 0 ||
       // A pack must add something. Credits alone is the modern shape; the two
       // legacy buckets keep older packs valid through the changeover.
-      (credits === 0 && captions === 0 && images === 0)
+      (credits === 0 && captions === 0 && images === 0 && videos === 0)
     ) {
       toast({
         variant: "destructive",
         title: "Check the fields",
         description:
-          "A pack needs a name, a positive price in rupees, and at least one credit — either the balance credits or a legacy caption/image bucket.",
+          "Enter a name, a positive price in rupees, and a positive whole number of credits. Existing legacy packs may retain their separate allowances.",
       });
       return null;
     }
@@ -365,10 +371,10 @@ function CreditPacksCard() {
       <CardHeader>
         <CardTitle>Credit packs</CardTitle>
         <CardDescription>
-          One-time purchases that top up a workspace's caption and image
-          credits. Credits are spent automatically after the monthly plan quota
-          runs out. Pay As You Go workspaces on wallet billing fund generations
-          by recharging their prepaid wallet instead.
+          Sell general-purpose credits for text, images, video, voice, and lip sync.
+          Usage follows Credit usage pricing when credit billing is enabled.
+          Set the pack price and credit quantity independently. Existing legacy
+          packs retain their original benefits.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -416,19 +422,27 @@ function CreditPacksCard() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Credits</label>
+                    <label className="text-sm font-medium" htmlFor={`pack-credits-${p.id}`}>Credits included</label>
                     <Input
+                      id={`pack-credits-${p.id}`}
+                      type="number"
+                      min="0"
+                      step="1"
                       value={draft.credits}
                       onChange={(e) => setField("credits", e.target.value)}
                       placeholder="e.g. 350"
                       data-testid="input-pack-credits"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Added to the workspace credit balance. The two fields
-                      below are the legacy buckets, kept working until every
-                      workspace has migrated.
+                      General-purpose credits, including video generation.
+                      Generation deducts these only when credit billing is enabled.
                     </p>
                   </div>
+                  {(p.captionCredits > 0 || p.imageCredits > 0 || (p.videoCredits ?? 0) > 0) && <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Legacy benefits (preserved separately): {(p.videoCredits ?? 0) > 0 ? `${p.videoCredits} video credits. ` : ""}
+                    These are not general-purpose credits.
+                  </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Caption credits</label>
@@ -445,6 +459,7 @@ function CreditPacksCard() {
                       />
                     </div>
                   </div>
+                  </div>}
                   <div className="flex items-center justify-between">
                     <label className="text-sm font-medium">On sale</label>
                     <Switch
@@ -490,8 +505,9 @@ function CreditPacksCard() {
                 <>
                   <Badge variant="outline">New pack</Badge>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Name</label>
+                    <label className="text-sm font-medium" htmlFor="new-pack-name">Name</label>
                     <Input
+                      id="new-pack-name"
                       value={newPack.name}
                       onChange={(e) =>
                         setNewPack((prev) => ({ ...prev, name: e.target.value }))
@@ -500,8 +516,9 @@ function CreditPacksCard() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Price (INR)</label>
+                    <label className="text-sm font-medium" htmlFor="new-pack-price">Price (INR)</label>
                     <Input
+                      id="new-pack-price"
                       value={newPack.priceRupees}
                       onChange={(e) =>
                         setNewPack((prev) => ({ ...prev, priceRupees: e.target.value }))
@@ -509,31 +526,22 @@ function CreditPacksCard() {
                       placeholder="e.g. 499"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Caption credits</label>
-                      <Input
-                        value={newPack.captionCredits}
-                        onChange={(e) =>
-                          setNewPack((prev) => ({
-                            ...prev,
-                            captionCredits: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Image credits</label>
-                      <Input
-                        value={newPack.imageCredits}
-                        onChange={(e) =>
-                          setNewPack((prev) => ({
-                            ...prev,
-                            imageCredits: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="new-pack-credits">Credits included</label>
+                    <Input
+                      id="new-pack-credits"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={newPack.credits}
+                      onChange={(e) =>
+                        setNewPack((prev) => ({ ...prev, credits: e.target.value }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Usable for all supported AI operations, including video.
+                      Charges follow Credit usage pricing when credit billing is enabled.
+                    </p>
                   </div>
                   <div className="flex gap-2">
                     <Button

@@ -612,7 +612,9 @@ export function BillingSettings() {
             <Coins className="h-5 w-5 text-primary" /> Credits
           </CardTitle>
           <CardDescription>
-            Credits are used automatically once your monthly plan quota runs out.
+            General-purpose credit packs support text, images, video, voice, and lip sync
+            when credit billing is enabled. Legacy caption/image/video packs retain
+            their separate allowances.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -642,6 +644,7 @@ export function BillingSettings() {
                       : [
                           pack.captionCredits > 0 && `${pack.captionCredits} captions`,
                           pack.imageCredits > 0 && `${pack.imageCredits} images`,
+                          (pack.videoCredits ?? 0) > 0 && `${pack.videoCredits} videos`,
                         ]
                           .filter(Boolean)
                           .join(" + ")}
