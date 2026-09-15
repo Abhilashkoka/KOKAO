@@ -3,6 +3,12 @@ name: Unified credit rollout
 description: Safety and accounting rules for replacing separate quotas with one credit balance.
 ---
 
+Purchased unified balances must remain visible even before credit-funded generation is enabled. Balance visibility and authorization to debit are separate decisions.
+
+**Why:** Customers can purchase a unified pack during shadow rollout; hiding that balance behind the enforcement flag makes a successful payment appear lost.
+
+**How to apply:** Display saved credits separately from legacy wallet/quota allowances, explain which balance currently funds generation, and refresh canonical balances after purchases and delayed payment confirmation without enabling enforcement.
+
 The unified-credit system must start in shadow mode. Meter provider calls where spend occurs, including retries and paid failures, and reconcile those totals against provider invoices before enabling enforcement.
 
 The enforcement release decision requires a complete live shadow billing window

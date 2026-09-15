@@ -17,10 +17,12 @@ import {
   useUpdateBillingProfile,
   getBillingGetOverviewQueryKey,
   getGetMeQueryKey,
+  getGetCreditsQueryKey,
   getGetBillingProfileQueryKey,
 } from "@workspace/api-client-react";
 import type { Plan } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { CreditUsageCard } from "@/components/credit-balance";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -120,6 +122,7 @@ export function BillingSettings() {
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: getBillingGetOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetCreditsQueryKey() });
   };
 
   if (isLoading || !billing) {
@@ -609,7 +612,7 @@ export function BillingSettings() {
       <Card className="border-border shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Coins className="h-5 w-5 text-primary" /> Credits
+            <Coins className="h-5 w-5 text-primary" /> Credit packs
           </CardTitle>
           <CardDescription>
             General-purpose credit packs support text, images, video, voice, and lip sync
@@ -618,14 +621,15 @@ export function BillingSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-6 text-sm">
+          <CreditUsageCard />
+          <div className="flex gap-6 text-sm" aria-label="Legacy balances (separate from unified credits)">
             <div>
               <span className="text-2xl font-bold">{billing.credits.captionCredits}</span>{" "}
-              caption credits
+              legacy caption credits
             </div>
             <div>
               <span className="text-2xl font-bold">{billing.credits.imageCredits}</span>{" "}
-              image credits
+              legacy image credits
             </div>
           </div>
           {billing.creditPacks.length === 0 ? (

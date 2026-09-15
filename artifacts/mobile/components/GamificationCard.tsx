@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
   getGetGamificationQueryKey,
+  getGetCreditsQueryKey,
   getGetMeQueryKey,
   getGetReferralInfoQueryKey,
   useClaimGamificationReward,
@@ -104,6 +105,7 @@ export function GamificationCard() {
     ? Math.max(...meterRows.map((row) => Math.min(1, row.used / row.limit)))
     : 0;
   const legacy = me?.credits;
+  const unifiedBalance = creditWallet?.balance ?? me?.balance;
 
   const onClaim = (key: string) => {
     setNotice(null);
@@ -113,6 +115,7 @@ export function GamificationCard() {
         onSuccess: (result) => {
           void queryClient.invalidateQueries({ queryKey: getGetGamificationQueryKey() });
           void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetCreditsQueryKey() });
           setNotice(`Reward claimed: ${rewardText(result.granted)}.`);
         },
         onError: (error) => {
@@ -296,15 +299,30 @@ export function GamificationCard() {
           </View>
         ) : null}
 
-        {(creditWallet?.balance || me?.balance) ? (
-          <View style={styles.balanceRow} testID="mobile-gamification-balance">
-            <Feather name="credit-card" size={14} color={c.primary} />
-            <Text style={styles.balanceText}>
-              {formatCredits(creditWallet?.balance?.total ?? me?.balance?.total ?? 0)} credits available
-            </Text>
+        {unifiedBalance || legacy ? (
+          <View style={styles.balanceSection} testID="mobile-gamification-balance">
+            {unifiedBalance ? (
+              <>
+                <View style={styles.balanceRow}>
+                  <Feather name="credit-card" size={14} color={c.primary} />
+                  <Text style={styles.balanceText}>
+                    {formatCredits(unifiedBalance.total)} unified credits available
+                  </Text>
+                </View>
+                <View style={styles.balanceBreakdown}>
+                  <Text style={styles.balanceBreakdownText}>
+                    Purchased: {formatCredits(unifiedBalance.purchased)}
+                  </Text>
+                  <Text style={styles.balanceBreakdownText}>
+                    Granted: {formatCredits(unifiedBalance.granted)}
+                  </Text>
+                </View>
+              </>
+            ) : null}
             {legacy ? (
               <Text style={styles.legacyText}>
-                · legacy {legacy.captionCredits} caption / {legacy.imageCredits} image
+                Legacy balances: {legacy.captionCredits} caption / {legacy.imageCredits} image
+                {legacy.videoCredits !== undefined ? ` / ${legacy.videoCredits} video` : ""}
               </Text>
             ) : null}
           </View>
@@ -534,8 +552,11 @@ const styles = StyleSheet.create({
   meterValue: { fontFamily: fonts.medium, fontSize: 11, color: c.foreground },
   track: { height: 6, borderRadius: 3, backgroundColor: c.muted, overflow: "hidden" },
   fill: { height: 6, borderRadius: 3, backgroundColor: c.primary },
-  balanceRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 13 },
+  balanceSection: { marginTop: 13, gap: 5 },
+  balanceRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   balanceText: { fontFamily: fonts.semiBold, fontSize: 12, color: c.foreground },
+  balanceBreakdown: { flexDirection: "row", gap: 12, paddingLeft: 19 },
+  balanceBreakdownText: { fontFamily: fonts.regular, fontSize: 10, color: c.mutedForeground },
   legacyText: { fontFamily: fonts.regular, fontSize: 10, color: c.mutedForeground, flexShrink: 1 },
   legacyNotice: {
     fontFamily: fonts.regular,

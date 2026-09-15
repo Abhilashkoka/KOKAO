@@ -16,6 +16,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetMe,
   getGetMeQueryKey,
+  useGetCredits,
+  getGetCreditsQueryKey,
   useBillingGetOverview,
   getBillingGetOverviewQueryKey,
   useListPlans,
@@ -50,6 +52,10 @@ function formatInr(paise: number): string {
     minimumFractionDigits: paise % 100 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function formatCredits(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
 
@@ -118,6 +124,9 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const me = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
+  const creditWallet = useGetCredits({
+    query: { queryKey: getGetCreditsQueryKey() },
+  });
   const billing = useBillingGetOverview({
     query: { queryKey: getBillingGetOverviewQueryKey() },
   });
@@ -170,15 +179,18 @@ export default function SettingsScreen() {
     );
   };
 
-  const refreshing = me.isRefetching || billing.isRefetching;
+  const refreshing =
+    me.isRefetching || billing.isRefetching || creditWallet.isRefetching;
   const refetchAll = () => {
-    me.refetch();
-    billing.refetch();
+    void me.refetch();
+    void billing.refetch();
+    void creditWallet.refetch();
   };
 
   const refreshAfterPurchase = () => {
     queryClient.invalidateQueries({ queryKey: getBillingGetOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetCreditsQueryKey() });
   };
 
   const startSubscribe = async (plan: Plan) => {
@@ -310,6 +322,8 @@ export default function SettingsScreen() {
   const captionCredits = credits?.captionCredits ?? 0;
   const imageCredits = credits?.imageCredits ?? 0;
   const videoCredits = credits?.videoCredits ?? 0;
+  const unifiedBalance =
+    creditWallet.data?.balance ?? me.data.balance ?? overview?.balance ?? null;
   const showVideos = (featureFlags.data?.videoGen ?? false) && limits.videos !== undefined;
 
   const isOwner = team ? team.role === "owner" : true;
@@ -464,10 +478,26 @@ export default function SettingsScreen() {
           <Feather name="zap" size={16} color={c.primary} />
           <Text style={styles.cardTitle}>Prepaid credits</Text>
         </View>
-        <InfoRow label="Caption credits" value={String(captionCredits)} />
-        <InfoRow label="Image credits" value={String(imageCredits)} />
+        {unifiedBalance ? (
+          <>
+            <InfoRow
+              label="Unified credits (total)"
+              value={formatCredits(unifiedBalance.total)}
+            />
+            <InfoRow
+              label="Purchased credits (non-expiring)"
+              value={formatCredits(unifiedBalance.purchased)}
+            />
+            <InfoRow
+              label="Granted credits (expiring)"
+              value={formatCredits(unifiedBalance.granted)}
+            />
+          </>
+        ) : null}
+        <InfoRow label="Legacy caption credits" value={String(captionCredits)} />
+        <InfoRow label="Legacy image credits" value={String(imageCredits)} />
         {showVideos ? (
-          <InfoRow label="Video credits" value={String(videoCredits)} />
+          <InfoRow label="Legacy video credits" value={String(videoCredits)} />
         ) : null}
         {creditPacks.length > 0 ? (
           <View style={styles.packList}>
@@ -479,8 +509,18 @@ export default function SettingsScreen() {
                     <Text style={styles.packName}>{pack.name}</Text>
                     <Text style={styles.packDetail}>
                       {[
-                        pack.captionCredits > 0 ? `${pack.captionCredits} captions` : null,
-                        pack.imageCredits > 0 ? `${pack.imageCredits} images` : null,
+                        typeof pack.credits === "number" && pack.credits > 0
+                          ? `${formatCredits(pack.credits)} unified credits`
+                          : null,
+                        pack.captionCredits > 0
+                          ? `${pack.captionCredits} legacy captions`
+                          : null,
+                        pack.imageCredits > 0
+                          ? `${pack.imageCredits} legacy images`
+                          : null,
+                        pack.videoCredits && pack.videoCredits > 0
+                          ? `${pack.videoCredits} legacy videos`
+                          : null,
                       ]
                         .filter(Boolean)
                         .join(" + ")}

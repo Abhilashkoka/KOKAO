@@ -48,7 +48,7 @@ export function SettingsPage() {
   const search = useSearch();
   const requestedTab = new URLSearchParams(search).get("tab");
   const { data: me, isLoading: meLoading } = useGetMe();
-  const { creditFunded } = useCreditFunding();
+  const { creditFunded, credits } = useCreditFunding();
   const { data: modelChoices } = useListAiModels();
   const { data: plans, isLoading: plansLoading } = useListPlans();
   const updateSettings = useUpdateSettings();
@@ -175,6 +175,7 @@ export function SettingsPage() {
             </CardFooter>
           </Card>
 
+          {!creditFunded && (credits?.total ?? 0) > 0 && <CreditUsageCard />}
           {creditFunded ? (
             <CreditUsageCard />
           ) : (

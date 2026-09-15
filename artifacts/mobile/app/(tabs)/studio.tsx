@@ -18,6 +18,7 @@ import {
   useGenerateCaption,
   useGenerateImage,
   useGetMe,
+  useGetCredits,
   useListBrandKits,
   useListContent,
   useListFeatureFlags,
@@ -27,6 +28,7 @@ import {
   getListContentQueryKey,
   getGetContentQueryKey,
   getGetMeQueryKey,
+  getGetCreditsQueryKey,
   getGetFirstPostProgressQueryKey,
   type BrandKit,
   type ContentItem,
@@ -153,6 +155,10 @@ function errorMessage(
   return serverMessage || anyErr?.message || "Something went wrong. Please try again.";
 }
 
+function formatCredits(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
 export default function StudioScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -182,6 +188,9 @@ export default function StudioScreen() {
 
   const brandKits = useListBrandKits();
   const meQuery = useGetMe();
+  const creditWalletQuery = useGetCredits({
+    query: { queryKey: getGetCreditsQueryKey() },
+  });
   const requestUpgrade = useBillingRequestUpgrade();
   const featureFlags = useListFeatureFlags({
     query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
@@ -388,6 +397,8 @@ export default function StudioScreen() {
       ? Math.max(0, videoLimit - (me.usage.videos ?? 0))
       : null;
   const videoCredits = me?.credits?.videoCredits ?? 0;
+  const creditWallet = creditWalletQuery.data;
+  const unifiedBalance = creditWallet?.balance ?? me?.balance;
   const showVideos = (featureFlags.data?.videoGen ?? false) && videoLimit !== undefined;
   const imagesExhausted =
     !!me &&
@@ -441,7 +452,7 @@ export default function StudioScreen() {
                 {captionsLeft === null
                   ? "Unlimited captions"
                   : `${captionsLeft} caption${captionsLeft === 1 ? "" : "s"} left${
-                      captionCredits > 0 ? ` +${captionCredits} credits` : ""
+                      captionCredits > 0 ? ` +${captionCredits} legacy credits` : ""
                     }`}
               </Text>
             </View>
@@ -465,7 +476,7 @@ export default function StudioScreen() {
                 {imagesLeft === null
                   ? "Unlimited images"
                   : `${imagesLeft} image${imagesLeft === 1 ? "" : "s"} left${
-                      imageCredits > 0 ? ` +${imageCredits} credits` : ""
+                      imageCredits > 0 ? ` +${imageCredits} legacy credits` : ""
                     }`}
               </Text>
             </View>
@@ -512,12 +523,45 @@ export default function StudioScreen() {
                   {videosLeft === null
                     ? "Unlimited videos"
                     : `${videosLeft} video${videosLeft === 1 ? "" : "s"} left${
-                        videoCredits > 0 ? ` +${videoCredits} credits` : ""
+                        videoCredits > 0 ? ` +${videoCredits} legacy credits` : ""
                       }`}
                 </Text>
                 <Feather name="chevron-right" size={12} color={c.mutedForeground} />
               </Pressable>
             ) : null}
+          </View>
+        ) : null}
+
+        {unifiedBalance ? (
+          <View style={styles.creditSummary} testID="mobile-studio-credit-balance">
+            <View style={styles.creditSummaryHeader}>
+              <Feather name="credit-card" size={14} color={c.primary} />
+              <Text style={styles.creditSummaryTitle}>Unified credits</Text>
+            </View>
+            <View style={styles.creditSummaryValues}>
+              <View style={styles.creditSummaryValue}>
+                <Text style={styles.creditSummaryNumber}>
+                  {formatCredits(unifiedBalance.total)}
+                </Text>
+                <Text style={styles.creditSummaryLabel}>Total</Text>
+              </View>
+              <View style={styles.creditSummaryValue}>
+                <Text style={styles.creditSummaryNumber}>
+                  {formatCredits(unifiedBalance.purchased)}
+                </Text>
+                <Text style={styles.creditSummaryLabel}>Purchased</Text>
+              </View>
+              <View style={styles.creditSummaryValue}>
+                <Text style={styles.creditSummaryNumber}>
+                  {formatCredits(unifiedBalance.granted)}
+                </Text>
+                <Text style={styles.creditSummaryLabel}>Granted</Text>
+              </View>
+            </View>
+            <Text style={styles.creditSummaryLegacy}>
+              Legacy balances: {captionCredits} caption · {imageCredits} image
+              {showVideos ? ` · ${videoCredits} video` : ""}
+            </Text>
           </View>
         ) : null}
 
@@ -1028,6 +1072,52 @@ const styles = StyleSheet.create({
   },
   quotaPillTextEmpty: {
     color: c.destructive,
+  },
+  creditSummary: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: `${c.primary}40`,
+    backgroundColor: c.card,
+    gap: 9,
+  },
+  creditSummaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  creditSummaryTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: c.foreground,
+  },
+  creditSummaryValues: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  creditSummaryValue: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: c.muted,
+    alignItems: "center",
+  },
+  creditSummaryNumber: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+    color: c.foreground,
+  },
+  creditSummaryLabel: {
+    fontFamily: fonts.regular,
+    fontSize: 10,
+    color: c.mutedForeground,
+    marginTop: 2,
+  },
+  creditSummaryLegacy: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: c.mutedForeground,
   },
   cardTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
   ideaRow: { flexDirection: "row", gap: 10, marginTop: 10, alignItems: "center" },

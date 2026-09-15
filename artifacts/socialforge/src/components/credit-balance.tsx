@@ -1,4 +1,4 @@
-import { useGetCredits } from "@workspace/api-client-react";
+import { getGetCreditsQueryKey, useGetCredits } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,11 +17,19 @@ import { Link } from "wouter";
  * back with the same dropdown that rolls the billing back.
  */
 export function useCreditFunding() {
-  const { data: credits, isLoading } = useGetCredits();
+  const { data: credits, isLoading, isError } = useGetCredits({
+    query: {
+      queryKey: getGetCreditsQueryKey(),
+      staleTime: 0,
+      refetchOnMount: "always",
+      refetchInterval: 30_000,
+    },
+  });
   return {
     creditFunded: Boolean(credits?.funded),
     credits,
     isLoading,
+    isError,
   };
 }
 
@@ -35,7 +43,10 @@ export function useCreditFunding() {
  * together would be theatre.
  */
 export function CreditUsageCard() {
-  const { credits } = useCreditFunding();
+  const { credits, creditFunded, isLoading, isError } = useCreditFunding();
+  if (isLoading || !credits || isError) {
+    return <p role="status">{isError ? "Credit balance unavailable. Please try again." : "Loading credit balance…"}</p>;
+  }
   const total = credits?.total ?? 0;
   const granted = credits?.granted ?? 0;
   const purchased = credits?.purchased ?? 0;
@@ -69,14 +80,16 @@ export function CreditUsageCard() {
             {total.toFixed(total < 10 ? 1 : 0)}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Spent on whatever you generate — video, images, captions, voice.
+            {creditFunded
+              ? "Spent on whatever you generate — video, images, captions, voice."
+              : "Credits are saved to your balance. Generation still uses your current wallet or quota until credit billing is enabled."}
           </p>
         </div>
         {total > 0 && granted > 0 ? (
           <div className="space-y-2">
             <Progress value={(granted / total) * 100} className="h-2" />
             <p className="text-xs text-muted-foreground">
-              {granted.toFixed(granted < 10 ? 1 : 0)} from your plan
+              {granted.toFixed(granted < 10 ? 1 : 0)} granted (plan or rewards)
               {expiring
                 ? `, expiring ${new Date(credits!.grantedExpiresAt!).toLocaleDateString()}`
                 : ""}
@@ -91,7 +104,7 @@ export function CreditUsageCard() {
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            You have no credits left. Top up to keep generating.
+            {creditFunded ? "You have no credits left. Top up to keep generating." : "No unified credits yet. Your existing wallet or quota is separate."}
           </p>
         )}
         <Link href="/billing">
@@ -116,12 +129,12 @@ export function CreditUsageCard() {
  * a currency the platform is not yet using.
  */
 export function CreditBalancePill() {
-  const { data, isLoading } = useGetCredits();
+  const { credits: data, isLoading } = useCreditFunding();
 
-  if (isLoading || !data || data.mode === "off") return null;
+  if (isLoading || !data || (data.mode === "off" && data.total <= 0)) return null;
 
   const total = data.total ?? 0;
-  const low = total < 20;
+  const low = data.funded && total < 20;
 
   return (
     <Link href="/billing">

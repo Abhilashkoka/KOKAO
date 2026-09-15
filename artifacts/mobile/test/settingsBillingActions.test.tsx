@@ -6,11 +6,12 @@
  */
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const subscribeMutateAsync = vi.fn();
 const purchaseMutateAsync = vi.fn();
+const verifyPurchaseMutate = vi.fn();
 const cancelMutate = vi.fn();
 const requestUpgradeMutate = vi.fn();
 const switchPaygMutate = vi.fn();
@@ -40,7 +41,30 @@ vi.mock("@workspace/api-client-react", async () => {
         usage: { captions: 1, images: 1 },
         limits: { captions: 10, images: 10 },
         credits: { captionCredits: 0, imageCredits: 0 },
+        balance: { purchased: 32, granted: 8, total: 40 },
         team: mockState.team,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+    }),
+    useGetCredits: () => ({
+      data: {
+        purchased: 32,
+        granted: 8,
+        total: 40,
+        balance: { purchased: 32, granted: 8, total: 40 },
+        mode: "shadow",
+        funded: false,
+        history: [],
+        legacyConversion: {
+          pending: false,
+          captionCredits: 0,
+          imageCredits: 0,
+          videoCredits: 0,
+        },
       },
       isLoading: false,
       isError: false,
@@ -80,6 +104,10 @@ vi.mock("@workspace/api-client-react", async () => {
       ...idleMutation(),
       mutateAsync: purchaseMutateAsync,
     }),
+    useBillingVerifyPurchase: () => ({
+      ...idleMutation(),
+      mutate: verifyPurchaseMutate,
+    }),
     useBillingCancelSubscription: () => ({
       ...idleMutation(),
       mutate: cancelMutate,
@@ -103,9 +131,27 @@ vi.mock("@expo/vector-icons", () => ({
 }));
 
 const checkoutRequests: Array<Record<string, unknown> | null> = [];
+const checkoutSuccessHandlers: Array<
+  ((result: {
+    paymentId: string;
+    signature: string;
+    orderId?: string;
+  }) => void) | undefined
+> = [];
 vi.mock("@/components/RazorpayCheckoutModal", () => ({
-  RazorpayCheckoutModal: ({ request }: { request: Record<string, unknown> | null }) => {
+  RazorpayCheckoutModal: ({
+    request,
+    onSuccess,
+  }: {
+    request: Record<string, unknown> | null;
+    onSuccess?: (result: {
+      paymentId: string;
+      signature: string;
+      orderId?: string;
+    }) => void;
+  }) => {
     checkoutRequests.push(request);
+    checkoutSuccessHandlers.push(onSuccess);
     return null;
   },
 }));
@@ -116,21 +162,31 @@ function renderScreen() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const rendered = render(
     <QueryClientProvider client={client}>
       <SettingsScreen />
     </QueryClientProvider>,
   );
+  return { client, ...rendered };
 }
 
-const pack = { id: 7, name: "Starter pack", pricePaise: 49900, captionCredits: 50, imageCredits: 10 };
+const pack = {
+  id: 7,
+  name: "Starter pack",
+  pricePaise: 49900,
+  credits: 75,
+  captionCredits: 50,
+  imageCredits: 10,
+};
 const paidPlan = { id: "pro", name: "Pro", priceInr: 99900, priceInrYearly: null };
 
 beforeEach(() => {
   cleanup();
   checkoutRequests.length = 0;
+  checkoutSuccessHandlers.length = 0;
   subscribeMutateAsync.mockReset();
   purchaseMutateAsync.mockReset();
+  verifyPurchaseMutate.mockReset();
   cancelMutate.mockReset();
   switchPaygMutate.mockReset();
   requestUpgradeMutate.mockReset();
@@ -175,6 +231,67 @@ describe("Mobile Plan & Billing purchase actions", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("shows canonical totals and explicitly labels legacy pack credits", () => {
+    renderScreen();
+
+    expect(screen.getByText("Unified credits (total)")).toBeTruthy();
+    expect(screen.getByText("Purchased credits (non-expiring)")).toBeTruthy();
+    expect(screen.getByText("Granted credits (expiring)")).toBeTruthy();
+    expect(screen.getByText("Legacy caption credits")).toBeTruthy();
+    expect(screen.getByText("Legacy image credits")).toBeTruthy();
+    expect(screen.getByText(/75 unified credits/)).toBeTruthy();
+    expect(screen.getByText(/50 legacy captions/)).toBeTruthy();
+  });
+
+  it("invalidates the canonical credit query after a verified pack purchase", async () => {
+    purchaseMutateAsync.mockResolvedValue({
+      razorpayOrderId: "order_1",
+      amountPaise: 49900,
+      keyId: "rzp_test_key",
+    });
+    verifyPurchaseMutate.mockImplementation((_variables, options) => {
+      (options as { onSuccess?: () => void }).onSuccess?.();
+    });
+    const { client } = renderScreen();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+
+    fireEvent.click(screen.getByText("Buy"));
+    await waitFor(() =>
+      expect(
+        checkoutRequests.some((request) => request?.orderId === "order_1"),
+      ).toBe(true),
+    );
+
+    const onSuccess = checkoutSuccessHandlers[checkoutSuccessHandlers.length - 1];
+    await act(async () => {
+      onSuccess?.({
+        paymentId: "pay_1",
+        signature: "signature",
+        orderId: "order_1",
+      });
+    });
+
+    await waitFor(() =>
+      expect(verifyPurchaseMutate).toHaveBeenCalledWith(
+        {
+          data: {
+            razorpayOrderId: "order_1",
+            razorpayPaymentId: "pay_1",
+            razorpaySignature: "signature",
+          },
+        },
+        expect.any(Object),
+      ),
+    );
+    expect(
+      invalidateSpy.mock.calls.some(
+        ([options]) =>
+          JSON.stringify((options as { queryKey?: unknown }).queryKey) ===
+          JSON.stringify(["getGetCreditsQueryKey"]),
+      ),
+    ).toBe(true);
   });
 
   it("upgrading a plan starts a subscription checkout", async () => {

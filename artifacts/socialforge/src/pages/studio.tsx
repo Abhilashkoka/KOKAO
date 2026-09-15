@@ -1,5 +1,5 @@
 import { WalletBalancePill } from "@/components/wallet-balance";
-import { useCreditFunding } from "@/components/credit-balance";
+import { CreditUsageCard, useCreditFunding } from "@/components/credit-balance";
 import { useEffect, useRef, useState } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useForm } from "react-hook-form";
@@ -404,6 +404,7 @@ function StudioHeader() {
           platform.
         </p>
       </div>
+      {me && !creditFunded && (credits?.total ?? 0) > 0 && <CreditUsageCard />}
       {me && creditFunded && (
         <div
           className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm"

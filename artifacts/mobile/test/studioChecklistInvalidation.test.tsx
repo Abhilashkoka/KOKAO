@@ -28,6 +28,24 @@ vi.mock("@workspace/api-client-react", async () => {
       },
       isLoading: false,
     }),
+    useGetCredits: () => ({
+      data: {
+        purchased: 80,
+        granted: 20,
+        total: 100,
+        balance: { purchased: 80, granted: 20, total: 100 },
+        mode: "shadow",
+        funded: false,
+        history: [],
+        legacyConversion: {
+          pending: false,
+          captionCredits: 0,
+          imageCredits: 0,
+          videoCredits: 0,
+        },
+      },
+      isLoading: false,
+    }),
     useListBrandKits: () => ({ data: [], isLoading: false }),
     useGenerateCaption: () => ({ ...idleMutation(), mutate: genCaptionMutate }),
     useGenerateImage: () => ({ ...idleMutation(), mutate: genImageMutate }),
@@ -117,6 +135,17 @@ beforeEach(() => {
 });
 
 describe("Studio first-post checklist invalidation (mobile)", () => {
+  it("shows canonical totals separately from legacy balances", () => {
+    renderScreen();
+
+    expect(screen.getByTestId("mobile-studio-credit-balance")).toBeTruthy();
+    expect(screen.getByText("Unified credits")).toBeTruthy();
+    expect(screen.getByText("Total")).toBeTruthy();
+    expect(screen.getByText("Purchased")).toBeTruthy();
+    expect(screen.getByText("Granted")).toBeTruthy();
+    expect(screen.getByText("Legacy balances: 0 caption · 0 image")).toBeTruthy();
+  });
+
   it("invalidates first-post progress after a successful caption generation", () => {
     const { invalidateSpy } = renderScreen();
     typePrompt();

@@ -1,5 +1,5 @@
 import { useGetMe, useListContent, useListSchedules } from "@workspace/api-client-react";
-import { useCreditFunding } from "@/components/credit-balance";
+import { CreditUsageCard, useCreditFunding } from "@/components/credit-balance";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -89,6 +89,7 @@ export function DashboardPage() {
         <p className="text-muted-foreground text-lg mt-1">Here's what's happening in your workspace today.</p>
       </div>
 
+      {!creditFunded && (credits?.total ?? 0) > 0 && <CreditUsageCard />}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {creditFunded ? (
           <Card className="shadow-sm border-border overflow-hidden relative" data-testid="card-dashboard-credits">

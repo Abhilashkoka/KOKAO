@@ -73,13 +73,15 @@ vi.mock("@workspace/api-client-react", async () => {
 import { BillingSettings } from "./billing-settings";
 
 function renderCard() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      client={client}
     >
       <BillingSettings />
     </QueryClientProvider>,
   );
+  return client;
 }
 
 async function fireVerifyPurchaseError(err: unknown) {
@@ -114,6 +116,15 @@ describe("BillingSettings verify-purchase failure toasts", () => {
   });
 
   afterEach(() => cleanup());
+
+  it("refreshes unified credits after a verified purchase", async () => {
+    const client = renderCard();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    fireEvent.click(screen.getByRole("button", { name: /buy/i }));
+    await waitFor(() => expect(mockState.verifyPurchaseMutate).toHaveBeenCalledTimes(1));
+    mockState.verifyPurchaseMutate.mock.calls[0][1].onSuccess();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["getGetCreditsQueryKey"] });
+  });
 
   it("shows a destructive 'Payment failed' toast for a terminal lost-order 400", async () => {
     renderCard();
