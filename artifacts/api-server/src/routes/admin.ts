@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { invalidPack } from "../lib/creditPackValidation";
 import { z } from "zod";
 import {
   db,
@@ -5072,26 +5073,6 @@ async function listAllCreditPacks() {
   return rows.map(serializeCreditPack);
 }
 
-const invalidPack = (b: {
-  name: string;
-  pricePaise: number;
-  captionCredits: number;
-  imageCredits: number;
-  videoCredits?: number;
-}) =>
-  !b.name.trim() ||
-  !Number.isInteger(b.pricePaise) ||
-  b.pricePaise <= 0 ||
-  !Number.isInteger(b.captionCredits) ||
-  b.captionCredits < 0 ||
-  !Number.isInteger(b.imageCredits) ||
-  b.imageCredits < 0 ||
-  (b.videoCredits !== undefined &&
-    (!Number.isInteger(b.videoCredits) || b.videoCredits < 0)) ||
-  (b.captionCredits === 0 &&
-    b.imageCredits === 0 &&
-    (b.videoCredits ?? 0) === 0);
-
 /** GET /admin/credit-packs — all packs, including inactive. */
 router.get("/admin/credit-packs", async (_req: Request, res: Response) => {
   res.json(await listAllCreditPacks());
@@ -5147,7 +5128,7 @@ router.post("/admin/credit-packs", async (req: Request, res: Response) => {
 router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const parsed = AdminUpdateCreditPackBody.safeParse(req.body);
-  if (!parsed.success || invalidPack(parsed.data)) {
+  if (!parsed.success) {
     res.status(400).json({
       error:
         "A pack needs a name, a positive price in paise, and at least one credit.",
@@ -5163,6 +5144,18 @@ router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
   )[0];
   if (!previous) {
     res.status(404).json({ error: "Not found" });
+    return;
+  }
+  // Omitted optional quantities retain their stored value, including video-only
+  // legacy packs. Validate what will actually be saved, not an incomplete body.
+  if (invalidPack({
+    ...parsed.data,
+    credits: parsed.data.credits ?? previous.credits,
+    videoCredits: parsed.data.videoCredits ?? previous.videoCredits,
+  })) {
+    res.status(400).json({
+      error: "A pack needs a name, a positive price in paise, and at least one credit.",
+    });
     return;
   }
   const updated = (
