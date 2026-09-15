@@ -19,7 +19,6 @@ import {
   getGetReferralInfoQueryKey,
   useClaimGamificationReward,
   useGetGamification,
-  useGetCredits,
   useGetMe,
   useGetReferralInfo,
   type RewardAmounts,
@@ -28,6 +27,7 @@ import {
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { Button, Card } from "@/components/ui";
+import { useCreditBalance } from "@/lib/creditBalance";
 
 const c = colors.light;
 
@@ -71,7 +71,7 @@ export function GamificationCard() {
     query: { queryKey: getGetGamificationQueryKey(), staleTime: 30_000 },
   });
   const { data: me } = useGetMe();
-  const { data: creditWallet } = useGetCredits();
+  const { data: creditWallet } = useCreditBalance();
   const claim = useClaimGamificationReward();
   const [expanded, setExpanded] = useState(false);
   const [referralOpen, setReferralOpen] = useState(false);

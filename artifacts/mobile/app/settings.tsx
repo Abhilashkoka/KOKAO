@@ -16,7 +16,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetMe,
   getGetMeQueryKey,
-  useGetCredits,
   getGetCreditsQueryKey,
   useBillingGetOverview,
   getBillingGetOverviewQueryKey,
@@ -42,6 +41,10 @@ import {
 } from "@/components/RazorpayCheckoutModal";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { verifyFailureNotice } from "@/lib/verifyFailureNotice";
+import {
+  refreshCreditBalance,
+  useCreditBalance,
+} from "@/lib/creditBalance";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 
@@ -124,9 +127,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const me = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
-  const creditWallet = useGetCredits({
-    query: { queryKey: getGetCreditsQueryKey() },
-  });
+  const creditWallet = useCreditBalance();
   const billing = useBillingGetOverview({
     query: { queryKey: getBillingGetOverviewQueryKey() },
   });
@@ -148,6 +149,7 @@ export default function SettingsScreen() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [checkout, setCheckout] = useState<CheckoutRequest | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const [notice, setNotice] = useState<{
     kind: "success" | "error" | "info";
     text: string;
@@ -179,12 +181,14 @@ export default function SettingsScreen() {
     );
   };
 
-  const refreshing =
-    me.isRefetching || billing.isRefetching || creditWallet.isRefetching;
-  const refetchAll = () => {
-    void me.refetch();
-    void billing.refetch();
-    void creditWallet.refetch();
+  const refreshing = pullRefreshing;
+  const refetchAll = async () => {
+    setPullRefreshing(true);
+    try {
+      await Promise.all([me.refetch(), billing.refetch(), creditWallet.refetch()]);
+    } finally {
+      setPullRefreshing(false);
+    }
   };
 
   const refreshAfterPurchase = () => {
@@ -364,6 +368,21 @@ export default function SettingsScreen() {
       setNotice({ kind, text });
       refreshAfterPurchase();
     };
+    const doneAfterVerifiedPurchase = async () => {
+      // Keep the existing invalidation for the other billing surfaces, then
+      // replace any invalidation-triggered read with an authoritative,
+      // no-store request. The helper cancels that old read first.
+      refreshAfterPurchase();
+      try {
+        await refreshCreditBalance(queryClient);
+      } catch {
+        // React Query keeps the previous data on a refetch error. The active
+        // polling/focus refresh will retry without blanking the visible
+        // balance.
+      }
+      setVerifying(false);
+      setNotice({ kind: "success", text: "Credits added to your workspace." });
+    };
     if (active.mode === "subscription") {
       if (!result.subscriptionId) {
         done("error", "Payment received; your plan will activate shortly.");
@@ -403,7 +422,9 @@ export default function SettingsScreen() {
           },
         },
         {
-          onSuccess: () => done("success", "Credits added to your workspace."),
+          onSuccess: () => {
+            void doneAfterVerifiedPurchase();
+          },
           onError: (error) => {
             const notice = verifyFailureNotice(
               error,

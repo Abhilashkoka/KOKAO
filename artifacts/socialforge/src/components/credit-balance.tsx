@@ -23,7 +23,10 @@ export function useCreditFunding() {
       queryKey: getGetCreditsQueryKey(),
       staleTime: 0,
       refetchOnMount: "always",
+      refetchOnWindowFocus: "always",
+      refetchOnReconnect: "always",
       refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
     },
   });
   return {
@@ -45,7 +48,7 @@ export function useCreditFunding() {
  */
 export function CreditUsageCard() {
   const { credits, creditFunded, isLoading, isError } = useCreditFunding();
-  if (isLoading || !credits || isError) {
+  if (isLoading || !credits) {
     return <p role="status">{isError ? "Credit balance unavailable. Please try again." : "Loading credit balance…"}</p>;
   }
   const total = credits?.total ?? 0;
@@ -66,6 +69,11 @@ export function CreditUsageCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {isError && (
+          <p className="text-xs text-muted-foreground" role="status">
+            Showing your last known balance. Reconnecting automatically…
+          </p>
+        )}
         {legacy?.pending && legacyTotal > 0 && (
           <p
             className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground"

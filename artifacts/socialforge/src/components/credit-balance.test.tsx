@@ -40,3 +40,10 @@ it("does not show a failed balance request as zero credits", () => {
   expect(screen.getByRole("status").textContent).toContain("unavailable");
   expect(screen.queryByText("0.0")).toBeNull();
 });
+
+it("keeps the last known balance visible while background refresh retries", () => {
+  state.result.isError = true;
+  render(<CreditUsageCard />);
+  expect(screen.getByText("500")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain("last known balance");
+});

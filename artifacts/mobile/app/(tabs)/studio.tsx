@@ -18,7 +18,6 @@ import {
   useGenerateCaption,
   useGenerateImage,
   useGetMe,
-  useGetCredits,
   useListBrandKits,
   useListContent,
   useListFeatureFlags,
@@ -28,7 +27,6 @@ import {
   getListContentQueryKey,
   getGetContentQueryKey,
   getGetMeQueryKey,
-  getGetCreditsQueryKey,
   getGetFirstPostProgressQueryKey,
   type BrandKit,
   type ContentItem,
@@ -48,6 +46,7 @@ import {
   useWalletBilling,
 } from "@/components/QuotaInfoSheet";
 import { track, trackFeatureUse } from "@/lib/analytics";
+import { useCreditBalance } from "@/lib/creditBalance";
 import { ContentImage } from "@/components/ContentImage";
 import { VoiceNoteButton } from "@/components/VoiceNoteButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -188,9 +187,7 @@ export default function StudioScreen() {
 
   const brandKits = useListBrandKits();
   const meQuery = useGetMe();
-  const creditWalletQuery = useGetCredits({
-    query: { queryKey: getGetCreditsQueryKey() },
-  });
+  const creditWalletQuery = useCreditBalance();
   const requestUpgrade = useBillingRequestUpgrade();
   const featureFlags = useListFeatureFlags({
     query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
