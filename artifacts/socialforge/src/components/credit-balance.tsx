@@ -18,6 +18,7 @@ import { Link } from "wouter";
  */
 export function useCreditFunding() {
   const { data: credits, isLoading, isError } = useGetCredits({
+    request: { cache: "no-store" },
     query: {
       queryKey: getGetCreditsQueryKey(),
       staleTime: 0,

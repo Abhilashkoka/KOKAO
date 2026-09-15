@@ -122,7 +122,7 @@ describe("BillingSettings verify-purchase failure toasts", () => {
     const invalidate = vi.spyOn(client, "invalidateQueries");
     fireEvent.click(screen.getByRole("button", { name: /buy/i }));
     await waitFor(() => expect(mockState.verifyPurchaseMutate).toHaveBeenCalledTimes(1));
-    mockState.verifyPurchaseMutate.mock.calls[0][1].onSuccess();
+    await mockState.verifyPurchaseMutate.mock.calls[0][1].onSuccess();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["getGetCreditsQueryKey"] });
   });
 

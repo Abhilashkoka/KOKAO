@@ -23,6 +23,7 @@ import {
 import type { Plan } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditUsageCard } from "@/components/credit-balance";
+import { refreshCreditBalance } from "@/lib/refresh-credit-balance";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -271,9 +272,14 @@ export function BillingSettings() {
         verifyPurchase.mutate(
           { data: { cashfreeOrderId: order.cashfreeOrderId ?? "" } },
           {
-            onSuccess: () => {
+            onSuccess: async () => {
               trackProjectEvent("credits_purchased", { pack: packSlug });
-              toast({ title: "Credits added", description: `${packName} has been applied.` });
+              try {
+                await refreshCreditBalance(queryClient);
+                toast({ title: "Credits added", description: `${packName} has been applied.` });
+              } catch {
+                toast({ title: "Pack applied", description: "Your purchase is saved, but the balance refresh failed. It will retry automatically." });
+              }
               refresh();
             },
             onError: (error) => {
@@ -316,9 +322,14 @@ export function BillingSettings() {
               },
             },
             {
-              onSuccess: () => {
+              onSuccess: async () => {
                 trackProjectEvent("credits_purchased", { pack: packSlug });
-                toast({ title: "Credits added", description: `${packName} has been applied.` });
+                try {
+                  await refreshCreditBalance(queryClient);
+                  toast({ title: "Credits added", description: `${packName} has been applied.` });
+                } catch {
+                  toast({ title: "Pack applied", description: "Your purchase is saved, but the balance refresh failed. It will retry automatically." });
+                }
                 refresh();
               },
               onError: (error) => {
