@@ -319,6 +319,7 @@ export * from './creditAccountView';
 export * from './creditBalance';
 export * from './creditBalances';
 export * from './creditHistoryEntry';
+export * from './creditHistoryEntrySettlementStatus';
 export * from './creditLedgerEntry';
 export * from './creditMeterReport';
 export * from './creditMeterReportRow';

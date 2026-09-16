@@ -3,6 +3,7 @@ import { logger } from "../../logger";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { getTextGenClient } from "../../textGen";
 import type { MeterContext } from "../../meter";
+import { childMeterContext } from "./meterIdentity";
 
 function legacyShadowTextContext(tenantId: number): MeterContext {
   return {
@@ -24,6 +25,8 @@ export async function refineScenePrompts(params: {
   tenantId?: number | null;
   /** Frozen funding receipt from the owning route/job. */
   meterContext?: MeterContext | null;
+  /** Identifies the visual-planning stage within the owning job. */
+  operationStage?: string;
 }): Promise<string[]> {
   const originals = params.prompts;
   if (originals.length === 0) return originals;
@@ -31,8 +34,11 @@ export async function refineScenePrompts(params: {
   try {
     const textGen = await getTextGenClient(
       params.tenantAiModel,
-      params.meterContext ??
-        (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+      childMeterContext(
+        params.meterContext ??
+          (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+        params.operationStage ?? "scene-polish",
+      ),
     );
     const governed = params.tenantId
       ? await getGovernedPrompt({

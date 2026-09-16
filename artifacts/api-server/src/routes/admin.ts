@@ -324,15 +324,18 @@ import {
 } from "../lib/signupCredits";
 import {
   listCreditRates,
-  upsertCreditRate,
-  deleteCreditRate,
   getMeterMode,
-  setMeterMode,
   getCreditPricePaise,
-  setCreditPricePaise,
+  replaceCreditRateCard,
+  validateCreditRateCard,
+  CreditRateCardValidationError,
+  CreditEnforcementLockedError,
   MILLI,
 } from "../lib/creditRates";
-import { CREDIT_RECONCILIATION_GATE } from "../lib/creditReconciliationGate";
+import {
+  creditEnforcementLockReason,
+  isCreditEnforcementAllowed,
+} from "../lib/creditReconciliationGate";
 import { meterReport } from "../lib/meter";
 import {
   planCreditMigrationPreview,
@@ -5638,8 +5641,10 @@ router.get("/admin/credit-rates", async (_req: Request, res: Response) => {
  *
  * Rows are upserted by key and rows the payload omits are deleted, so the
  * admin screen saves the whole table in one call and a removed cost centre
- * actually disappears. Historical meter events keep the key and price they
- * were recorded with, so deleting a rate never rewrites the past.
+ * actually disappears. Mode, conversion price and all row writes commit in
+ * one transaction; a removed or invalid cost centre cannot leave a partial
+ * card behind. Historical meter events keep the key and price they were
+ * recorded with, so deleting a rate never rewrites the past.
  */
 router.put("/admin/credit-rates", async (req: Request, res: Response) => {
   const parsed = AdminUpdateCreditRatesBody.safeParse(req.body);
@@ -5647,12 +5652,9 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  if (
-    parsed.data.mode === "enforce" &&
-    CREDIT_RECONCILIATION_GATE.verdict !== "go"
-  ) {
+  if (parsed.data.mode === "enforce" && !isCreditEnforcementAllowed()) {
     res.status(409).json({
-      error: `Credit enforcement is locked: ${CREDIT_RECONCILIATION_GATE.reason} Keep the meter in shadow mode until reconciliation is complete.`,
+      error: `Credit enforcement is locked: ${creditEnforcementLockReason()} Keep the meter in shadow mode until the applicable release checks are complete.`,
     });
     return;
   }
@@ -5672,13 +5674,31 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
   }
   if (
     parsed.data.rates.some(
-      (rate) => !Number.isFinite(rate.credits) || rate.credits < 0,
+      (rate) =>
+        !Number.isFinite(rate.credits) ||
+        rate.credits < 0 ||
+        !Number.isSafeInteger(Math.round(rate.credits * MILLI)) ||
+        (rate.credits > 0 && Math.round(rate.credits * MILLI) === 0),
     )
   ) {
     res.status(400).json({
-      error: "Each credit rate must be a finite number that is 0 or more.",
+      error:
+        "Each credit rate must be 0 or at least 0.001 credits and fit the supported precision.",
     });
     return;
+  }
+  try {
+    validateCreditRateCard({
+      mode: parsed.data.mode,
+      creditPricePaise: parsed.data.creditPricePaise,
+      rates: parsed.data.rates,
+    });
+  } catch (error) {
+    if (error instanceof CreditRateCardValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
   }
   const before = {
     mode: await getMeterMode(),
@@ -5686,22 +5706,24 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
     creditPricePaise: await getCreditPricePaise(),
   };
 
-  await setMeterMode(parsed.data.mode);
-  await setCreditPricePaise(parsed.data.creditPricePaise);
-  for (const rate of parsed.data.rates) {
-    await upsertCreditRate({
-      key: rate.key,
-      label: rate.label,
-      unit: rate.unit,
-      credits: rate.credits,
-      active: rate.active,
-      sortOrder: rate.sortOrder ?? 0,
-      notes: rate.notes ?? null,
+  try {
+    await replaceCreditRateCard({
+      mode: parsed.data.mode,
+      creditPricePaise: parsed.data.creditPricePaise,
+      rates: parsed.data.rates,
     });
-  }
-  const submitted = new Set(keys);
-  for (const existing of before.rates) {
-    if (!submitted.has(existing.key)) await deleteCreditRate(existing.key);
+  } catch (error) {
+    if (error instanceof CreditRateCardValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof CreditEnforcementLockedError) {
+      res.status(409).json({
+        error: `${error.message} Keep the meter in shadow mode until the applicable release checks are complete.`,
+      });
+      return;
+    }
+    throw error;
   }
 
   const after = {

@@ -69,6 +69,7 @@ import sharp from "sharp";
 import { createHash } from "node:crypto";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
+import { childMeterContext } from "./meterIdentity";
 import { getMotionInstruction } from "../motionPrompt";
 import { appendCreativeFragment } from "../creativeBrief";
 import {
@@ -585,16 +586,24 @@ async function writeAndVoiceScript(params: {
     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
   }
   params.onStage?.("Voicing the narration");
+  const narrationMeterContext = childMeterContext(params.meterContext, "narration");
   const spoken = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
-    meterContext: params.meterContext ?? null,
+    meterContext: narrationMeterContext,
     billing: params.videoJobId == null
-      ? { tenantId: params.tenantId, refKind: "topicVideo", funding: params.meterContext?.funding }
+      ? {
+          tenantId: params.tenantId,
+          refKind: "topicVideo",
+          funding: params.meterContext?.funding,
+          operationFamilyKey: narrationMeterContext?.operationFamilyKey,
+        }
       : {
           tenantId: params.tenantId,
           refKind: "videoJob",
           refId: `${params.videoJobId}:0`,
           funding: params.meterContext?.funding,
+          operationScope: { jobId: params.videoJobId, cueIndex: 0, stage: "narration" },
+          operationFamilyKey: narrationMeterContext?.operationFamilyKey,
         },
   });
   const narration = params.templateRuntime
@@ -1043,6 +1052,7 @@ export async function planTopicStoryboard(
           storyboard: base,
           scene,
           aspectRatio: params.aspectRatio,
+          meterCtx: params.meterContext ?? null,
           upload: params.upload,
           priorImages: guidedContinuityImages(scene, latestByRole),
           onProviderSuccess: ({ result }) => {
@@ -1181,6 +1191,7 @@ export async function planTopicStoryboard(
 
   const { tenantAiModel, model, narration, verificationFindings } = await writeAndVoiceScript({
     tenantId: params.tenantId,
+    meterContext: params.meterContext ?? null,
     videoJobId: params.videoJobId,
     topic,
     approvedScript: params.approvedScript ?? null,
@@ -1347,6 +1358,10 @@ export async function synthesizeGuidedNarration(params: {
     reservationId: number | null;
   }> = [];
   for (const [cueIndex, line] of lines.entries()) {
+    const lineMeterContext = childMeterContext(
+      params.meterContext,
+      `guided-narration:line:${cueIndex}:${line.id}`,
+    );
     const lineBilling: Omit<(typeof billingReceipts)[number], "lineId"> & {
       exact: boolean;
     } = {
@@ -1375,9 +1390,18 @@ export async function synthesizeGuidedNarration(params: {
           refKind: params.videoJobId == null ? "guidedStoryLine" : "videoJob",
           refId: params.videoJobId == null ? line.id : `${params.videoJobId}:${cueIndex}`,
           funding: params.meterContext?.funding,
+          operationScope:
+            params.videoJobId == null
+              ? undefined
+              : {
+                  jobId: params.videoJobId,
+                  cueIndex,
+                  stage: `guided-narration-line:${cueIndex}`,
+                },
+          operationFamilyKey: lineMeterContext?.operationFamilyKey,
           onReceipt: (receipt) => { Object.assign(lineBilling, receipt, { exact: true }); },
         },
-        meterContext: params.meterContext ?? null,
+        meterContext: lineMeterContext,
         // Guided Story freezes one of its approved locales and must use v3:
         // v2 cannot speak Telugu and does not accept language_code.
         brandVoiceModelId: "eleven_v3",
@@ -1504,11 +1528,28 @@ export async function prepareCharacterStoryStoryboard(params: {
       ranges.push({ first: sentences.length, last: sentences.length + chunks.length - 1 });
       sentences.push(...chunks);
     }
+    const characterNarrationMeterContext = childMeterContext(
+      params.meterContext,
+      "character-narration",
+    );
     const narration = await synthesizeNarration(sentences, params.voice, {
       clonedVoice: params.clonedVoice ?? null,
+      meterContext: characterNarrationMeterContext,
       billing: params.videoJobId == null
-        ? { tenantId: params.tenantId, refKind: "videoStoryboard" }
-        : { tenantId: params.tenantId, refKind: "videoJob", refId: `${params.videoJobId}:0` },
+        ? {
+            tenantId: params.tenantId,
+            refKind: "videoStoryboard",
+            funding: params.meterContext?.funding,
+            operationFamilyKey: characterNarrationMeterContext?.operationFamilyKey,
+          }
+        : {
+            tenantId: params.tenantId,
+            refKind: "videoJob",
+            refId: `${params.videoJobId}:0`,
+            funding: params.meterContext?.funding,
+            operationScope: { jobId: params.videoJobId, cueIndex: 0, stage: "character-narration" },
+            operationFamilyKey: characterNarrationMeterContext?.operationFamilyKey,
+          },
     });
     const cueDurations = sceneDurations(narration.cues, narration.totalDurationSec);
     const audioPath = await params.upload(narration.wav, "audio/wav");
@@ -1661,9 +1702,13 @@ export async function refreshEditedNarration(params: {
     ranges.push({ first: sentences.length, last: sentences.length + chunks.length - 1 });
     sentences.push(...chunks);
   }
+  const refreshNarrationMeterContext = childMeterContext(
+    params.meterContext,
+    "refresh-narration",
+  );
   const recorded = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
-    meterContext: params.meterContext ?? null,
+    meterContext: refreshNarrationMeterContext,
     billing:
       params.tenantId !== undefined
         ? params.videoJobId == null
@@ -1671,12 +1716,15 @@ export async function refreshEditedNarration(params: {
               tenantId: params.tenantId,
               refKind: "videoStoryboard",
               funding: params.meterContext?.funding,
+              operationFamilyKey: refreshNarrationMeterContext?.operationFamilyKey,
             }
           : {
               tenantId: params.tenantId,
               refKind: "videoJob",
               refId: `${params.videoJobId}:0`,
               funding: params.meterContext?.funding,
+              operationScope: { jobId: params.videoJobId, cueIndex: 0, stage: "refresh-narration" },
+              operationFamilyKey: refreshNarrationMeterContext?.operationFamilyKey,
             }
         : null,
   });

@@ -1410,6 +1410,19 @@ export interface CreditMeterReport {
   rows: CreditMeterReportRow[];
 }
 
+/**
+ * Settlement state for a metered credit transaction. Null for non-metered history rows; pending and ambiguous rows must not be presented as a final settled outcome.
+ * @nullable
+ */
+export type CreditHistoryEntrySettlementStatus = typeof CreditHistoryEntrySettlementStatus[keyof typeof CreditHistoryEntrySettlementStatus] | null;
+
+
+export const CreditHistoryEntrySettlementStatus = {
+  settled: 'settled',
+  pending: 'pending',
+  ambiguous: 'ambiguous',
+} as const;
+
 export interface CreditHistoryEntry {
   id: number;
   kind: string;
@@ -1423,6 +1436,11 @@ export interface CreditHistoryEntry {
   refId?: string | null;
   /** @nullable */
   note?: string | null;
+  /**
+     * Settlement state for a metered credit transaction. Null for non-metered history rows; pending and ambiguous rows must not be presented as a final settled outcome.
+     * @nullable
+     */
+  settlementStatus?: CreditHistoryEntrySettlementStatus;
   createdAt: string;
 }
 

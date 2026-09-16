@@ -15,14 +15,26 @@ An explicitly approved one-time wallet conversion may retain reviewed historical
 
 **How to apply:** Scope any internal exception to the exact reviewed pending ledger set, preserve those rows unchanged, retain all other blockers, and record the exception in linked conversion receipts.
 
-The unified-credit system must start in shadow mode. Meter provider calls where spend occurs, including retries and paid failures, and reconcile those totals against provider invoices before enabling enforcement.
+Production credit billing starts in shadow mode. Meter provider calls where spend occurs, including retries and paid failures, and reconcile those totals against provider invoices before enabling production enforcement.
 
-The enforcement release decision requires a complete live shadow billing window
+The production enforcement release decision requires a complete live shadow billing window
 and matching provider invoice evidence. A partial account audit or development
 test events cannot establish approval; unknown paid-failure or rate-key coverage
 must remain a no-go rather than an accepted zero variance.
 
 **Why:** Route-level quota reservations miss provider work performed deep inside generation pipelines. Charging from an unreconciled rate card can undercharge customers, lose money, or debit inconsistently.
+
+Development may use explicitly approved saved-rate billing after behavior checks, separately from the production invoice gate.
+
+**Why:** The user approved development deductions based on configured prices without provider invoices. These checks establish correct customer deductions, not provider-cost accuracy or profitability; that approval does not release production.
+
+**How to apply:** Preserve exact saved prices (including explicit free rates), keep the production gate unchanged, scope the opt-in to development, and verify coverage, insufficient balance, durable refunds, and replay safety before activation.
+
+Unknown provider outcomes must not be treated as confirmed failures when billing credits. Keep them reviewable and block automatic replay; only confirmed failures qualify for automatic refunds.
+
+**Why:** A timeout can happen after a provider accepted paid work. Refunding and retrying that request can pay the provider twice. Refund obligations also need durable records so database outages do not silently discard them.
+
+**How to apply:** Persist dispatch and refund state, distinguish missing dispatch from ambiguous dispatch, and allow recovery of an unstarted request only after its live-request lease expires.
 
 Meter at the innermost paid submission boundary, not around a wrapper that may hide provider retries. Context must be explicit: a tenant context for billable work, or `null` for health checks and admin playground calls.
 

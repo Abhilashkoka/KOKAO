@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 vi.mock("./creditReconciliationGate", () => ({
   CREDIT_RECONCILIATION_GATE: { verdict: "go", reason: "enforcement algorithm test override" },
+  isCreditEnforcementAllowed: () => true,
+  creditEnforcementLockReason: () => "enforcement algorithm test override",
 }));
 import {
   pool,
@@ -92,7 +94,7 @@ describe("meter enforcement", () => {
     await expect(
       meter(creditsContext("enforcement-provider-failure"), "video", 10, async () => {
         throw new Error("provider rejected the prompt");
-      }),
+      }, undefined, { isFailureConfirmed: () => true }),
     ).rejects.toThrow("provider rejected");
 
     // Whole cost back: a failure that was never the customer's fault must not

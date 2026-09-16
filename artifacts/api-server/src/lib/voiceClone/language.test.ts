@@ -68,4 +68,38 @@ describe("ElevenLabs localized speech", () => {
     expect(telugu).not.toBe(tamil);
     expect(telugu).not.toBe(legacy);
   });
+
+  it("keeps job, cue, and stage scopes stable across retries", () => {
+    const first = buildBrandVoiceTtsOperationKey(
+      "v",
+      "m",
+      "same",
+      { jobId: 17, cueIndex: 3, stage: "guided-narration" },
+      "te",
+    );
+    const retry = buildBrandVoiceTtsOperationKey(
+      "v",
+      "m",
+      "same",
+      { jobId: 17, cueIndex: 3, stage: "guided-narration" },
+      "te",
+    );
+    const otherJob = buildBrandVoiceTtsOperationKey(
+      "v",
+      "m",
+      "same",
+      { jobId: 18, cueIndex: 3, stage: "guided-narration" },
+      "te",
+    );
+    const otherStage = buildBrandVoiceTtsOperationKey(
+      "v",
+      "m",
+      "same",
+      { jobId: 17, cueIndex: 3, stage: "dialogue-tts" },
+      "te",
+    );
+    expect(first).toBe(retry);
+    expect(first).not.toBe(otherJob);
+    expect(first).not.toBe(otherStage);
+  });
 });

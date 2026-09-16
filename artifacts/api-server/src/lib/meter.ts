@@ -5,7 +5,11 @@ import { creditCostSnapshotFor, getMeterMode, listCreditRates, MILLI } from "./c
 import {
   spendCreditsOnce,
   refundCredits,
-  refundCreditsSafely,
+  queueCreditMeterRefund,
+  markCreditMeterDispatchStarted,
+  markCreditMeterDispatchOutcome,
+  markCreditMeterDispatchFailedWithRefund,
+  recoverCreditMeterBeforeReplay,
   InsufficientCreditsError,
 } from "./creditAccounts";
 import { type MeterFundingSnapshot } from "./meterFunding";
@@ -104,6 +108,42 @@ export interface MeterOptions {
    * not delivered.
    */
   reservationQuantity?: number;
+  /**
+   * A rejected provider request is not always a confirmed non-dispatch:
+   * connection loss can happen after the provider accepted the request. The
+   * normal provider wrappers know when a failure is definitive. Callers may
+   * return true only for an explicit terminal rejection (for example a
+   * provider HTTP 4xx other than 408/409). Omitted classifiers fail closed as
+   * ambiguous; they never refund or replay an unknown provider request.
+   */
+  isFailureConfirmed?: (error: unknown) => boolean;
+}
+
+/**
+ * Conservative fallback for wrappers that have not supplied a provider
+ * classifier. Network errors, timeouts, 5xx responses, and arbitrary Error
+ * objects are intentionally unknown. A 4xx rejection is safe only when it is
+ * not a timeout/conflict that could have raced provider acceptance.
+ */
+export function isDefinitiveProviderRejection(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    response?: { status?: unknown } | null;
+  };
+  const statusCandidates = [value.status, value.statusCode, value.response?.status];
+  const status = statusCandidates.find(
+    (candidate): candidate is number =>
+      typeof candidate === "number" && Number.isInteger(candidate),
+  );
+  return (
+    status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    status !== 408 &&
+    status !== 409
+  );
 }
 
 export class ActualQuantityExceedsReservationError extends Error {
@@ -113,6 +153,26 @@ export class ActualQuantityExceedsReservationError extends Error {
   ) {
     super("Provider result exceeded its metered quantity reservation");
     this.name = "ActualQuantityExceedsReservationError";
+  }
+}
+
+export class MeterDispatchOutcomeUnknownError extends Error {
+  readonly code = "METER_DISPATCH_OUTCOME_UNKNOWN";
+
+  constructor(readonly cause?: unknown) {
+    super(
+      "Metered provider outcome is unknown; the operation is blocked for reconciliation",
+    );
+    this.name = "MeterDispatchOutcomeUnknownError";
+  }
+}
+
+export class MeterSettlementPendingError extends Error {
+  readonly code = "METER_SETTLEMENT_PENDING";
+
+  constructor(readonly refundMilli: number) {
+    super("Metered provider work succeeded; credit settlement is pending retry");
+    this.name = "MeterSettlementPendingError";
   }
 }
 
@@ -280,7 +340,12 @@ export async function meter<T>(
     );
   }
 
-  let priceSnapshot: { unitRateMilli: number; costMilli: number } | null;
+  let priceSnapshot: {
+    unitRateMilli: number;
+    costMilli: number;
+    active: boolean;
+    valid: boolean;
+  } | null;
   try {
     priceSnapshot = await creditCostSnapshotFor(key, reservationQuantity);
   } catch (err) {
@@ -298,6 +363,25 @@ export async function meter<T>(
       `No credit price is configured for metered key "${key}"`,
     );
   }
+  if (creditsEnforced && priceSnapshot && !priceSnapshot.valid) {
+    throw new MeterFundingConfigurationError(
+      `The saved credit price for metered key "${key}" is invalid`,
+    );
+  }
+  if (
+    creditsEnforced &&
+    priceSnapshot &&
+    (!Number.isSafeInteger(priceSnapshot.costMilli) || priceSnapshot.costMilli < 0)
+  ) {
+    throw new MeterFundingConfigurationError(
+      `The metered cost for key "${key}" is outside the supported credit range`,
+    );
+  }
+  if (creditsEnforced && priceSnapshot && !priceSnapshot.active) {
+    throw new MeterFundingConfigurationError(
+      `The saved credit price for metered key "${key}" is inactive`,
+    );
+  }
 
   // ENFORCE: debit BEFORE the provider call, so two concurrent generations
   // cannot both spend the last credit, and refund if the call then fails.
@@ -307,6 +391,8 @@ export async function meter<T>(
   let debited = false;
   let debitReceiptKey: string | null = null;
   let failureRefundKey: string | null = null;
+  let providerCallReturned = false;
+  let dispatchOutcomePersisted = false;
   // A paid rate gets a receipt even when the conservative reservation rounds
   // to zero. The authoritative result can then be settled after success, and
   // a failed zero-estimate attempt can persist its matching refund marker.
@@ -324,7 +410,7 @@ export async function meter<T>(
     const refundBase = familyKey
       ? `refund-family:${familyKey}`
       : operationKey ? `refund:${operationKey}:${key}` : null;
-    const debit = await spendCreditsOnce({
+    const spendInput = {
       tenantId: ctx.tenantId,
       creditsMilli: costMilli,
       rateKey: key,
@@ -333,7 +419,26 @@ export async function meter<T>(
       idempotencyKey: spendBase,
       retryAfterRefund: Boolean(spendBase && refundBase),
       refundIdempotencyKey: refundBase,
-    });
+      meterDispatch: {
+        refundKey: refundBase!,
+        creditsMilli: costMilli,
+        rateKey: key,
+        refKind: ctx.refKind ?? null,
+        refId: ctx.refId ?? null,
+      },
+    } as const;
+    let debit = await spendCreditsOnce(spendInput);
+    if (!debit.applied && debit.idempotencyKey && debit.refundIdempotencyKey) {
+      // A crash after the debit transaction committed but before the
+      // dispatch-started marker is the one safe replay case.  Repair it
+      // synchronously when possible; a started/unknown operation remains
+      // blocked and can never silently invoke the provider twice.
+      const recovered = await recoverCreditMeterBeforeReplay({
+        tenantId: ctx.tenantId,
+        spendKey: debit.idempotencyKey,
+      });
+      if (recovered) debit = await spendCreditsOnce(spendInput);
+    }
     debited = debit.applied;
     debitReceiptKey = debit.idempotencyKey ?? spendBase;
     failureRefundKey = debit.refundIdempotencyKey ?? refundBase;
@@ -344,10 +449,20 @@ export async function meter<T>(
     if (!debit.applied) {
       throw new MeterDispatchReplayError();
     }
+    await markCreditMeterDispatchStarted({
+      tenantId: ctx.tenantId,
+      spendKey: debitReceiptKey!,
+      refundKey: failureRefundKey!,
+      creditsMilli: costMilli,
+      rateKey: key,
+      refKind: ctx.refKind ?? null,
+      refId: ctx.refId ?? null,
+    });
   }
 
   try {
     const result = await fn();
+    providerCallReturned = true;
     const reported = reportedFrom ? ((await reportedFrom(result)) ?? null) : null;
     const actualQuantity =
       typeof reported?.actualQuantity === "number" &&
@@ -355,6 +470,9 @@ export async function meter<T>(
       reported.actualQuantity >= 0
         ? reported.actualQuantity
         : quantity;
+    const authoritativeCostMilli = priceSnapshot && Number.isFinite(actualQuantity)
+      ? Math.round(actualQuantity * priceSnapshot.unitRateMilli)
+      : costMilli;
     if (
       creditsEnforced &&
       reported?.actualQuantity !== undefined &&
@@ -363,28 +481,88 @@ export async function meter<T>(
       actualQuantity > reservationQuantity
     ) {
       // This is a provider/caller contract violation, not metering
-      // infrastructure failure. Rejecting it is what makes the pre-dispatch
-      // upper bound provable and prevents unfunded output delivery.
+      // infrastructure failure. The provider already returned work, so do not
+      // refund it or permit a replay; persist the successful outcome first.
+      if (debited) {
+        await markCreditMeterDispatchOutcome({
+          tenantId: ctx.tenantId,
+          spendKey: debitReceiptKey!,
+          refundKey: failureRefundKey!,
+          creditsMilli: costMilli,
+          outcome: "succeeded",
+          rateKey: key,
+          refKind: ctx.refKind ?? null,
+          refId: ctx.refId ?? null,
+          actualQuantity,
+          authoritativeCostMilli,
+          error: "provider result exceeded reservation",
+        });
+        dispatchOutcomePersisted = true;
+      }
+      await recordMeterEvent({
+        ctx,
+        key,
+        quantity: actualQuantity,
+        creditsMilli: costMilli,
+        outcome: "failed",
+        mode: effectiveMode,
+        reported,
+      }).catch((err) =>
+        logger.warn({ err, key }, "credit meter: failed to record an over-bound call"),
+      );
       throw new ActualQuantityExceedsReservationError(actualQuantity, reservationQuantity);
     }
-    const authoritativeCostMilli = priceSnapshot && Number.isFinite(actualQuantity)
-      ? Math.round(actualQuantity * priceSnapshot.unitRateMilli)
-      : costMilli;
+    if (debited) {
+      await markCreditMeterDispatchOutcome({
+        tenantId: ctx.tenantId,
+        spendKey: debitReceiptKey!,
+        refundKey: failureRefundKey!,
+        creditsMilli: costMilli,
+        outcome: "succeeded",
+        rateKey: key,
+        refKind: ctx.refKind ?? null,
+        refId: ctx.refId ?? null,
+        actualQuantity,
+        authoritativeCostMilli,
+      });
+      dispatchOutcomePersisted = true;
+    }
     let settledCostMilli = costMilli;
     if (creditsEnforced && debited && authoritativeCostMilli !== costMilli) {
       if (authoritativeCostMilli < costMilli) {
+        const settlementRefundKey = debitReceiptKey
+          ? `${debitReceiptKey}:settle-refund`
+          : null;
         try {
+          if (!settlementRefundKey) throw new Error("Meter settlement receipt is missing");
+          await queueCreditMeterRefund({
+            tenantId: ctx.tenantId,
+            refundKey: settlementRefundKey,
+            spendKey: debitReceiptKey,
+            creditsMilli: costMilli - authoritativeCostMilli,
+            rateKey: key,
+            refKind: ctx.refKind ?? null,
+            refId: ctx.refId ?? null,
+            note: "meter quantity settlement",
+          });
           await refundCredits({
             tenantId: ctx.tenantId,
             creditsMilli: costMilli - authoritativeCostMilli,
             rateKey: key,
             refKind: ctx.refKind ?? null,
             refId: ctx.refId ?? null,
-            idempotencyKey: debitReceiptKey ? `${debitReceiptKey}:settle-refund` : null,
+            idempotencyKey: settlementRefundKey,
+            note: "Meter quantity settlement",
           });
           settledCostMilli = authoritativeCostMilli;
         } catch (err) {
-          logger.warn({ err, key }, "credit meter: failed to settle quantity refund");
+          // The succeeded marker and pending refund are durable. Returning
+          // provider output is safe (there is no replay), while the ledger and
+          // billing UI continue to show a pending settlement until recovery.
+          logger.error(
+            { err, key, tenantId: ctx.tenantId },
+            "credit meter: quantity refund queued for durable retry",
+          );
         }
       }
     } else if (effectiveMode !== "enforce") {
@@ -405,7 +583,13 @@ export async function meter<T>(
     // the provider, so it must still be recorded. The CUSTOMER is refunded —
     // a failure that was never their fault should not cost them — which means
     // provider failure waste lands on the platform, where it is visible in the
-    // report and can be engineered away.
+    // report and can be engineered away. A provider result or a persisted
+    // success marker means work may have completed remotely. Never turn that
+    // into a refund merely because local settlement/validation failed, and do
+    // not append a second "failed" event.
+    if (providerCallReturned || dispatchOutcomePersisted) {
+      throw error;
+    }
     await recordMeterEvent({
       ctx,
       key,
@@ -414,15 +598,81 @@ export async function meter<T>(
       outcome: "failed",
       mode: effectiveMode,
     }).catch((err) => logger.warn({ err, key }, "credit meter: failed to record a failed call"));
-    if (debited) {
-      await refundCreditsSafely({
+    let confirmed = false;
+    try {
+      confirmed = options.isFailureConfirmed
+        ? options.isFailureConfirmed(error)
+        : isDefinitiveProviderRejection(error);
+    } catch (classifierError) {
+      logger.error(
+        { err: classifierError, key, tenantId: ctx.tenantId },
+        "credit meter: failure classifier threw; treating provider outcome as ambiguous",
+      );
+    }
+    if (debited && !confirmed) {
+      await markCreditMeterDispatchOutcome({
         tenantId: ctx.tenantId,
+        spendKey: debitReceiptKey!,
+        refundKey: failureRefundKey!,
         creditsMilli: costMilli,
+        outcome: "ambiguous",
         rateKey: key,
         refKind: ctx.refKind ?? null,
         refId: ctx.refId ?? null,
-        idempotencyKey: failureRefundKey,
+        error: error instanceof Error ? error.message : String(error),
+      }).catch((persistError) => {
+        logger.error(
+          { err: persistError, key },
+          "credit meter: could not persist ambiguous provider outcome",
+        );
       });
+      throw new MeterDispatchOutcomeUnknownError(error);
+    }
+    if (debited) {
+      let failureReceiptPersisted = false;
+      try {
+        // The failed outcome and its exact refund outbox marker must commit in
+        // one transaction. If that transaction fails, the started receipt is
+        // deliberately left ambiguous rather than claiming a refund is
+        // pending when no durable receipt exists.
+        await markCreditMeterDispatchFailedWithRefund({
+          tenantId: ctx.tenantId,
+          spendKey: debitReceiptKey!,
+          refundKey: failureRefundKey!,
+          creditsMilli: costMilli,
+          rateKey: key,
+          refKind: ctx.refKind ?? null,
+          refId: ctx.refId ?? null,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        failureReceiptPersisted = true;
+        await refundCredits({
+          tenantId: ctx.tenantId,
+          creditsMilli: costMilli,
+          rateKey: key,
+          refKind: ctx.refKind ?? null,
+          refId: ctx.refId ?? null,
+          idempotencyKey: failureRefundKey,
+          note: "Generation failed",
+        });
+      } catch (refundError) {
+        if (failureReceiptPersisted) {
+          // The pending marker is the durable handoff. Keep the provider error
+          // as the route-facing error and let the scoped recovery worker retry
+          // this exact refund without replaying the provider.
+          logger.error(
+            { err: refundError, key, tenantId: ctx.tenantId },
+            "credit meter: failed refund remains pending for recovery",
+          );
+        } else {
+          // No failed/outbox receipt committed. The started operation remains
+          // explicitly ambiguous and must never be auto-refunded or replayed.
+          logger.error(
+            { err: refundError, key, tenantId: ctx.tenantId },
+            "credit meter: failed outcome receipt unavailable; dispatch remains ambiguous",
+          );
+        }
+      }
     }
     throw error;
   }

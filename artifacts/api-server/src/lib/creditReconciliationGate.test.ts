@@ -42,7 +42,10 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import {
+  DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING,
   CREDIT_RECONCILIATION_GATE,
+  getCreditEnforcementDecision,
+  isDevelopmentCreditEnforcementEnabled,
 } from "./creditReconciliationGate";
 import {
   getMeterMode,
@@ -87,5 +90,63 @@ describe("credit reconciliation release gate", () => {
     await expect(setMeterMode("shadow")).resolves.toBe("shadow");
     expect(await getMeterMode()).toBe("shadow");
     expect(mocks.state.insertedModes).toEqual(["off", "shadow"]);
+  });
+
+  it("allows actual deductions only with the explicit local development setting", async () => {
+    const saved = {
+      nodeEnv: process.env.NODE_ENV,
+      deployment: process.env.REPLIT_DEPLOYMENT,
+      setting: process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING],
+    };
+    try {
+      process.env.NODE_ENV = "development";
+      delete process.env.REPLIT_DEPLOYMENT;
+      process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING] = "1";
+
+      expect(isDevelopmentCreditEnforcementEnabled()).toBe(true);
+      expect(getCreditEnforcementDecision()).toMatchObject({
+        allowed: true,
+        scope: "development",
+      });
+      await expect(setMeterMode("enforce")).resolves.toBe("enforce");
+      expect(await getMeterMode()).toBe("enforce");
+    } finally {
+      if (saved.nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = saved.nodeEnv;
+      if (saved.deployment === undefined) delete process.env.REPLIT_DEPLOYMENT;
+      else process.env.REPLIT_DEPLOYMENT = saved.deployment;
+      if (saved.setting === undefined)
+        delete process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING];
+      else process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING] = saved.setting;
+      invalidateCreditRateCache();
+    }
+  });
+
+  it("never treats a deployed runtime as development, even with the opt-in setting", async () => {
+    const saved = {
+      nodeEnv: process.env.NODE_ENV,
+      deployment: process.env.REPLIT_DEPLOYMENT,
+      setting: process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING],
+    };
+    try {
+      process.env.NODE_ENV = "development";
+      process.env.REPLIT_DEPLOYMENT = "1";
+      process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING] = "1";
+
+      expect(isDevelopmentCreditEnforcementEnabled()).toBe(false);
+      await expect(setMeterMode("enforce")).rejects.toMatchObject({
+        code: "CREDIT_ENFORCEMENT_LOCKED",
+      });
+      expect(mocks.db.insert).not.toHaveBeenCalled();
+    } finally {
+      if (saved.nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = saved.nodeEnv;
+      if (saved.deployment === undefined) delete process.env.REPLIT_DEPLOYMENT;
+      else process.env.REPLIT_DEPLOYMENT = saved.deployment;
+      if (saved.setting === undefined)
+        delete process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING];
+      else process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING] = saved.setting;
+      invalidateCreditRateCache();
+    }
   });
 });

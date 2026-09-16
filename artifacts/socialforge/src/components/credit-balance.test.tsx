@@ -47,3 +47,41 @@ it("keeps the last known balance visible while background refresh retries", () =
   expect(screen.getByText("500")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("last known balance");
 });
+
+it("labels pending and ambiguous ledger entries without showing a failed zero", () => {
+  state.result.data.history = [
+    {
+      id: 11,
+      kind: "spend",
+      credits: -2.5,
+      balanceAfter: 497.5,
+      settlementStatus: "pending",
+      createdAt: "2025-01-01T00:00:00.000Z",
+    },
+    {
+      id: 12,
+      kind: "spend",
+      credits: -1,
+      balanceAfter: 496.5,
+      settlementStatus: "ambiguous",
+      createdAt: "2025-01-01T00:00:00.000Z",
+    },
+    {
+      id: 13,
+      kind: "purchase",
+      credits: 10,
+      balanceAfter: 506.5,
+      settlementStatus: null,
+      createdAt: "2025-01-01T00:00:00.000Z",
+    },
+  ];
+
+  render(<CreditUsageCard />);
+
+  expect(screen.getByText("Pending")).toBeTruthy();
+  expect(screen.getByText("Ambiguous")).toBeTruthy();
+  expect(screen.getByTestId("credit-history-entry-11").textContent).toContain(
+    "-2.5 credits",
+  );
+  expect(screen.queryByText(/failed/i)).toBeNull();
+});

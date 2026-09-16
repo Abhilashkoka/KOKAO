@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 vi.mock("./creditReconciliationGate", () => ({
   CREDIT_RECONCILIATION_GATE: { verdict: "go", reason: "enforcement algorithm test override" },
+  isCreditEnforcementAllowed: () => true,
+  creditEnforcementLockReason: () => "enforcement algorithm test override",
 }));
 import {
   pool,

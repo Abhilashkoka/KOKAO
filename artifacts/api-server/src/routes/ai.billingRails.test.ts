@@ -81,6 +81,8 @@ vi.mock("../lib/creditReconciliationGate", () => ({
     verdict: "go",
     reason: "whole-flow billing test",
   },
+  isCreditEnforcementAllowed: () => true,
+  creditEnforcementLockReason: () => "whole-flow billing test",
 }));
 
 vi.mock("../lib/featureFlags", async (importOriginal) => {

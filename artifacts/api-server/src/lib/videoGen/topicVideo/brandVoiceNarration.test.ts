@@ -150,6 +150,44 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     expect(narration.totalDurationSec).toBeGreaterThan(2);
   });
 
+  it("keeps repeated cloned sentences in distinct stage families", async () => {
+    billing.walletFunded = false;
+    brandSpeak.mockResolvedValue({
+      audio: wav(1),
+      receipt: { providerCredits: "10", requestId: "req", traceId: null },
+    });
+
+    await synthesizeNarration(["Repeat this.", "Repeat this."], "alloy", {
+      clonedVoice: CLONED,
+      meterContext: {
+        tenantId: 7,
+        refKind: "videoJob",
+        refId: "42",
+        funding: { tenantId: 7, rail: "quota", mode: "enforce" },
+        operationKey: "video-job:42:narration",
+        operationFamilyKey: "video-job:42:narration",
+      },
+      billing: {
+        tenantId: 7,
+        refKind: "videoJob",
+        refId: "42:0",
+        operationScope: { jobId: 42, cueIndex: 0, stage: "narration" },
+        operationFamilyKey: "video-job:42:narration",
+      },
+    });
+
+    const firstCallContext = brandSpeak.mock.calls[0]?.[2];
+    const secondCallContext = brandSpeak.mock.calls[1]?.[2];
+    expect(firstCallContext?.operationFamilyKey).toBe("video-job:42:narration:sentence:0");
+    expect(secondCallContext?.operationFamilyKey).toBe("video-job:42:narration:sentence:1");
+    expect(firstCallContext?.operationKey).toBe(
+      "video-job:42:narration:sentence:0:attempt:0",
+    );
+    expect(secondCallContext?.operationKey).toBe(
+      "video-job:42:narration:sentence:1:attempt:0",
+    );
+  });
+
   it("reserves and settles every cloned narration sentence from its receipt", async () => {
     brandSpeak.mockImplementation(async (_voice, _text, _meterContext, onReceipt) => {
       const receipt = {
@@ -340,6 +378,67 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     expect(billing.operations[0]).toMatchObject({
       settlement: { model: "eleven_v3", refKind: "guidedStoryLine", refId: "line-1" },
     });
+  });
+
+  it("forwards the owning enforced credit rail to Guided Story cloned narration", async () => {
+    billing.walletFunded = false;
+    brandSpeak.mockResolvedValue({
+      audio: wav(1),
+      receipt: { providerCredits: "10", requestId: "req-credit", traceId: null },
+    });
+    const script = {
+      version: 1, title: "Story", logline: "", runtimeSeconds: 1, warnings: [],
+      roles: [{ id: "role-1", name: "Role", description: "" }],
+      scenes: [{
+        id: "scene-1", startMs: 0, endMs: 1000, visualDirection: "",
+        roleIds: ["role-1"],
+        lines: [{
+          id: "line-credit", ownerRoleId: "role-1", kind: "dialogue",
+          text: "A credit-funded line.", startMs: 0, endMs: 1000,
+        }],
+      }],
+    } as any;
+
+    await synthesizeGuidedNarration({
+      tenantId: 77,
+      videoJobId: 88,
+      script,
+      locale: "te-IN",
+      cast: [{
+        roleId: "role-1", characterId: null, outfitId: null,
+        voice: { id: "brand", label: "Brand", provider: "elevenlabs", providerVoiceId: "el-brand-1" },
+      }] as any,
+      fallbackVoice: "alloy",
+      meterContext: {
+        tenantId: 77,
+        refKind: "videoJob",
+        refId: "88",
+        funding: Object.freeze({
+          tenantId: 77,
+          rail: "credits",
+          mode: "enforce",
+        }),
+        operationKey: "videoJob:88:guided-narration",
+      },
+      upload: async () => "tenant/77/guided-credit.wav",
+    });
+
+    expect(brandSpeak).toHaveBeenCalledWith(
+      CLONED,
+      "A credit-funded line.",
+      expect.objectContaining({
+        tenantId: 77,
+        refKind: "videoJob",
+        funding: expect.objectContaining({
+          tenantId: 77,
+          rail: "credits",
+          mode: "enforce",
+        }),
+      }),
+      undefined,
+      "eleven_v3",
+      "te",
+    );
   });
 
   it("rejects Telugu v2 before reserving and refunds confirmed provider failures", async () => {

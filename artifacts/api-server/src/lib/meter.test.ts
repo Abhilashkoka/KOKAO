@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 vi.mock("./creditReconciliationGate", () => ({
   CREDIT_RECONCILIATION_GATE: { verdict: "go", reason: "enforcement algorithm test override" },
+  isCreditEnforcementAllowed: () => true,
+  creditEnforcementLockReason: () => "enforcement algorithm test override",
 }));
 import { pool, db, creditAccountsTable, creditAccountLedgerTable, creditMeterEventsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -24,7 +26,17 @@ import {
   MeterFundingSnapshotRequiredError,
   MeterFundingConfigurationError,
 } from "./meter";
-import { getCreditBalance, grantCredits, listCreditHistory } from "./creditAccounts";
+import {
+  CREDIT_METER_DISPATCH_PENDING_KIND,
+  CREDIT_METER_PENDING_GRACE_MS,
+  getCreditBalance,
+  grantCredits,
+  listCreditHistory,
+  spendCreditsOnce,
+  markCreditMeterDispatchStarted,
+  markCreditMeterDispatchOutcome,
+  sweepCreditMeterRecoveries,
+} from "./creditAccounts";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
 let tenantId: number;
@@ -82,6 +94,24 @@ async function eventsFor(): Promise<
     })
     .from(creditMeterEventsTable)
     .where(eq(creditMeterEventsTable.tenantId, tenantId));
+}
+
+async function ageDispatchIntent(spendKey: string): Promise<void> {
+  const [pending] = (
+    await db
+      .select()
+      .from(creditAccountLedgerTable)
+      .where(eq(creditAccountLedgerTable.tenantId, tenantId))
+  ).filter(
+    (row) =>
+      row.kind === CREDIT_METER_DISPATCH_PENDING_KIND &&
+      row.idempotencyKey === `${spendKey}:dispatch:pending`,
+  );
+  if (!pending) throw new Error("test dispatch intent was not created");
+  await db
+    .update(creditAccountLedgerTable)
+    .set({ createdAt: new Date(Date.now() - CREDIT_METER_PENDING_GRACE_MS - 1) })
+    .where(eq(creditAccountLedgerTable.id, pending.id));
 }
 
 describe("credit rate card", () => {
@@ -338,6 +368,65 @@ describe("meter", () => {
     expect((await getCreditBalance(tenantId)).total).toBe(20);
   });
 
+  it("does not dispatch frozen enforce credits for an inactive saved rate", async () => {
+    const key = "meter_test_inactive_enforced";
+    try {
+      await upsertCreditRate({
+        key,
+        label: "Inactive enforced rate",
+        unit: "item",
+        credits: 2,
+        active: false,
+      });
+      await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+      await setMeterMode("enforce");
+      let providerCalled = false;
+
+      await expect(
+        meter(creditsContext("inactive-price"), key, 1, async () => {
+          providerCalled = true;
+          return "must-not-run";
+        }),
+      ).rejects.toBeInstanceOf(MeterFundingConfigurationError);
+
+      expect(providerCalled).toBe(false);
+      expect((await getCreditBalance(tenantId)).total).toBe(20);
+      expect(await eventsFor()).toHaveLength(0);
+    } finally {
+      await deleteCreditRate(key);
+    }
+  });
+
+  it("permits an explicitly configured active zero rate without charging", async () => {
+    const key = "meter_test_explicit_free";
+    try {
+      await upsertCreditRate({
+        key,
+        label: "Explicitly free operation",
+        unit: "item",
+        credits: 0,
+        active: true,
+      });
+      await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+      await setMeterMode("enforce");
+
+      await expect(
+        meter({ ...creditsContext("explicit-free"), operationKey: undefined }, key, 1, async () => "free"),
+      ).resolves.toBe("free");
+
+      expect((await getCreditBalance(tenantId)).total).toBe(20);
+      expect(await eventsFor()).toEqual([
+        expect.objectContaining({
+          rateKey: key,
+          creditsMilli: 0,
+          outcome: "ok",
+        }),
+      ]);
+    } finally {
+      await deleteCreditRate(key);
+    }
+  });
+
   it("does not dispatch frozen enforce credits without an operation identity", async () => {
     await grantCredits({ tenantId, credits: 20, kind: "purchase" });
     await setMeterMode("enforce");
@@ -392,7 +481,7 @@ describe("meter", () => {
     await expect(
       meter(creditsContext("meter-failure-refund"), "video", 5, async () => {
         throw new Error("provider failed");
-      }),
+      }, undefined, { isFailureConfirmed: () => true }),
     ).rejects.toThrow("provider failed");
 
     expect((await getCreditBalance(tenantId)).total).toBe(20);
@@ -427,7 +516,7 @@ describe("meter", () => {
     await expect(
       meter(creditsContext("retry-operation"), "video", 5, async () => {
         throw new Error("transient provider failure");
-      }),
+      }, undefined, { isFailureConfirmed: () => true }),
     ).rejects.toThrow("transient provider failure");
     await expect(
       meter(creditsContext("retry-operation"), "video", 5, async () => "recovered"),
@@ -476,6 +565,8 @@ describe("meter", () => {
         async () => {
           throw new Error("transient submit failure");
         },
+        undefined,
+        { isFailureConfirmed: () => true },
       ),
     ).rejects.toThrow("transient submit failure");
     await expect(
@@ -528,6 +619,140 @@ describe("meter", () => {
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect(providerCalls).toBe(1);
     expect((await getCreditBalance(tenantId)).total).toBe(15);
+  });
+
+  it("recovers a committed debit that crashed before provider dispatch", async () => {
+    await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+    await setMeterMode("enforce");
+    const operationKey = "meter-crash-before-dispatch";
+    const spendKey = `spend:${operationKey}:video`;
+    const refundKey = `refund:${operationKey}:video`;
+
+    // Simulate the process dying after the debit transaction committed but
+    // before the durable "started" boundary (there is no provider call here).
+    await spendCreditsOnce({
+      tenantId,
+      creditsMilli: 5 * MILLI,
+      rateKey: "video",
+      idempotencyKey: spendKey,
+      retryAfterRefund: true,
+      refundIdempotencyKey: refundKey,
+      meterDispatch: {
+        refundKey,
+        creditsMilli: 5 * MILLI,
+        rateKey: "video",
+      },
+    });
+    await ageDispatchIntent(`${spendKey}:attempt:1`);
+
+    let providerCalls = 0;
+    await expect(
+      meter(creditsContext(operationKey), "video", 5, async () => {
+        providerCalls += 1;
+        return "recovered";
+      }),
+    ).resolves.toBe("recovered");
+
+    expect(providerCalls).toBe(1);
+    expect((await getCreditBalance(tenantId)).total).toBe(15);
+    expect((await sweepCreditMeterRecoveries(tenantId)).blocked).toBe(0);
+  });
+
+  it("blocks an ambiguous started dispatch instead of replaying or refunding it", async () => {
+    await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+    await setMeterMode("enforce");
+    const operationKey = "meter-crash-after-dispatch-start";
+    const spendKey = `spend:${operationKey}:video`;
+    const refundKey = `refund:${operationKey}:video`;
+    const receipt = await spendCreditsOnce({
+      tenantId,
+      creditsMilli: 5 * MILLI,
+      rateKey: "video",
+      idempotencyKey: spendKey,
+      retryAfterRefund: true,
+      refundIdempotencyKey: refundKey,
+      meterDispatch: {
+        refundKey,
+        creditsMilli: 5 * MILLI,
+        rateKey: "video",
+      },
+    });
+    const receiptSpendKey = receipt.idempotencyKey!;
+    const receiptRefundKey = receipt.refundIdempotencyKey!;
+    await markCreditMeterDispatchStarted({
+      tenantId,
+      spendKey: receiptSpendKey,
+      refundKey: receiptRefundKey,
+      creditsMilli: 5 * MILLI,
+      rateKey: "video",
+    });
+
+    let providerCalls = 0;
+    await expect(
+      meter(creditsContext(operationKey), "video", 5, async () => {
+        providerCalls += 1;
+        return "must-not-replay";
+      }),
+    ).rejects.toThrow(/already dispatched/i);
+
+    expect(providerCalls).toBe(0);
+    expect((await getCreditBalance(tenantId)).total).toBe(15);
+    expect((await sweepCreditMeterRecoveries(tenantId)).blocked).toBe(1);
+    expect(
+      (await listCreditHistory(tenantId)).find(
+        (row) => row.kind === "spend",
+      )?.settlementStatus,
+    ).toBe("ambiguous");
+  });
+
+  it("recovers an exact quantity refund from a durable success receipt", async () => {
+    await grantCredits({ tenantId, credits: 20, kind: "purchase" });
+    await setMeterMode("enforce");
+    const operationKey = "meter-crash-before-quantity-refund";
+    const spendKey = `spend:${operationKey}:voice`;
+    const refundKey = `refund:${operationKey}:voice`;
+    const receipt = await spendCreditsOnce({
+      tenantId,
+      creditsMilli: 10 * MILLI,
+      rateKey: "voice",
+      idempotencyKey: spendKey,
+      retryAfterRefund: true,
+      refundIdempotencyKey: refundKey,
+      meterDispatch: {
+        refundKey,
+        creditsMilli: 10 * MILLI,
+        rateKey: "voice",
+      },
+    });
+    const receiptSpendKey = receipt.idempotencyKey!;
+    const receiptRefundKey = receipt.refundIdempotencyKey!;
+    await ageDispatchIntent(receiptSpendKey);
+    await markCreditMeterDispatchStarted({
+      tenantId,
+      spendKey: receiptSpendKey,
+      refundKey: receiptRefundKey,
+      creditsMilli: 10 * MILLI,
+      rateKey: "voice",
+    });
+    await markCreditMeterDispatchOutcome({
+      tenantId,
+      spendKey: receiptSpendKey,
+      refundKey: receiptRefundKey,
+      creditsMilli: 10 * MILLI,
+      outcome: "succeeded",
+      rateKey: "voice",
+      actualQuantity: 3.25,
+      authoritativeCostMilli: 3250,
+    });
+
+    const recovery = await sweepCreditMeterRecoveries(tenantId);
+    expect(recovery.refunded).toBe(1);
+    expect((await getCreditBalance(tenantId)).total).toBe(16.75);
+    expect(
+      (await listCreditHistory(tenantId)).find(
+        (row) => row.kind === "spend",
+      )?.settlementStatus,
+    ).toBe("settled");
   });
 
   it("settles an enforce reservation down to authoritative actual quantity", async () => {

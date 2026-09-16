@@ -29,6 +29,7 @@ import type { SceneSegment } from "./compose";
 import { characterScenePrompt } from "./characterMotion";
 import { refineScenePrompts } from "./refineScenePrompts";
 import { imageFingerprint, matchesPriorImage } from "./imageDistinctness";
+import { childMeterContext } from "./meterIdentity";
 
 /**
  * AI b-roll for Topic to Video: instead of licensed stock footage, every
@@ -118,8 +119,11 @@ export async function planBrollVisuals(params: {
   try {
     const textGen = await getTextGenClient(
       params.tenantAiModel,
-      params.meterContext ??
-        (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+      childMeterContext(
+        params.meterContext ??
+          (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+        "broll-plan",
+      ),
     );
     const sceneList = params.scenes.map((s, i) => `${i + 1}. ${s.text}`).join("\n");
     // Prompt Template Kit: a production template for the video_scene_image
@@ -204,6 +208,8 @@ ${sceneList}`,
       tenantAiModel: params.tenantAiModel,
       prompts: effectivePrompts,
       tenantId: params.tenantId,
+      meterContext: params.meterContext ?? null,
+      operationStage: "broll-polish",
     });
     if (!prompts) return { prompts: refinedPrompts, rawPlan: null };
     // The untouched AI reply, kept on the storyboard for audit.

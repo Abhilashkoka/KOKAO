@@ -1457,6 +1457,10 @@ async function speakLocalizedBrandVoiceCue(args: {
   tenantId: number;
   jobId: number;
   cueIndex: number;
+  /** Stable workflow stage, kept in the provider operation identity. */
+  operationStage?: string;
+  /** Frozen funding rail from the owning video job when no cue wallet exists. */
+  funding?: MeterFundingSnapshot;
   voice: ClonedVoiceRef;
   text: string;
   modelId?: "eleven_multilingual_v2" | "eleven_v3";
@@ -1493,10 +1497,10 @@ async function speakLocalizedBrandVoiceCue(args: {
           tenantId: args.tenantId,
           refKind: "videoJob",
           refId: `${args.jobId}:${args.cueIndex}`,
-          // No independent wallet reservation exists on this legacy path.
-          // Keep the cue explicitly shadow-funded instead of bypassing text
-          // metering with a null/tenant-only context.
-          funding: Object.freeze({
+          // No independent wallet reservation exists on this path. Preserve
+          // the owning job's frozen rail instead of silently relabeling a
+          // credit-funded job as quota-funded (or bypassing metering).
+          funding: args.funding ?? Object.freeze({
             tenantId: args.tenantId,
             rail: "quota" as const,
             mode: "shadow" as const,
@@ -1505,7 +1509,11 @@ async function speakLocalizedBrandVoiceCue(args: {
             args.voice.voiceId,
             elevenLabsLanguage.modelId,
             args.text,
-            { jobId: args.jobId, cueIndex: args.cueIndex },
+            {
+              jobId: args.jobId,
+              cueIndex: args.cueIndex,
+              stage: args.operationStage,
+            },
             args.languageCode,
           ),
         },
@@ -1545,7 +1553,7 @@ async function speakLocalizedBrandVoiceCue(args: {
           args.voice.voiceId,
           elevenLabsLanguage.modelId,
           args.text,
-          { jobId: args.jobId, cueIndex: args.cueIndex },
+          { jobId: args.jobId, cueIndex: args.cueIndex, stage: args.operationStage },
           args.languageCode,
         ),
         settlement: {
@@ -1574,7 +1582,7 @@ async function speakLocalizedBrandVoiceCue(args: {
             args.voice.voiceId,
             elevenLabsLanguage.modelId,
             args.text,
-            { jobId: args.jobId, cueIndex: args.cueIndex },
+            { jobId: args.jobId, cueIndex: args.cueIndex, stage: args.operationStage },
             args.languageCode,
           ),
         }, async (receipt) => {
@@ -1801,7 +1809,13 @@ async function renderApprovedClipStoryboard(
   // plan renders from the SAME prompts instead of re-polishing differently.
   if (storyboard.visualsSource === "prompt") {
     onStage("Polishing your shot prompts");
-    if (await polishStoryboardPrompts(job.tenantId, storyboard)) {
+    if (
+      await polishStoryboardPrompts(
+        job.tenantId,
+        storyboard,
+        videoMeterContext(job, "clip-storyboard-polish"),
+      )
+    ) {
       await db
         .update(videoGenerationsTable)
         .set({ storyboard })
@@ -1817,42 +1831,43 @@ async function renderApprovedClipStoryboard(
   let result: Awaited<ReturnType<typeof renderClipStoryboard>>;
   try {
     result = await renderClipStoryboard({
-    job,
-    storyboard,
-    aspectRatio,
-    music,
-    // Previews are tenant objects, so they go through the same size and type
-    // validation as a freshly uploaded source image.
-    load: (objectPath) => loadSourceImage(objectPath, job.tenantId),
-    onStage,
-    onCheckpoint: async ({
-      sceneIndex, buffer, provider, model, durationSec, providerReportedActualUsd, videoTokens,
-    }) => {
-      const scene = storyboard.scenes[sceneIndex]!;
-      const event: VideoProviderEvent = {
-        eventId: videoProviderEventId(job, `storyboard_scene:${scene.id}`),
-        provider,
-        model,
-        durationSec,
-        requestBytes: Buffer.byteLength(scene.renderVisual ?? scene.visual),
-        label: `storyboard_scene:${scene.id}`,
-        criteria: jobVideoPriceCriteria(job),
-        costPaise: await computeVideoCostPaise({
+      job,
+      storyboard,
+      aspectRatio,
+      meterContext: videoMeterContext(job, "clip-storyboard-render"),
+      music,
+      // Previews are tenant objects, so they go through the same size and type
+      // validation as a freshly uploaded source image.
+      load: (objectPath) => loadSourceImage(objectPath, job.tenantId),
+      onStage,
+      onCheckpoint: async ({
+        sceneIndex, buffer, provider, model, durationSec, providerReportedActualUsd, videoTokens,
+      }) => {
+        const scene = storyboard.scenes[sceneIndex]!;
+        const event: VideoProviderEvent = {
+          eventId: videoProviderEventId(job, `storyboard_scene:${scene.id}`),
           provider,
           model,
           durationSec,
-          variantCriteria: jobVideoPriceCriteria(job),
-          providerReportedActualUsd,
-          videoTokens,
-        }).catch(() => null),
-        ...(providerReportedActualUsd !== undefined ? { providerReportedActualUsd } : {}),
-        ...(videoTokens !== undefined ? { videoTokens } : {}),
-      };
-      const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
-      scene.providerCheckpoint = { path, provider, model, durationSec, event };
-      sceneEvents.push(event);
-      await db.update(videoGenerationsTable).set({ storyboard }).where(eq(videoGenerationsTable.id, job.id));
-    },
+          requestBytes: Buffer.byteLength(scene.renderVisual ?? scene.visual),
+          label: `storyboard_scene:${scene.id}`,
+          criteria: jobVideoPriceCriteria(job),
+          costPaise: await computeVideoCostPaise({
+            provider,
+            model,
+            durationSec,
+            variantCriteria: jobVideoPriceCriteria(job),
+            providerReportedActualUsd,
+            videoTokens,
+          }).catch(() => null),
+          ...(providerReportedActualUsd !== undefined ? { providerReportedActualUsd } : {}),
+          ...(videoTokens !== undefined ? { videoTokens } : {}),
+        };
+        const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
+        scene.providerCheckpoint = { path, provider, model, durationSec, event };
+        sceneEvents.push(event);
+        await db.update(videoGenerationsTable).set({ storyboard }).where(eq(videoGenerationsTable.id, job.id));
+      },
     });
   } catch (error) {
     const failedScene = storyboard.scenes.find(
@@ -2041,6 +2056,7 @@ async function produceVideo(
         job,
         source: clipSource,
         aspectRatio,
+        meterContext: videoMeterContext(job, "clip-storyboard-plan"),
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
@@ -2053,6 +2069,7 @@ async function produceVideo(
         job,
         source: clipSource,
         aspectRatio,
+        meterContext: videoMeterContext(job, "clip-storyboard-plan"),
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
@@ -2290,6 +2307,8 @@ async function produceVideo(
                 const rawNarration = line.speaker.type === "role"
                   ? await speakLocalizedBrandVoiceCue({
                       tenantId: job.tenantId, jobId: job.id, cueIndex: index,
+                      operationStage: "guided-dialogue-replay-brand",
+                      funding: videoMeterContext(job, `guided-dialogue-replay-brand:${line.lineId}`).funding,
                       voice: { provider: "elevenlabs", voiceId: line.speaker.voice.providerVoiceId },
                       text: line.text, modelId: "eleven_v3", languageCode: "te",
                       onReceipt: (value) => { Object.assign(narrationBilling, value); },
@@ -2586,6 +2605,8 @@ async function produceVideo(
                     tenantId: job.tenantId,
                     jobId: frozenPlan.retry?.sourceJobId ?? job.id,
                     cueIndex: sceneIndex,
+                    operationStage: "dialogue-brand-tts",
+                    funding: videoMeterContext(job, `dialogue-brand-tts:${scene.id}`).funding,
                     voice: {
                       provider: "elevenlabs",
                       voiceId: frozenVoice.providerVoiceId,
@@ -2598,6 +2619,8 @@ async function produceVideo(
                 tenantId: job.tenantId,
                 jobId: frozenPlan.retry?.sourceJobId ?? job.id,
                 cueIndex: sceneIndex,
+                operationStage: "dialogue-brand-tts",
+                funding: videoMeterContext(job, `dialogue-brand-tts:${scene.id}`).funding,
                 voice: branding!.clonedVoice!,
                 text: scene.text,
                 modelId: "eleven_v3",
@@ -2860,6 +2883,7 @@ async function produceVideo(
           snapshot = await resolvePresenterBrollAssets({
             snapshot,
             aspectRatio,
+            meterContext: videoMeterContext(job, "character-dialogue-presenter-broll"),
             visualsSource:
               options.visualsSource === "ai" || options.visualsSource === "ai_video"
                 ? options.visualsSource
@@ -2948,6 +2972,8 @@ async function produceVideo(
         refKind: "videoJob",
         refId: String(job.id),
         funding: videoMeterContext(job, "dialogue-tts").funding,
+        operationScope: { jobId: job.id, cueIndex: 0, stage: "dialogue-tts" },
+        operationFamilyKey: videoMeterContext(job, "dialogue-tts").operationKey,
       },
       meterContext: videoMeterContext(job, "dialogue-tts"),
     });
@@ -3192,6 +3218,8 @@ async function produceVideo(
           refKind: "videoJob",
           refId: String(job.id),
           funding: videoMeterContext(job, "lip-sync-tts").funding,
+          operationScope: { jobId: job.id, cueIndex: 0, stage: "lip-sync-tts" },
+          operationFamilyKey: videoMeterContext(job, "lip-sync-tts").operationKey,
         },
         meterContext: videoMeterContext(job, "lip-sync-tts"),
       });
@@ -3395,6 +3423,7 @@ async function produceVideo(
             snapshot,
             storyboard: job.storyboard,
             aspectRatio,
+            meterContext: videoMeterContext(job, "presenter-broll-review"),
             visualsSource,
             stockSource,
             upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
@@ -3414,6 +3443,7 @@ async function produceVideo(
         snapshot = await resolvePresenterBrollAssets({
           snapshot,
           aspectRatio,
+          meterContext: videoMeterContext(job, "presenter-broll-assets"),
           visualsSource,
           stockSource,
           upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
@@ -4127,6 +4157,7 @@ async function produceVideo(
         }
         board = await prepareCharacterStoryStoryboard({
           tenantId: job.tenantId,
+          meterContext: videoMeterContext(job, "character-storyboard"),
           videoJobId: job.id,
           storyboard: board,
           characterId: options.characterId,
@@ -4805,6 +4836,7 @@ async function produceVideo(
         snapshot = await resolvePresenterBrollAssets({
           snapshot,
           aspectRatio,
+          meterContext: videoMeterContext(job, "topic-presenter-broll"),
           visualsSource: "stock",
           stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
           upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
@@ -5313,6 +5345,8 @@ async function produceVideo(
             tenantId: job.tenantId,
             jobId: job.id,
             cueIndex,
+            operationStage: "localized-brand-tts",
+            funding: videoMeterContext(job, `localized-brand-tts:${cueIndex}`).funding,
             voice: clonedVoiceRef,
             text,
             languageCode: dubLocale,
@@ -7151,6 +7185,11 @@ async function finishGuidedStoryIntrinsicDialogue(
                   tenantId: job.tenantId,
                   jobId: job.id,
                   cueIndex: snapshot.scenes.indexOf(planned),
+                  operationStage: "guided-intrinsic-brand",
+                  funding: videoMeterContext(
+                    job,
+                    `guided-intrinsic-brand:${snapshot.scenes.indexOf(planned)}`,
+                  ).funding,
                   voice: {
                     provider: planned.voiceProvider,
                     voiceId: planned.providerVoiceId!,

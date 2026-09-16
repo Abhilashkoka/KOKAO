@@ -395,7 +395,7 @@ export function buildBrandVoiceTtsOperationKey(
   voiceId: string,
   model: string,
   text: string,
-  scope?: { jobId: number; cueIndex: number },
+  scope?: { jobId: number; cueIndex: number; stage?: string },
   languageCode?: string,
 ): string {
   const prefix = languageCode
@@ -413,7 +413,11 @@ export function buildBrandVoiceTtsOperationKey(
   // Provider history contains the voice/model/text fingerprint but not our job
   // id. Keep that recoverable base intact and append the local idempotency
   // scope used by job runners to distinguish repeated cue text.
-  return scope ? `${key}:job:${scope.jobId}:cue:${scope.cueIndex}` : key;
+  return scope
+    ? `${key}:job:${scope.jobId}:cue:${scope.cueIndex}${
+        scope.stage ? `:stage:${Buffer.from(scope.stage, "utf8").toString("base64url")}` : ""
+      }`
+    : key;
 }
 
 function parseBrandVoiceTtsOperationKey(
@@ -436,11 +440,20 @@ function parseBrandVoiceTtsOperationKey(
     !/^[a-f0-9]{64}$/.test(digest ?? "") ||
     !(
       extra.length === 0 ||
-      (extra.length === 4 &&
-        extra[0] === "job" &&
-        /^\d+$/.test(extra[1] ?? "") &&
-        extra[2] === "cue" &&
-        /^\d+$/.test(extra[3] ?? ""))
+      (
+        (extra.length === 4 &&
+          extra[0] === "job" &&
+          /^\d+$/.test(extra[1] ?? "") &&
+          extra[2] === "cue" &&
+          /^\d+$/.test(extra[3] ?? "")) ||
+        (extra.length === 6 &&
+          extra[0] === "job" &&
+          /^\d+$/.test(extra[1] ?? "") &&
+          extra[2] === "cue" &&
+          /^\d+$/.test(extra[3] ?? "") &&
+          extra[4] === "stage" &&
+          /^[A-Za-z0-9_-]+$/.test(extra[5] ?? ""))
+      )
     )
   ) {
     return null;

@@ -25,6 +25,7 @@ import { logger } from "../../logger";
 import { sliceNarration, type NarrationCue } from "./narration";
 import type { SceneSegment } from "./compose";
 import { refineScenePrompts } from "./refineScenePrompts";
+import { childMeterContext } from "./meterIdentity";
 import { imageFingerprint, matchesPriorImage } from "./imageDistinctness";
 
 /**
@@ -211,8 +212,11 @@ export async function planSceneVisuals(params: {
 
   const textGen = await getTextGenClient(
     params.tenantAiModel,
-    params.meterContext ??
-      (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+    childMeterContext(
+      params.meterContext ??
+        (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+      "character-plan",
+    ),
   );
   const wardrobe = params.outfits
     .map((o) => `- id ${o.id}: "${o.name}" — ${o.description}`)
@@ -341,6 +345,7 @@ ${sceneList}`;
     prompts: plan.map((entry) => entry.visual),
     tenantId: params.tenantId,
     meterContext: params.meterContext ?? null,
+    operationStage: "character-polish",
   });
   plan.forEach((entry, i) => {
     entry.visual = refinedVisuals[i] ?? entry.visual;

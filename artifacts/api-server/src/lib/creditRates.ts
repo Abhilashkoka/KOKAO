@@ -4,16 +4,20 @@ import {
   creditMeterSettingsTable,
   type CreditRate,
 } from "@workspace/db";
-import { asc, eq } from "drizzle-orm";
-import { CREDIT_RECONCILIATION_GATE } from "./creditReconciliationGate";
+import { asc, eq, inArray, not } from "drizzle-orm";
+import {
+  creditEnforcementLockReason,
+  isCreditEnforcementAllowed,
+} from "./creditReconciliationGate";
 
 /**
  * The credit rate card: how many credits one unit of each billable action
  * costs, and the platform-wide meter mode.
  *
- * Everything here is superadmin-configured data, cached in-process because it
- * is read on the hot path of every provider call and changes a few times a
- * month at most. `invalidateCreditRateCache()` runs on every write.
+ * Everything here is superadmin-configured data, cached briefly in-process
+ * because it is read on the hot path of every provider call. The bounded TTL
+ * below limits stale values in another worker; `invalidateCreditRateCache()`
+ * still runs on every local write.
  */
 
 /** Credits per unit, in thousandths. 1000 milli-credits = 1 credit. */
@@ -130,25 +134,47 @@ export const DEFAULT_CREDIT_RATES: ReadonlyArray<
   },
 ];
 
+/** Every provider rail currently supported by the meter must have a saved,
+ * active row before the platform can enter enforce mode. */
+export const REQUIRED_CREDIT_RATE_KEYS: ReadonlyArray<string> = Object.freeze(
+  DEFAULT_CREDIT_RATES.map((rate) => rate.key),
+);
+
 const MODE_ROW_ID = 1;
+export const CREDIT_RATE_CACHE_TTL_MS = 5_000;
 
 let rateCache: Map<string, CreditRate> | null = null;
+let rateCacheLoadedAt = 0;
 let modeCache: MeterMode | null = null;
+let modeCacheLoadedAt = 0;
 let creditPricePaiseCache: number | null = null;
+let creditPricePaiseCacheLoadedAt = 0;
 
 export class CreditEnforcementLockedError extends Error {
   readonly code = "CREDIT_ENFORCEMENT_LOCKED";
 
   constructor() {
-    super(`Credit enforcement is locked: ${CREDIT_RECONCILIATION_GATE.reason}`);
+    super(`Credit enforcement is locked: ${creditEnforcementLockReason()}`);
     this.name = "CreditEnforcementLockedError";
+  }
+}
+
+export class CreditRateCardValidationError extends Error {
+  readonly code = "CREDIT_RATE_CARD_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CreditRateCardValidationError";
   }
 }
 
 export function invalidateCreditRateCache(): void {
   rateCache = null;
+  rateCacheLoadedAt = 0;
   modeCache = null;
+  modeCacheLoadedAt = 0;
   creditPricePaiseCache = null;
+  creditPricePaiseCacheLoadedAt = 0;
 }
 
 function toView(row: CreditRate): CreditRateView {
@@ -190,7 +216,12 @@ async function seedIfEmpty(): Promise<void> {
 }
 
 async function loadRates(): Promise<Map<string, CreditRate>> {
-  if (rateCache) return rateCache;
+  if (
+    rateCache &&
+    Date.now() - rateCacheLoadedAt < CREDIT_RATE_CACHE_TTL_MS
+  ) {
+    return rateCache;
+  }
   await seedIfEmpty();
   const rows = await db
     .select()
@@ -199,6 +230,7 @@ async function loadRates(): Promise<Map<string, CreditRate>> {
   const map = new Map<string, CreditRate>();
   for (const row of rows) map.set(row.key, row);
   rateCache = map;
+  rateCacheLoadedAt = Date.now();
   return map;
 }
 
@@ -218,6 +250,66 @@ export interface UpsertCreditRateInput {
   notes?: string | null;
 }
 
+interface NormalizedCreditRateInput {
+  key: string;
+  label: string;
+  unit: CreditRateUnit;
+  creditsMilli: number;
+  active: boolean;
+  sortOrder: number;
+  notes: string | null;
+}
+
+function normalizeCreditRateInput(
+  input: UpsertCreditRateInput,
+): NormalizedCreditRateInput {
+  const credits = input.credits;
+  if (typeof credits !== "number" || !Number.isFinite(credits) || credits < 0) {
+    throw new CreditRateCardValidationError(
+      "Credit rate must be a finite number that is 0 or more.",
+    );
+  }
+  const creditsMilli = Math.round(credits * MILLI);
+  if (!Number.isSafeInteger(creditsMilli)) {
+    throw new CreditRateCardValidationError(
+      "Credit rate is outside the supported precision range.",
+    );
+  }
+  if (credits > 0 && creditsMilli === 0) {
+    throw new CreditRateCardValidationError(
+      "Credit rate must be 0 or at least 0.001 credits.",
+    );
+  }
+  if (
+    typeof input.key !== "string" ||
+    input.key.length === 0 ||
+    typeof input.label !== "string" ||
+    input.label.length === 0 ||
+    (input.unit !== "item" && input.unit !== "second") ||
+    typeof input.active !== "boolean"
+  ) {
+    throw new CreditRateCardValidationError("Credit rate fields are invalid.");
+  }
+  const sortOrder = input.sortOrder ?? 0;
+  if (!Number.isSafeInteger(sortOrder) || sortOrder < 0) {
+    throw new CreditRateCardValidationError(
+      "Credit rate sort order must be a non-negative whole number.",
+    );
+  }
+  if (input.notes !== undefined && input.notes !== null && typeof input.notes !== "string") {
+    throw new CreditRateCardValidationError("Credit rate notes are invalid.");
+  }
+  return {
+    key: input.key,
+    label: input.label,
+    unit: input.unit,
+    creditsMilli,
+    active: input.active,
+    sortOrder,
+    notes: input.notes ?? null,
+  };
+}
+
 /**
  * Create or update one rate. Keyed on `key`, so saving the card is a series of
  * idempotent upserts and a superadmin can add a cost centre KOKAO does not yet
@@ -226,15 +318,9 @@ export interface UpsertCreditRateInput {
 export async function upsertCreditRate(
   input: UpsertCreditRateInput,
 ): Promise<CreditRateView> {
-  const creditsMilli = Math.max(0, Math.round((Number(input.credits) || 0) * MILLI));
+  const normalized = normalizeCreditRateInput(input);
   const values = {
-    key: input.key,
-    label: input.label,
-    unit: input.unit,
-    creditsMilli,
-    active: input.active,
-    sortOrder: input.sortOrder ?? 0,
-    notes: input.notes ?? null,
+    ...normalized,
   };
   const [row] = await db
     .insert(creditRatesTable)
@@ -256,6 +342,111 @@ export async function upsertCreditRate(
   return toView(row);
 }
 
+export interface ReplaceCreditRateCardInput {
+  mode: MeterMode;
+  creditPricePaise: number;
+  rates: ReadonlyArray<UpsertCreditRateInput>;
+}
+
+function validateCreditPricePaise(value: unknown): asserts value is number {
+  if (!validCreditPricePaise(value)) {
+    throw new CreditRateCardValidationError(
+      "Credit price must be a positive whole number of paise.",
+    );
+  }
+}
+
+export function validateCreditRateCard(
+  input: ReplaceCreditRateCardInput,
+): void {
+  if (input.mode !== "off" && input.mode !== "shadow" && input.mode !== "enforce") {
+    throw new CreditRateCardValidationError("Meter mode is invalid.");
+  }
+  validateCreditPricePaise(input.creditPricePaise);
+  const rates = input.rates.map(normalizeCreditRateInput);
+  const keys = rates.map((rate) => rate.key);
+  if (new Set(keys).size !== keys.length) {
+    throw new CreditRateCardValidationError("Rate keys must be unique.");
+  }
+  if (input.mode === "enforce") {
+    const byKey = new Map(rates.map((rate) => [rate.key, rate]));
+    const missing = REQUIRED_CREDIT_RATE_KEYS.filter((key) => !byKey.has(key));
+    const inactive = REQUIRED_CREDIT_RATE_KEYS.filter(
+      (key) => byKey.get(key)?.active !== true,
+    );
+    if (missing.length > 0 || inactive.length > 0) {
+      const problems = [
+        ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
+        ...(inactive.length > 0 ? [`inactive: ${inactive.join(", ")}`] : []),
+      ];
+      throw new CreditRateCardValidationError(
+        `Enforce mode requires every supported rate to be saved and active (${problems.join("; ")}).`,
+      );
+    }
+  }
+}
+
+/**
+ * Replace the persisted mode, conversion price and complete rate card in one
+ * database transaction. Validation happens before opening the transaction so a
+ * malformed later row cannot leave earlier rows written. The enforce check is
+ * deliberately scoped to the current runtime release decision.
+ */
+export async function replaceCreditRateCard(
+  input: ReplaceCreditRateCardInput,
+): Promise<void> {
+  validateCreditRateCard(input);
+  const rates = input.rates.map(normalizeCreditRateInput);
+  const keys = rates.map((rate) => rate.key);
+  if (input.mode === "enforce" && !isCreditEnforcementAllowed()) {
+    throw new CreditEnforcementLockedError();
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(creditMeterSettingsTable)
+      .values({
+        id: MODE_ROW_ID,
+        mode: input.mode,
+        creditPricePaise: input.creditPricePaise,
+      })
+      .onConflictDoUpdate({
+        target: creditMeterSettingsTable.id,
+        set: {
+          mode: input.mode,
+          creditPricePaise: input.creditPricePaise,
+          updatedAt: new Date(),
+        },
+      });
+
+    for (const rate of rates) {
+      await tx
+        .insert(creditRatesTable)
+        .values(rate)
+        .onConflictDoUpdate({
+          target: creditRatesTable.key,
+          set: {
+            label: rate.label,
+            unit: rate.unit,
+            creditsMilli: rate.creditsMilli,
+            active: rate.active,
+            sortOrder: rate.sortOrder,
+            notes: rate.notes,
+            updatedAt: new Date(),
+          },
+        });
+    }
+
+    const rateDelete = tx.delete(creditRatesTable);
+    if (keys.length === 0) {
+      await rateDelete;
+    } else {
+      await rateDelete.where(not(inArray(creditRatesTable.key, keys)));
+    }
+  });
+  invalidateCreditRateCache();
+}
+
 /** Remove a rate. Historical meter events keep their recorded key and price. */
 export async function deleteCreditRate(key: string): Promise<boolean> {
   const deleted = await db
@@ -269,10 +460,11 @@ export async function deleteCreditRate(key: string): Promise<boolean> {
 /**
  * What `quantity` units of `key` cost, in milli-credits.
  *
- * Returns null when no rate exists for the key — the caller records the call
- * anyway at zero, so an unpriced action shows up as a gap in the report rather
- * than silently costing nothing. An INACTIVE rate deliberately returns 0, not
- * null: it is a priced-at-free action, not an unknown one.
+ * Returns null when no rate exists for the key — shadow reporting records the
+ * call at zero so an unpriced action shows up as a gap rather than vanishing.
+ * An INACTIVE rate deliberately returns 0, not null, for display/reporting
+ * compatibility; the enforced provider meter separately refuses it before
+ * dispatch. Only an explicitly ACTIVE zero rate is a valid free operation.
  */
 export async function creditsMilliFor(
   key: string,
@@ -289,6 +481,10 @@ export async function creditsMilliFor(
 export interface CreditCostSnapshot {
   unitRateMilli: number;
   costMilli: number;
+  /** True when the saved row is enabled for provider work. */
+  active: boolean;
+  /** False when a corrupted/non-finite saved price cannot be used safely. */
+  valid: boolean;
 }
 
 export async function creditCostSnapshotFor(
@@ -297,24 +493,38 @@ export async function creditCostSnapshotFor(
 ): Promise<CreditCostSnapshot | null> {
   const rate = (await loadRates()).get(key);
   if (!rate) return null;
-  const unitRateMilli = rate.active ? rate.creditsMilli : 0;
+  const valid =
+    Number.isSafeInteger(rate.creditsMilli) &&
+    rate.creditsMilli >= 0 &&
+    (rate.unit === "item" || rate.unit === "second");
+  const unitRateMilli = rate.active && valid ? rate.creditsMilli : 0;
   const q = Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
-  return { unitRateMilli, costMilli: Math.round(q * unitRateMilli) };
+  return {
+    unitRateMilli,
+    costMilli: Math.round(q * unitRateMilli),
+    active: rate.active,
+    valid,
+  };
 }
 
 function effectiveMeterMode(mode: MeterMode): MeterMode {
-  return mode === "enforce" && CREDIT_RECONCILIATION_GATE.verdict !== "go"
+  // A persisted enforce row is not enough to charge: production still needs
+  // the invoice release decision, while local development needs the explicit
+  // opt-in and runtime identity check.
+  return mode === "enforce" && !isCreditEnforcementAllowed()
     ? "shadow"
     : mode;
 }
 
 /** The platform-wide meter mode. Defaults to "shadow" when unset. */
 export async function getMeterMode(): Promise<MeterMode> {
-  if (modeCache) {
+  if (
+    modeCache !== null &&
+    Date.now() - modeCacheLoadedAt < CREDIT_RATE_CACHE_TTL_MS
+  ) {
     // Apply the release gate even to a value left in the in-process cache by
     // an earlier version or a stale worker.
-    modeCache = effectiveMeterMode(modeCache);
-    return modeCache;
+    return effectiveMeterMode(modeCache);
   }
   const [row] = await db
     .select()
@@ -323,13 +533,13 @@ export async function getMeterMode(): Promise<MeterMode> {
     .limit(1);
   const storedMode: MeterMode =
     row?.mode === "off" ? "off" : row?.mode === "enforce" ? "enforce" : "shadow";
-  const mode = effectiveMeterMode(storedMode);
-  modeCache = mode;
-  return mode;
+  modeCache = storedMode;
+  modeCacheLoadedAt = Date.now();
+  return effectiveMeterMode(storedMode);
 }
 
 export async function setMeterMode(mode: MeterMode): Promise<MeterMode> {
-  if (mode === "enforce" && CREDIT_RECONCILIATION_GATE.verdict !== "go") {
+  if (mode === "enforce" && !isCreditEnforcementAllowed()) {
     throw new CreditEnforcementLockedError();
   }
   await db
@@ -354,7 +564,12 @@ function validCreditPricePaise(value: unknown): value is number {
  * immutable meter event snapshot.
  */
 export async function getCreditPricePaise(): Promise<number> {
-  if (creditPricePaiseCache !== null) return creditPricePaiseCache;
+  if (
+    creditPricePaiseCache !== null &&
+    Date.now() - creditPricePaiseCacheLoadedAt < CREDIT_RATE_CACHE_TTL_MS
+  ) {
+    return creditPricePaiseCache;
+  }
   const [row] = await db
     .select({ creditPricePaise: creditMeterSettingsTable.creditPricePaise })
     .from(creditMeterSettingsTable)
@@ -363,6 +578,7 @@ export async function getCreditPricePaise(): Promise<number> {
   creditPricePaiseCache = validCreditPricePaise(row?.creditPricePaise)
     ? row.creditPricePaise
     : DEFAULT_CREDIT_PRICE_PAISE;
+  creditPricePaiseCacheLoadedAt = Date.now();
   return creditPricePaiseCache;
 }
 

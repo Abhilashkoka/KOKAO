@@ -34735,6 +34735,7 @@ export const GetCreditsResponse = zod.object({
   "refKind": zod.string().nullish(),
   "refId": zod.string().nullish(),
   "note": zod.string().nullish(),
+  "settlementStatus": zod.union([zod.literal('settled'),zod.literal('pending'),zod.literal('ambiguous'),zod.literal(null)]).nullish().describe('Settlement state for a metered credit transaction. Null for non-metered history rows; pending and ambiguous rows must not be presented as a final settled outcome.'),
   "createdAt": zod.coerce.date()
 })),
   "legacyConversion": zod.object({
@@ -34909,6 +34910,7 @@ export const AdminGetTenantCreditsResponse = zod.object({
   "refKind": zod.string().nullish(),
   "refId": zod.string().nullish(),
   "note": zod.string().nullish(),
+  "settlementStatus": zod.union([zod.literal('settled'),zod.literal('pending'),zod.literal('ambiguous'),zod.literal(null)]).nullish().describe('Settlement state for a metered credit transaction. Null for non-metered history rows; pending and ambiguous rows must not be presented as a final settled outcome.'),
   "createdAt": zod.coerce.date()
 })),
   "legacyConversion": zod.object({

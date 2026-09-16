@@ -7,6 +7,8 @@ vi.mock("./../lib/creditReconciliationGate", () => ({
     verdict: "go",
     reason: "credit grant safety test override",
   },
+  isCreditEnforcementAllowed: () => true,
+  creditEnforcementLockReason: () => "credit grant safety test override",
 }));
 
 // The route's own requireTenant import is mocked so this test can focus on the

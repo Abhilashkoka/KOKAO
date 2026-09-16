@@ -5959,6 +5959,16 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           narration: await synthesizeGuidedNarration({
             tenantId: req.tenantId,
             videoJobId: linkedJob.id,
+            meterContext: {
+              tenantId: req.tenantId,
+              refKind: "videoJob",
+              refId: String(linkedJob.id),
+              funding: legacyVideoFunding(
+                req.tenantId,
+                linkedJob.funding ?? "quota",
+              ),
+              operationKey: `videoJob:${linkedJob.id}:guided-narration`,
+            },
             cast,
             script,
             locale: guidedSnapshot.locale,

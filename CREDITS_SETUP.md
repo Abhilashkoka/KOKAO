@@ -30,6 +30,25 @@ to `enforce`.
 
 ## Go-live order
 
+### Development saved-rate activation
+
+Development deductions can be enabled after testing the saved rate card, insufficient
+balance handling, failure refunds, operation replay, and billing-rail isolation.
+This is a separate authorization from production invoice reconciliation: it verifies
+customer charges against configured prices, not provider costs or profitability.
+
+The explicit development-only setting is `CREDIT_ENFORCEMENT_DEV=1`; it requires
+`NODE_ENV=development` and is denied on a Replit deployment. The meter must also
+be set to `enforce` through its guarded settings service. Keep the setting scoped
+to development. The production release verdict remains no-go until its invoice
+requirements are satisfied.
+
+Existing credit balances and deferred legacy wallet estimates are not modified
+by activation. Explicit active zero-priced actions remain free; missing or invalid
+billable rates must fail before provider dispatch.
+
+### Production release
+
 The meter has three modes, and the order matters more than anything else here.
 
 **1. Land on `shadow` (the default).** Every provider call is priced against
@@ -287,14 +306,11 @@ charges once.
 | Image edit | `lib/imageEdit.ts` | `image_edit` |
 | Transcription | `lib/asr/index.ts` | `transcription` |
 
-**`textGen` and voice cloning are deliberately not wrapped yet.** Text is the
-cheapest line on the card — 0.2 credits against 3 for an image and 1 per second
-of video — and its call boundary is a returned OpenAI client used at 35 sites,
-so metering it means proxying an SDK object rather than adding one call. Voice
-has positional signatures with several callers. Neither is hard; both are the
-kind of change that wants its own patch and its own test run rather than
-riding along with billing enforcement. Until they are wrapped, expect the
-reconciliation to show a small gap that is these two rather than a leak.
+Text generation is metered at the common text-client boundary using the saved
+`caption` rate. Cloned voice creation and speech use the `voice` rate; stock
+and localized narration are also wrapped. Multi-stage callers must carry the
+owning job's frozen funding context and distinct stage/line operation identities.
+Configured rates, not the historical examples in this document, determine charges.
 
 `reserveFunding` is the one that keeps the rails from double-charging: a
 credit-funded workspace reserves **nothing** at the route, because the meter

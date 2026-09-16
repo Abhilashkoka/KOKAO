@@ -12,6 +12,8 @@ vi.mock("./creditReconciliationGate", () => ({
     verdict: "go",
     reason: "enforcement algorithm test override",
   },
+  isCreditEnforcementAllowed: () => true,
+  creditEnforcementLockReason: () => "enforcement algorithm test override",
 }));
 import {
   pool,

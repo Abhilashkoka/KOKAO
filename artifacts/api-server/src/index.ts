@@ -48,6 +48,11 @@ import {
   startWalletProviderRecovery,
   stopWalletProviderRecovery,
 } from "./lib/walletProviderRecovery";
+import {
+  sweepCreditMeterRecoveries,
+  startCreditMeterRecoverySweep,
+  stopCreditMeterRecoverySweep,
+} from "./lib/creditAccounts";
 import { seedDefaultVideoTemplates } from "./lib/videoGen/videoTemplateSeed";
 import {
   resumeInterruptedGuidedPreviewRenders,
@@ -155,6 +160,15 @@ const server: Server = app.listen(port, (err) => {
       startWalletProviderRecovery();
     });
 
+  // Credit-meter debits have the same durable lifecycle as the existing
+  // wallet rail. Recover pre-dispatch debits and confirmed refunds after a
+  // restart, while leaving started/unknown provider requests explicitly
+  // blocked for manual reconciliation.
+  void sweepCreditMeterRecoveries().catch((error) => {
+    logger.error({ err: error }, "Credit meter recovery initialization failed");
+  });
+  startCreditMeterRecoverySweep();
+
   // Periodically re-verify every tenant's stored social connections in the
   // background so an expired/revoked token triggers the breakage notification
   // even for users who never open the Accounts page.
@@ -212,6 +226,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopTrueUpRetrySweep();
     stopWalletSettlementRetrySweep();
     stopWalletProviderRecovery();
+    stopCreditMeterRecoverySweep();
     stopGuidedStoryCastSweep();
     void shutdown(signal);
   });

@@ -88,49 +88,53 @@ const brollState = vi.hoisted(() => ({
   throws: false,
   refinementThrows: false,
   textGenCapabilities: [] as (string | undefined)[],
+  textGenContexts: [] as unknown[],
 }));
 vi.mock("../../textGen", () => ({
   getTextGenClient: vi.fn(async (
     _model: string,
-    _meterContext: unknown,
+    meterContext: unknown,
     opts?: { capability?: string },
-  ) => ({
-    provider: "builtin",
-    model: "gpt-test",
-    client: {
-      chat: {
-        completions: {
-          create: vi.fn(async (args: { messages: { content: string | unknown[] }[] }) => {
-            brollState.textGenCapabilities.push(opts?.capability);
-            const userPrompt = args.messages[1]!.content;
-            if (Array.isArray(userPrompt)) {
-              return {
-                choices: [{ message: { content: JSON.stringify({ assignments: [1, 2] }) } }],
-              };
-            }
-            if (userPrompt.startsWith("These ")) {
-              if (brollState.refinementThrows) throw new Error("refinement unavailable");
-              brollState.lastRefinementPrompt = userPrompt;
-              const unchanged = [...userPrompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
-              return {
-                choices: [
-                  {
-                    message: {
-                      content:
-                        brollState.refinementResponse ?? JSON.stringify({ prompts: unchanged }),
+  ) => {
+    brollState.textGenContexts.push(meterContext);
+    return {
+      provider: "builtin",
+      model: "gpt-test",
+      client: {
+        chat: {
+          completions: {
+            create: vi.fn(async (args: { messages: { content: string | unknown[] }[] }) => {
+              brollState.textGenCapabilities.push(opts?.capability);
+              const userPrompt = args.messages[1]!.content;
+              if (Array.isArray(userPrompt)) {
+                return {
+                  choices: [{ message: { content: JSON.stringify({ assignments: [1, 2] }) } }],
+                };
+              }
+              if (userPrompt.startsWith("These ")) {
+                if (brollState.refinementThrows) throw new Error("refinement unavailable");
+                brollState.lastRefinementPrompt = userPrompt;
+                const unchanged = [...userPrompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
+                return {
+                  choices: [
+                    {
+                      message: {
+                        content:
+                          brollState.refinementResponse ?? JSON.stringify({ prompts: unchanged }),
+                      },
                     },
-                  },
-                ],
-              };
-            }
-            if (brollState.throws) throw new Error("model unavailable");
-            brollState.lastPrompt = userPrompt;
-            return { choices: [{ message: { content: brollState.response } }] };
-          }),
+                  ],
+                };
+              }
+              if (brollState.throws) throw new Error("model unavailable");
+              brollState.lastPrompt = userPrompt;
+              return { choices: [{ message: { content: brollState.response } }] };
+            }),
+          },
         },
       },
-    },
-  })),
+    };
+  }),
 }));
 
 // Governed prompt logging is exercised via a governed template whose logging
@@ -156,6 +160,7 @@ beforeEach(() => {
   brollState.throws = false;
   brollState.refinementThrows = false;
   brollState.textGenCapabilities.length = 0;
+  brollState.textGenContexts.length = 0;
   promptKitState.logThrows = false;
   promptKitState.logged = 0;
   animateState.calls.length = 0;
@@ -313,6 +318,11 @@ describe("planBrollVisuals", () => {
       tenantAiModel: "gpt-test",
       topic: "baking",
       scenes,
+      meterContext: {
+        tenantId: 7,
+        operationKey: "video-job:42:visuals",
+        operationFamilyKey: "video-job:42:visuals",
+      },
     });
     expect(result.prompts).toEqual([
       "macro 50mm view of flour on oak, slow push-in through warm dawn light",
@@ -325,6 +335,12 @@ describe("planBrollVisuals", () => {
     expect(brollState.lastRefinementPrompt).toContain("framing and lens feel");
     expect(brollState.lastRefinementPrompt).toContain("one slow camera move");
     expect(brollState.lastRefinementPrompt).toContain("do not introduce a repeated");
+    expect(brollState.textGenContexts.map((context) => (context as {
+      operationFamilyKey?: string;
+    }).operationFamilyKey)).toEqual([
+      "video-job:42:visuals:broll-plan",
+      "video-job:42:visuals:broll-polish",
+    ]);
   });
 
   it("uses the planned prompts unchanged when cinematic refinement fails", async () => {

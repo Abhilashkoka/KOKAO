@@ -4,6 +4,7 @@ import type { MeterContext } from "../../meter";
 import { usageAccountingParams } from "../../aiCost";
 import { VideoGenProviderError } from "../types";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
+import { childMeterContext } from "./meterIdentity";
 
 /**
  * Script + stock-search-term generation for the Topic to Video engine.
@@ -202,8 +203,11 @@ export async function generateTopicScript(params: {
 }): Promise<TopicScript & { model: string }> {
   const textGen = await getTextGenClient(
     params.tenantAiModel,
-    params.meterContext ??
-      (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+    childMeterContext(
+      params.meterContext ??
+        (params.tenantId ? legacyShadowTextContext(params.tenantId) : null),
+      "script",
+    ),
   );
 
   // Prompt Template Kit: a production template for the video_script flow

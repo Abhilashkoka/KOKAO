@@ -4,6 +4,7 @@ import { usageAccountingParams } from "../../aiCost";
 import { logger } from "../../logger";
 import { withTimeout } from "../retry";
 import type { StockClip } from "./stockSources";
+import { childMeterContext } from "./meterIdentity";
 
 /**
  * Vision-based relevance ranking for stock footage.
@@ -59,7 +60,10 @@ export async function assignClipsToScenes(params: {
   try {
     const textGen = await getTextGenClient(
       params.tenantAiModel,
-      params.meterContext ?? legacyShadowTextContext(params.tenantId),
+      childMeterContext(
+        params.meterContext ?? legacyShadowTextContext(params.tenantId),
+        "stock-rank",
+      ),
       {
         capability: "multimodal",
       },

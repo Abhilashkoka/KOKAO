@@ -317,6 +317,448 @@ export interface SpendCreditsInput {
   retryAfterRefund?: boolean;
   refundIdempotencyKey?: string | null;
   note?: string | null;
+  /**
+   * A meter spend can create its dispatch-intent receipt in the same
+   * transaction as the debit.  That receipt is deliberately separate from
+   * the spend row: if it is still "pending" after a restart, no provider call
+   * was started and the debit can be recovered safely.
+   */
+  meterDispatch?: {
+    /**
+     * Optional explicit key for callers that already know the concrete
+     * attempt. The meter leaves this unset because retry ordinals are selected
+     * inside this transaction.
+     */
+    pendingKey?: string;
+    refundKey: string;
+    creditsMilli: number;
+    rateKey?: string | null;
+    refKind?: string | null;
+    refId?: string | null;
+  };
+}
+
+/**
+ * Meter lifecycle receipts live in the existing append-only account ledger.
+ * They have zero deltas, so they do not change the balance or the historical
+ * spend/refund totals.  Keeping the lifecycle beside the debit gives the
+ * recovery worker a durable, tenant-scoped source of truth without introducing
+ * a second outbox table (and without ever treating a provider timeout as a
+ * safe replay).
+ */
+export const CREDIT_METER_DISPATCH_PENDING_KIND = "meter_dispatch_pending";
+export const CREDIT_METER_DISPATCH_STARTED_KIND = "meter_dispatch_started";
+export const CREDIT_METER_DISPATCH_SUCCEEDED_KIND = "meter_dispatch_succeeded";
+export const CREDIT_METER_DISPATCH_FAILED_KIND = "meter_dispatch_failed";
+export const CREDIT_METER_DISPATCH_AMBIGUOUS_KIND = "meter_dispatch_ambiguous";
+export const CREDIT_METER_REFUND_PENDING_KIND = "refund_pending";
+/**
+ * A pending dispatch receipt is not immediately safe to refund: a live
+ * process may have committed the debit and be between the receipt and its
+ * started marker. Recovery only claims it after this lease/grace period.
+ */
+export const CREDIT_METER_PENDING_GRACE_MS = 5 * 60_000;
+
+const METER_LIFECYCLE_KINDS = [
+  CREDIT_METER_DISPATCH_PENDING_KIND,
+  CREDIT_METER_DISPATCH_STARTED_KIND,
+  CREDIT_METER_DISPATCH_SUCCEEDED_KIND,
+  CREDIT_METER_DISPATCH_FAILED_KIND,
+  CREDIT_METER_DISPATCH_AMBIGUOUS_KIND,
+  CREDIT_METER_REFUND_PENDING_KIND,
+] as const;
+
+type MeterLifecycleKind = (typeof METER_LIFECYCLE_KINDS)[number];
+
+interface MeterLifecycleNote {
+  version: 1;
+  spendKey: string;
+  refundKey: string;
+  creditsMilli: number;
+  rateKey?: string | null;
+  refKind?: string | null;
+  refId?: string | null;
+  actualQuantity?: number | null;
+  authoritativeCostMilli?: number | null;
+  error?: string | null;
+}
+
+function meterMarkerKey(
+  spendKey: string,
+  phase: "pending" | "started" | "succeeded" | "failed" | "ambiguous",
+): string {
+  return `${spendKey}:dispatch:${phase}`;
+}
+
+export function meterRefundPendingKey(refundKey: string): string {
+  return `${refundKey}:pending`;
+}
+
+function meterLifecycleNote(input: {
+  spendKey: string;
+  refundKey: string;
+  creditsMilli: number;
+  rateKey?: string | null;
+  refKind?: string | null;
+  refId?: string | null;
+  actualQuantity?: number | null;
+  authoritativeCostMilli?: number | null;
+  error?: string | null;
+}): string {
+  return JSON.stringify({
+    version: 1,
+    spendKey: input.spendKey,
+    refundKey: input.refundKey,
+    creditsMilli: input.creditsMilli,
+    rateKey: input.rateKey ?? null,
+    refKind: input.refKind ?? null,
+    refId: input.refId ?? null,
+    actualQuantity: input.actualQuantity ?? null,
+    authoritativeCostMilli: input.authoritativeCostMilli ?? null,
+    error: input.error ?? null,
+  } satisfies MeterLifecycleNote);
+}
+
+function parseMeterLifecycleNote(note: string | null): MeterLifecycleNote | null {
+  if (!note) return null;
+  try {
+    const value = JSON.parse(note) as Partial<MeterLifecycleNote>;
+    if (
+      value.version !== 1 ||
+      typeof value.spendKey !== "string" ||
+      typeof value.refundKey !== "string" ||
+      typeof value.creditsMilli !== "number" ||
+      !Number.isSafeInteger(value.creditsMilli) ||
+      value.creditsMilli < 0
+    ) {
+      return null;
+    }
+    return value as MeterLifecycleNote;
+  } catch {
+    return null;
+  }
+}
+
+function meterPendingLeaseExpired(
+  row: CreditAccountLedgerEntry,
+  now = Date.now(),
+): boolean {
+  const createdAtMs = row.createdAt instanceof Date
+    ? row.createdAt.getTime()
+    : new Date(row.createdAt).getTime();
+  return (
+    Number.isFinite(createdAtMs) &&
+    createdAtMs <= now - CREDIT_METER_PENDING_GRACE_MS
+  );
+}
+
+async function appendMeterLifecycle(
+  tx: DbTransaction,
+  input: {
+    tenantId: number;
+    kind: MeterLifecycleKind;
+    idempotencyKey: string;
+    note: MeterLifecycleNote;
+    rateKey?: string | null;
+    refKind?: string | null;
+    refId?: string | null;
+  },
+): Promise<void> {
+  const [seen] = await tx
+    .select({ id: creditAccountLedgerTable.id })
+    .from(creditAccountLedgerTable)
+    .where(
+      and(
+        eq(creditAccountLedgerTable.tenantId, input.tenantId),
+        eq(creditAccountLedgerTable.idempotencyKey, input.idempotencyKey),
+      ),
+    )
+    .limit(1);
+  if (seen) return;
+  const [account] = await tx
+    .select({
+      purchasedMilli: creditAccountsTable.purchasedMilli,
+      grantedMilli: creditAccountsTable.grantedMilli,
+    })
+    .from(creditAccountsTable)
+    .where(eq(creditAccountsTable.tenantId, input.tenantId))
+    .limit(1);
+  await tx.insert(creditAccountLedgerTable).values({
+    tenantId: input.tenantId,
+    kind: input.kind,
+    purchasedDeltaMilli: 0,
+    grantedDeltaMilli: 0,
+    balanceAfterMilli: (account?.purchasedMilli ?? 0) + (account?.grantedMilli ?? 0),
+    rateKey: input.rateKey ?? null,
+    refKind: input.refKind ?? null,
+    refId: input.refId ?? null,
+    idempotencyKey: input.idempotencyKey,
+    note: meterLifecycleNote(input.note),
+  });
+}
+
+/**
+ * Mark the durable dispatch boundary immediately before invoking a provider.
+ *
+ * The account row is locked while this transition is committed.  A recovery
+ * worker racing this call therefore either refunds before dispatch (and this
+ * function refuses to start), or observes the started marker and leaves the
+ * operation blocked for manual reconciliation.
+ */
+export async function markCreditMeterDispatchStarted(input: {
+  tenantId: number;
+  spendKey: string;
+  refundKey: string;
+  creditsMilli: number;
+  rateKey?: string | null;
+  refKind?: string | null;
+  refId?: string | null;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    await lockAccount(tx, input.tenantId);
+    const [refunded] = await tx
+      .select({ id: creditAccountLedgerTable.id })
+      .from(creditAccountLedgerTable)
+      .where(
+        and(
+          eq(creditAccountLedgerTable.tenantId, input.tenantId),
+          or(
+            and(
+              eq(
+                creditAccountLedgerTable.idempotencyKey,
+                input.refundKey,
+              ),
+              eq(creditAccountLedgerTable.kind, "refund"),
+            ),
+            and(
+              eq(
+                creditAccountLedgerTable.idempotencyKey,
+                meterRefundPendingKey(input.refundKey),
+              ),
+              eq(
+                creditAccountLedgerTable.kind,
+                CREDIT_METER_REFUND_PENDING_KIND,
+              ),
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+    if (refunded) {
+      throw new Error("Meter dispatch was already recovered before it started");
+    }
+    const [pending] = await tx
+      .select({ id: creditAccountLedgerTable.id })
+      .from(creditAccountLedgerTable)
+      .where(
+        and(
+          eq(creditAccountLedgerTable.tenantId, input.tenantId),
+          eq(
+            creditAccountLedgerTable.idempotencyKey,
+            meterMarkerKey(input.spendKey, "pending"),
+          ),
+          eq(
+            creditAccountLedgerTable.kind,
+            CREDIT_METER_DISPATCH_PENDING_KIND,
+          ),
+        ),
+      )
+      .limit(1);
+    if (!pending) {
+      throw new Error("Meter dispatch intent is missing");
+    }
+    await appendMeterLifecycle(tx, {
+      tenantId: input.tenantId,
+      kind: CREDIT_METER_DISPATCH_STARTED_KIND,
+      idempotencyKey: meterMarkerKey(input.spendKey, "started"),
+      note: {
+        version: 1,
+        spendKey: input.spendKey,
+        refundKey: input.refundKey,
+        creditsMilli: input.creditsMilli,
+        rateKey: input.rateKey,
+        refKind: input.refKind,
+        refId: input.refId,
+      },
+      rateKey: input.rateKey,
+      refKind: input.refKind,
+      refId: input.refId,
+    });
+  });
+}
+
+/**
+ * Persist a confirmed provider outcome before settling or returning output.
+ * A succeeded marker is also the recovery record when a process dies between
+ * the provider response and the normal quantity refund.
+ */
+export async function markCreditMeterDispatchOutcome(input: {
+  tenantId: number;
+  spendKey: string;
+  refundKey: string;
+  creditsMilli: number;
+  outcome: "succeeded" | "failed" | "ambiguous";
+  rateKey?: string | null;
+  refKind?: string | null;
+  refId?: string | null;
+  actualQuantity?: number | null;
+  authoritativeCostMilli?: number | null;
+  error?: string | null;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    await lockAccount(tx, input.tenantId);
+    await appendMeterLifecycle(tx, {
+      tenantId: input.tenantId,
+      kind:
+        input.outcome === "succeeded"
+          ? CREDIT_METER_DISPATCH_SUCCEEDED_KIND
+          : input.outcome === "failed"
+            ? CREDIT_METER_DISPATCH_FAILED_KIND
+            : CREDIT_METER_DISPATCH_AMBIGUOUS_KIND,
+      idempotencyKey: meterMarkerKey(input.spendKey, input.outcome),
+      note: {
+        version: 1,
+        spendKey: input.spendKey,
+        refundKey: input.refundKey,
+        creditsMilli: input.creditsMilli,
+        rateKey: input.rateKey,
+        refKind: input.refKind,
+        refId: input.refId,
+        actualQuantity: input.actualQuantity,
+        authoritativeCostMilli: input.authoritativeCostMilli,
+        error: input.error,
+      },
+      rateKey: input.rateKey,
+      refKind: input.refKind,
+      refId: input.refId,
+    });
+  });
+}
+
+/**
+ * Persist a confirmed provider failure and its exact refund outbox marker as
+ * one account transaction. A later synchronous refund attempt may fail, but
+ * the durable marker is then guaranteed to exist; if this transaction fails,
+ * the started receipt remains ambiguous and recovery will not refund it.
+ */
+export async function markCreditMeterDispatchFailedWithRefund(input: {
+  tenantId: number;
+  spendKey: string;
+  refundKey: string;
+  creditsMilli: number;
+  rateKey?: string | null;
+  refKind?: string | null;
+  refId?: string | null;
+  error?: string | null;
+}): Promise<void> {
+  const amountMilli = Math.max(0, Math.round(input.creditsMilli));
+  if (!Number.isSafeInteger(amountMilli)) {
+    throw new Error("Credit refund amount is outside the supported range");
+  }
+  await db.transaction(async (tx) => {
+    await lockAccount(tx, input.tenantId);
+    await appendMeterLifecycle(tx, {
+      tenantId: input.tenantId,
+      kind: CREDIT_METER_DISPATCH_FAILED_KIND,
+      idempotencyKey: meterMarkerKey(input.spendKey, "failed"),
+      note: {
+        version: 1,
+        spendKey: input.spendKey,
+        refundKey: input.refundKey,
+        creditsMilli: amountMilli,
+        rateKey: input.rateKey,
+        refKind: input.refKind,
+        refId: input.refId,
+        error: input.error,
+      },
+      rateKey: input.rateKey,
+      refKind: input.refKind,
+      refId: input.refId,
+    });
+    await appendMeterLifecycle(tx, {
+      tenantId: input.tenantId,
+      kind: CREDIT_METER_REFUND_PENDING_KIND,
+      idempotencyKey: meterRefundPendingKey(input.refundKey),
+      note: {
+        version: 1,
+        spendKey: input.spendKey,
+        refundKey: input.refundKey,
+        creditsMilli: amountMilli,
+        rateKey: input.rateKey,
+        refKind: input.refKind,
+        refId: input.refId,
+        error: input.error ?? "meter provider failure",
+      },
+      rateKey: input.rateKey,
+      refKind: input.refKind,
+      refId: input.refId,
+    });
+  });
+}
+
+/** Queue an exact, idempotent meter refund before trying it synchronously. */
+export async function queueCreditMeterRefund(input: {
+  tenantId: number;
+  refundKey: string;
+  creditsMilli: number;
+  rateKey?: string | null;
+  refKind?: string | null;
+  refId?: string | null;
+  spendKey?: string | null;
+  note?: string | null;
+}): Promise<void> {
+  const amountMilli = Math.max(0, Math.round(input.creditsMilli));
+  if (!Number.isSafeInteger(amountMilli)) {
+    throw new Error("Credit refund amount is outside the supported range");
+  }
+  const spendKey = input.spendKey ?? input.refundKey.replace(/^refund(?:-family)?:/, "spend:");
+  await db.transaction(async (tx) => {
+    await lockAccount(tx, input.tenantId);
+    if (input.spendKey) {
+      const lifecycleRows = await tx
+        .select({
+          kind: creditAccountLedgerTable.kind,
+          idempotencyKey: creditAccountLedgerTable.idempotencyKey,
+        })
+        .from(creditAccountLedgerTable)
+        .where(eq(creditAccountLedgerTable.tenantId, input.tenantId));
+      const started = lifecycleRows.some(
+        (row) =>
+          row.kind === CREDIT_METER_DISPATCH_STARTED_KIND &&
+          row.idempotencyKey === meterMarkerKey(input.spendKey!, "started"),
+      );
+      const outcome = lifecycleRows.some(
+        (row) =>
+          (row.kind === CREDIT_METER_DISPATCH_SUCCEEDED_KIND ||
+            row.kind === CREDIT_METER_DISPATCH_FAILED_KIND) &&
+          row.idempotencyKey !== null &&
+          row.idempotencyKey.startsWith(`${input.spendKey}:dispatch:`),
+      );
+      if (started && !outcome) {
+        throw new Error(
+          "Cannot queue a meter refund for an ambiguous provider dispatch",
+        );
+      }
+    }
+    await appendMeterLifecycle(tx, {
+      tenantId: input.tenantId,
+      kind: CREDIT_METER_REFUND_PENDING_KIND,
+      idempotencyKey: meterRefundPendingKey(input.refundKey),
+      note: {
+        version: 1,
+        spendKey,
+        refundKey: input.refundKey,
+        creditsMilli: amountMilli,
+        rateKey: input.rateKey,
+        refKind: input.refKind,
+        refId: input.refId,
+        error: input.note,
+      },
+      rateKey: input.rateKey,
+      refKind: input.refKind,
+      refId: input.refId,
+    });
+  });
 }
 
 /**
@@ -354,6 +796,9 @@ export async function spendCredits(
  */
 export async function refundCredits(input: SpendCreditsInput): Promise<void> {
   const amountMilli = Math.max(0, Math.round(input.creditsMilli));
+  if (!Number.isSafeInteger(amountMilli)) {
+    throw new Error("Credit refund amount is outside the supported range");
+  }
   await db.transaction(async (tx) => {
     const before = await lockAccount(tx, input.tenantId);
     if (input.idempotencyKey) {
@@ -388,13 +833,391 @@ export async function refundCredits(input: SpendCreditsInput): Promise<void> {
   });
 }
 
-/** Best-effort refund: never let bookkeeping break a user-facing flow. */
+/**
+ * Refund while leaving a durable retry receipt first.
+ *
+ * The old implementation logged and swallowed a database error. That made the
+ * provider failure look handled while permanently consuming the customer's
+ * credits. With an idempotency key, a pending marker is enough for the worker
+ * to retry the exact same refund; a synchronous outage therefore remains
+ * visible as pending rather than disappearing.
+ */
 export async function refundCreditsSafely(
   input: SpendCreditsInput,
-): Promise<void> {
-  await refundCredits(input).catch((err) =>
-    logger.error({ err, tenantId: input.tenantId }, "credit refund failed"),
+): Promise<"refunded" | "pending"> {
+  if (!input.idempotencyKey) {
+    await refundCredits(input);
+    return "refunded";
+  }
+  await queueCreditMeterRefund({
+    tenantId: input.tenantId,
+    refundKey: input.idempotencyKey,
+    creditsMilli: input.creditsMilli,
+    rateKey: input.rateKey,
+    refKind: input.refKind,
+    refId: input.refId,
+    note: input.note,
+  });
+  try {
+    await refundCredits(input);
+    return "refunded";
+  } catch (err) {
+    logger.error(
+      { err, tenantId: input.tenantId, refundKey: input.idempotencyKey },
+      "credit refund queued for durable retry",
+    );
+    return "pending";
+  }
+}
+
+export type CreditMeterRecoveryStatus = "refunded" | "pending" | "blocked";
+
+export interface CreditMeterRecoveryResult {
+  scanned: number;
+  refunded: number;
+  pending: number;
+  blocked: number;
+}
+
+interface MeterLifecycleRows {
+  pending: CreditAccountLedgerEntry;
+  started?: CreditAccountLedgerEntry;
+  succeeded?: CreditAccountLedgerEntry;
+  failed?: CreditAccountLedgerEntry;
+  ambiguous?: CreditAccountLedgerEntry;
+  refundPending?: CreditAccountLedgerEntry;
+  refund?: CreditAccountLedgerEntry;
+}
+
+type CreditAccountLedgerEntry = typeof creditAccountLedgerTable.$inferSelect;
+
+async function meterLifecycleRows(
+  tenantId: number,
+  spendKey: string,
+  refundKey: string,
+): Promise<MeterLifecycleRows> {
+  const rows = await db
+    .select()
+    .from(creditAccountLedgerTable)
+    .where(eq(creditAccountLedgerTable.tenantId, tenantId));
+  const byKey = new Map(rows.map((row) => [row.idempotencyKey, row]));
+  const findKind = (
+    key: string,
+    kind: MeterLifecycleKind,
+  ): CreditAccountLedgerEntry | undefined => {
+    const row = byKey.get(key);
+    return row?.kind === kind ? row : undefined;
+  };
+  return {
+    pending:
+      findKind(
+        meterMarkerKey(spendKey, "pending"),
+        CREDIT_METER_DISPATCH_PENDING_KIND,
+      ) ?? rows.find(
+        (row) =>
+          row.kind === CREDIT_METER_DISPATCH_PENDING_KIND &&
+          parseMeterLifecycleNote(row.note)?.spendKey === spendKey,
+      )!,
+    started: findKind(
+      meterMarkerKey(spendKey, "started"),
+      CREDIT_METER_DISPATCH_STARTED_KIND,
+    ),
+    succeeded: findKind(
+      meterMarkerKey(spendKey, "succeeded"),
+      CREDIT_METER_DISPATCH_SUCCEEDED_KIND,
+    ),
+    failed: findKind(
+      meterMarkerKey(spendKey, "failed"),
+      CREDIT_METER_DISPATCH_FAILED_KIND,
+    ),
+    ambiguous: findKind(
+      meterMarkerKey(spendKey, "ambiguous"),
+      CREDIT_METER_DISPATCH_AMBIGUOUS_KIND,
+    ),
+    refundPending: findKind(
+      meterRefundPendingKey(refundKey),
+      CREDIT_METER_REFUND_PENDING_KIND,
+    ),
+    refund: byKey.get(refundKey)?.kind === "refund" ? byKey.get(refundKey) : undefined,
+  };
+}
+
+async function recoverOneCreditMeterLifecycle(
+  pending: CreditAccountLedgerEntry,
+): Promise<CreditMeterRecoveryStatus> {
+  const intent = parseMeterLifecycleNote(pending.note);
+  if (!intent) {
+    logger.error(
+      { tenantId: pending.tenantId, ledgerId: pending.id },
+      "Credit meter lifecycle receipt is malformed; manual reconciliation required",
+    );
+    return "blocked";
+  }
+
+  // A generic refund caller can use the same durable marker even when it has
+  // no meter dispatch-intent row. Recover that exact idempotent refund
+  // directly; meter lifecycle rows take the stricter outcome path below.
+  if (pending.kind === CREDIT_METER_REFUND_PENDING_KIND) {
+    const [refund] = await db
+      .select({ id: creditAccountLedgerTable.id })
+      .from(creditAccountLedgerTable)
+      .where(
+        and(
+          eq(creditAccountLedgerTable.tenantId, pending.tenantId),
+          eq(creditAccountLedgerTable.idempotencyKey, intent.refundKey),
+          eq(creditAccountLedgerTable.kind, "refund"),
+        ),
+      )
+      .limit(1);
+    if (refund) return "refunded";
+    try {
+      await refundCredits({
+        tenantId: pending.tenantId,
+        creditsMilli: intent.creditsMilli,
+        rateKey: intent.rateKey,
+        refKind: intent.refKind,
+        refId: intent.refId,
+        idempotencyKey: intent.refundKey,
+        note: "Credit refund retry",
+      });
+      return "refunded";
+    } catch (err) {
+      logger.error(
+        { err, tenantId: pending.tenantId, refundKey: intent.refundKey },
+        "Credit refund outbox remains pending",
+      );
+      return "pending";
+    }
+  }
+
+  const lifecycle = await meterLifecycleRows(
+    pending.tenantId,
+    intent.spendKey,
+    intent.refundKey,
   );
+  if (lifecycle.refund) return "refunded";
+
+  // A fresh pending receipt may belong to a live process that has not yet
+  // committed its started marker. Do not race it by refunding immediately;
+  // the lease must expire first. An existing refund outbox marker means a
+  // prior recovery already claimed the receipt and is safe to continue.
+  if (
+    !lifecycle.started &&
+    !lifecycle.succeeded &&
+    !lifecycle.failed &&
+    !lifecycle.ambiguous &&
+    !lifecycle.refundPending &&
+    !meterPendingLeaseExpired(pending)
+  ) {
+    return "pending";
+  }
+
+  // A started request with no provider outcome is explicitly ambiguous. It
+  // may have reached the provider even when this process saw an exception, so
+  // never refund it and never redispatch it automatically.
+  if (
+    lifecycle.started &&
+    !lifecycle.succeeded &&
+    !lifecycle.failed &&
+    !lifecycle.ambiguous
+  ) {
+    logger.warn(
+      {
+        tenantId: pending.tenantId,
+        spendKey: intent.spendKey,
+        refundKey: intent.refundKey,
+      },
+      "Credit meter provider dispatch is ambiguous; manual reconciliation required",
+    );
+    return "blocked";
+  }
+  if (lifecycle.ambiguous && !lifecycle.succeeded && !lifecycle.failed) {
+    logger.warn(
+      {
+        tenantId: pending.tenantId,
+        spendKey: intent.spendKey,
+        refundKey: intent.refundKey,
+      },
+      "Credit meter dispatch outcome is ambiguous; manual reconciliation required",
+    );
+    return "blocked";
+  }
+
+  const needsRefund =
+    !lifecycle.started ||
+    Boolean(lifecycle.failed) ||
+    Boolean(!lifecycle.succeeded && !lifecycle.ambiguous);
+  const outcomeNote = lifecycle.succeeded
+    ? parseMeterLifecycleNote(lifecycle.succeeded.note)
+    : intent;
+  const amountMilli =
+    lifecycle.succeeded && outcomeNote?.authoritativeCostMilli !== null &&
+    outcomeNote?.authoritativeCostMilli !== undefined
+      ? Math.max(
+          0,
+          intent.creditsMilli - Math.max(0, outcomeNote.authoritativeCostMilli),
+        )
+      : intent.creditsMilli;
+  const refundAmount = lifecycle.succeeded ? amountMilli : intent.creditsMilli;
+  const recoveryRefundKey = lifecycle.succeeded
+    ? `${intent.spendKey}:settle-refund`
+    : intent.refundKey;
+
+  // A confirmed failed outcome, and a pending intent that never reached the
+  // started marker, are both safe to refund. A successful outcome only queues
+  // the quantity difference; full successful work is never refunded.
+  if (needsRefund || refundAmount > 0) {
+    await queueCreditMeterRefund({
+      tenantId: pending.tenantId,
+      refundKey: recoveryRefundKey,
+      creditsMilli: refundAmount,
+      rateKey: intent.rateKey,
+      refKind: intent.refKind,
+      refId: intent.refId,
+      spendKey: intent.spendKey,
+      note: lifecycle.succeeded ? "meter quantity settlement" : "meter provider failure",
+    });
+    try {
+      await refundCredits({
+        tenantId: pending.tenantId,
+        creditsMilli: refundAmount,
+        rateKey: intent.rateKey,
+        refKind: intent.refKind,
+        refId: intent.refId,
+        idempotencyKey: recoveryRefundKey,
+        note: lifecycle.succeeded ? "Meter quantity settlement" : "Generation failed",
+      });
+      return "refunded";
+    } catch (err) {
+      logger.error(
+        { err, tenantId: pending.tenantId, refundKey: intent.refundKey },
+        "Credit meter durable refund remains pending",
+      );
+      return "pending";
+    }
+  }
+  return "refunded";
+}
+
+/**
+ * A same-key retry may arrive before the periodic worker.  Only the
+ * pre-dispatch state can be repaired inline; a started/ambiguous receipt still
+ * returns false so the caller raises the replay block.
+ */
+export async function recoverCreditMeterBeforeReplay(input: {
+  tenantId: number;
+  spendKey: string;
+}): Promise<boolean> {
+  const rows = await db
+    .select()
+    .from(creditAccountLedgerTable)
+    .where(
+      and(
+        eq(creditAccountLedgerTable.tenantId, input.tenantId),
+        eq(
+          creditAccountLedgerTable.kind,
+          CREDIT_METER_DISPATCH_PENDING_KIND,
+        ),
+      ),
+    );
+  const pending = rows.find(
+    (row) => parseMeterLifecycleNote(row.note)?.spendKey === input.spendKey,
+  );
+  if (!pending) return false;
+  return (await recoverOneCreditMeterLifecycle(pending)) === "refunded";
+}
+
+/**
+ * Recover only deterministic pre-dispatch failures and confirmed outcomes.
+ * Ambiguous started operations remain reserved and visible for manual
+ * liability review; this worker intentionally has no provider replay path.
+ */
+export async function sweepCreditMeterRecoveries(
+  tenantId?: number,
+): Promise<CreditMeterRecoveryResult> {
+  const rows = await db
+    .select()
+    .from(creditAccountLedgerTable)
+    .where(
+      tenantId === undefined
+        ? inArray(creditAccountLedgerTable.kind, [
+            CREDIT_METER_DISPATCH_PENDING_KIND,
+            CREDIT_METER_REFUND_PENDING_KIND,
+          ])
+        : and(
+            inArray(creditAccountLedgerTable.kind, [
+              CREDIT_METER_DISPATCH_PENDING_KIND,
+              CREDIT_METER_REFUND_PENDING_KIND,
+            ]),
+            eq(creditAccountLedgerTable.tenantId, tenantId),
+          ),
+    )
+    .orderBy(creditAccountLedgerTable.id);
+  const dispatchSpends = new Set(
+    rows
+      .filter((row) => row.kind === CREDIT_METER_DISPATCH_PENDING_KIND)
+      .map((row) => parseMeterLifecycleNote(row.note)?.spendKey)
+      .filter((key): key is string => Boolean(key)),
+  );
+  const recoverableRows = rows.filter((row) => {
+    if (row.kind !== CREDIT_METER_REFUND_PENDING_KIND) return true;
+    const spendKey = parseMeterLifecycleNote(row.note)?.spendKey;
+    // A dispatch intent owns its quantity-refund marker; process it once from
+    // the dispatch row rather than racing the marker as a generic refund.
+    return !spendKey || !dispatchSpends.has(spendKey);
+  });
+  const result: CreditMeterRecoveryResult = {
+    scanned: recoverableRows.length,
+    refunded: 0,
+    pending: 0,
+    blocked: 0,
+  };
+  for (const row of recoverableRows) {
+    try {
+      const status = await recoverOneCreditMeterLifecycle(row);
+      if (status === "refunded") result.refunded += 1;
+      if (status === "pending") result.pending += 1;
+      if (status === "blocked") result.blocked += 1;
+    } catch (err) {
+      result.pending += 1;
+      logger.error(
+        { err, tenantId: row.tenantId, ledgerId: row.id },
+        "Credit meter recovery attempt failed",
+      );
+    }
+  }
+  return result;
+}
+
+let creditMeterRecoveryTimer: NodeJS.Timeout | null = null;
+let creditMeterRecoveryRunning = false;
+
+export const CREDIT_METER_RECOVERY_INTERVAL_MS = Number(
+  process.env.CREDIT_METER_RECOVERY_INTERVAL_MS ?? 60_000,
+);
+
+export function startCreditMeterRecoverySweep(
+  intervalMs = CREDIT_METER_RECOVERY_INTERVAL_MS,
+): void {
+  if (creditMeterRecoveryTimer) return;
+  creditMeterRecoveryTimer = setInterval(() => {
+    if (creditMeterRecoveryRunning) return;
+    creditMeterRecoveryRunning = true;
+    void sweepCreditMeterRecoveries()
+      .catch((error) => {
+        logger.error({ err: error }, "Credit meter recovery sweep failed");
+      })
+      .finally(() => {
+        creditMeterRecoveryRunning = false;
+      });
+  }, intervalMs);
+  creditMeterRecoveryTimer.unref?.();
+}
+
+export function stopCreditMeterRecoverySweep(): void {
+  if (!creditMeterRecoveryTimer) return;
+  clearInterval(creditMeterRecoveryTimer);
+  creditMeterRecoveryTimer = null;
 }
 
 export interface CreditHistoryEntry {
@@ -407,6 +1230,11 @@ export interface CreditHistoryEntry {
   refId: string | null;
   note: string | null;
   createdAt: string;
+  /**
+   * Metered provider work is not presented as final while its durable refund
+   * or dispatch outcome is unresolved. Ordinary grants/spends have null.
+   */
+  settlementStatus: "settled" | "pending" | "ambiguous" | null;
 }
 
 export async function listCreditHistory(
@@ -418,8 +1246,75 @@ export async function listCreditHistory(
     .from(creditAccountLedgerTable)
     .where(eq(creditAccountLedgerTable.tenantId, tenantId))
     .orderBy(desc(creditAccountLedgerTable.id))
-    .limit(Math.min(500, Math.max(1, limit)));
-  return rows.map((r) => ({
+    // Lifecycle receipts are hidden from the customer-facing history, but are
+    // fetched alongside the rows so each visible spend can expose its durable
+    // status without a second query per line.
+    .limit(Math.min(5_000, Math.max(1, limit) * 10));
+  const lifecycleByKey = new Map(
+    rows.map((row) => [row.idempotencyKey, row]),
+  );
+  const visible = rows
+    .filter(
+      (row) =>
+        !(METER_LIFECYCLE_KINDS as readonly string[]).includes(row.kind),
+    )
+    .slice(0, Math.min(500, Math.max(1, limit)));
+  return visible.map((r) => {
+    let settlementStatus: CreditHistoryEntry["settlementStatus"] = null;
+    if (r.kind === "spend" && r.idempotencyKey) {
+      const pending = rows.find(
+        (row) =>
+          row.kind === CREDIT_METER_DISPATCH_PENDING_KIND &&
+          parseMeterLifecycleNote(row.note)?.spendKey === r.idempotencyKey,
+      );
+      if (pending) {
+        const note = parseMeterLifecycleNote(pending.note);
+        const started = lifecycleByKey.get(
+          meterMarkerKey(r.idempotencyKey, "started"),
+        );
+        const succeeded = lifecycleByKey.get(
+          meterMarkerKey(r.idempotencyKey, "succeeded"),
+        );
+        const failed = lifecycleByKey.get(
+          meterMarkerKey(r.idempotencyKey, "failed"),
+        );
+        const ambiguous = lifecycleByKey.get(
+          meterMarkerKey(r.idempotencyKey, "ambiguous"),
+        );
+        if (
+          ambiguous ||
+          (started && !succeeded && !failed)
+        ) {
+          settlementStatus = "ambiguous";
+        } else if (note) {
+          const succeededNote = succeeded
+            ? parseMeterLifecycleNote(succeeded.note)
+            : null;
+          const settlementRefundKey =
+            succeeded && succeededNote?.authoritativeCostMilli !== null &&
+            succeededNote?.authoritativeCostMilli !== undefined &&
+            succeededNote.authoritativeCostMilli < note.creditsMilli
+              ? `${r.idempotencyKey}:settle-refund`
+              : note.refundKey;
+          const requiresRefund =
+            Boolean(
+              succeeded &&
+                succeededNote?.authoritativeCostMilli !== null &&
+                succeededNote?.authoritativeCostMilli !== undefined &&
+                succeededNote.authoritativeCostMilli < note.creditsMilli,
+            ) || Boolean(failed);
+          const refunded = lifecycleByKey.get(settlementRefundKey)?.kind === "refund";
+          const refundPending =
+            lifecycleByKey.get(meterRefundPendingKey(settlementRefundKey)) !==
+            undefined;
+          settlementStatus =
+            refunded || (!requiresRefund && !refundPending && Boolean(succeeded))
+              ? "settled"
+              : "pending";
+        }
+      }
+    }
+    return {
     id: r.id,
     kind: r.kind,
     credits: (r.purchasedDeltaMilli + r.grantedDeltaMilli) / MILLI,
@@ -429,7 +1324,9 @@ export async function listCreditHistory(
     refId: r.refId,
     note: r.note,
     createdAt: r.createdAt.toISOString(),
-  }));
+      settlementStatus,
+    };
+  });
 }
 
 /** Has this workspace ever had a credit account? Guards the migration. */
@@ -672,6 +1569,35 @@ export async function spendCreditsOnce(
       idempotencyKey: receiptKey,
       note: input.note ?? null,
     });
+    if (input.meterDispatch) {
+      const dispatchRefundKey =
+        input.idempotencyKey &&
+        input.refundIdempotencyKey &&
+        receiptKey?.startsWith(`${input.idempotencyKey}:attempt:`)
+          ? `${input.meterDispatch.refundKey}:attempt:${receiptKey.slice(
+              `${input.idempotencyKey}:attempt:`.length,
+            )}`
+          : input.meterDispatch.refundKey;
+      await appendMeterLifecycle(tx, {
+        tenantId: input.tenantId,
+        kind: CREDIT_METER_DISPATCH_PENDING_KIND,
+        idempotencyKey:
+          input.meterDispatch.pendingKey ??
+          meterMarkerKey(receiptKey!, "pending"),
+        note: {
+          version: 1,
+          spendKey: receiptKey!,
+          refundKey: dispatchRefundKey,
+          creditsMilli: Math.max(0, Math.round(input.meterDispatch.creditsMilli)),
+          rateKey: input.meterDispatch.rateKey,
+          refKind: input.meterDispatch.refKind,
+          refId: input.meterDispatch.refId,
+        },
+        rateKey: input.meterDispatch.rateKey,
+        refKind: input.meterDispatch.refKind,
+        refId: input.meterDispatch.refId,
+      });
+    }
     return {
       balance: toBalance(after),
       applied: true,

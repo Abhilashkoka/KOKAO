@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreditHistoryEntrySettlementStatus } from './creditHistoryEntrySettlementStatus';
 
 export interface CreditHistoryEntry {
   id: number;
@@ -19,5 +20,10 @@ export interface CreditHistoryEntry {
   refId?: string | null;
   /** @nullable */
   note?: string | null;
+  /**
+     * Settlement state for a metered credit transaction. Null for non-metered history rows; pending and ambiguous rows must not be presented as a final settled outcome.
+     * @nullable
+     */
+  settlementStatus?: CreditHistoryEntrySettlementStatus;
   createdAt: Date;
 }

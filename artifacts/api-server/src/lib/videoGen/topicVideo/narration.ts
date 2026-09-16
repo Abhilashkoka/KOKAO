@@ -427,11 +427,11 @@ async function narrateWithBrandVoice(
   const parts: ParsedWav[] = [];
   for (const [sentenceIndex, sentence] of sentences.entries()) {
     const clonedSpeechOperationFamilyKey = billing
-      ? `${buildBrandVoiceTtsOperationKey(
+      ? `${billing.operationFamilyKey?.trim() || buildBrandVoiceTtsOperationKey(
           clonedVoice.voiceId,
           speechConfig.modelId,
           sentence,
-          undefined,
+          billing.operationScope,
           languageCode,
         )}:sentence:${sentenceIndex}`
       : null;
@@ -482,7 +482,7 @@ async function narrateWithBrandVoice(
                       clonedVoice.voiceId,
                       speechConfig.modelId,
                       sentence,
-                      undefined,
+                      billing.operationScope,
                       languageCode,
                     ),
                     settlement: {
@@ -695,6 +695,10 @@ export interface BrandVoiceNarrationBilling {
   tenantId: number;
   refKind?: string | null;
   refId?: string | null;
+  /** Durable job/cue scope for cloned-provider recovery and metering. */
+  operationScope?: { jobId: number; cueIndex: number; stage?: string };
+  /** Stable meter family for this owning workflow stage. */
+  operationFamilyKey?: string | null;
   /** Frozen rail for the stock fallback when no parent context exists. */
   funding?: MeterFundingSnapshot;
   onReceipt?: (receipt: {

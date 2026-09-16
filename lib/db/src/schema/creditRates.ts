@@ -44,8 +44,10 @@ export const creditRatesTable = pgTable("credit_rates", {
   /** Credits per unit, in thousandths. 1000 = one credit per unit. */
   creditsMilli: integer("credits_milli").notNull().default(0),
   /**
-   * Off means the meter records the call at zero credits rather than skipping
-   * it, so a deliberately free action still shows up in the cost report.
+   * Off means shadow mode records the call at zero credits rather than
+   * skipping it, so disabled actions still show up in the cost report. An
+   * enforced provider call must use an active row; a deliberately free
+   * operation is represented by an active row whose creditsMilli is zero.
    */
   active: boolean("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),

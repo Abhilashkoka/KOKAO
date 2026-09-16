@@ -390,10 +390,12 @@ async function resolveGeneratedBeat(params: {
   aspectRatio: VideoAspect;
   animate: boolean;
   motionIndex: number;
+  meterContext?: MeterContext | null;
 }): Promise<ResolvedSource> {
   const generated = await generateBrollStills({
     prompts: [params.beat.query],
     aspectRatio: params.aspectRatio,
+    meterContext: params.meterContext ?? null,
   });
   const image = generated.images[0];
   if (!image) throw new VideoGenProviderError("A generated presenter B-roll image was empty.");
@@ -425,6 +427,7 @@ async function resolveAsset(params: {
   stockSource: StockSourceChoice;
   usedStockUrls: Set<string>;
   motionIndex: number;
+  meterContext?: MeterContext | null;
 }): Promise<ResolvedSource> {
   if (params.visualsSource === "ai" || params.visualsSource === "ai_video") {
     return resolveGeneratedBeat({
@@ -432,6 +435,7 @@ async function resolveAsset(params: {
       aspectRatio: params.aspectRatio,
       animate: params.visualsSource === "ai_video",
       motionIndex: params.motionIndex,
+      meterContext: params.meterContext,
     });
   }
 
@@ -458,6 +462,7 @@ async function persistBeat(params: {
   visualsSource: string;
   stockSource: StockSourceChoice;
   usedStockUrls: Set<string>;
+  meterContext?: MeterContext | null;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   load: (objectPath: string) => Promise<Buffer>;
   onCheckpoint: (snapshot: PresenterBrollSnapshot) => Promise<void>;
@@ -474,6 +479,7 @@ async function persistBeat(params: {
       visualsSource: params.visualsSource,
       stockSource: params.stockSource,
       usedStockUrls: params.usedStockUrls,
+      meterContext: params.meterContext,
       motionIndex: params.index,
     });
     freshBytes = source.bytes;
@@ -545,6 +551,7 @@ export async function resolvePresenterBrollAssets(params: {
   aspectRatio: VideoAspect;
   visualsSource: string;
   stockSource: StockSourceChoice;
+  meterContext?: MeterContext | null;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   load: (objectPath: string) => Promise<Buffer>;
   onStage: (stage: string) => void;
@@ -566,6 +573,7 @@ export async function resolvePresenterBrollAssets(params: {
       visualsSource: params.visualsSource,
       stockSource: params.stockSource,
       usedStockUrls,
+      meterContext: params.meterContext,
       upload: params.upload,
       load: params.load,
       onCheckpoint: params.onCheckpoint,
@@ -645,6 +653,7 @@ export async function syncReviewedPresenterBroll(params: {
   aspectRatio: VideoAspect;
   visualsSource: string;
   stockSource: StockSourceChoice;
+  meterContext?: MeterContext | null;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   load: (objectPath: string) => Promise<Buffer>;
   onStage: (stage: string) => void;
@@ -675,6 +684,7 @@ export async function syncReviewedPresenterBroll(params: {
       aspectRatio: params.aspectRatio,
       visualsSource: params.visualsSource,
       stockSource: params.stockSource,
+      meterContext: params.meterContext,
       usedStockUrls,
       upload: params.upload,
       load: params.load,

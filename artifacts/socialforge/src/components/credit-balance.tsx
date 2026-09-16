@@ -37,6 +37,29 @@ export function useCreditFunding() {
   };
 }
 
+function creditHistoryLabel(kind: string): string {
+  switch (kind) {
+    case "purchase":
+      return "Credit pack";
+    case "grant_plan":
+      return "Plan allowance";
+    case "grant_signup":
+      return "Welcome credits";
+    case "grant_promo":
+      return "Promo credits";
+    case "grant_admin":
+      return "Granted by admin";
+    case "refund":
+      return "Refunded";
+    case "expire":
+      return "Expired";
+    case "spend":
+      return "Generation";
+    default:
+      return "Credit activity";
+  }
+}
+
 /**
  * The credit balance as a usage panel, for the places that used to show one
  * progress bar per quota.
@@ -115,6 +138,38 @@ export function CreditUsageCard() {
           <p className="text-xs text-muted-foreground">
             {creditFunded ? "You have no credits left. Top up to keep generating." : "No unified credits yet. Your existing wallet or quota is separate."}
           </p>
+        )}
+        {credits.history?.length > 0 && (
+          <div className="space-y-2 border-t border-border pt-3" data-testid="credit-history">
+            <div className="text-sm font-medium">Recent credit activity</div>
+            <ul className="space-y-1.5 text-xs">
+              {credits.history.slice(0, 8).map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between gap-3"
+                  data-testid={`credit-history-entry-${entry.id}`}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{creditHistoryLabel(entry.kind)}</span>
+                    {entry.settlementStatus === "pending" && (
+                      <Badge variant="outline" className="shrink-0 text-[10px]">
+                        Pending
+                      </Badge>
+                    )}
+                    {entry.settlementStatus === "ambiguous" && (
+                      <Badge variant="outline" className="shrink-0 text-[10px]">
+                        Ambiguous
+                      </Badge>
+                    )}
+                  </div>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {entry.credits > 0 ? "+" : ""}
+                    {entry.credits} credits
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         <Link href="/billing">
           <span className="text-xs font-medium text-primary cursor-pointer">
