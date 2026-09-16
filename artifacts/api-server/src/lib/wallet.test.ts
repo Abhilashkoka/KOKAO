@@ -47,6 +47,7 @@ import {
   listVideoWalletReconciliationReport,
   getVideoJobWalletChargesPaise,
   reconcileVideoJobWalletCost,
+  inspectVideoJobWalletReconciliation,
   freezeVideoDeliveryBillingManifest,
   inspectVideoDeliveryBillingManifest,
   reservationFromRow,
@@ -1003,6 +1004,83 @@ describe("v2 delivery billing manifests", () => {
 });
 
 describe("event-level video wallet reconciliation", () => {
+  it("builds a reserve-only plan without changing wallet state", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "video");
+    expect(reservation).not.toBeNull();
+    let jobId: number | null = null;
+    try {
+      const [job] = await db.insert(videoGenerationsTable).values({
+        tenantId,
+        engine: "topic_to_video",
+        status: "succeeded",
+        funding: "wallet",
+        walletReservationId: reservation!.id,
+        walletReservedPaise: reservation!.amountPaise,
+        walletReservedUnits: reservation!.units,
+        spendPaise: 0,
+        options: {
+          aspectRatio: "16:9",
+          renderCheckpoint: {
+            stage: "final",
+            path: "/objects/test/video.mp4",
+            provider: "replicate",
+            model: "provider-free-test-model",
+            durationSec: 1,
+            providerEvents: [{
+              eventId: "reserve-only:event",
+              provider: "replicate",
+              model: "provider-free-test-model",
+              durationSec: 1,
+              requestBytes: 1,
+              label: "topic_scene:scene1",
+              costPaise: 200,
+            }],
+          },
+        },
+      }).returning({ id: videoGenerationsTable.id });
+      jobId = job.id;
+
+      const beforeBalance = await getWalletBalancePaise(tenantId);
+      const plan = await inspectVideoJobWalletReconciliation(job.id);
+
+      expect(plan).toMatchObject({
+        jobId: job.id,
+        chainId: job.id,
+        eventCount: 1,
+        rawProviderCostPaise: 200,
+        targetChargePaise: 240,
+        currentlyChargedPaise: 0,
+        repricedProviderCostPaise: null,
+        readyForExplicitApproval: false,
+        proposedLedgerChanges: [{
+          reservationId: reservation!.id,
+          kind: "settle",
+          amountPaise: reservation!.amountPaise - 240,
+          targetChargePaise: 240,
+        }],
+      });
+      expect(plan.eventProofs[0]).toMatchObject({
+        savedRawCostPaise: 200,
+        catalogRepricedCostPaise: null,
+        costSource: "saved_receipt",
+      });
+      expect(plan.blockers).toContain(
+        "historical fee snapshot is missing; inferred feePercent=20 requires explicit approval",
+      );
+      expect(await getWalletBalancePaise(tenantId)).toBe(beforeBalance);
+      expect(
+        (await db.select().from(walletLedgerTable)
+          .where(eq(walletLedgerTable.reservationId, reservation!.id)))
+          .map((row) => row.kind),
+      ).toEqual([]);
+    } finally {
+      if (jobId !== null) {
+        await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId));
+      }
+    }
+  });
+
   it("applies the 20% fee once, includes narration once, and is concurrent-idempotent", async () => {
     const previousFx = (await getAiCostConfig()).usdToInrPaise;
     const visualModel = `visual-${randomUUID()}`;

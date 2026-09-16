@@ -146,6 +146,7 @@ const harness = vi.hoisted(() => {
       rows = rows.filter(
         (row) =>
           row.kind === "reserve" &&
+          (!hasRawSql(condition, "< 0") || Number(row.amountPaise) < 0) &&
           !state.walletLedgerRows.some(
             (resolved) =>
               resolved.tenantId === row.tenantId &&

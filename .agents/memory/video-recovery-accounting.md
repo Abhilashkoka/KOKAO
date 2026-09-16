@@ -20,3 +20,9 @@ Homogeneous composite workflows such as direct Guided Story must reserve each mi
 **Why:** Scene durations are quantized independently (for example, 5/8/10 seconds), while a recovery reservation may cover only one missing 10-second scene. Counting one unit at a generic display rate does not guarantee enough held funding for that exact receipt.
 
 **How to apply:** Use the immutable provider/model/variant snapshot and maximum permitted duration to price direct Guided enqueue, recovery, and fresh restart holds. Do not include inherited `accounted` receipts in the current attempt.
+
+Historical wallet reconciliation must distinguish saved event costs from current-catalog repricing, and saved fees from inferred current fees. An old display-spend snapshot alone is not evidence of a settled customer charge.
+
+**Why:** Older succeeded jobs can retain open holds with no durable settlement retry. Chain analysis may silently reprice missing event costs at today's rates, and a failed source's fully refunded work must be reviewed against delivered child receipts before charging it.
+
+**How to apply:** Inspect the entire chain's reservation/settle/refund lifecycle, expose cost provenance, and require explicit approval of any inferred historical fee and additional debit. Never label a report executable merely because a current-price total is computable.

@@ -157,6 +157,18 @@ afterAll(async () => {
 });
 
 describe("wallet conversion against PostgreSQL", () => {
+  it("ignores a zero-value historical reservation without deleting its audit row", async () => {
+    await db.insert(walletBalancesTable).values({ tenantId: tenant.tenantId, balancePaise: 250 });
+    const [zero] = await db.insert(walletLedgerTable).values({
+      tenantId: tenant.tenantId, kind: "reserve", amountPaise: 0, usageKind: "video",
+    }).returning();
+    const result = await convertWalletToCredits(conversionParams("pg-zero-reserve"));
+    expect(result.walletPaiseConverted).toBe(250);
+    const kept = await db.select().from(walletLedgerTable).where(eq(walletLedgerTable.id, zero.id));
+    expect(kept).toHaveLength(1);
+    expect(kept[0].amountPaise).toBe(0);
+  });
+
   it("serializes same-key replay and rejects a different-key race", async () => {
     await db.insert(walletBalancesTable).values({
       tenantId: tenant.tenantId,

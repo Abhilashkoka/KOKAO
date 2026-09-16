@@ -123,6 +123,9 @@ async function findConversionBlocker(
       and(
         eq(walletLedgerTable.tenantId, tenantId),
         eq(walletLedgerTable.kind, "reserve"),
+        // A zero estimate never held money and refundWallet intentionally
+        // skips it. Preserve its audit row, but don't block conversion on it.
+        sql`${walletLedgerTable.amountPaise} < 0`,
         sql`NOT EXISTS (
           SELECT 1
           FROM wallet_ledger resolved

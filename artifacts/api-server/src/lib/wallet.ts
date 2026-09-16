@@ -18,7 +18,7 @@ import {
   type VideoDeliveryBillingManifest,
   type VideoDeliveryBillingItem,
 } from "@workspace/db";
-import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { getAiSpendConfig, withFee } from "./aiSpend";
 import {
@@ -1379,6 +1379,25 @@ interface VideoBillingChainAnalysis extends VideoWalletReconciliationReportRow {
   providers: string[];
   models: string[];
   eventSummaries: string[];
+  feePercent: number;
+  feeSource: "delivery_manifest" | "current_ai_spend_settings";
+  repricedProviderCostPaise: number | null;
+  eventProofs: VideoWalletReconciliationEventProof[];
+}
+
+export interface VideoWalletReconciliationEventProof {
+  identity: string;
+  provider: string;
+  model: string;
+  label: string;
+  durationSec: number | null;
+  /** Immutable provider cost persisted in the durable checkpoint, if present. */
+  savedRawCostPaise: number | null;
+  /** Informational catalog repricing; never used as an immutable proof. */
+  catalogRepricedCostPaise: number | null;
+  costSource: "saved_receipt" | "catalog_repriced" | "missing";
+  costPaise: number | null;
+  accounted: boolean;
 }
 
 function videoEventIdentity(chainId: number, event: DurableVideoProviderEvent): string {
@@ -1705,32 +1724,64 @@ async function analyzeVideoBillingChain(
 
   const pricedEvents = await Promise.all(
     [...events.entries()].map(async ([identity, event]) => {
-      const cost =
-        event.costPaise ??
-        (isImageEvent(event)
-          ? await computeImageCostPaise({
+      const catalogCostPaise = isImageEvent(event)
+        ? await computeImageCostPaise({
+            provider: event.provider,
+            model: event.model,
+          }).catch(() => null)
+        : event.durationSec !== null || event.label.startsWith("narration:") === false
+          ? await computeVideoCostPaise({
               provider: event.provider,
               model: event.model,
+              durationSec: event.durationSec,
             }).catch(() => null)
-          : event.durationSec !== null || event.label.startsWith("narration:") === false
-            ? await computeVideoCostPaise({
-                provider: event.provider,
-                model: event.model,
-                durationSec: event.durationSec,
-              }).catch(() => null)
-            : null);
-      return { identity, event, cost };
+          : null;
+      const costSource =
+        event.costPaise !== null
+          ? "saved_receipt" as const
+          : catalogCostPaise !== null
+            ? "catalog_repriced" as const
+            : "missing" as const;
+      return {
+        identity,
+        event,
+        savedCostPaise: event.costPaise,
+        catalogCostPaise,
+        costSource,
+      };
     }),
   );
   const pendingEventIds = pricedEvents
-    .filter((entry) => entry.cost === null)
+    .filter((entry) => entry.savedCostPaise === null)
+    .map((entry) => entry.identity);
+  const missingCatalogEventIds = pricedEvents
+    .filter((entry) => entry.catalogCostPaise === null)
     .map((entry) => entry.identity);
   const rawProviderCostPaise =
     pendingEventIds.length === 0
-      ? pricedEvents.reduce((sum, entry) => sum + entry.cost!, 0)
+      ? pricedEvents.reduce((sum, entry) => sum + entry.savedCostPaise!, 0)
       : null;
+  const repricedProviderCostPaise =
+    missingCatalogEventIds.length === 0
+      ? pricedEvents.reduce((sum, entry) => sum + entry.catalogCostPaise!, 0)
+      : null;
+  // A v2 delivery manifest freezes the fee at delivery time. Legacy rows do
+  // not have that snapshot, so the report must make the live setting explicit
+  // rather than pretending that the fee was historically frozen.
+  const [spendConfig, [deliveryManifest]] = await Promise.all([
+    getAiSpendConfig(),
+    db
+      .select({ feePercent: videoDeliveryBillingManifestsTable.feePercent })
+      .from(videoDeliveryBillingManifestsTable)
+      .where(eq(videoDeliveryBillingManifestsTable.completedJobId, completed.id))
+      .limit(1),
+  ]);
+  const feePercent = deliveryManifest?.feePercent ?? spendConfig.feePercent;
+  const feeSource: VideoBillingChainAnalysis["feeSource"] = deliveryManifest
+    ? "delivery_manifest"
+    : "current_ai_spend_settings";
   const targetChargePaise =
-    rawProviderCostPaise === null ? null : await exactChargePaise(rawProviderCostPaise);
+    rawProviderCostPaise === null ? null : withFee(rawProviderCostPaise, feePercent);
   const reconciliationRef = String(chainId);
   const reconciliationAdjustments = await db
     .select({ amountPaise: walletLedgerTable.amountPaise })
@@ -1776,6 +1827,7 @@ async function analyzeVideoBillingChain(
     eventCount: pricedEvents.length,
     rawProviderCostPaise,
     targetChargePaise,
+    repricedProviderCostPaise,
     chargedPaise,
     discrepancyPaise,
     status,
@@ -1785,8 +1837,325 @@ async function analyzeVideoBillingChain(
     providers: [...new Set(pricedEvents.map(({ event }) => event.provider))],
     models: [...new Set(pricedEvents.map(({ event }) => event.model))],
     eventSummaries: pricedEvents.map(
-      ({ identity, cost }) => `${identity}=${cost === null ? "unknown" : `${cost}p`}`,
+      ({ identity, savedCostPaise, catalogCostPaise }) =>
+        `${identity}=saved:${savedCostPaise === null ? "missing" : `${savedCostPaise}p`},` +
+        `catalog:${catalogCostPaise === null ? "missing" : `${catalogCostPaise}p`}`,
     ),
+    feePercent,
+    feeSource,
+    eventProofs: pricedEvents.map(({
+      identity,
+      event,
+      savedCostPaise,
+      catalogCostPaise,
+      costSource,
+    }) => ({
+      identity,
+      provider: event.provider,
+      model: event.model,
+      label: event.label,
+      durationSec: event.durationSec,
+      savedRawCostPaise: savedCostPaise,
+      catalogRepricedCostPaise: catalogCostPaise,
+      costSource,
+      costPaise: savedCostPaise,
+      accounted: event.accounted === true,
+    })),
+  };
+}
+
+export interface VideoWalletReconciliationLifecycleRow {
+  id: number;
+  kind: string;
+  amountPaise: number;
+  reservationId: number | null;
+  usageKind: string | null;
+  refKind: string | null;
+  refId: string | null;
+  provider: string | null;
+  model: string | null;
+  providerCostPaise: number | null;
+  estimated: boolean;
+}
+
+export interface VideoWalletReconciliationReservationPlan {
+  reservationId: number;
+  reserveAmountPaise: number;
+  currentNetPaise: number;
+  lifecycle: VideoWalletReconciliationLifecycleRow[];
+  openHold: boolean;
+  proposedTargetChargePaise: number | null;
+  proposedSettleDeltaPaise: number | null;
+}
+
+export interface VideoWalletReconciliationJobLifecycleRow {
+  jobId: number;
+  status: string;
+  engine: string;
+  funding: string | null;
+  spendPaise: number | null;
+  walletReservationId: number | null;
+  walletReservedPaise: number | null;
+  walletReservedUnits: number | null;
+}
+
+export interface VideoJobWalletReconciliationPlan {
+  jobId: number;
+  tenantId: number;
+  chainId: number;
+  jobIds: number[];
+  jobLifecycle: VideoWalletReconciliationJobLifecycleRow[];
+  eventCount: number;
+  eventProofs: VideoWalletReconciliationEventProof[];
+  feePercent: number;
+  feeSource: "delivery_manifest" | "current_ai_spend_settings";
+  rawProviderCostPaise: number | null;
+  repricedProviderCostPaise: number | null;
+  targetChargePaise: number | null;
+  currentlyChargedPaise: number;
+  currentJobSpendPaise: number | null;
+  proposedJobSpendPaise: number | null;
+  proposedJobSpendDeltaPaise: number | null;
+  reservationPlans: VideoWalletReconciliationReservationPlan[];
+  proposedLedgerChanges: Array<{
+    reservationId: number;
+    kind: "settle";
+    amountPaise: number;
+    targetChargePaise: number;
+  }>;
+  readyForExplicitApproval: boolean;
+  blockers: string[];
+  warnings: string[];
+}
+
+/**
+ * Read-only targeted plan for a completed wallet job whose reserve was held
+ * but never handed off to the normal settlement outbox.
+ *
+ * This deliberately does not call `reconcileVideoJobWalletCost`: that legacy
+ * correction path requires a settled anchor and writes a true-up. A reserve-
+ * only job needs a settlement delta that closes its original reserve instead.
+ * The plan includes every chain reservation and its current lifecycle so an
+ * operator can review failed-source refunds and reused checkpoints before any
+ * mutation is authorized.
+ */
+export async function inspectVideoJobWalletReconciliation(
+  jobId: number,
+): Promise<VideoJobWalletReconciliationPlan> {
+  const analysis = await analyzeVideoBillingChain(jobId);
+  const { jobs: chainJobs } = await loadVideoBillingChain(jobId);
+  const reservationIds = analysis.reservationIds;
+  const ledgerRows =
+    reservationIds.length === 0
+      ? []
+      : await db
+        .select({
+          id: walletLedgerTable.id,
+          kind: walletLedgerTable.kind,
+          amountPaise: walletLedgerTable.amountPaise,
+          reservationId: walletLedgerTable.reservationId,
+          usageKind: walletLedgerTable.usageKind,
+          refKind: walletLedgerTable.refKind,
+          refId: walletLedgerTable.refId,
+          provider: walletLedgerTable.provider,
+          model: walletLedgerTable.model,
+          providerCostPaise: walletLedgerTable.providerCostPaise,
+          estimated: walletLedgerTable.estimated,
+        })
+        .from(walletLedgerTable)
+        .where(and(
+          eq(walletLedgerTable.tenantId, analysis.tenantId),
+          or(
+            inArray(walletLedgerTable.id, reservationIds),
+            inArray(walletLedgerTable.reservationId, reservationIds),
+          ),
+        ))
+        .orderBy(asc(walletLedgerTable.id));
+
+  const lifecycleRows: VideoWalletReconciliationLifecycleRow[] = ledgerRows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    amountPaise: row.amountPaise,
+    reservationId: row.reservationId,
+    usageKind: row.usageKind,
+    refKind: row.refKind,
+    refId: row.refId,
+    provider: row.provider,
+    model: row.model,
+    providerCostPaise: row.providerCostPaise,
+    estimated: row.estimated,
+  }));
+  const reserveById = new Map(
+    lifecycleRows
+      .filter((row) => row.kind === "reserve" && reservationIds.includes(row.id))
+      .map((row) => [row.id, row]),
+  );
+  const reservationPlans: VideoWalletReconciliationReservationPlan[] = reservationIds.flatMap((reservationId) => {
+    const reserve = reserveById.get(reservationId);
+    if (!reserve) return [];
+    const lifecycle = lifecycleRows.filter(
+      (row) => row.id === reservationId || row.reservationId === reservationId,
+    );
+    const currentNetPaise = lifecycle.reduce((sum, row) => sum + row.amountPaise, 0);
+    const hasSettle = lifecycle.some((row) => row.kind === "settle");
+    const hasRefund = lifecycle.some((row) => row.kind === "refund");
+    return [{
+      reservationId,
+      reserveAmountPaise: reserve.amountPaise,
+      currentNetPaise,
+      lifecycle,
+      // A reservation with a terminal resolution is not an open hold even if
+      // a malformed historical true-up left its signed net below zero.
+      openHold: currentNetPaise < 0 && !hasSettle && !hasRefund,
+      proposedTargetChargePaise: null as number | null,
+      proposedSettleDeltaPaise: null as number | null,
+    }];
+  });
+
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (analysis.status === "pending_settlement") {
+    blockers.push("chain has a pending settlement retry");
+  }
+  if (analysis.rawProviderCostPaise === null || analysis.targetChargePaise === null) {
+    blockers.push(
+      `chain is missing immutable saved provider costPaise for: ${analysis.pendingEventIds.join(", ")}; catalog repricing is informational only`,
+    );
+  }
+  if (analysis.feeSource === "current_ai_spend_settings") {
+    blockers.push(
+      `historical fee snapshot is missing; inferred feePercent=${analysis.feePercent} requires explicit approval`,
+    );
+    warnings.push(
+      `no delivery fee snapshot; target is informational only and uses current ai_spend_settings feePercent=${analysis.feePercent}`,
+    );
+  }
+  const missingCatalogEventIds = analysis.eventProofs
+    .filter((event) => event.catalogRepricedCostPaise === null)
+    .map((event) => event.identity);
+  if (missingCatalogEventIds.length > 0) {
+    warnings.push(
+      `catalog repricing unavailable for ${missingCatalogEventIds.length} event(s); ` +
+      `saved provider costs remain the only immutable proof`,
+    );
+  }
+
+  const openReservations = reservationPlans.filter((row) => row.openHold);
+  const additionalChargePaise =
+    analysis.targetChargePaise === null
+      ? null
+      : analysis.targetChargePaise - analysis.chargedPaise;
+  if (additionalChargePaise !== null && additionalChargePaise < 0) {
+    blockers.push(
+      `existing linked charges exceed the exact target by ${-additionalChargePaise} paise`,
+    );
+  }
+  if (
+    analysis.targetChargePaise !== null &&
+    additionalChargePaise !== null &&
+    additionalChargePaise >= 0 &&
+    analysis.status !== "balanced" &&
+    openReservations.length === 0
+  ) {
+    blockers.push("no unresolved reserve is available to close this chain");
+  }
+
+  const proposedLedgerChanges: VideoJobWalletReconciliationPlan["proposedLedgerChanges"] = [];
+  const canProposeReadOnlyPlan =
+    analysis.targetChargePaise !== null &&
+    analysis.status !== "pending_settlement" &&
+    additionalChargePaise !== null &&
+    additionalChargePaise >= 0 &&
+    (analysis.status === "balanced" || openReservations.length > 0);
+  if (canProposeReadOnlyPlan) {
+    let remaining = additionalChargePaise;
+    for (const reservation of openReservations) {
+      const heldPaise = Math.max(0, -reservation.currentNetPaise);
+      // Consume held capacity in reservation-id order. If exact delivery cost
+      // exceeds the hold, the final open reserve receives the full remainder;
+      // this is the normal reserve->settle true-up delta.
+      const targetChargePaise = Math.min(remaining, heldPaise);
+      remaining -= targetChargePaise;
+      const desiredNetPaise = -targetChargePaise;
+      const settleDeltaPaise = desiredNetPaise - reservation.currentNetPaise;
+      reservation.proposedTargetChargePaise = targetChargePaise;
+      reservation.proposedSettleDeltaPaise = settleDeltaPaise;
+      // Keep a zero-delta settle in the plan too: it closes an exact reserve
+      // without moving money and makes the reserve lifecycle auditable.
+      proposedLedgerChanges.push({
+        reservationId: reservation.reservationId,
+        kind: "settle",
+        amountPaise: settleDeltaPaise,
+        targetChargePaise,
+      });
+    }
+    if (remaining > 0) {
+      const last = openReservations[openReservations.length - 1];
+      if (last) {
+        const targetChargePaise = (last.proposedTargetChargePaise ?? 0) + remaining;
+        const settleDeltaPaise = -targetChargePaise - last.currentNetPaise;
+        last.proposedTargetChargePaise = targetChargePaise;
+        last.proposedSettleDeltaPaise = settleDeltaPaise;
+        const existing = proposedLedgerChanges.find(
+          (row) => row.reservationId === last.reservationId,
+        );
+        if (existing) {
+          existing.amountPaise = settleDeltaPaise;
+          existing.targetChargePaise = targetChargePaise;
+        } else {
+          proposedLedgerChanges.push({
+            reservationId: last.reservationId,
+            kind: "settle",
+            amountPaise: settleDeltaPaise,
+            targetChargePaise,
+          });
+        }
+      }
+    }
+  }
+
+  const proposedJobSpendPaise =
+    analysis.targetChargePaise === null ? null : analysis.targetChargePaise;
+  const [jobSpendRow] = await db
+    .select({ spendPaise: videoGenerationsTable.spendPaise })
+    .from(videoGenerationsTable)
+    .where(eq(videoGenerationsTable.id, jobId))
+    .limit(1);
+  const currentJobSpendPaise = jobSpendRow?.spendPaise ?? null;
+  return {
+    jobId,
+    tenantId: analysis.tenantId,
+    chainId: analysis.chainId,
+    jobIds: analysis.jobIds,
+    jobLifecycle: chainJobs.map((job) => ({
+      jobId: job.id,
+      status: job.status,
+      engine: job.engine,
+      funding: job.funding,
+      spendPaise: job.spendPaise,
+      walletReservationId: job.walletReservationId,
+      walletReservedPaise: job.walletReservedPaise,
+      walletReservedUnits: job.walletReservedUnits,
+    })),
+    eventCount: analysis.eventCount,
+    eventProofs: analysis.eventProofs,
+    feePercent: analysis.feePercent,
+    feeSource: analysis.feeSource,
+    rawProviderCostPaise: analysis.rawProviderCostPaise,
+    repricedProviderCostPaise: analysis.repricedProviderCostPaise,
+    targetChargePaise: analysis.targetChargePaise,
+    currentlyChargedPaise: analysis.chargedPaise,
+    currentJobSpendPaise,
+    proposedJobSpendPaise,
+    proposedJobSpendDeltaPaise:
+      proposedJobSpendPaise === null || currentJobSpendPaise === null
+        ? null
+        : proposedJobSpendPaise - currentJobSpendPaise,
+    reservationPlans,
+    proposedLedgerChanges,
+    readyForExplicitApproval: blockers.length === 0 && proposedLedgerChanges.length > 0,
+    blockers,
+    warnings,
   };
 }
 
