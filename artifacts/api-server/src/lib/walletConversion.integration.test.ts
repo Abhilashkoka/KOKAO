@@ -44,7 +44,7 @@ import {
   walletProviderOperationsTable,
   walletSettlementRetriesTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   convertWalletToCredits,
   WalletConversionConflictError,
@@ -54,7 +54,7 @@ import {
   planCreditMigrationPreview,
   runCreditMigration,
 } from "./creditMigration";
-import { reserveWallet } from "./wallet";
+import { adminAdjustWallet, reserveWallet } from "./wallet";
 import { createAdminTestApp } from "../test/testApp";
 import {
   actAs,
@@ -102,13 +102,87 @@ async function setRate(): Promise<void> {
     });
 }
 
-function conversionParams(idempotencyKey: string) {
+function conversionParams(idempotencyKey: string, expectedWalletPaise = 250) {
   return {
     tenantId: tenant.tenantId,
-    expectedWalletPaise: 250,
+    expectedWalletPaise,
     expectedCreditPricePaise: RATE_PAISE,
     idempotencyKey,
   };
+}
+
+async function seedFailedSettlementRetry(
+  resolution: "settle" | "refund" | "mismatch",
+): Promise<number> {
+  await adminAdjustWallet({ tenantId: tenant.tenantId, amountPaise: 1_000 });
+  const [reserve] = await db
+    .insert(walletLedgerTable)
+    .values({
+      tenantId: tenant.tenantId,
+      kind: "reserve",
+      amountPaise: -100,
+      usageKind: "video",
+    })
+    .returning({ id: walletLedgerTable.id });
+  await db
+    .update(walletBalancesTable)
+    .set({ balancePaise: sql`${walletBalancesTable.balancePaise} - 100` })
+    .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+  let targetChargePaise = 100;
+  if (resolution === "settle") {
+    targetChargePaise = 60;
+    await db.insert(walletLedgerTable).values({
+      tenantId: tenant.tenantId,
+      kind: "settle",
+      amountPaise: 40,
+      reservationId: reserve.id,
+      usageKind: "video",
+    });
+    await db
+      .update(walletBalancesTable)
+      .set({ balancePaise: sql`${walletBalancesTable.balancePaise} + 40` })
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+  } else if (resolution !== "mismatch") {
+    await db.insert(walletLedgerTable).values({
+      tenantId: tenant.tenantId,
+      kind: "refund",
+      amountPaise: 100,
+      reservationId: reserve.id,
+      usageKind: "video",
+    });
+    await db
+      .update(walletBalancesTable)
+      .set({ balancePaise: sql`${walletBalancesTable.balancePaise} + 100` })
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+  } else {
+    targetChargePaise = 60;
+    await db.insert(walletLedgerTable).values({
+      tenantId: tenant.tenantId,
+      kind: "refund",
+      amountPaise: 100,
+      reservationId: reserve.id,
+      usageKind: "video",
+    });
+    await db
+      .update(walletBalancesTable)
+      .set({ balancePaise: sql`${walletBalancesTable.balancePaise} + 100` })
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+  }
+  await db.insert(walletSettlementRetriesTable).values({
+    tenantId: tenant.tenantId,
+    reservationId: reserve.id,
+    reservedPaise: 100,
+    reservedUnits: 1,
+    usageKind: "video",
+    targetChargePaise,
+    estimated: false,
+    status: "failed",
+  });
+  const [wallet] = await db
+    .select({ balancePaise: walletBalancesTable.balancePaise })
+    .from(walletBalancesTable)
+    .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+  return wallet.balancePaise;
 }
 
 beforeAll(async () => {
@@ -238,6 +312,68 @@ describe("wallet conversion against PostgreSQL", () => {
     } else {
       expect(wallet.balancePaise).toBeGreaterThan(0);
     }
+  });
+
+  it("ignores a failed outbox with an exact settled ledger target", async () => {
+    const walletPaise = await seedFailedSettlementRetry("settle");
+    const result = await convertWalletToCredits(
+      conversionParams("pg-failed-settled-exact", walletPaise),
+    );
+    expect(result.walletPaiseConverted).toBe(walletPaise);
+    expect(result.remainingWalletPaise).toBe(0);
+  });
+
+  it("ignores a failed outbox with an exact refunded net-zero ledger", async () => {
+    const walletPaise = await seedFailedSettlementRetry("refund");
+    const result = await convertWalletToCredits(
+      conversionParams("pg-failed-refunded-exact", walletPaise),
+    );
+    expect(result.walletPaiseConverted).toBe(walletPaise);
+    expect(result.remainingWalletPaise).toBe(0);
+  });
+
+  it("keeps mismatched failed refunds blocked", async () => {
+    const walletPaise = await seedFailedSettlementRetry("mismatch");
+    await expect(
+      convertWalletToCredits(
+        conversionParams("pg-failed-refund-mismatch", walletPaise),
+      ),
+    ).rejects.toThrow(/unsettled settlement outbox/i);
+  });
+
+  it("does not let a resolved failed retry hide a second pending outbox", async () => {
+    const walletPaise = await seedFailedSettlementRetry("refund");
+    await db.insert(walletSettlementRetriesTable).values({
+      tenantId: tenant.tenantId,
+      reservationId: 999_999,
+      reservedPaise: 100,
+      reservedUnits: 1,
+      usageKind: "video",
+      targetChargePaise: 100,
+      estimated: false,
+      status: "pending",
+    });
+    await expect(
+      convertWalletToCredits(
+        conversionParams("pg-resolved-then-pending", walletPaise),
+      ),
+    ).rejects.toThrow(/unsettled settlement outbox/i);
+  });
+
+  it("still blocks a pending estimated true-up after resolved failed retries", async () => {
+    const walletPaise = await seedFailedSettlementRetry("refund");
+    await db.insert(walletLedgerTable).values({
+      tenantId: tenant.tenantId,
+      kind: "settle",
+      amountPaise: 0,
+      estimated: true,
+      trueUpAt: null,
+    });
+    await expect(
+      convertWalletToCredits(
+        conversionParams("pg-resolved-then-true-up", walletPaise),
+      ),
+    ).rejects.toThrow(/pending estimated-charge true-up/i);
   });
 
   it("rejects prior wallet migration receipts and disables broad wallet grants", async () => {

@@ -59,6 +59,9 @@ const harness = vi.hoisted(() => {
       "id",
       "tenantId",
       "status",
+      "reservationId",
+      "reservedPaise",
+      "targetChargePaise",
     ]),
   };
 

@@ -8,6 +8,7 @@ import {
   videoDeliveryBillingManifestsTable,
   videoDeliveryBillingItemsTable,
   videoDeliveryInputClaimsTable,
+  aiSpendSettingsTable,
   tenantsTable,
   videoGenerationsTable,
   type WalletLedgerEntry,
@@ -1431,6 +1432,54 @@ function isImageEvent(event: DurableVideoProviderEvent): boolean {
   );
 }
 
+function collectDeliveredVideoEvents(
+  completed: VideoGeneration,
+  chainId: number,
+): Map<string, DurableVideoProviderEvent> {
+  const events = new Map<string, DurableVideoProviderEvent>();
+  const deliveredEvents: DurableVideoProviderEvent[] = [
+    ...(completed.options?.characterDialogue?.scenes ?? []).flatMap((scene) => {
+      const checkpoint = scene.checkpoint;
+      return [checkpoint?.visualEvent, checkpoint?.lipSyncEvent].filter(
+        (event): event is NonNullable<typeof event> => event != null,
+      );
+    }),
+    ...(completed.options?.characterDialogue?.musicCheckpoint?.event
+      ? [completed.options.characterDialogue.musicCheckpoint.event]
+      : []),
+    ...(completed.options?.presenterBroll?.providerEvents ?? []),
+    ...(completed.options?.presenterMusicCheckpoint?.event
+      ? [completed.options.presenterMusicCheckpoint.event]
+      : []),
+    ...(completed.options?.renderCheckpoint?.providerEvents ?? []),
+    ...(completed.options?.recovery?.rendered?.providerEvents ?? []),
+    ...(completed.options?.musicCheckpoint?.event ? [completed.options.musicCheckpoint.event] : []),
+    ...(completed.storyboard?.scenes.flatMap((scene) =>
+      scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+    ) ?? []),
+  ];
+  for (const event of deliveredEvents) {
+    const identity = videoEventIdentity(chainId, event);
+    const current = events.get(identity);
+    if (!current) {
+      events.set(identity, event);
+      continue;
+    }
+    if (videoEventConflict(current, event)) {
+      throw new Error(`Conflicting durable video event identity ${identity}`);
+    }
+    events.set(identity, {
+      ...current,
+      durationSec: current.durationSec ?? event.durationSec,
+      costPaise: current.costPaise ?? event.costPaise,
+    });
+  }
+  if (events.size === 0) {
+    throw new Error(`Video billing chain ${chainId} has no durable provider events`);
+  }
+  return events;
+}
+
 export async function loadVideoBillingChain(
   completedJobId: number,
 ): Promise<{ completed: VideoGeneration; chainId: number; jobs: VideoGeneration[] }> {
@@ -1547,49 +1596,11 @@ async function analyzeVideoBillingChain(
     throw new Error(`Video billing chain ${chainId} is not wallet funded`);
   }
 
-  const events = new Map<string, DurableVideoProviderEvent>();
   // The completed snapshot is the delivered-membership manifest. Retry jobs
   // clone checkpoints they actually reuse and replace checkpoints they
   // regenerate, so unioning ancestors would charge discarded provider work.
+  const events = collectDeliveredVideoEvents(completed, chainId);
   const dialogue = completed.options?.characterDialogue;
-  const deliveredEvents: DurableVideoProviderEvent[] = [
-    ...(dialogue?.scenes ?? []).flatMap((scene) => {
-      const checkpoint = scene.checkpoint;
-      return [checkpoint?.visualEvent, checkpoint?.lipSyncEvent].filter(
-        (event): event is NonNullable<typeof event> => event != null,
-      );
-    }),
-    ...(dialogue?.musicCheckpoint?.event ? [dialogue.musicCheckpoint.event] : []),
-    ...(completed.options?.presenterBroll?.providerEvents ?? []),
-    ...(completed.options?.presenterMusicCheckpoint?.event
-      ? [completed.options.presenterMusicCheckpoint.event]
-      : []),
-    ...(completed.options?.renderCheckpoint?.providerEvents ?? []),
-    ...(completed.options?.recovery?.rendered?.providerEvents ?? []),
-    ...(completed.options?.musicCheckpoint?.event ? [completed.options.musicCheckpoint.event] : []),
-    ...(completed.storyboard?.scenes.flatMap((scene) =>
-      scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
-    ) ?? []),
-  ];
-  for (const event of deliveredEvents) {
-    const identity = videoEventIdentity(chainId, event);
-    const current = events.get(identity);
-    if (!current) {
-      events.set(identity, event);
-      continue;
-    }
-    if (videoEventConflict(current, event)) {
-      throw new Error(`Conflicting durable video event identity ${identity}`);
-    }
-    events.set(identity, {
-      ...current,
-      durationSec: current.durationSec ?? event.durationSec,
-      costPaise: current.costPaise ?? event.costPaise,
-    });
-  }
-  if (events.size === 0) {
-    throw new Error(`Video billing chain ${chainId} has no durable provider events`);
-  }
 
   const jobIds = jobs.map((job) => job.id);
   const billableJobs = jobs.filter((job) => job.status === "succeeded");
@@ -2421,6 +2432,529 @@ export async function reconcileVideoJobWalletCost(
     finalJobSpendPaise,
     eventCount: analysis.eventCount,
   };
+}
+
+export interface ApprovedVideoWalletReconciliationTarget {
+  jobId: number;
+  expectedTargetChargePaise: number;
+  expectedCurrentlyChargedPaise: number;
+  expectedCurrentJobSpendPaise: number;
+}
+
+export interface ApprovedVideoWalletReconciliationArgs {
+  tenantId: number;
+  targets: ApprovedVideoWalletReconciliationTarget[];
+  expectedFeePercent: number;
+  expectedAdditionalDebitPaise: number;
+  approvalContext: string;
+}
+
+export interface ApprovedVideoWalletReconciliationResult {
+  tenantId: number;
+  jobIds: number[];
+  chainIds: number[];
+  expectedFeePercent: number;
+  expectedAdditionalDebitPaise: number;
+  appliedPaise: number;
+  replayed: boolean;
+}
+
+/**
+ * Atomically apply a reviewed, saved-receipt-only reconciliation batch.
+ *
+ * This is deliberately separate from the historical single-job true-up:
+ * reserve-only jobs need ordinary `settle` rows, while the failed source
+ * chain member must remain a fully resolved zero-net lifecycle. All chain
+ * jobs, the tenant wallet, reservations, retry rows, and provider-operation
+ * rows are locked in deterministic order before any validation or write.
+ */
+export async function reconcileApprovedVideoWalletBatch(
+  args: ApprovedVideoWalletReconciliationArgs,
+): Promise<ApprovedVideoWalletReconciliationResult> {
+  const targets = [...args.targets].sort((a, b) => a.jobId - b.jobId);
+  if (
+    targets.length !== 2 ||
+    new Set(targets.map((target) => target.jobId)).size !== targets.length ||
+    targets.some((target) =>
+      !Number.isSafeInteger(target.expectedTargetChargePaise) ||
+      target.expectedTargetChargePaise < 0 ||
+      !Number.isSafeInteger(target.expectedCurrentlyChargedPaise) ||
+      target.expectedCurrentlyChargedPaise < 0 ||
+      !Number.isSafeInteger(target.expectedCurrentJobSpendPaise) ||
+      target.expectedCurrentJobSpendPaise < 0
+    )
+  ) {
+    throw new Error("Approved targeted video reconciliation requires exactly two valid job targets");
+  }
+  if (
+    !Number.isSafeInteger(args.expectedFeePercent) ||
+    args.expectedFeePercent < 0 ||
+    args.expectedFeePercent > 1000 ||
+    !Number.isSafeInteger(args.expectedAdditionalDebitPaise) ||
+    args.expectedAdditionalDebitPaise < 0 ||
+    args.approvalContext.trim().length < 8 ||
+    args.approvalContext.length > 200
+  ) {
+    throw new Error("Approved targeted video reconciliation approval context is invalid");
+  }
+  const targetByJobId = new Map(targets.map((target) => [target.jobId, target]));
+  const auditPrefix = `approved-video-reconciliation:v1:${args.approvalContext}:`;
+
+  return db.transaction(async (tx) => {
+    const tenantJobs = await tx
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, args.tenantId));
+    const tenantJobsById = new Map(tenantJobs.map((job) => [job.id, job]));
+    const requestedJobs = targets.map((target) => tenantJobsById.get(target.jobId));
+    if (requestedJobs.some((job) => !job || job.status !== "succeeded" || job.funding !== "wallet")) {
+      throw new Error("Approved targeted video reconciliation requires two succeeded wallet jobs");
+    }
+
+    const requestedChainIds = new Set(
+      requestedJobs.map((job) => canonicalVideoBillingChainId(job!, tenantJobsById)),
+    );
+    if (requestedChainIds.size !== targets.length) {
+      throw new Error("Approved targeted video reconciliation requires two distinct billing chains");
+    }
+    const chainJobIdsByChain = new Map<number, number[]>();
+    for (const job of tenantJobs) {
+      const chainId = canonicalVideoBillingChainId(job, tenantJobsById);
+      if (!requestedChainIds.has(chainId)) continue;
+      const ids = chainJobIdsByChain.get(chainId) ?? [];
+      ids.push(job.id);
+      chainJobIdsByChain.set(chainId, ids);
+    }
+    const chainJobIds = [...new Set(
+      [...chainJobIdsByChain.values()].flat(),
+    )].sort((a, b) => a - b);
+
+    // Jobs are the first lock in this batch. A retry/source relationship cannot
+    // change underneath the rest of the validation after this point.
+    const lockedJobs = await tx
+      .select()
+      .from(videoGenerationsTable)
+      .where(and(
+        eq(videoGenerationsTable.tenantId, args.tenantId),
+        inArray(videoGenerationsTable.id, chainJobIds),
+      ))
+      .orderBy(asc(videoGenerationsTable.id))
+      .for("update");
+    if (lockedJobs.length !== chainJobIds.length) {
+      throw new Error("Approved video reconciliation chain membership changed while locking jobs");
+    }
+    const lockedJobsById = new Map(lockedJobs.map((job) => [job.id, job]));
+    const reloadedTenantJobs = await tx
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, args.tenantId));
+    const reloadedById = new Map(reloadedTenantJobs.map((job) => [job.id, job]));
+    for (const chainId of requestedChainIds) {
+      const reloadedIds = reloadedTenantJobs
+        .filter((job) => canonicalVideoBillingChainId(job, reloadedById) === chainId)
+        .map((job) => job.id)
+        .sort((a, b) => a - b);
+      const lockedIds = (chainJobIdsByChain.get(chainId) ?? []).sort((a, b) => a - b);
+      if (reloadedIds.length !== lockedIds.length || reloadedIds.some((id, index) => id !== lockedIds[index])) {
+        throw new Error(`Approved video reconciliation chain ${chainId} changed while locking jobs`);
+      }
+    }
+
+    const walletBalancePaise = await lockBalance(tx, args.tenantId);
+    const [lockedSpendConfig] = await tx
+      .select({ feePercent: aiSpendSettingsTable.feePercent })
+      .from(aiSpendSettingsTable)
+      .limit(1)
+      .for("update");
+    if (!lockedSpendConfig || lockedSpendConfig.feePercent !== args.expectedFeePercent) {
+      throw new Error(
+        `Approved fee shape changed from ${args.expectedFeePercent}% to ` +
+        `${lockedSpendConfig?.feePercent ?? "missing"}`,
+      );
+    }
+
+    const tenantLedger = await tx
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.tenantId, args.tenantId));
+    const tenantRetries = await tx
+      .select()
+      .from(walletSettlementRetriesTable)
+      .where(eq(walletSettlementRetriesTable.tenantId, args.tenantId));
+    const tenantProviderOperations = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, args.tenantId));
+    const allChainJobIds = new Set(chainJobIds);
+    const refMatchesChain = (refId: string | null): boolean => {
+      const id = Number(refId?.split(":", 1)[0]);
+      return Number.isSafeInteger(id) && allChainJobIds.has(id);
+    };
+    const reservationIds = new Set<number>(
+      lockedJobs
+        .map((job) => job.walletReservationId)
+        .filter((id): id is number => id !== null),
+    );
+    for (const row of tenantLedger) {
+      if (!refMatchesChain(row.refId)) continue;
+      if (row.kind === "reserve") reservationIds.add(row.id);
+      if (row.reservationId !== null) reservationIds.add(row.reservationId);
+    }
+    for (const row of tenantRetries) {
+      if (refMatchesChain(row.refId)) reservationIds.add(row.reservationId);
+    }
+    for (const row of tenantProviderOperations) {
+      if (refMatchesChain(row.refId)) reservationIds.add(row.reservationId);
+    }
+    for (const job of lockedJobs) {
+      reservationIds.add(job.storyboard?.narration?.receipt?.reservationId ?? 0);
+      for (const receipt of job.storyboard?.narration?.receipts ?? []) {
+        if (receipt.reservationId !== null) reservationIds.add(receipt.reservationId);
+      }
+      for (const line of job.storyboard?.dialogueReplayCheckpoint?.lines ?? []) {
+        reservationIds.add(line.narrationReceipt?.reservationId ?? 0);
+      }
+      for (const scene of job.options?.guidedStoryIntrinsicLipSync?.checkpoint?.scenes ?? []) {
+        reservationIds.add(scene.narrationReceipt?.reservationId ?? 0);
+      }
+    }
+    reservationIds.delete(0);
+    const sortedReservationIds = [...reservationIds].sort((a, b) => a - b);
+    if (sortedReservationIds.length === 0) {
+      throw new Error("Approved video reconciliation found no wallet reservations");
+    }
+
+    // Reservation rows and all resolution rows are locked before retry/provider
+    // rows, matching the existing wallet settlement serialization discipline.
+    const lockedLedger = await tx
+      .select()
+      .from(walletLedgerTable)
+      .where(and(
+        eq(walletLedgerTable.tenantId, args.tenantId),
+        or(
+          inArray(walletLedgerTable.id, sortedReservationIds),
+          inArray(walletLedgerTable.reservationId, sortedReservationIds),
+        ),
+      ))
+      .orderBy(asc(walletLedgerTable.id))
+      .for("update");
+    const reserveRows = lockedLedger.filter(
+      (row) => row.kind === "reserve" && sortedReservationIds.includes(row.id),
+    );
+    if (reserveRows.length !== sortedReservationIds.length) {
+      throw new Error("Approved video reconciliation reservation lifecycle is incomplete");
+    }
+    const lockedRetries = await tx
+      .select()
+      .from(walletSettlementRetriesTable)
+      .where(and(
+        eq(walletSettlementRetriesTable.tenantId, args.tenantId),
+        inArray(walletSettlementRetriesTable.reservationId, sortedReservationIds),
+      ))
+      .orderBy(asc(walletSettlementRetriesTable.id))
+      .for("update");
+    const lockedProviderOperations = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(and(
+        eq(walletProviderOperationsTable.tenantId, args.tenantId),
+        inArray(walletProviderOperationsTable.reservationId, sortedReservationIds),
+      ))
+      .orderBy(asc(walletProviderOperationsTable.id))
+      .for("update");
+    if (lockedProviderOperations.some((row) =>
+      !["failed", "refunded", "settled"].includes(row.status)
+    )) {
+      throw new Error("Approved video reconciliation has a pending provider operation");
+    }
+
+    const lifecycleByReservation = new Map<number, typeof lockedLedger>();
+    for (const reservationId of sortedReservationIds) {
+      lifecycleByReservation.set(
+        reservationId,
+        lockedLedger.filter(
+          (row) => row.id === reservationId || row.reservationId === reservationId,
+        ),
+      );
+    }
+    const failedSourceJobIds = new Set(
+      lockedJobs.filter((job) => job.status === "failed").map((job) => job.id),
+    );
+    for (const retry of lockedRetries) {
+      if (retry.status === "settled") continue;
+      const sourceJobId = Number(retry.refId?.split(":", 1)[0]);
+      const lifecycle = lifecycleByReservation.get(retry.reservationId) ?? [];
+      const reserve = lifecycle.find(
+        (row) => row.id === retry.reservationId && row.kind === "reserve",
+      );
+      const refundPaise = lifecycle
+        .filter((row) => row.kind === "refund")
+        .reduce((sum, row) => sum + row.amountPaise, 0);
+      const lifecycleNet = lifecycle.reduce((sum, row) => sum + row.amountPaise, 0);
+      const terminalFailedRefund =
+        retry.status === "failed" &&
+        retry.usageKind === "video" &&
+        retry.refKind === "videoJob" &&
+        failedSourceJobIds.has(sourceJobId) &&
+        reserve !== undefined &&
+        reserve.amountPaise < 0 &&
+        refundPaise > 0 &&
+        retry.targetChargePaise === refundPaise &&
+        lifecycleNet === 0 &&
+        lifecycle.every((row) =>
+          row.kind === "reserve" ||
+          row.kind === "settle" ||
+          row.kind === "refund"
+        );
+      if (!terminalFailedRefund) {
+        throw new Error("Approved video reconciliation has a pending settlement retry");
+      }
+    }
+    const markerRows = lockedLedger.filter(
+      (row) => row.kind === "settle" && row.note?.startsWith(auditPrefix),
+    );
+    const reserveAmountById = new Map(reserveRows.map((row) => [row.id, row.amountPaise]));
+    const chainSummaries: Array<{
+      chainId: number;
+      completed: VideoGeneration;
+      target: ApprovedVideoWalletReconciliationTarget;
+      rawProviderCostPaise: number;
+      targetChargePaise: number;
+      currentlyChargedPaise: number;
+      proposedChanges: Array<{
+        reservationId: number;
+        amountPaise: number;
+        targetChargePaise: number;
+        provider: string | null;
+        model: string | null;
+      }>;
+    }> = [];
+    for (const chainId of requestedChainIds) {
+      const members = lockedJobs
+        .filter((job) => canonicalVideoBillingChainId(job, lockedJobsById) === chainId)
+        .sort((a, b) => a.id - b.id);
+      const completed = members.filter((job) => job.status === "succeeded").at(-1);
+      if (!completed) throw new Error(`Approved video chain ${chainId} has no succeeded delivery`);
+      const target = targetByJobId.get(completed.id);
+      if (!target) {
+        throw new Error(`Approved video chain ${chainId} completed job was not targeted`);
+      }
+      const events = collectDeliveredVideoEvents(completed, chainId);
+      for (const row of lockedLedger) {
+        if (
+          row.kind !== "settle" ||
+          row.usageKind === "video" ||
+          row.refKind !== "videoJob" ||
+          !refMatchesChain(row.refId)
+        ) continue;
+        const refJobId = Number(row.refId?.split(":", 1)[0]);
+        if (!members.some((job) => job.id === refJobId)) continue;
+        const identity = `wallet-reservation:${row.reservationId}`;
+        const event: DurableVideoProviderEvent = {
+          eventId: identity,
+          provider: row.provider ?? "unknown",
+          model: row.model ?? "unknown",
+          durationSec: null,
+          requestBytes: 0,
+          label: `narration:${row.reservationId}`,
+          costPaise: row.providerCostPaise,
+        };
+        const current = events.get(identity);
+        if (current && videoEventConflict(current, event)) {
+          throw new Error(`Conflicting saved video event identity ${identity}`);
+        }
+        events.set(identity, event);
+      }
+      const eventList = [...events.values()];
+      if (eventList.some((event) => event.costPaise === null)) {
+        throw new Error(`Approved video chain ${chainId} has missing saved provider costPaise`);
+      }
+      const rawProviderCostPaise = eventList.reduce((sum, event) => sum + event.costPaise!, 0);
+      const targetChargePaise = withFee(rawProviderCostPaise, args.expectedFeePercent);
+      if (targetChargePaise !== target.expectedTargetChargePaise) {
+        throw new Error(
+          `Approved video chain ${chainId} target changed from reviewed ` +
+          `${target.expectedTargetChargePaise} to ${targetChargePaise}`,
+        );
+      }
+      const chainReservationIds = sortedReservationIds.filter((reservationId) => {
+        const rows = lifecycleByReservation.get(reservationId) ?? [];
+        const memberJobIds = new Set(members.map((job) => job.id));
+        return (
+          members.some((job) => job.walletReservationId === reservationId) ||
+          rows.some((row) => {
+            const refJobId = Number(row.refId?.split(":", 1)[0]);
+            return row.refKind === "videoJob" && memberJobIds.has(refJobId);
+          })
+        );
+      });
+      const currentlyChargedPaise = chainReservationIds.reduce((sum, reservationId) => {
+        const lifecycle = lifecycleByReservation.get(reservationId) ?? [];
+        const reserveAmount = reserveAmountById.get(reservationId);
+        if (reserveAmount === undefined) return sum;
+        const resolutions = lifecycle.filter((row) =>
+          ["settle", "true_up", "refund"].includes(row.kind),
+        );
+        if (resolutions.length === 0) return sum;
+        return sum - (reserveAmount + resolutions.reduce((total, row) => total + row.amountPaise, 0));
+      }, 0);
+      if (!markerRows.length && currentlyChargedPaise !== target.expectedCurrentlyChargedPaise) {
+        throw new Error(
+          `Approved video chain ${chainId} current charge changed from reviewed ` +
+          `${target.expectedCurrentlyChargedPaise} to ${currentlyChargedPaise}`,
+        );
+      }
+      if (!markerRows.length && completed.spendPaise !== target.expectedCurrentJobSpendPaise) {
+        throw new Error(
+          `Approved video job ${completed.id} spend changed from reviewed ` +
+          `${target.expectedCurrentJobSpendPaise} to ${completed.spendPaise}`,
+        );
+      }
+      const openReservations = chainReservationIds
+        .map((reservationId) => {
+          const lifecycle = lifecycleByReservation.get(reservationId) ?? [];
+          const reserveAmount = reserveAmountById.get(reservationId) ?? 0;
+          const hasSettle = lifecycle.some((row) => row.kind === "settle");
+          const hasRefund = lifecycle.some((row) => row.kind === "refund");
+          const currentNetPaise = lifecycle.reduce((sum, row) => sum + row.amountPaise, 0);
+          return { reservationId, reserveAmount, currentNetPaise, hasSettle, hasRefund };
+        })
+        .filter((row) => row.currentNetPaise < 0 && !row.hasSettle && !row.hasRefund)
+        .sort((a, b) => a.reservationId - b.reservationId);
+      let remaining = targetChargePaise - currentlyChargedPaise;
+      if (remaining < 0) {
+        throw new Error(`Approved video chain ${chainId} is already overcharged`);
+      }
+      const proposedChanges: Array<{
+        reservationId: number;
+        amountPaise: number;
+        targetChargePaise: number;
+        provider: string | null;
+        model: string | null;
+      }> = [];
+      const providers = [...new Set(eventList.map((event) => event.provider))];
+      const models = [...new Set(eventList.map((event) => event.model))];
+      for (const reservation of openReservations) {
+        const heldPaise = Math.max(0, -reservation.currentNetPaise);
+        const reservationTarget = Math.min(remaining, heldPaise);
+        remaining -= reservationTarget;
+        proposedChanges.push({
+          reservationId: reservation.reservationId,
+          amountPaise: -reservationTarget - reservation.currentNetPaise,
+          targetChargePaise: reservationTarget,
+          provider: providers.length === 1 ? providers[0] : "multiple",
+          model: models.length === 1 ? models[0] : "multiple",
+        });
+      }
+      if (remaining > 0) {
+        const last = proposedChanges.at(-1);
+        if (!last) {
+          throw new Error(`Approved video chain ${chainId} has insufficient unresolved reserve`);
+        }
+        last.targetChargePaise += remaining;
+        last.amountPaise -= remaining;
+        remaining = 0;
+      }
+      if (remaining > 0) {
+        throw new Error(`Approved video chain ${chainId} has insufficient unresolved reserve`);
+      }
+      chainSummaries.push({
+        chainId,
+        completed,
+        target,
+        rawProviderCostPaise,
+        targetChargePaise,
+        currentlyChargedPaise,
+        proposedChanges,
+      });
+    }
+
+    if (markerRows.length > 0) {
+      const markerAmountPaise = markerRows.reduce((sum, row) => sum + row.amountPaise, 0);
+      if (
+        markerRows.length !== targets.length ||
+        markerAmountPaise !== -args.expectedAdditionalDebitPaise ||
+        chainSummaries.some((summary) =>
+          summary.currentlyChargedPaise !== summary.target.expectedTargetChargePaise ||
+          summary.completed.spendPaise !== summary.target.expectedTargetChargePaise
+        )
+      ) {
+        throw new Error("Approved video reconciliation marker is partial or mismatched");
+      }
+      return {
+        tenantId: args.tenantId,
+        jobIds: targets.map((target) => target.jobId),
+        chainIds: chainSummaries.map((summary) => summary.chainId),
+        expectedFeePercent: args.expectedFeePercent,
+        expectedAdditionalDebitPaise: args.expectedAdditionalDebitPaise,
+        appliedPaise: 0,
+        replayed: true,
+      };
+    }
+
+    const changes = chainSummaries
+      .flatMap((summary) => summary.proposedChanges.map((change) => ({
+        ...change,
+        chainId: summary.chainId,
+        completedJobId: summary.completed.id,
+        rawProviderCostPaise: summary.rawProviderCostPaise,
+      })))
+      .sort((a, b) => a.reservationId - b.reservationId);
+    const netDeltaPaise = changes.reduce((sum, change) => sum + change.amountPaise, 0);
+    if (-netDeltaPaise !== args.expectedAdditionalDebitPaise) {
+      throw new Error(
+        `Approved video reconciliation debit changed from reviewed ` +
+        `${args.expectedAdditionalDebitPaise} to ${-netDeltaPaise}`,
+      );
+    }
+    let projectedBalance = walletBalancePaise;
+    for (const change of changes) {
+      projectedBalance += change.amountPaise;
+      if (projectedBalance < 0) {
+        throw new Error("Wallet balance cannot cover the approved video reconciliation");
+      }
+    }
+
+    for (const change of changes) {
+      const applied = await applyDelta(tx, args.tenantId, change.amountPaise, {
+        kind: "settle",
+        reservationId: change.reservationId,
+        usageKind: "video",
+        provider: change.provider,
+        model: change.model,
+        providerCostPaise: change.rawProviderCostPaise,
+        refKind: "videoJob",
+        refId: String(change.completedJobId),
+        estimated: false,
+        note:
+          `${auditPrefix}chain=${change.chainId}:target=${change.targetChargePaise}:` +
+          `raw=${change.rawProviderCostPaise}:fee=${args.expectedFeePercent}`,
+      });
+      if (applied.applied !== change.amountPaise) {
+        throw new Error("Approved video reconciliation did not apply the exact ledger delta");
+      }
+    }
+    for (const summary of chainSummaries) {
+      if (summary.target.expectedCurrentJobSpendPaise !== summary.target.expectedTargetChargePaise) {
+        await tx
+          .update(videoGenerationsTable)
+          .set({
+            spendPaise: summary.target.expectedTargetChargePaise,
+            updatedAt: new Date(),
+          })
+          .where(eq(videoGenerationsTable.id, summary.completed.id));
+      }
+    }
+    return {
+      tenantId: args.tenantId,
+      jobIds: targets.map((target) => target.jobId),
+      chainIds: chainSummaries.map((summary) => summary.chainId),
+      expectedFeePercent: args.expectedFeePercent,
+      expectedAdditionalDebitPaise: args.expectedAdditionalDebitPaise,
+      appliedPaise: -netDeltaPaise,
+      replayed: false,
+    };
+  });
 }
 
 // ---------- v2 immutable delivery manifests ----------

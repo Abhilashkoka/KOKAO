@@ -48,6 +48,7 @@ import {
   getVideoJobWalletChargesPaise,
   reconcileVideoJobWalletCost,
   inspectVideoJobWalletReconciliation,
+  reconcileApprovedVideoWalletBatch,
   freezeVideoDeliveryBillingManifest,
   inspectVideoDeliveryBillingManifest,
   reservationFromRow,
@@ -1713,6 +1714,428 @@ describe("event-level video wallet reconciliation", () => {
       if (jobId !== null) {
         await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId));
       }
+    }
+  });
+});
+
+describe("approved targeted reserve-only reconciliation", () => {
+  async function createFixture() {
+    await setAiSpendConfig({
+      captionCostPaise: 200,
+      imageCostPaise: 500,
+      videoCostPaise: 1_000,
+      feePercent: 20,
+    });
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const firstReservation = await reserveWallet(tenantId, "video");
+    const failedSourceReservation = await reserveWallet(tenantId, "video");
+    const retryReservation = await reserveWallet(tenantId, "video");
+    expect(firstReservation).not.toBeNull();
+    expect(failedSourceReservation).not.toBeNull();
+    expect(retryReservation).not.toBeNull();
+
+    const firstEvent = {
+      eventId: "approved-fixture:first",
+      provider: "fixture-provider",
+      model: "fixture-model",
+      durationSec: 1,
+      requestBytes: 1,
+      label: "topic_scene:first",
+      costPaise: 1_500,
+      // Fixture reserve is intentionally smaller than the reviewed target.
+    };
+    const sourceEvent = {
+      eventId: "approved-fixture:source",
+      provider: "fixture-provider",
+      model: "fixture-model",
+      durationSec: 1,
+      requestBytes: 1,
+      label: "topic_scene:source",
+      costPaise: 1_000,
+      accounted: true,
+    };
+    const retryEvent = {
+      eventId: "approved-fixture:retry",
+      provider: "fixture-provider",
+      model: "fixture-model",
+      durationSec: 1,
+      requestBytes: 1,
+      label: "topic_scene:retry",
+      costPaise: 2_000,
+    };
+    const [firstRows, failedSourceRows, retryRows] = await Promise.all([
+      db.insert(videoGenerationsTable).values({
+        tenantId,
+        engine: "topic_to_video",
+        status: "succeeded",
+        funding: "wallet",
+        walletReservationId: firstReservation!.id,
+        walletReservedPaise: firstReservation!.amountPaise,
+        walletReservedUnits: firstReservation!.units,
+        spendPaise: 0,
+        options: {
+          aspectRatio: "16:9",
+          renderCheckpoint: {
+            stage: "final",
+            path: "/objects/fixture-first.mp4",
+            provider: firstEvent.provider,
+            model: firstEvent.model,
+            durationSec: 1,
+            providerEvents: [firstEvent],
+          },
+        },
+      }).returning({ id: videoGenerationsTable.id }),
+      db.insert(videoGenerationsTable).values({
+        tenantId,
+        engine: "topic_to_video",
+        status: "failed",
+        funding: "wallet",
+        walletReservationId: failedSourceReservation!.id,
+        walletReservedPaise: failedSourceReservation!.amountPaise,
+        walletReservedUnits: failedSourceReservation!.units,
+        spendPaise: 0,
+        options: {
+          aspectRatio: "16:9",
+          renderCheckpoint: {
+            stage: "final",
+            path: "/objects/fixture-source.mp4",
+            provider: sourceEvent.provider,
+            model: sourceEvent.model,
+            durationSec: 1,
+            providerEvents: [sourceEvent],
+          },
+        },
+      }).returning({ id: videoGenerationsTable.id }),
+      db.insert(videoGenerationsTable).values({
+        tenantId,
+        engine: "topic_to_video",
+        status: "succeeded",
+        funding: "wallet",
+        walletReservationId: retryReservation!.id,
+        walletReservedPaise: retryReservation!.amountPaise,
+        walletReservedUnits: retryReservation!.units,
+        spendPaise: 0,
+        options: {
+          aspectRatio: "16:9",
+          recovery: {
+            version: 1,
+            chainId: 0,
+            sourceJobId: 0,
+            fundedUnits: 1,
+            mode: "resume",
+            state: "queued",
+            reusable: [],
+            regenerated: [],
+            rendered: {
+              path: "/objects/fixture-retry.mp4",
+              provider: retryEvent.provider,
+              model: retryEvent.model,
+              durationSec: 1,
+              providerEvents: [sourceEvent, retryEvent],
+            },
+          },
+        },
+      }).returning({ id: videoGenerationsTable.id }),
+    ]);
+    const firstId = firstRows[0]!.id;
+    const failedSourceId = failedSourceRows[0]!.id;
+    const retryId = retryRows[0]!.id;
+    const [first] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, firstId));
+    const [failedSource] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, failedSourceId));
+    const [retry] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, retryId));
+    const sourceId = failedSource.id;
+    await db
+      .update(videoGenerationsTable)
+      .set({
+        options: {
+          aspectRatio: "16:9",
+          recovery: {
+            version: 1,
+            chainId: sourceId,
+            sourceJobId: sourceId,
+            fundedUnits: 1,
+            mode: "resume",
+            state: "queued",
+            reusable: [],
+            regenerated: [],
+            rendered: {
+              path: "/objects/fixture-retry.mp4",
+              provider: retryEvent.provider,
+              model: retryEvent.model,
+              durationSec: 1,
+              providerEvents: [sourceEvent, retryEvent],
+            },
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(videoGenerationsTable.id, retry.id));
+    const sourceSettlement = await settleWallet(tenantId, failedSourceReservation!, {
+      kind: "video",
+      costPaise: 500,
+      provider: "fixture-provider",
+      model: "fixture-model",
+      refKind: "videoJob",
+      refId: String(failedSource.id),
+    });
+    expect(sourceSettlement.chargedPaise).toBe(600);
+    await db.insert(walletLedgerTable).values({
+      tenantId,
+      kind: "refund",
+      amountPaise: 600,
+      reservationId: failedSourceReservation!.id,
+      usageKind: "video",
+      refKind: "videoJob",
+      refId: String(failedSource.id),
+      note: "approved fixture failed source refund",
+    });
+    await db
+      .update(walletBalancesTable)
+      .set({ balancePaise: sql`${walletBalancesTable.balancePaise} + 600` })
+      .where(eq(walletBalancesTable.tenantId, tenantId));
+    const [failedRetry] = await db
+      .insert(walletSettlementRetriesTable)
+      .values({
+        tenantId,
+        reservationId: failedSourceReservation!.id,
+        reservedPaise: failedSourceReservation!.amountPaise,
+        reservedUnits: failedSourceReservation!.units,
+        usageKind: "video",
+        targetChargePaise: 600,
+        estimated: false,
+        provider: "fixture-provider",
+        model: "fixture-model",
+        providerCostPaise: 500,
+        refKind: "videoJob",
+        refId: String(failedSource.id),
+        status: "failed",
+        attempts: 1,
+        lastError: "approved fixture terminal failed source",
+      })
+      .returning({ id: walletSettlementRetriesTable.id });
+    return {
+      first,
+      failedSource,
+      retry,
+      failedRetry,
+      args: {
+        tenantId,
+        expectedFeePercent: 20,
+        expectedAdditionalDebitPaise: 3_000,
+        approvalContext: `fixture-approved-${randomUUID()}`,
+        targets: [
+          {
+            jobId: first.id,
+            expectedTargetChargePaise: 1_800,
+            expectedCurrentlyChargedPaise: 0,
+            expectedCurrentJobSpendPaise: 0,
+          },
+          {
+            jobId: retry.id,
+            expectedTargetChargePaise: 3_600,
+            expectedCurrentlyChargedPaise: 0,
+            expectedCurrentJobSpendPaise: 0,
+          },
+        ],
+      },
+    };
+  }
+
+  async function removeFixture(ids: number[], retryIds: number[] = []) {
+    if (retryIds.length > 0) {
+      await db
+        .delete(walletSettlementRetriesTable)
+        .where(inArray(walletSettlementRetriesTable.id, retryIds));
+    }
+    await db.delete(videoGenerationsTable).where(inArray(videoGenerationsTable.id, ids));
+  }
+
+  it("applies both chains atomically and replays without a second debit", async () => {
+    const fixture = await createFixture();
+    try {
+      const result = await reconcileApprovedVideoWalletBatch(fixture.args);
+      expect(result).toMatchObject({
+        tenantId,
+        expectedFeePercent: 20,
+        expectedAdditionalDebitPaise: 3_000,
+        appliedPaise: 3_000,
+        replayed: false,
+      });
+      const replay = await reconcileApprovedVideoWalletBatch(fixture.args);
+      expect(replay).toMatchObject({ appliedPaise: 0, replayed: true });
+      const settled = await db
+        .select({
+          kind: walletLedgerTable.kind,
+          reservationId: walletLedgerTable.reservationId,
+          amountPaise: walletLedgerTable.amountPaise,
+          note: walletLedgerTable.note,
+        })
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenantId));
+      expect(settled.filter((row) => row.note?.includes("approved-video-reconciliation:v1:")))
+        .toHaveLength(2);
+      expect(settled.filter((row) => row.kind === "settle")).toHaveLength(3);
+      const sourceLifecycle = settled.filter(
+        (row) => row.reservationId === fixture.failedSource.walletReservationId,
+      );
+      // Reserve rows intentionally have no reservation_id; the failed source
+      // refund is the durable link to its fully resolved reservation.
+      expect(sourceLifecycle.map((row) => row.kind).sort()).toEqual(["refund", "settle"]);
+      expect(sourceLifecycle.find((row) => row.kind === "refund")!.amountPaise).toBe(600);
+      expect(
+        -fixture.failedSource.walletReservedPaise! +
+          sourceLifecycle.reduce((sum, row) => sum + row.amountPaise, 0),
+      ).toBe(0);
+      expect(settled.filter((row) => row.kind === "reserve")).toHaveLength(3);
+      const jobs = await db
+        .select({
+          id: videoGenerationsTable.id,
+          spendPaise: videoGenerationsTable.spendPaise,
+          funding: videoGenerationsTable.funding,
+          walletReservationId: videoGenerationsTable.walletReservationId,
+        })
+        .from(videoGenerationsTable)
+        .where(inArray(videoGenerationsTable.id, [fixture.first.id, fixture.retry.id]));
+      expect(jobs.sort((a, b) => a.id - b.id).map((job) => job.spendPaise)).toEqual([1_800, 3_600]);
+      expect(jobs.every((job) => job.funding === "wallet")).toBe(true);
+      expect(jobs.map((job) => job.walletReservationId).sort()).toEqual(
+        [fixture.first.walletReservationId, fixture.retry.walletReservationId].sort(),
+      );
+      expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+    } finally {
+      await removeFixture(
+        [fixture.first.id, fixture.failedSource.id, fixture.retry.id],
+        [fixture.failedRetry.id],
+      );
+    }
+  });
+
+  it("serializes concurrent replays and rejects a stale receipt before any write", async () => {
+    const fixture = await createFixture();
+    try {
+      const [first, second] = await Promise.all([
+        reconcileApprovedVideoWalletBatch(fixture.args),
+        reconcileApprovedVideoWalletBatch(fixture.args),
+      ]);
+      expect([first.replayed, second.replayed].sort()).toEqual([false, true]);
+      const beforeLedger = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenantId));
+      const staleFixture = await createFixture();
+      try {
+        await db
+          .update(videoGenerationsTable)
+          .set({
+            options: {
+              aspectRatio: "16:9",
+              renderCheckpoint: {
+                stage: "final",
+                path: "/objects/stale.mp4",
+                provider: "fixture-provider",
+                model: "fixture-model",
+                durationSec: 1,
+                providerEvents: [{
+                  eventId: "approved-fixture:stale",
+                  provider: "fixture-provider",
+                  model: "fixture-model",
+                  durationSec: 1,
+                  requestBytes: 1,
+                  label: "topic_scene:stale",
+                  costPaise: 101,
+                }],
+              },
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(videoGenerationsTable.id, staleFixture.first.id));
+        await expect(reconcileApprovedVideoWalletBatch(staleFixture.args)).rejects.toThrow(
+          "target changed",
+        );
+        const afterLedger = await db
+          .select()
+          .from(walletLedgerTable)
+          .where(eq(walletLedgerTable.tenantId, tenantId));
+        expect(afterLedger).toHaveLength(beforeLedger.length + 6);
+      } finally {
+        await removeFixture(
+          [staleFixture.first.id, staleFixture.failedSource.id, staleFixture.retry.id],
+          [staleFixture.failedRetry.id],
+        );
+      }
+    } finally {
+      await removeFixture(
+        [fixture.first.id, fixture.failedSource.id, fixture.retry.id],
+        [fixture.failedRetry.id],
+      );
+    }
+  });
+
+  it("does not partially mutate when the second reviewed target is stale", async () => {
+    const fixture = await createFixture();
+    try {
+      const before = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenantId));
+      const staleArgs = {
+        ...fixture.args,
+        targets: fixture.args.targets.map((target) =>
+          target.jobId === fixture.retry.id
+            ? { ...target, expectedTargetChargePaise: target.expectedTargetChargePaise + 1 }
+            : target,
+        ),
+      };
+      await expect(reconcileApprovedVideoWalletBatch(staleArgs)).rejects.toThrow("target changed");
+      const after = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenantId));
+      expect(after).toHaveLength(before.length);
+      expect(
+        after.filter((row) => row.note?.includes("approved-video-reconciliation:v1:")),
+      ).toHaveLength(0);
+    } finally {
+      await removeFixture(
+        [fixture.first.id, fixture.failedSource.id, fixture.retry.id],
+        [fixture.failedRetry.id],
+      );
+    }
+  });
+
+  it("still blocks an active pending retry on the refunded failed source", async () => {
+    const fixture = await createFixture();
+    try {
+      await db
+        .update(walletSettlementRetriesTable)
+        .set({ status: "pending", lastError: null, updatedAt: new Date() })
+        .where(eq(walletSettlementRetriesTable.id, fixture.failedRetry.id));
+      const before = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenantId));
+      await expect(reconcileApprovedVideoWalletBatch(fixture.args)).rejects.toThrow(
+        "pending settlement retry",
+      );
+      const after = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, tenantId));
+      expect(after).toHaveLength(before.length);
+    } finally {
+      await removeFixture(
+        [fixture.first.id, fixture.failedSource.id, fixture.retry.id],
+        [fixture.failedRetry.id],
+      );
     }
   });
 });

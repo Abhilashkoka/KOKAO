@@ -26,3 +26,9 @@ Historical wallet reconciliation must distinguish saved event costs from current
 **Why:** Older succeeded jobs can retain open holds with no durable settlement retry. Chain analysis may silently reprice missing event costs at today's rates, and a failed source's fully refunded work must be reviewed against delivered child receipts before charging it.
 
 **How to apply:** Inspect the entire chain's reservation/settle/refund lifecycle, expose cost provenance, and require explicit approval of any inferred historical fee and additional debit. Never label a report executable merely because a current-price total is computable.
+
+Terminal failed settlement retries are not necessarily unpaid work: the ledger may already prove exact settlement or a complete refund.
+
+**Why:** Historical outbox status can remain failed after a financial resolution. Treating that status alone as pending blocks otherwise safe conversion; ignoring all failures can instead conceal genuine liabilities.
+
+**How to apply:** Require matching tenant-scoped reserve and resolution receipts before excluding a failed retry. Check every retry and all later conversion blockers; an exempt row must not short-circuit the remaining checks.

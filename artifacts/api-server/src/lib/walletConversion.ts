@@ -161,20 +161,77 @@ async function findConversionBlocker(
   }
 
   const outstandingSettlementRetries = await executor
-    .select({ id: walletSettlementRetriesTable.id })
+    .select({
+      id: walletSettlementRetriesTable.id,
+      status: walletSettlementRetriesTable.status,
+      reservationId: walletSettlementRetriesTable.reservationId,
+      reservedPaise: walletSettlementRetriesTable.reservedPaise,
+      targetChargePaise: walletSettlementRetriesTable.targetChargePaise,
+    })
     .from(walletSettlementRetriesTable)
     .where(
       and(
         eq(walletSettlementRetriesTable.tenantId, tenantId),
         sql`${walletSettlementRetriesTable.status} <> 'settled'`,
       ),
-    )
-    .limit(1);
+    );
   if (outstandingSettlementRetries.length > 0) {
-    return {
-      kind: "outbox",
-      detail: "Wallet has an unsettled settlement outbox item.",
+    const tenantLedger = await executor
+      .select({
+        id: walletLedgerTable.id,
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+        reservationId: walletLedgerTable.reservationId,
+      })
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.tenantId, tenantId));
+    const lifecycleByReservation = new Map<number, typeof tenantLedger>();
+    for (const retry of outstandingSettlementRetries) {
+      const lifecycle = tenantLedger.filter(
+        (row) => row.id === retry.reservationId || row.reservationId === retry.reservationId,
+      );
+      lifecycleByReservation.set(retry.reservationId, lifecycle);
+    }
+    const isResolvedTerminalFailure = (retry: (typeof outstandingSettlementRetries)[number]) => {
+      if (retry.status !== "failed") return false;
+      const lifecycle = lifecycleByReservation.get(retry.reservationId) ?? [];
+      const reserveRows = lifecycle.filter(
+        (row) => row.id === retry.reservationId && row.kind === "reserve",
+      );
+      if (
+        reserveRows.length !== 1 ||
+        reserveRows[0]!.amountPaise !== -retry.reservedPaise
+      ) {
+        return false;
+      }
+      const resolutions = lifecycle.filter((row) => row.id !== retry.reservationId);
+      if (resolutions.some((row) => !["settle", "refund"].includes(row.kind))) {
+        return false;
+      }
+      const refundPaise = resolutions
+        .filter((row) => row.kind === "refund")
+        .reduce((sum, row) => sum + row.amountPaise, 0);
+      const refundRows = resolutions.filter((row) => row.kind === "refund");
+      const lifecycleNet = lifecycle.reduce((sum, row) => sum + row.amountPaise, 0);
+      const settleRows = resolutions.filter((row) => row.kind === "settle");
+      const exactSettled =
+        settleRows.length === 1 &&
+        refundPaise === 0 &&
+        lifecycleNet === -retry.targetChargePaise;
+      const exactRefunded =
+        refundRows.length > 0 &&
+        refundRows.every((row) => row.amountPaise > 0) &&
+        refundPaise === retry.targetChargePaise &&
+        refundPaise > 0 &&
+        lifecycleNet === 0;
+      return exactSettled || exactRefunded;
     };
+    if (!outstandingSettlementRetries.every(isResolvedTerminalFailure)) {
+      return {
+        kind: "outbox",
+        detail: "Wallet has an unsettled settlement outbox item.",
+      };
+    }
   }
 
   const pendingTrueUps = await executor
