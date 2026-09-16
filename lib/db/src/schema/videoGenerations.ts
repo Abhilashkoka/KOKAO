@@ -16,6 +16,7 @@ import type {
   GuidedStoryScript,
   GuidedStoryImageModelSnapshot,
   GuidedStoryBillingReceipt,
+  GuidedStoryProvenanceEvidence,
 } from "./guidedStories";
 
 /**
@@ -498,6 +499,16 @@ export interface VideoJobOptions {
       description: string;
       referenceImagePath: string;
       referenceSource?: "generated" | "uploaded" | null;
+      provenanceStatus?: "verified_generated" | "uploaded" | "unknown";
+      provenanceSummary?: {
+        method: "textgenerated" | "upload" | "imageedit" | "derived";
+        provider: string | null;
+        model: string | null;
+        createdAt: string | null;
+        missingReason?: string;
+      } | null;
+      provenanceEvidence?: GuidedStoryProvenanceEvidence | null;
+      provenanceEvidenceRefs?: GuidedStoryProvenanceEvidence[];
       requiresBytePlusAsset?: boolean;
       requiresAtlasAsset?: boolean;
     };
@@ -550,6 +561,16 @@ export interface VideoJobOptions {
       outfitName: string;
       outfitDescription: string;
       referenceSource?: "generated" | "uploaded" | null;
+      provenanceStatus?: "verified_generated" | "uploaded" | "unknown";
+      provenanceSummary?: {
+        method: "textgenerated" | "upload" | "imageedit" | "derived";
+        provider: string | null;
+        model: string | null;
+        createdAt: string | null;
+        missingReason?: string;
+      } | null;
+      provenanceEvidence?: GuidedStoryProvenanceEvidence | null;
+      provenanceEvidenceRefs?: GuidedStoryProvenanceEvidence[];
       requiresBytePlusAsset?: boolean;
       requiresAtlasAsset?: boolean;
       bytePlusAssetId?: string | null;

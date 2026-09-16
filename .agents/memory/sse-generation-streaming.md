@@ -14,3 +14,6 @@ description: Metering/settlement rules for streamed AI output and background gen
 - **Job runner claim:** background runners must claim atomically (conditional `UPDATE ... WHERE status='queued' RETURNING`) — select-then-update lets a double enqueue process and charge twice.
 - **Gate parity:** an async twin of a sync route must replicate ALL of the sync route's feature-flag gates, and clients should fall back to the sync route on both 404 and 403 feature_disabled so server/client flag drift degrades gracefully.
 - **jsdom testing:** mock the streaming/async entry points to reject with `{status: 404}` so component tests exercise the real JSON-fallback path against existing hook mocks.
+
+## Related topics
+- [Campaign SSE streaming](campaign-streaming.md)

@@ -77,7 +77,8 @@ export const charactersTable = pgTable("characters", {
    */
   creationEvidence: jsonb("creation_evidence").$type<{
     version: 1;
-    kind: "guided_story";
+    kind: "guided_story" | "character_library";
+    method?: "textgenerated" | "imageedit";
     draftId: number;
     draftRevision: number;
     roleId: string;
@@ -87,6 +88,8 @@ export const charactersTable = pgTable("characters", {
     providerOperationId: number | null;
     sourcePath: string;
     sourceSha256: string;
+    /** Immutable asset_provenance row captured for this exact artifact. */
+    provenanceRecordId?: number;
     recordedAt: string;
   } | null>().default(null),
   /** Separate multi-view review asset. Never replaces the canonical portrait. */

@@ -54,6 +54,11 @@ export interface ImageGenResult {
   provider: string;
   model: string;
   /**
+   * Native provider request/task identifier when the adapter actually receives
+   * one. This is not synthesized from KOKAO's internal operation identity.
+   */
+  providerRequestId?: string | null;
+  /**
    * Token usage when the provider reports it (OpenAI gpt-image-1, Gemini).
    * Used for token-based cost computation; absent for flat-priced providers.
    */

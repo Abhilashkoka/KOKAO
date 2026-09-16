@@ -13,3 +13,6 @@ Activating a text/image/video model auto-syncs its provider catalog price into a
 - Saving a generic provider/model video price retires older conditional rows for that exact pair. **Why:** conditional rows intentionally shadow the generic price, so stale variants otherwise make a visibly priced model fail runtime validation.
 - Removing an AI Costing row creates a normalized provider/model import suppression; automatic catalog sync must respect it. A later explicit admin save/import clears it. **Why:** removal means “keep removed,” not “refresh from the catalog.”
 - **Test pitfall:** cleanup with `LIKE 'kokaotest/%'` misses rows with leading whitespace — clean with `lower(trim(model)) like ...`. A leftover whitespace-prefixed row makes "refuses unpriced model" tests flakily pass activation via the fallback.
+
+## Related topics
+- [Model pricing lookups](model-pricing-lookups.md)

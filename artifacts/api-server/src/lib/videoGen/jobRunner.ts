@@ -2,7 +2,11 @@ import {
   db,
   isPromptVariantKey,
   videoGenerationsTable,
+  assetProvenanceTable,
+  charactersTable,
+  characterOutfitsTable,
   tenantsTable,
+  type AssetProvenance,
   type VideoGeneration,
   type VideoJobOptions,
   type VideoStoryboard,
@@ -165,6 +169,11 @@ import {
   effectiveGuidedBackdrop,
 } from "./guidedStory";
 import { guidedStoryboardReferenceError } from "./guidedReferencePrerequisites";
+import {
+  verifyFrozenAssetProvenance,
+  type ImmutableProvenanceProof,
+} from "../provenance";
+import { requiresStrictFictionalProvenance } from "../provenancePolicy";
 import { resolveModelOptions, videoModelMultiplier } from "./modelCatalog";
 import {
   LATENT_SYNC,
@@ -917,6 +926,385 @@ async function loadTenantObject(
   const mimeType = rawType === "image/jpg" ? "image/jpeg" : rawType;
   const [buffer] = await file.download();
   return { buffer, mimeType };
+}
+
+type FrozenCharacterOptions = VideoJobOptions & {
+  characterProvenanceVersion?: number;
+};
+
+type FrozenCharacterProof = {
+  proof: ImmutableProvenanceProof;
+  characterId?: number | null;
+  outfitId?: number;
+  expectedPath: string;
+  expectedSha256?: string | null;
+};
+
+function asImmutableProof(
+  value: NonNullable<
+    NonNullable<VideoJobOptions["characterSnapshot"]>["character"]["provenanceEvidence"]
+  >,
+): ImmutableProvenanceProof | null {
+  if (
+    !Number.isSafeInteger(value.provenanceRecordId) ||
+    value.provenanceRecordId <= 0 ||
+    !value.operationIdentity?.trim() ||
+    !value.artifactPath?.trim() ||
+    !/^[a-f0-9]{64}$/i.test(value.artifactSha256)
+  ) {
+    return null;
+  }
+  return {
+    provenanceRecordId: value.provenanceRecordId,
+    assetKind: value.assetKind,
+    operationIdentity: value.operationIdentity,
+    artifactPath: value.artifactPath,
+    artifactSha256: value.artifactSha256,
+    parentPath: value.parentPath ?? null,
+    parentSha256: value.parentSha256 ?? null,
+    sourceKind: value.sourceKind,
+    provider: value.provider,
+    model: value.model,
+    providerRequestId: value.providerRequestId,
+    providerOperationId: value.providerOperationId,
+    inputAncestry: value.inputAncestry,
+  };
+}
+
+/**
+ * Verify all immutable character inputs immediately before produceVideo.  The
+ * route freezes IDs and proof refs before funding; this worker-side check is
+ * intentionally independent, because a queued job can outlive a mutable
+ * character row or an object replacement.
+ */
+export async function verifyFrozenCharacterSnapshotProvenance(
+  job: Pick<VideoGeneration, "tenantId" | "options">,
+): Promise<void> {
+  const options = job.options as FrozenCharacterOptions | null | undefined;
+  if (options?.characterProvenanceVersion !== 1) return;
+  const strict = requiresStrictFictionalProvenance(options);
+
+  const pending: FrozenCharacterProof[] = [];
+  const addProof = (
+    evidence: NonNullable<VideoJobOptions["characterSnapshot"]>["character"]["provenanceEvidence"] |
+      undefined,
+    characterId: number | null | undefined,
+    expectedPath: string | null | undefined,
+    expectedSha256?: string | null,
+    outfitId?: number,
+    required = strict,
+  ): void => {
+    if (!evidence || !expectedPath) {
+      if (!required) return;
+      throw new VideoJobInputError(
+        "Frozen character provenance is missing an approved asset proof.",
+      );
+    }
+    const proof = asImmutableProof(evidence);
+    if (
+      !proof ||
+      proof.artifactPath !== expectedPath ||
+      (expectedSha256 && proof.artifactSha256 !== expectedSha256)
+    ) {
+      throw new VideoJobInputError(
+        "Frozen character provenance does not match the approved asset.",
+      );
+    }
+    pending.push({
+      proof,
+      characterId,
+      outfitId,
+      expectedPath,
+      expectedSha256,
+    });
+  };
+  const addRefs = (
+    refs: NonNullable<VideoJobOptions["characterSnapshot"]>["character"]["provenanceEvidenceRefs"] | undefined,
+    characterId: number | null | undefined,
+    outfitId: number | null | undefined,
+    characterPath: string | null | undefined,
+    outfitPath: string | null | undefined,
+    sheetPath: string | null | undefined,
+    sheetSha256: string | null,
+  ): void => {
+    const characterEvidence = refs?.find(
+      (item) => item.assetKind === "character_reference",
+    );
+    const outfitEvidence = refs?.find(
+      (item) => item.assetKind === "character_outfit",
+    );
+    const sheetEvidence = refs?.find(
+      (item) => item.assetKind === "reference_sheet",
+    );
+    addProof(characterEvidence, characterId, characterPath, undefined, undefined, strict);
+    addProof(outfitEvidence, characterId, outfitPath, undefined, outfitId ?? undefined, strict);
+    addProof(sheetEvidence, characterId, sheetPath, sheetSha256, undefined, strict);
+  };
+
+  const snapshot = options.characterSnapshot;
+  const snapshotRefs = snapshot?.character.provenanceEvidenceRefs ?? [];
+  const guidedRefs = options.guidedStory?.cast.flatMap(
+    (member) => member.provenanceEvidenceRefs ?? [],
+  ) ?? [];
+  if (!strict && snapshotRefs.length === 0 && guidedRefs.length === 0) return;
+  if (
+    (options.characterId != null || options.hybridStory != null) &&
+    !snapshot &&
+    strict
+  ) {
+    throw new VideoJobInputError(
+      "Frozen character snapshot is missing for this provenance-versioned job.",
+    );
+  }
+  if (
+    strict &&
+    snapshot &&
+    (options.characterId == null || options.outfitId == null)
+  ) {
+    throw new VideoJobInputError(
+      "Frozen character snapshot has no selected character or outfit.",
+    );
+  }
+  if (strict && !snapshot && !options.guidedStory) {
+    throw new VideoJobInputError(
+      "Frozen character snapshot is missing for this provenance-versioned job.",
+    );
+  }
+  if (snapshot && options.characterId != null && options.outfitId != null) {
+    if (snapshot.character.id !== options.characterId) {
+      throw new VideoJobInputError(
+        "Frozen character provenance is linked to a different character.",
+      );
+    }
+    const [character] = await db
+      .select()
+      .from(charactersTable)
+      .where(
+        and(
+          eq(charactersTable.id, options.characterId),
+          eq(charactersTable.tenantId, job.tenantId),
+        ),
+      )
+      .limit(1);
+    const [outfit] = await db
+      .select()
+      .from(characterOutfitsTable)
+      .where(
+        and(
+          eq(characterOutfitsTable.id, options.outfitId),
+          eq(characterOutfitsTable.characterId, options.characterId),
+          eq(characterOutfitsTable.tenantId, job.tenantId),
+        ),
+      )
+      .limit(1);
+    const selectedOutfit = snapshot.outfits.find(
+      (candidate) => candidate.id === options.outfitId,
+    );
+    if (
+      !character ||
+      !outfit ||
+      !selectedOutfit ||
+      snapshot.character.referenceImagePath !== character.referenceImagePath ||
+      snapshot.character.referenceSource !== character.referenceSource ||
+      (strict && (
+        character.referenceSource !== "generated" ||
+        character.bytePlusIdentityId !== null
+      )) ||
+      selectedOutfit.referenceImagePath !== outfit.referenceImagePath ||
+      (strict && (
+        !character.referenceSheetImagePath ||
+        !character.referenceSheetApprovedSha256 ||
+        character.referenceSheetStatus !== "approved" ||
+        outfit.status !== "approved" ||
+        outfit.identityVerified !== true
+      ))
+    ) {
+      throw new VideoJobInputError(
+        "The approved character, outfit, or reference sheet changed after enqueue.",
+      );
+    }
+    addRefs(
+      snapshot.character.provenanceEvidenceRefs,
+      options.characterId,
+      options.outfitId,
+      character.referenceImagePath,
+      outfit.referenceImagePath,
+      character.referenceSheetImagePath,
+      character.referenceSheetApprovedSha256,
+    );
+  }
+
+  if (options.guidedStory) {
+    const participating = new Set(
+      options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+    );
+    for (const member of options.guidedStory.cast) {
+      if (!participating.has(member.roleId)) continue;
+      const memberRefs = member.provenanceEvidenceRefs ?? [];
+      if (member.characterId == null || member.outfitId == null) {
+        if (strict) {
+          throw new VideoJobInputError(
+            `Guided Story role ${member.roleId} has no immutable character proof.`,
+          );
+        }
+        // Inline approved references need not have library rows. Their real
+        // ledger records and bytes must still be verified when present.
+        if (memberRefs.length > 0) {
+          addRefs(
+            memberRefs,
+            member.characterId,
+            member.outfitId,
+            member.character.referenceImagePath,
+            member.outfit?.referenceImagePath ?? member.character.referenceImagePath,
+            member.atlasApprovedReferenceSheetPath,
+            member.atlasApprovedReferenceSheetSha256 ?? null,
+          );
+        }
+        continue;
+      }
+      const [character] = await db
+        .select()
+        .from(charactersTable)
+        .where(
+          and(
+            eq(charactersTable.id, member.characterId),
+            eq(charactersTable.tenantId, job.tenantId),
+          ),
+        )
+        .limit(1);
+      const [outfit] = await db
+        .select()
+        .from(characterOutfitsTable)
+        .where(
+          and(
+            eq(characterOutfitsTable.id, member.outfitId),
+            eq(characterOutfitsTable.characterId, member.characterId),
+            eq(characterOutfitsTable.tenantId, job.tenantId),
+          ),
+        )
+        .limit(1);
+      if (
+        !character ||
+        !outfit ||
+        (strict && (
+          character.referenceSource !== "generated" ||
+          character.bytePlusIdentityId !== null ||
+          !character.referenceSheetImagePath ||
+          !character.referenceSheetApprovedSha256 ||
+          character.referenceSheetStatus !== "approved" ||
+          outfit.status !== "approved" ||
+          outfit.identityVerified !== true
+        )) ||
+        member.character.referenceImagePath !== character.referenceImagePath ||
+        member.referenceSource !== character.referenceSource ||
+        (strict && member.referenceSource !== "generated") ||
+        member.outfit?.referenceImagePath !== outfit.referenceImagePath ||
+        (member.atlasApprovedReferenceSheetPath &&
+          member.atlasApprovedReferenceSheetPath !== character.referenceSheetImagePath)
+      ) {
+        throw new VideoJobInputError(
+          `Guided Story role ${member.roleId}'s approved identity changed after enqueue.`,
+        );
+      }
+      addRefs(
+        member.provenanceEvidenceRefs,
+        member.characterId,
+        member.outfitId,
+        character.referenceImagePath,
+        outfit.referenceImagePath,
+        character.referenceSheetImagePath,
+        character.referenceSheetApprovedSha256,
+      );
+    }
+  }
+
+  const objectCache = new Map<string, Buffer>();
+  const readFrozenObject = async (
+    path: string,
+    tenantId: number,
+  ): Promise<Buffer> => {
+    if (
+      path.includes("..") ||
+      path.includes("\\") ||
+      path.includes("?") ||
+      path.includes("#") ||
+      !new RegExp(
+        `^/objects/${tenantId}/uploads/[A-Za-z0-9][A-Za-z0-9._-]*$`,
+      ).test(path)
+    ) {
+      throw new VideoJobInputError(
+        "Frozen character provenance path is not tenant-owned.",
+      );
+    }
+    const cached = objectCache.get(path);
+    if (cached) return cached;
+    const loaded = (
+      await loadTenantObject(
+        path,
+        tenantId,
+        MAX_SOURCE_IMAGE_BYTES,
+        "Frozen character provenance asset",
+      )
+    ).buffer;
+    objectCache.set(path, loaded);
+    return loaded;
+  };
+  const recordCache = new Map<number, AssetProvenance | null>();
+  const verificationCache = new Map<number, boolean>();
+  for (const item of pending) {
+    const id = item.proof.provenanceRecordId;
+    let record = recordCache.get(id);
+    if (record === undefined) {
+      const [loaded] = await db
+        .select()
+        .from(assetProvenanceTable)
+        .where(
+          and(
+            eq(assetProvenanceTable.id, id),
+            eq(assetProvenanceTable.tenantId, job.tenantId),
+          ),
+        )
+        .limit(1);
+      record = loaded ?? null;
+      recordCache.set(id, record);
+    }
+    if (
+      !record ||
+      record.id !== id ||
+      record.assetKind !== item.proof.assetKind ||
+      (item.characterId != null && record.characterId !== item.characterId) ||
+      (item.outfitId != null && record.outfitId !== item.outfitId) ||
+      record.artifactPath !== item.expectedPath ||
+      (item.expectedSha256 && record.artifactSha256 !== item.expectedSha256)
+    ) {
+      throw new VideoJobInputError(
+        "Frozen character provenance record is missing or belongs to another tenant or asset.",
+      );
+    }
+    let valid = verificationCache.get(id);
+    if (valid === undefined) {
+      valid = await verifyFrozenAssetProvenance(
+        job.tenantId,
+        item.proof,
+        readFrozenObject,
+      );
+      verificationCache.set(id, valid);
+    }
+    if (!valid) {
+      throw new VideoJobInputError(
+        "Frozen character provenance bytes no longer match the approved ledger record.",
+      );
+    }
+    if (item.proof.parentPath) {
+      const parent = await readFrozenObject(item.proof.parentPath, job.tenantId);
+      const parentHash = createHash("sha256").update(parent).digest("hex");
+      if (parentHash !== item.proof.parentSha256?.toLowerCase()) {
+        throw new VideoJobInputError(
+          "Frozen character provenance parent bytes no longer match the approved ledger record.",
+        );
+      }
+    }
+  }
 }
 
 async function loadSourceImage(
@@ -7858,6 +8246,7 @@ async function executeVideoJob(
     ) {
       throw new VideoJobInputError("Optional Studio lip-sync is currently turned off.");
     }
+    await verifyFrozenCharacterSnapshotProvenance(job);
     const savedRender =
       job.options?.renderCheckpoint ??
       job.options?.recovery?.rendered;

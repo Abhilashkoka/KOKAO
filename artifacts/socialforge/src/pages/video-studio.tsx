@@ -117,6 +117,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  CharacterProvenanceBadge,
+  CharacterProvenanceDetails,
+  CharacterProvenanceRecovery,
+} from "@/components/character-provenance";
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -210,11 +215,7 @@ type Aspect = VideoAspect;
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
 type LipSyncQuality = "standard" | "high";
 
-/**
- * Task 1080 adds platform-owned cast members without changing the original
- * generated Character client type. Keep the widening local until the generated
- * client is refreshed by the API owner.
- */
+/** Platform-owned cast members add optional catalog fields to Character. */
 type StudioCharacter = Omit<Character, "id" | "outfits"> & {
   id: number | string;
   outfits: Array<
@@ -10860,6 +10861,12 @@ function CharacterPicker({
             {!isSharedCharacter(selected) && selected.sourceCharacterId && (
               <Badge variant="outline">Your derivative</Badge>
             )}
+            {!isSharedCharacter(selected) && (
+              <CharacterProvenanceBadge
+                character={selected}
+                testId={`badge-picker-character-provenance-${selected.id}`}
+              />
+            )}
             {selected.archetype && (
               <Badge variant="outline">{selected.archetype}</Badge>
             )}
@@ -10905,6 +10912,19 @@ function CharacterPicker({
               </div>
             ))}
           </dl>
+          {!isSharedCharacter(selected) && (
+            <CharacterProvenanceDetails
+              character={selected}
+              testId={`details-picker-character-provenance-${selected.id}`}
+            />
+          )}
+          {!isSharedCharacter(selected) && (
+            <CharacterProvenanceRecovery
+              character={selected}
+              characterId={Number(selected.id)}
+              testId={`recovery-picker-character-provenance-${selected.id}`}
+            />
+          )}
           {locale && (
             <p
               className={
@@ -11823,6 +11843,12 @@ function CharacterManagerDialog({
                         ) : (
                           <Badge variant="outline">Your character</Badge>
                         )}
+                        {!shared && (
+                          <CharacterProvenanceBadge
+                            character={c}
+                            testId={`badge-character-provenance-${c.id}`}
+                          />
+                        )}
                         {!shared && c.sourceCharacterId && (
                           <Badge variant="outline">From preset</Badge>
                         )}
@@ -12108,6 +12134,19 @@ function CharacterManagerDialog({
                             </Button>
                           </div>
                         </div>
+                      )}
+                      {!shared && (
+                        <CharacterProvenanceDetails
+                          character={c}
+                          testId={`details-character-provenance-${c.id}`}
+                        />
+                      )}
+                      {!shared && (
+                        <CharacterProvenanceRecovery
+                          character={c}
+                          characterId={Number(c.id)}
+                          testId={`recovery-character-provenance-${c.id}`}
+                        />
                       )}
                       {c.description && (
                         <p className="text-xs text-muted-foreground">

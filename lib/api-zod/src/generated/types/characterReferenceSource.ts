@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type CharacterReferenceSource = typeof CharacterReferenceSource[keyof typeof CharacterReferenceSource];
+/**
+ * @nullable
+ */
+export type CharacterReferenceSource = typeof CharacterReferenceSource[keyof typeof CharacterReferenceSource] | null;
 
 
 export const CharacterReferenceSource = {

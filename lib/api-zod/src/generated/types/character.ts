@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CharacterOutfit } from './characterOutfit';
+import type { CharacterProvenanceStatus } from './characterProvenanceStatus';
+import type { CharacterProvenanceSummary } from './characterProvenanceSummary';
 import type { CharacterReferenceSheetStatus } from './characterReferenceSheetStatus';
 import type { CharacterReferenceSource } from './characterReferenceSource';
 import type { ProtectedImageRegion } from './protectedImageRegion';
@@ -17,7 +19,11 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  /** @nullable */
   referenceSource: CharacterReferenceSource;
+  /** Server-computed origin status; never accepted from clients. */
+  provenanceStatus: CharacterProvenanceStatus;
+  provenanceSummary: CharacterProvenanceSummary;
   /**
      * Tenant-owned BytePlus identity attached after successful liveness verification.
      * @nullable

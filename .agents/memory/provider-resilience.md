@@ -12,3 +12,7 @@ description: Video-pipeline provider failover model and the pre-funding prefligh
 - Admin fallback orders are exact persisted chains: an absent family keeps historical automatic routing, while a saved empty list disables fallback. Manual priority never bypasses configuration, health, capability, pricing, or transient-error gates; selected primaries stay pinned where the family has one.
 
 **Why:** jobs died minutes in on one vendor's bad ten minutes, after quota was already spent; refunds return credits, not time.
+
+## Related topics
+- [Platform fetch timeouts](platform-fetch-timeouts.md)
+- [Text-gen outage failover](textgen-failover.md)

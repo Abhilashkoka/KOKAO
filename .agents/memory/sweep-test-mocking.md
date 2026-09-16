@@ -22,3 +22,6 @@ mid-scenario on the shared dev DB.
 **How to apply:** tests asserting an alert stays unread must retry the whole
 scenario on fresh tenants (a real regression fails every attempt); passing once
 proves the recovered/active split.
+
+## Related topics
+- [Sweep-suite serialization](sweep-test-serialization.md)

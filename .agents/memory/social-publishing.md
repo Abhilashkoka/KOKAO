@@ -51,3 +51,6 @@ Both config objects are exported+mutable so tests shrink delays/attempt caps to 
 ## Stale test gotcha
 
 `routes/meta.test.ts` "with fetch mocked" tests expect 502 from publish-facebook, but the publish path force-reverifies first (`reverifyFacebook({force:true})`), and `testFacebookCredentials` treats a mocked 400 as a NON-transient failure → flips the account to `failed` → the gate returns 400, not 502. These 3 assertions are pre-existing/stale (predate the force-reverify-on-publish change), unrelated to notifications work. Adding a router to `test/testApp.ts` also requires updating that shared factory (only mounts a subset of routers).
+
+## Related topics
+- [LinkedIn publishing](linkedin-publishing.md)

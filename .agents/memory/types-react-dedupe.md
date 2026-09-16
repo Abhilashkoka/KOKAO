@@ -9,3 +9,6 @@ Rule: keep exactly one `@types/react`/`@types/react-dom` version in the workspac
 **How to apply:** if a typecheck fails with dual-@types/react errors, check `ls node_modules/.pnpm | grep '@types+react@'` and `readlink node_modules/.pnpm/node_modules/@types/react`; fix in pnpm-workspace.yaml (catalog + overrides pinned to ~19.1.x) then `pnpm install`. Node_modules can be stale relative to the lockfile — a plain `pnpm install` may change resolution without any lockfile diff. Never patch component types per-site.
 
 Also: stale `.tsbuildinfo` files can fake dual-@types/react JSX errors after node_modules churn (errors in untouched Expo components like BlurView/expo-image). Delete the artifact's `tsconfig.tsbuildinfo` and re-run typecheck before chasing a real dedupe problem.
+
+## Related topics
+- [Hoisted @types/react clash](hoisted-types-react-clash.md)

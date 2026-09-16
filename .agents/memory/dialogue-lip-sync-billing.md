@@ -8,3 +8,6 @@ Treat an AI dialogue lip-sync render as two independent provider units: AI visua
 **Why:** The visual provider can bill before raw-video probing, local duration extension, or LatentSync runs. Telemetry alone does not debit a wallet, and a full refund after any of those later failures creates an untracked provider-cost loss.
 
 **How to apply:** Capture completed visual and lip-sync events immediately after each provider returns. Measure each per-second provider's raw output before local normalization or trimming, then price and checkpoint that duration. Carry completed events through typed partial failures; settle wallet holds to completed actual/estimated work and refund only unfinished credit units. Extend short visual plates locally to the real narration duration and QA the final result against that narration.
+
+## Related topics
+- [Character dialogue recovery](character-dialogue-recovery.md)

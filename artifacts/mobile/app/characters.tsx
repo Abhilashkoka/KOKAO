@@ -19,6 +19,10 @@ import {
 } from "@workspace/api-client-react";
 
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import {
+  CharacterProvenance,
+  CharacterProvenanceRecovery,
+} from "@/components/CharacterProvenance";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
@@ -257,6 +261,18 @@ export default function CharactersScreen() {
         <Card key={character.id} style={styles.characterRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle}>{character.name}</Text>
+            <CharacterProvenance
+              character={character}
+              testID={`character-provenance-${character.id}`}
+            />
+            {!character.provenanceStatus ||
+            character.provenanceStatus === "unknown" ? (
+              <CharacterProvenanceRecovery
+                character={character}
+                characterId={character.id}
+                testID={`character-recovery-${character.id}`}
+              />
+            ) : null}
             {draft.existingCharacterId === character.id && selectedIdentity ? (
               <View style={styles.existingVerificationStatus}>
                 <Badge

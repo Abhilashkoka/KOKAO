@@ -1,7 +1,6 @@
 - [Guided job continuity](guided-job-continuity.md) — submission keeps the story visible and focuses its job; failures return with actionable correction guidance.
 - [Stale servers after merges](stale-servers-after-merge.md) — EADDRINUSE can leave older compiled servers serving previews while managed logs show only duplicate startup failures.
-- [LinkedIn publishing](linkedin-publishing.md) — no Replit connector exists; needs manual OAuth app + "Share on LinkedIn" product; Posts API quirks.
-- [Social publishing in SocialForge](social-publishing.md) — "Connect Account" is record-only; real publishing is per-platform (Facebook+Instagram via meta.ts, LinkedIn) via dedicated routes.
+- [Social publishing](social-publishing.md) — no connector; LinkedIn uses manual OAuth/Posts API; Connect Account is record-only; dedicated routes publish.
 - [Credential encryption keys](credential-encryption-keys.md) — encrypt with dedicated key, DECRYPT dual-read (dedicated then SESSION_SECRET) so enabling the key never bricks stored creds.
 - [Superadmin allowlist](superadmin-allowlist.md) — built ONLY from SUPERADMIN_EMAILS env at module load; no hardcoded emails; tests inject it via vitest setupFiles before import.
 - [Meta credential framework](meta-credential-framework.md) — encrypted app-level + per-tenant FB/IG creds, auto-tested & masked; Meta secrets go in headers/body never URLs.
@@ -9,109 +8,94 @@
 - [X (Twitter) publishing](twitter-publishing.md) — OAuth 2.0 PKCE connect + bearer-token publish; legacy OAuth 1.0a tokens prompt reconnect; no retest endpoint.
 - [API route integration tests](api-route-integration-tests.md) — api-server uses vitest; drive routers over node:http with mocked fetch/db/storage to confirm publish flows end-to-end.
 - [OpenAPI zod body name collision](openapi-zod-body-name-collision.md) — never name a request-body schema `<PascalOperationId>Body`; it dup-exports in the api-zod barrel and breaks codegen (TS2308).
-- [Brand Kit module](brand-kit-module.md) — session-scoped endpoints (no tenantId in URL, IDOR avoidance); versioned-JSON payload (edit = new version, deep-clone + spread to preserve sections; no flat columns / no hashtags field); keep OpenAPI + routes in lockstep.
+- [Brand Kit module](brand-kit-module.md) — session-scoped routes avoid IDOR; edits create deep-cloned versioned JSON; keep OpenAPI and routes in lockstep.
 - [Connection sweep](connection-sweep.md) — periodic in-process reverify of all tenants' social connections; force=false so REVERIFY_STALE_MS rate-limits; LinkedIn reverify now shared in lib.
-- [Dead-connection e2e seeding](dead-connection-e2e-seeding.md) — how to stably seed dead FB/IG/LinkedIn so the Accounts page shows reconnect prompts (respect reverify staleness + LinkedIn timestamp-expiry).
+- [Dead-connection e2e seeding](dead-connection-e2e-seeding.md) — seed dead FB/IG/LinkedIn respecting reverify staleness and LinkedIn timestamp expiry so Accounts shows reconnect prompts.
 - [Email delivery & pause](email-delivery-and-pause.md) — two independent fail-closed gates (notification policy default email:false + app-level pause switch default paused); test seeding rules.
 - [IG publish retry](ig-publish-retry.md) — bounded auto-retry of transient IG publish failures (5xx/429/still-processing retry; 4xx/bad-image fail fast); IG_PUBLISH_RETRY config.
-- [Threads/X/LinkedIn publish dedupe](threads-x-publish-dedupe.md) — no idempotency key; every publish probes recent posts up-front and reuses any exact-text match within 10 min.
-- [Chain resend](chain-resend.md) — mid-chain publish failure persists a resumable snapshot (exact texts + lastPostedId); resend endpoint posts only the missing pieces with dedupe.
-- [FB publish dedupe](fb-publish-dedupe.md) — no Graph idempotency key; before retrying a transient FB publish failure, probe recent Page posts and short-circuit if the write already landed.
+- [Publishing dedupe and resend](threads-x-publish-dedupe.md) — probe/reuse exact writes; resend snapshots missing pieces.
 - [Admin audit trail](admin-audit-trail.md) — append-only admin_audit_logs records plan/superadmin changes; recordAdminAction is best-effort (never fail the primary action).
-- [SocialForge frontend tests](socialforge-frontend-tests.md) — vitest+RTL+jsdom harness for the web artifact; standalone vitest.config, mock @workspace/api-client-react, scope by .flex-1.
-- [Resilient api-client test mock](api-client-mock-proxy.md) — always mock @workspace/api-client-react via the shared Proxy helper; hand-listed hook mocks go stale and break unrelated tests.
+- [SocialForge frontend tests](socialforge-frontend-tests.md) — Vitest/RTL/jsdom; mock generated hooks through the shared Proxy, not hand-listed mocks.
 - [KOKAO branding](kokao-branding.md) — app is user-facing branded "KOKAO" but code package stays @workspace/socialforge; don't rename packages. Assets via @assets + public/.
 - [App branding editor](app-branding.md) — superadmin /app-brand editor; brand assets are PUBLIC (pre-auth), GET public + writes superadmin; hex→HSL theming, null=default.
 - [In-app web research](web-research.md) — Replit OpenAI proxy supports Responses API web_search with url_citation annotations; no Tavily/external search key needed.
 - [Native dialogs blocked in preview iframe](preview-iframe-dialogs.md) — window.confirm/alert silently no-op in the sandboxed preview; always use in-app dialogs.
-- [E2E false failures](e2e-test-flakiness.md) — if an e2e run fails on missing toasts/dialogs but the DB has the data, check for mid-test workflow restarts and re-run before changing code.
-- [Clerk 401s from duplicate cookie shadowing](stale-clerk-session-401.md) — duplicate __session cookies make even fresh sign-ins 401; server self-heals by expiring Clerk cookies on token-expired+duplicates.
+- [E2E test flakiness](e2e-test-flakiness.md) — DB-present failures may follow restarts; parallel jsdom suites pin testTimeout: 20000.
 - [Expo e2e testing pitfalls](expo-e2e-testing.md) — Clerk test sign-in doesn't carry to the Expo domain; verify mobile flows via Clerk backend-API bearer tokens instead.
-- [Clerk Turnstile e2e bypass](clerk-turnstile-e2e-bypass.md) — sign-up CAPTCHA stalls all automation; bypass = testing token on FAPI requests + rewrite environment sitekey to Cloudflare's always-pass key.
-- [@types/react dedupe](types-react-dedupe.md) — duplicate @types/react in the hidden pnpm hoist breaks web typecheck; keep the workspace override pinned to the catalog range.
-- [Hoisted @types/react clash](hoisted-types-react-clash.md) — libs with bundled d.ts but no @types/react peer resolve the mobile-pinned 19.1.x; fix via packageExtensions, not overrides.
-- [Platform API e2e mocking](platform-api-e2e-mocking.md) — dev-only base-URL overrides + a workflow-hosted local mock let browser e2e complete real publish/resend flows; never host the mock in background bash.
+- [Clerk e2e auth](clerk-turnstile-e2e-bypass.md) — expire duplicate __session cookies; testing tokens/always-pass sitekey unblock CAPTCHA; allow Expo dev CORS.
+- [@types/react compatibility](types-react-dedupe.md) — pin workspace override to catalog; packageExtensions fix bundled-d.ts peers, not overrides.
+- [Platform API e2e mocking](platform-api-e2e-mocking.md) — dev base-URL override + workflow-hosted local mock enables browser publish/resend flows; don't run mock in background bash.
 - [Team seats add-on](team-seats.md) — plan teamSeats + tenants.seatLimit override; seats used = owner + members + pending invites; member requests must never mutate owner-scoped tenant columns.
-- [Taste memory](taste-memory.md) — behavior signals need deliberate-action hooks (auto-save drafts don't count); jsonb profile writes require SELECT FOR UPDATE; exemplars in prompts are untrusted data.
-- [Platform fetch timeouts](platform-fetch-timeouts.md) — all outbound platform calls use the bounded-timeout platformFetch helper; timeouts are terminal, never retried.
-- [Expo web CORS](clerk-turnstile-e2e-bypass.md) — REPLIT_DOMAINS excludes the Expo dev domain; the API CORS allowlist must add REPLIT_EXPO_DEV_DOMAIN or mobile-web API reads fail.
+- [Taste memory](taste-memory.md) — deliberate actions drive signals; SELECT FOR UPDATE protects jsonb writes; prompt exemplars are untrusted.
+- [Provider resilience](provider-resilience.md) — bound calls; transient-only failover; breaker-only preflight; gated builtin fallback.
 - [ASR provider keys](asr-provider-keys.md) — speech-to-text providers take injected keys; admin-entered encrypted DB key wins over env secret; clients only ever see keySource.
-- [Consent-gated analytics](consent-analytics.md) — server ingest is the only consent boundary; coarse location = server geo-IP, GPS only for precise opt-in; orval partial query options need explicit queryKey.
+- [Consent-gated analytics](consent-analytics.md) — ingest is the consent boundary; coarse location uses geo-IP, GPS needs precise opt-in; give orval partial options explicit queryKey.
 - [Codegen drift validation](codegen-drift-validation.md) — drift checks must generate into a temp mirror, never the working tree; orval clean:true races parallel typecheck.
 - [Prepaid wallet billing](prepaid-wallet.md) — reserve-before-generate, settle/refund on every terminal path; GST added once at order creation, split trusted from order notes.
 - [Durable wallet settlement](wallet-settlement-retries.md) — successful-work retries are refund barriers; serialize enqueue/refund and make ledger settlement idempotent.
-- [Razorpay billing invariants](razorpay-billing.md) — always re-fetch the canonical order/subscription and require final paid state; ledger records applied (clamped) deltas so it reconciles with balance.
+- [Razorpay billing invariants](razorpay-billing.md) — re-fetch canonical paid order/subscription; ledger stores clamped deltas that reconcile balance.
 - [Drizzle ANY(array) binding](drizzle-any-array-binding.md) — raw sql`= ANY(${jsArray})` fails at runtime; use inArray or sql.join IN-lists; mocked tests won't catch it.
 - [Invite-accept provisioning race](invite-accept-race.md) — parallel first requests can give an invited member a shadow personal tenant; re-check membership before provisioning.
 - [Scheduled publisher](scheduled-publisher.md) — atomic claim + shared publish lock + status-guarded terminal writes; stuck 'processing' rows fail, never re-drive.
 - [Prod deploy env shadowing](prod-deploy-env-shadowing.md) — user-set REPLIT_DOMAINS/REPLIT_DEV_DOMAIN secrets shadow prod values; agents can't delete secrets; CORS allowlist must lowercase hosts.
 - [Ads module](ads-module.md) — all ad-platform writes go through the draft-and-approve engine (owner-only apply, drift expiry, read-back verify, append-only log); never call the adapter from routes.
-- [Sweep test mocking](sweep-test-mocking.md) — tests running the real sweep must stub ALL reverifier families (social + ads); shared-DB leftovers make partial mocks flaky.
+- [Sweep test harness](sweep-test-mocking.md) — stub every reverifier family; real-sweep suites hold a pg advisory lock.
 - [Google Ads module](google-ads-module.md) — daily budgets only (400 on lifetime), micros↔minor ×10000, offline-access OAuth, MCC login-customer-id header persisted in creds.
 - [Image gen providers](imagegen-providers.md) — admin-selected provider like ASR; custom OpenAI-compatible URLs must pass the shared SSRF guard (endpoint AND returned image URL).
-- [LinkedIn organic silent refresh](linkedin-organic-refresh.md) — reconnect prompt only when the REFRESH token is dead; access-token lapse gets a silent refresh first; refresh token lives encrypted on the row.
-- [LinkedIn Ads module](linkedin-ads.md) — reuses shared ads engine; budgets are MAJOR units on LinkedIn (adapter converts ×100); creates need campaignGroupId; authFailed flag gates reconnect marking.
-- [Mobile push notifications](push-notifications.md) — push only after FRESH inserts (dedupe inherited); token table keyed by token, re-binds on re-register; testApp mounts routers explicitly; createTenant returns tenantId not id.
+- [LinkedIn organic silent refresh](linkedin-organic-refresh.md) — silently refresh access tokens; prompt only when refresh token is dead; keep refresh token encrypted.
+- [LinkedIn Ads module](linkedin-ads.md) — shared ads engine; budgets are MAJOR units (adapter ×100); campaigns need campaignGroupId; authFailed gates reconnect.
+- [Mobile push notifications](push-notifications.md) — notify after FRESH inserts; token-keyed re-registration; testApp mounts routers; createTenant returns tenantId.
 - [Feature kill switches](feature-kill-switches.md) — gate every execution path (background jobs, settings mutations), not just route prefixes; admin routes stay ungated; fail open on DB errors.
-- [Sweep fail-ratio alert e2e](sweep-alert-e2e-verification.md) — force via 1ms timeout env (delete after); notification path breaks on notification_preferences schema drift; verify suppression at DB level not banner presence.
+- [Sweep fail-ratio alert e2e](sweep-alert-e2e-verification.md) — force with temporary 1ms timeout env then delete it; verify DB suppression because schema drift can break notifications.
 - [Promo codes](promo-codes.md) — all redemption checks + credit grant in one FOR UPDATE tx; new audit actions need 3 registration spots or filters silently reject them.
 - [E2E tenant seeding](e2e-tenant-seeding.md) — resolve tenant by polling email lookup, never "newest row" fallback; /ads tabs need a seeded connected ad connection.
 - [Text-gen provider switch](textgen-provider-switch.md) — builtin vs OpenRouter routing layer; no silent fallback (503 on misconfig); web-search endpoints stay builtin.
 - [Per-tenant row caps](per-tenant-caps.md) — count-then-insert caps race under parallel creates; lock the tenant row FOR UPDATE in one tx, refund any spent funding on cap-fail.
 - [Mobile Razorpay checkout](mobile-razorpay-checkout.md) — WebView-hosted checkout.js posts ids back; the app verifies server-side over its own session; mock the modal in jsdom tests.
-- [LinkedIn carousel publishing](linkedin-carousel-pdf.md) — carousels publish as multi-page PDFs via the Documents API; the kill switch must also gate the publish branch, not just the generate route.
+- [LinkedIn carousel publishing](linkedin-carousel-pdf.md) — publish multi-page PDFs via Documents API; kill switch must gate both generation and publish.
 - [RICE studio prompts](rice-studio-prompts.md) — caption/campaign prompts use RICE sections; soft taste examples must trail hard brand constraints; clarify path must charge nothing.
 - [Actual AI cost tracking](ai-cost-tracking.md) — per-event cost in paise; unknown = NULL never guessed; model-only price fallback; OpenRouter reported cost wins; capture is best-effort.
-- [Post metrics sweep](post-metrics-sweep.md) — poll rows must be claimed atomically (UPDATE over FOR UPDATE SKIP LOCKED) before platform calls; decay hourly→daily→done at 14d; gate every metrics hook by its own flag.
-- [SSE streaming & async image jobs](sse-generation-streaming.md) — mid-stream disconnect after deltas must SETTLE not refund; job runners claim atomically; async twins need sync-route gate parity.
+- [Post metrics sweep](post-metrics-sweep.md) — atomically claim poll rows before platform calls; decay hourly→daily→done at 14d; gate each metrics hook.
+- [SSE generation](sse-generation-streaming.md) — disconnect after deltas settles, never refunds; claim funding synchronously; order platform before caption.
 - [Studio quick publish](studio-quick-publish.md) — campaign auto-save draft mapping needs an epoch guard; clear studio draft state after inline publish/schedule so Discard can't delete live items.
-- [Campaign SSE streaming](campaign-streaming.md) — prompt must order platform-before-caption for partial-JSON attribution; disconnect close handler claims funding flag synchronously; kill-switch tests need real DB flag rows, not module mocks.
 - [Mobile billing e2e](mobile-billing-e2e.md) — Razorpay mock server + dev base-URL env; expo-router web needs full goto (popstate blanks); seed team invites BEFORE first sign-in.
-- [Provider resilience & preflight](provider-resilience.md) — pre-funding preflight reads breaker state only (no network); failover is transient-only; TTS failover is whole-track.
-- [ApiError message extraction](api-error-message-shape.md) — shared ApiError puts the parsed body on `.data`; axios-style `err.response.data.error` reads always miss and show generic fallbacks — use the apiErrorMessage helper.
+- [ApiError message extraction](api-error-message-shape.md) — parsed body is on .data, not axios-style err.response.data.error; use apiErrorMessage for reliable fallbacks.
 - [Reference styles](reference-styles.md) — analyze a reference video once into a saved profile; soft guidance only, styleProfileId dropped when the kill switch is off.
-- [Footage & prompt breadth](footage-and-prompt-breadth.md) — keyless stock sources are failover-only in auto; empty results fail over like errors; Look pills compile server-side into the stored prompt.
+- [Footage & prompt breadth](footage-and-prompt-breadth.md) — keyless stock is auto failover-only; empty results fail over like errors; compile Look pills server-side into stored prompt.
 - [Provider scoring](provider-scoring.md) — health is a partition never a weight; cost scored only vs 2+ priced peers; streamed completions must request include_usage or cost is NULL.
 - [ffmpeg render pitfalls](ffmpeg-render-pitfalls.md) — pin -framerate on stills; no -shortest with music; counted loops not -stream_loop -1; NotConfigured is terminal never breaker-recorded.
 - [Topic-video uniformity](topic-video-uniformity.md) — costume locked unless real wardrobe notes (parser clamp is the guarantee); b-roll consistency is style-only, never first-image anchoring.
-- [DIY Playwright e2e fallback](diy-playwright-e2e.md) — when the testing subagent kind errors, drive Playwright + nix chromium yourself; Clerk ticket sign-in; dismiss the consent dialog; regen missing api-client codegen.
-- [Storyboard review pause](storyboard-review.md) — persist funding at job creation (sweep refunds need it); jsonb counters spend via atomic conditional UPDATE, never read-then-write; approve reuses the exact previewed stills.
+- [DIY Playwright e2e fallback](diy-playwright-e2e.md) — if testing subagent errors, use Playwright + Nix chromium; Clerk ticket sign-in; dismiss consent; regenerate missing api-client codegen.
+- [Storyboard workflow](storyboard-review.md) — fund at creation; atomic scene counters; reuse preview stills; re-voice/reprice inserted scenes.
 - [Animate-photo framing](animate-photo-framing.md) — pad (never crop) user photos to the target aspect before video gen; aiPrompt must derive from the provider-bound input, not job.prompt.
-- [Storyboard scene editing](storyboard-scene-editing.md) — narration re-voices on approve via texts-vs-cues drift; inserts bill via options.addedScenes so all refund paths reprice automatically.
-- [Model activation pricing gate](model-activation-pricing-gate.md) — activating a text/image/video model auto-syncs its provider price into ai_model_prices; no price anywhere = 400, never silent.
-- [Model pricing lookups](model-pricing-lookups.md) — OpenRouter has a keyless pricing catalog; Replicate's API has NONE — scrape the model page's embedded "prices" JSON; fail-soft nulls everywhere.
-- [Replicate text provider](replicate-text-provider.md) — no OpenAI chat endpoint; shim over predictions API (prompt/system_prompt/max_tokens only); stream EOF before "done" must reject; shares the video-gen key.
-- [Shared Razorpay creds race](shared-razorpay-creds-race.md) — concurrent validations race on the single global razorpay app_credentials row; suites must re-seed beforeEach, and mass 503s = re-run not refactor.
+- [Model pricing](model-activation-pricing-gate.md) — activation syncs provider prices; unavailable if unknown; Replicate uses embedded JSON.
+- [Replicate provider contracts](replicate-text-provider.md) — use predictions shim, not chat; EOF rejects; verify each model’s start-image field.
+- [Shared Razorpay creds race](shared-razorpay-creds-race.md) — global app_credentials validations race; re-seed beforeEach; mass 503s merit rerun, not refactor.
 - [FX stale-alert e2e seeding](fx-stale-e2e-seeding.md) — seed AFTER the api-server boot fx sweep (~30s post-restart) or it un-seeds the alert; banner clears only via explicit query invalidation.
-- [Plan default billing mode](plan-billing-mode.md) — plan_settings.billingMode applied at every tenants.plan write via applyPlanBillingMode; manual admin choice (billingModeOverriddenAt) always wins; unknown plan = no-op.
+- [Plan default billing mode](plan-billing-mode.md) — apply billingMode at every tenants.plan write; explicit admin override wins; unknown plan is no-op.
 - [Per-plan KOKAO watermark](plan-watermark.md) — plan switch + kill switch gate images (performImageGeneration) and videos (executeVideoJob after QA, before upload/poster).
 - [Layered image editor](image-layer-editor.md) — imageLayers doc basePath = ORIGINAL pre-flatten base; reopen resumes on it, never the flattened imagePath; edit-image mirrors generate funding.
-- [Prompt Template Kit](prompt-template-kit.md) — fail-open governed prompts (null = built-in behavior); one active template per case; promotion writes are one tx; newest active customization auto-applied.
-- [Prompt Kit script variants](prompt-kit-script-variants.md) — base+variant composition; feature-install bundles must exclude all existing base-case slugs.
-- [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.
+- [Prompt Template Kit](prompt-template-kit.md) — fail-open active templates; compose base+variant; installs exclude existing base slugs.
 - [Sweep-alert test interference](sweep-alert-test-interference.md) — live dev server's boot sweep marks-read test-seeded fail-streak alerts; full-run flakes pass in isolation, re-run don't refactor.
 - [Public SEO pages](public-seo-pages.md) — new public routes must set their own canonical via usePageMeta and update sitemap/robots/llms.txt/landing in lockstep.
-- [Text-gen outage failover](textgen-failover.md) — transient-only failover to builtin with pricing gate + mutated cost attribution; deduped textgen_failover superadmin alert, auto-resolves on recovery.
-- [Vitest parallel-load timeouts](e2e-test-flakiness.md) — full validation runs suites in parallel; jsdom tests flake on the 5s default timeout, so web suites pin testTimeout: 20000.
 - [OpenRouter video provider](openrouter-video-provider.md) — separate /videos/models catalog, discrete durations, shared textgen key, preflight checks SELECTED provider only.
 - [Custom AI providers](custom-ai-providers.md) — admin-added OpenAI-compatible providers ride "custom:<id>" refs; dynamic defs must re-stamp result.provider and static catalog walks miss them.
 - [Leaked test tenants](leaked-test-tenants.md) — API test runs self-clean test_ tenants under an exclusive DB lock; leaked superadmins otherwise explode notification fan-out.
 - [Wallet pending-price diagnosis](wallet-pending-diagnosis.md) — banner reasons diagnosed vs catalog; true-up retries on boot+interval+manual; missing token usage can never reconcile.
 - [Wallet true-up partials](wallet-trueup-partials.md) — uncovered shortfall leaves the row pending (no trueUpAt); prior true_up rows count as charged so retries never double-collect.
 - [Activation funnel](activation-funnel.md) — reconnect status-flips need a wasConnected guard before emitting analytics; non-sequential counts go as independent fields, never funnel steps.
-- [Sweep-suite serialization](sweep-test-serialization.md) — suites running the real sweep hold a pg advisory lock for their lifetime; new sweep-running suites must take it too.
 - [Lip-sync videos](lip-sync-videos.md) — LatentSync inputs must be Replicate Files API URLs ({video,audio}); consent hard-gated at route AND runner; brand-kit voice only.
 - [Brand voice library](brand-voice-library.md) — flat fields = active voice, voices[] = library (cap 5); select is provider-call-free and kill-switch-ungated; refund only before commit.
 - [Brand voice cloning](brand-voice-clone.md) — whole-track fallback on any narration failure; removal route ungated by the kill switch; ElevenLabs PCM needs local WAV wrap.
-- [Landing page CMS](landing-cms.md) — singleton JSON doc, public GET/superadmin PUT; CMS hrefs are an XSS vector so PUT + CmsLink enforce a URL-scheme allowlist; public objects serve nosniff/no-HTML.
+- [Landing page CMS](landing-cms.md) — singleton public GET/superadmin PUT; allowlist CMS URL schemes to prevent XSS; serve public objects nosniff/no-HTML.
 - [Schema deploys via push](schema-deploy-via-push.md) — no migration files by design; dev = post-merge push-force, prod = Replit Publish diff; new columns need NOT NULL DEFAULT.
 - [Invoice module](invoices.md) — gapless FY numbering inside one settings-row lock; plan invoices keyed per cycle (same refId in verify AND webhook); settings is a DB-singleton.
-- [Model JSON output parsing](model-json-parsing.md) — models (DeepSeek) wrap JSON in fences/prose despite response_format json_object; all model-output parses go through the tolerant parseModelJsonObject.
-- [Spend snapshots vs terminal status](generation-spend-snapshots.md) — persist client-needed values in the SAME write as the terminal status flip; `!= null` presence checks; no partial multi-unit sums.
+- [Model JSON output parsing](model-json-parsing.md) — tolerant parseModelJsonObject handles fenced/prose JSON despite response_format json_object.
+- [Spend snapshots vs terminal status](generation-spend-snapshots.md) — write client-needed values with terminal status; check != null; never sum partial multi-unit values.
 - [sign_up vs consent race](consent-ingest-signup-race.md) — ingest 200s with accepted:0 when consent drops a batch; dedupe markers must check accepted>0 and retry on consent change.
 - [Merge-mangled test files](merge-mangled-test-files.md) — parallel task merges duplicate it-blocks into wrong describes; repair by splicing whole describes from the pre-merge revision.
 - [Animated AI b-roll](animated-broll.md) — topic-video "ai_video" mode: b-roll stills → image-to-video; motion suffix governed by Prompt Kit `video_motion`, fail-open, mock it in tests.
-- [Expo router bundles test files](expo-router-test-files.md) — any *.test.tsx inside mobile app/ becomes a route and drags vitest→vite into the prod bundle, killing the publish build; keep tests outside app/.
+- [Expo router bundles test files](expo-router-test-files.md) — tests inside mobile app/ become routes and pull vitest into prod; keep *.test.tsx outside app/.
 - [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
 - [Finite AI quota reservations](finite-ai-quota-reservations.md) — hold quota durably before provider calls; lease live holds and never recreate reclaimed quota at settlement.
 - [Localized video dubbing](localized-video-dubbing.md) — one job per locale; fit exact final cues, and preserve source voice via a temporary clone rather than provider-owned translation.
@@ -119,8 +103,7 @@
 - [Sarvam localization narration](sarvam-localization-narration.md) — bulbul:v3 uses singular text and base64 WAV; health results must stay bound to the credential tested.
 - [React Native Web modal tests](react-native-web-modal-tests.md) — jsdom leaves exit-animated modal children mounted; assert the computed non-interactive exit state.
 - [OpenAPI unknown-property validation](openapi-unknown-properties.md) — generated Zod may strip forbidden extra keys; security boundaries must reject unknown raw keys explicitly.
-- [Dialogue lip-sync billing](dialogue-lip-sync-billing.md) — AI dialogue is two provider units; retain completed visual work and partially settle when later lip-sync stages fail.
-- [Character dialogue recovery](character-dialogue-recovery.md) — retry via immutable child jobs funded only for missing checkpoints; locale-aware segmentation keeps lip-sync scenes bounded.
+- [Dialogue lip-sync](dialogue-lip-sync-billing.md) — two provider units; retain visuals/partially settle; retries fund missing checkpoints.
 - [Video cost estimates](video-cost-estimates.md) — model/duration estimate and flat wallet reservation are separate; unknown model prices must show unavailable, never a guessed total.
 - [Video wallet reconciliation](video-wallet-reconciliation.md) — price each durable provider event; reconcile only after the original settlement is immutable.
 - [Clerk route loading states](clerk-route-loading-states.md) — mount routing outside ClerkLoaded; public pages stay available and protected routes recover visibly during auth stalls.
@@ -130,7 +113,7 @@
 - [AI fallback reporting parity](ai-fallback-reporting-parity.md) — admin fallback views must reuse runtime ordering/config/health and cost computability, not catalog order or price-row presence.
 - [Long-form video templates](long-form-video-templates.md) — duration comes from complete voiced script cues; scene caps drive reservation, and AI modes checkpoint via storyboard review.
 - [Hybrid video accounting](hybrid-video-accounting.md) — one narrated typed-beat timeline; checkpoint every provider operation and keep cloned narration outside video settlement.
-- [NVIDIA capability contracts](nvidia-capability-contracts.md) — discovery never grants compatibility; activation and health are scoped to an allowlisted deployment-kind/capability/model/protocol contract.
+- [NVIDIA capability contracts](nvidia-capability-contracts.md) — discovery never grants compatibility; activation/health require allowlisted deployment-kind, capability, model, and protocol.
 - [Privacy-safe video recovery](privacy-safe-video-recovery.md) — exact policy-code handling; generated scenes may recover once with funded replacement, identity inputs always fail closed.
 - [Preset character identities](preset-character-identities.md) — global identities are revisioned; outfit derivatives are tenant-owned; every job freezes identity, outfit, voice, and language.
 - [Job error identifiers](job-error-identifiers.md) — user-facing generation errors should include the relevant job number whenever one exists.
@@ -150,6 +133,7 @@
 - [BytePlus Seedance provider](byteplus-seedance-provider.md) — first-party international Seedance 2.5 uses ModelArk tasks; never retry non-idempotent creates.
 - [Atlas Cloud provider](atlas-cloud-provider.md) — separate paid prediction/asset contracts; fictional-only assets, durable submit fence, pinned output transport.
 - [Character reference sheets](character-reference-sheets.md) — every tenant character keeps a canonical portrait plus a separately generated, explicitly approved multi-view sheet.
+- [Character origin evidence](character-origin-evidence.md) — origin is independent of billing/selection; preserve photo ancestry and reuse frozen proof during finalization.
 - [Guided direct video](guided-direct-video.md) — new Guided jobs skip storyboard images/review and render approved characters directly through native-audio Higgsfield; legacy jobs stay legacy.
 - [OpenRouter image API](openrouter-image-api.md) — image generation and capability discovery use the dedicated Images API, not chat-completion modalities.
 - [Provider pricing freshness](provider-pricing-freshness.md) — scheduled official-rate refreshes preserve snapshots and alert from the last successful source timestamp, not failure counts.

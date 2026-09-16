@@ -43,3 +43,6 @@ faithful, fast guard (proven by mutation: disabling the callouts fails the tests
   `ResizeObserver` stubs + `@testing-library/user-event` to open dropdowns.
 
 - No jest-dom matchers are installed: `toHaveValue`/`toBeInTheDocument` throw "Invalid Chai property". Use plain assertions on `(el as HTMLInputElement).value` / `toBeTruthy()`.
+
+## Related topics
+- [Resilient api-client test mock](api-client-mock-proxy.md)

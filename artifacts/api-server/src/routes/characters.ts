@@ -7,9 +7,11 @@ import {
   characterOutfitsTable,
   presetCharactersTable,
   presetOutfitDerivativesTable,
+  guidedStoryDraftsTable,
+  walletProviderOperationsTable,
 } from "@workspace/db";
 import type { Character, CharacterOutfit, PresetCharacter } from "@workspace/db";
-import { and, eq, asc, inArray, sql } from "drizzle-orm";
+import { and, eq, asc, inArray, sql, isNull } from "drizzle-orm";
 import {
   CreateCharacterBody,
   CreateCharacterOutfitBody,
@@ -72,6 +74,12 @@ import {
   startBytePlusIdentityVerification,
 } from "../lib/bytePlusIdentity";
 import { freezeMeterMode, type MeterFundingSnapshot } from "../lib/meterFunding";
+import {
+  captureAssetProvenance,
+  sha256Hex,
+  validateExactRecoveryEvidence,
+  type ProvenanceSummary,
+} from "../lib/provenance";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -214,16 +222,65 @@ function serializeOutfit(outfit: CharacterOutfit) {
   };
 }
 
+function legacyCreationProvenance(character: Character): {
+  status: "verified_generated" | "uploaded" | "unknown";
+  summary: ProvenanceSummary;
+} {
+  if (character.referenceSource === "uploaded") {
+    return {
+      status: "uploaded",
+      summary: {
+        method: "upload",
+        provider: null,
+        model: null,
+        createdAt: character.createdAt.toISOString(),
+      },
+    };
+  }
+  const evidence = character.creationEvidence;
+  if (
+    character.referenceSource === "generated" &&
+    evidence?.version === 1 &&
+    evidence.sourcePath === character.referenceImagePath &&
+    /^[a-f0-9]{64}$/i.test(evidence.sourceSha256) &&
+    evidence.provider &&
+    evidence.model
+  ) {
+    return {
+      status: "verified_generated",
+      summary: {
+        method: evidence.method ?? "textgenerated",
+        provider: evidence.provider,
+        model: evidence.model,
+        createdAt: evidence.recordedAt,
+      },
+    };
+  }
+  return {
+    status: "unknown",
+    summary: {
+      method: "derived",
+      provider: null,
+      model: null,
+      createdAt: null,
+      missingReason: "No server-authored origin evidence is recorded.",
+    },
+  };
+}
+
 function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
   const ordered = [...outfits].sort(
     (a, b) => Number(b.isDefault) - Number(a.isDefault) || a.id - b.id,
   );
+  const provenance = legacyCreationProvenance(character);
   return {
     id: character.id,
     name: character.name,
     description: character.description,
     referenceImagePath: character.referenceImagePath,
     referenceSource: character.referenceSource,
+    provenanceStatus: provenance.status,
+    provenanceSummary: provenance.summary,
     identityId: character.bytePlusIdentityId,
     referenceSheetImagePath: character.referenceSheetImagePath,
     referenceSheetStatus: character.referenceSheetStatus,
@@ -444,22 +501,57 @@ async function generateAndPersistReferenceSheet(
       result.buffer,
       "image/png",
     );
-    const [updated] = await db
-      .update(charactersTable)
-      .set({
-        referenceSheetImagePath,
-        referenceSheetStatus: "pending",
-        referenceSheetApprovedSha256: null,
-        referenceSheetError: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(charactersTable.id, character.id),
-          eq(charactersTable.tenantId, req.tenantId),
-        ),
-      )
-      .returning();
+    const [updated] = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(charactersTable)
+        .set({
+          referenceSheetImagePath,
+          referenceSheetStatus: "pending",
+          referenceSheetApprovedSha256: null,
+          referenceSheetError: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(charactersTable.id, character.id),
+            eq(charactersTable.tenantId, req.tenantId),
+          ),
+        )
+        .returning();
+      if (!row) return [];
+      await captureAssetProvenance(tx, {
+        tenantId: req.tenantId,
+        assetKind: "reference_sheet",
+        sourceKind: "imageedit",
+        characterId: character.id,
+        operationIdentity:
+          `character-library:${character.id}:reference-sheet:${result.provider}:${result.model}:` +
+          `${result.providerRequestId ?? sha256Hex(result.buffer)}`,
+        provider: result.provider,
+        model: result.model,
+        providerRequestId: result.providerRequestId ?? null,
+        artifactPath: referenceSheetImagePath,
+        artifactSha256: sha256Hex(result.buffer),
+        parentPath: character.referenceImagePath,
+        parentSha256: sha256Hex(primaryReference.buffer),
+        inputAncestry: {
+          parents: [{
+            kind: "character_reference",
+            path: character.referenceImagePath,
+            sha256: sha256Hex(primaryReference.buffer),
+            characterId: character.id,
+          }],
+          referenceSource:
+            character.referenceSource === "uploaded"
+              ? "uploaded"
+              : character.referenceSource === "generated"
+                ? "generated"
+                : "unknown",
+          capturedAt: new Date().toISOString(),
+        },
+      });
+      return [row];
+    });
     return updated!;
   } catch (caught) {
     let err = caught;
@@ -731,20 +823,51 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       result.buffer,
       "image/png",
     );
-    const [created] = await db
-      .insert(presetOutfitDerivativesTable)
-      .values({
-        tenantId: req.tenantId,
-        presetCharacterId: resolved.preset.id,
-        name,
-        description,
-        referenceImagePath,
-        status: "preview",
-        identityVerified: true,
-        canonicalReferenceImagePath: resolved.outfit.referenceImagePath,
-        protectedRegion,
-      })
-      .returning();
+    const derivativeSha256 = sha256Hex(result.buffer);
+    const presetParentSha256 = sha256Hex(baseReference.buffer);
+    const [created] = await db.transaction(async (tx) => {
+      const [derivative] = await tx
+        .insert(presetOutfitDerivativesTable)
+        .values({
+          tenantId: req.tenantId,
+          presetCharacterId: resolved.preset.id,
+          name,
+          description,
+          referenceImagePath,
+          status: "preview",
+          identityVerified: true,
+          canonicalReferenceImagePath: resolved.outfit.referenceImagePath,
+          protectedRegion,
+        })
+        .returning();
+      if (derivative) {
+        await captureAssetProvenance(tx, {
+          tenantId: req.tenantId,
+          assetKind: "character_outfit",
+          sourceKind: "imageedit",
+          outfitId: derivative.id,
+          operationIdentity: `preset-outfit:${resolved.preset.stableId}:${derivative.id}`,
+          provider: result.provider,
+          model: result.model,
+          providerRequestId: result.providerRequestId ?? null,
+          providerOperationId: generated?.operationId ?? null,
+          artifactPath: referenceImagePath,
+          artifactSha256: derivativeSha256,
+          parentPath: resolved.outfit.referenceImagePath,
+          parentSha256: presetParentSha256,
+          inputAncestry: {
+            parents: [{
+              kind: "external",
+              path: resolved.outfit.referenceImagePath,
+              sha256: presetParentSha256,
+            }],
+            referenceSource: "generated",
+            capturedAt: new Date().toISOString(),
+          },
+        });
+      }
+      return [derivative];
+    });
     res.status(201).json(created);
   } catch (caught) {
     let err = caught;
@@ -1056,13 +1179,19 @@ router.post("/characters", async (req: Request, res: Response) => {
   }
 
   let referenceImagePath: string;
+  let referenceSha256: string;
+  let referenceProvider: string | null = null;
+  let referenceModel: string | null = null;
+  let referenceProviderRequestId: string | null = null;
+  let referenceProviderOperationId: number | null = null;
   let funding: Funding | null = null;
   let successfulAiWork = false;
   const startedAt = Date.now();
   try {
     if (sourceImagePath) {
       // Uploaded photo: validate it exists, is an image, and fits; no AI cost.
-      await loadReferenceImage(sourceImagePath, req.tenantId);
+      const uploadedReference = await loadReferenceImage(sourceImagePath, req.tenantId);
+      referenceSha256 = sha256Hex(uploadedReference.buffer);
       referenceImagePath = sourceImagePath;
     } else {
       // Generated reference: funds like any image generation.
@@ -1108,6 +1237,10 @@ router.post("/characters", async (req: Request, res: Response) => {
         operationKey: `character-reference:${req.tenantId}:${name}`,
         funding: reservedFunding.meterFunding,
       }));
+      referenceProvider = result.provider;
+      referenceModel = result.model;
+      referenceProviderRequestId = result.providerRequestId ?? null;
+      referenceProviderOperationId = generated?.operationId ?? null;
       // The paid provider result is complete before local object persistence.
       // A later upload failure must not relabel successful provider work as a
       // failure or refund its reservation.
@@ -1123,6 +1256,7 @@ router.post("/characters", async (req: Request, res: Response) => {
         result.buffer,
         "image/png",
       );
+      referenceSha256 = sha256Hex(result.buffer);
     }
   } catch (err) {
     if (err instanceof WalletProviderSuccessPersistenceError) successfulAiWork = true;
@@ -1132,11 +1266,7 @@ router.post("/characters", async (req: Request, res: Response) => {
     return;
   }
 
-  const defaultOutfitApprovalSha256 = sourceImagePath
-    ? null
-    : createHash("sha256")
-        .update((await loadReferenceImage(referenceImagePath, req.tenantId)).buffer)
-        .digest("hex");
+  const defaultOutfitApprovalSha256 = referenceSha256;
 
   // Re-check the cap atomically: lock the tenant row so parallel creates
   // serialize and cannot slip past the count check together.
@@ -1178,6 +1308,70 @@ router.post("/characters", async (req: Request, res: Response) => {
         })
         .returning()
     )[0]!;
+    const portraitProvenance = await captureAssetProvenance(tx, {
+      tenantId: req.tenantId,
+      assetKind: "character_reference",
+      sourceKind: sourceImagePath ? "upload" : "textgenerated",
+      characterId: character.id,
+      operationIdentity: `character-library:${character.id}:reference`,
+      provider: referenceProvider,
+      model: referenceModel,
+      providerRequestId: referenceProviderRequestId,
+      artifactPath: referenceImagePath,
+      artifactSha256: referenceSha256,
+      inputAncestry: {
+        parents: [],
+        referenceSource: sourceImagePath ? "uploaded" : "generated",
+        capturedAt: new Date().toISOString(),
+      },
+    });
+    if (!sourceImagePath) {
+      await tx
+        .update(charactersTable)
+        .set({
+          creationEvidence: {
+            version: 1,
+            kind: "character_library",
+            method: "textgenerated",
+            draftId: 0,
+            draftRevision: 0,
+            roleId: "character-library",
+            operationKey: `character-reference:${req.tenantId}:${name}`,
+            provider: referenceProvider!,
+            model: referenceModel!,
+            providerOperationId: referenceProviderOperationId,
+            sourcePath: referenceImagePath,
+            sourceSha256: referenceSha256,
+            provenanceRecordId: portraitProvenance!.id,
+            recordedAt: new Date().toISOString(),
+          },
+        })
+        .where(eq(charactersTable.id, character.id));
+    }
+    await captureAssetProvenance(tx, {
+      tenantId: req.tenantId,
+      assetKind: "character_outfit",
+      sourceKind: sourceImagePath ? "upload" : "derived",
+      characterId: character.id,
+      outfitId: defaultOutfit.id,
+      operationIdentity: `character-library:${character.id}:default-outfit`,
+      provider: null,
+      model: null,
+      artifactPath: referenceImagePath,
+      artifactSha256: referenceSha256,
+      parentPath: referenceImagePath,
+      parentSha256: referenceSha256,
+      inputAncestry: {
+        parents: [{
+          kind: "character_reference",
+          path: referenceImagePath,
+          sha256: referenceSha256,
+          characterId: character.id,
+        }],
+        referenceSource: sourceImagePath ? "uploaded" : "generated",
+        capturedAt: new Date().toISOString(),
+      },
+    });
     return { character, defaultOutfit };
   });
   if (!created) {
@@ -1224,6 +1418,269 @@ async function loadCharacter(req: Request): Promise<Character | undefined> {
       .limit(1)
   )[0];
 }
+
+/**
+ * Explicit, narrow recovery for a historical Guided character whose immutable
+ * origin fields were never written. This endpoint never guesses from a label,
+ * filename, payment, or current referenceSource. It requires the original
+ * draft/role checkpoint, exact path and hash, and (when present) a matching
+ * provider settlement receipt.
+ */
+router.post(
+  "/characters/:characterId/provenance/recover",
+  async (req: Request, res: Response) => {
+    const characterId = Number(req.params.characterId);
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const draftId = Number((body as Record<string, unknown>).draftId);
+    const roleId = (body as Record<string, unknown>).roleId;
+    if (
+      !Number.isSafeInteger(draftId) ||
+      draftId <= 0 ||
+      typeof roleId !== "string" ||
+      !roleId.trim() ||
+      Object.keys(body).some((key) => key !== "draftId" && key !== "roleId")
+    ) {
+      res.status(400).json({
+        error: "Provide the exact original Guided Story draftId and roleId.",
+      });
+      return;
+    }
+    const character = await loadCharacter(req);
+    if (!character || character.id !== characterId) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (character.referenceSource !== null) {
+      res.status(409).json({
+        error: "Only a character with unknown origin can be explicitly recovered.",
+      });
+      return;
+    }
+    const [draft] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(
+        and(
+          eq(guidedStoryDraftsTable.id, draftId),
+          eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        ),
+      )
+      .limit(1);
+    const operation = draft?.state.castOperations?.[roleId.trim()];
+    const expectedOperationKey = `guided-story-cast:${draftId}:${draft?.revision ?? 0}:${roleId.trim()}`;
+    if (
+      !draft ||
+      !operation ||
+      operation.operationKey !== expectedOperationKey ||
+      operation.status !== "uploaded" ||
+      operation.characterId !== character.id ||
+      operation.path !== character.referenceImagePath ||
+      !operation.artifactHash ||
+      !operation.provider ||
+      !operation.model
+    ) {
+      res.status(409).json({
+        error:
+          "Exact immutable Guided generation evidence was not found; no metadata was changed.",
+      });
+      return;
+    }
+    let currentHash: string;
+    try {
+      currentHash = sha256Hex(
+        (await loadReferenceImage(character.referenceImagePath, req.tenantId)).buffer,
+      );
+    } catch {
+      res.status(409).json({
+        error: "The original tenant-owned bytes could not be verified; no metadata was changed.",
+      });
+      return;
+    }
+    if (currentHash !== operation.artifactHash) {
+      res.status(409).json({
+        error: "The current bytes do not match the original Guided receipt; no metadata was changed.",
+      });
+      return;
+    }
+    let providerReceipt: typeof walletProviderOperationsTable.$inferSelect | null = null;
+    if (operation.operationId != null) {
+      const [receipt] = await db
+        .select()
+        .from(walletProviderOperationsTable)
+        .where(
+          and(
+            eq(walletProviderOperationsTable.id, operation.operationId),
+            eq(walletProviderOperationsTable.tenantId, req.tenantId),
+          ),
+        )
+        .limit(1);
+      providerReceipt = receipt ?? null;
+      if (
+        !receipt ||
+        receipt.operationKind !== "character_reference" ||
+        receipt.operationKey !== operation.operationKey ||
+        receipt.provider !== operation.provider ||
+        receipt.model !== operation.model ||
+        !["succeeded", "settlement_queued", "settled"].includes(receipt.status)
+      ) {
+        res.status(409).json({
+          error: "The original provider settlement receipt could not be verified; no metadata was changed.",
+        });
+        return;
+      }
+    }
+    const recoveryValidation = validateExactRecoveryEvidence({
+      tenantId: req.tenantId,
+      characterTenantId: character.tenantId,
+      draftId,
+      roleId: roleId.trim(),
+      currentPath: character.referenceImagePath,
+      currentSha256: currentHash,
+      checkpoint: {
+        draftId,
+        roleId: roleId.trim(),
+        status: operation.status,
+        sourcePath: operation.path,
+        sourceSha256: operation.artifactHash,
+        provider: operation.provider,
+        model: operation.model,
+        operationKey: operation.operationKey,
+        operationId: operation.operationId ?? null,
+      },
+      providerReceipt,
+    });
+    if (!recoveryValidation.ok) {
+      res.status(409).json({
+        error: `${recoveryValidation.reason} No metadata was changed.`,
+      });
+      return;
+    }
+    const recovered = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select()
+        .from(charactersTable)
+        .where(
+          and(
+            eq(charactersTable.id, character.id),
+            eq(charactersTable.tenantId, req.tenantId),
+            isNull(charactersTable.referenceSource),
+            eq(charactersTable.referenceImagePath, character.referenceImagePath),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (!locked) return null;
+      const [updated] = await tx
+        .update(charactersTable)
+        .set({
+          referenceSource: "generated",
+          creationEvidence: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(charactersTable.id, locked.id))
+        .returning();
+      if (!updated) return null;
+      const portraitProvenance = await captureAssetProvenance(tx, {
+        tenantId: req.tenantId,
+        assetKind: "character_reference",
+        sourceKind: "textgenerated",
+        characterId: updated.id,
+        roleId: roleId.trim(),
+        operationIdentity: operation.operationKey,
+        provider: operation.provider!,
+        model: operation.model!,
+        providerOperationId: operation.operationId ?? null,
+        artifactPath: updated.referenceImagePath,
+        artifactSha256: currentHash,
+        inputAncestry: {
+          parents: [],
+          referenceSource: "generated",
+          capturedAt: new Date().toISOString(),
+        },
+      });
+      const [evidenced] = await tx
+        .update(charactersTable)
+        .set({
+          creationEvidence: {
+            version: 1,
+            kind: "guided_story",
+            method: "textgenerated",
+            draftId,
+            draftRevision: draft.revision,
+            roleId: roleId.trim(),
+            operationKey: operation.operationKey,
+            provider: operation.provider!,
+            model: operation.model!,
+            providerOperationId: operation.operationId ?? null,
+            sourcePath: character.referenceImagePath,
+            sourceSha256: currentHash,
+            provenanceRecordId: portraitProvenance!.id,
+            recordedAt: new Date().toISOString(),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(charactersTable.id, updated.id))
+        .returning();
+      const [defaultOutfit] = await tx
+        .select()
+        .from(characterOutfitsTable)
+        .where(
+          and(
+            eq(characterOutfitsTable.characterId, updated.id),
+            eq(characterOutfitsTable.tenantId, req.tenantId),
+            eq(characterOutfitsTable.isDefault, true),
+            eq(characterOutfitsTable.referenceImagePath, updated.referenceImagePath),
+          ),
+        )
+        .limit(1);
+      if (defaultOutfit) {
+        await captureAssetProvenance(tx, {
+          tenantId: req.tenantId,
+          assetKind: "character_outfit",
+          sourceKind: "derived",
+          characterId: updated.id,
+          outfitId: defaultOutfit.id,
+          roleId: roleId.trim(),
+          operationIdentity: `${operation.operationKey}:outfit`,
+          provider: operation.provider!,
+          model: operation.model!,
+          providerOperationId: operation.operationId ?? null,
+          artifactPath: defaultOutfit.referenceImagePath,
+          artifactSha256: currentHash,
+          parentPath: updated.referenceImagePath,
+          parentSha256: currentHash,
+          inputAncestry: {
+            parents: [{
+              kind: "character_reference",
+              path: updated.referenceImagePath,
+              sha256: currentHash,
+              characterId: updated.id,
+            }],
+            referenceSource: "generated",
+            capturedAt: new Date().toISOString(),
+          },
+        });
+      }
+      return evidenced ?? updated;
+    });
+    if (!recovered) {
+      res.status(409).json({
+        error: "The character changed during recovery; reload and try again.",
+      });
+      return;
+    }
+    const outfits = await db
+      .select()
+      .from(characterOutfitsTable)
+      .where(
+        and(
+          eq(characterOutfitsTable.characterId, recovered.id),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        ),
+      );
+    res.json(serializeCharacter(recovered, outfits));
+  },
+);
 
 router.post(
   "/characters/:characterId/reference-sheet/generate",
@@ -1756,6 +2213,8 @@ router.post(
         result.buffer,
         "image/png",
       );
+      const sourceSha256 = sha256Hex(result.buffer);
+      const baseSha256 = sha256Hex(baseReference.buffer);
 
       // Match character deletion's parent-then-children lock order. If
       // deletion already owns/removed the parent, this insert waits and then
@@ -1770,6 +2229,9 @@ router.post(
           .for("update")
           .limit(1);
         if (!lockedCharacter) return null;
+        if (lockedCharacter.referenceImagePath !== character.referenceImagePath) {
+          return null;
+        }
         const [inserted] = await tx
           .insert(characterOutfitsTable)
           .values({
@@ -1785,6 +2247,39 @@ router.post(
             protectedRegion,
           })
           .returning();
+        if (inserted) {
+          await captureAssetProvenance(tx, {
+            tenantId: req.tenantId,
+            assetKind: "character_outfit",
+            sourceKind: "imageedit",
+            characterId: lockedCharacter.id,
+            outfitId: inserted.id,
+            operationIdentity: `character-outfit:${lockedCharacter.id}:${inserted.id}`,
+            provider: result.provider,
+            model: result.model,
+            providerRequestId: result.providerRequestId ?? null,
+            providerOperationId: generated?.operationId ?? null,
+            artifactPath: referenceImagePath,
+            artifactSha256: sourceSha256,
+            parentPath: character.referenceImagePath,
+            parentSha256: baseSha256,
+            inputAncestry: {
+              parents: [{
+                kind: "character_reference",
+                path: character.referenceImagePath,
+                sha256: baseSha256,
+                characterId: lockedCharacter.id,
+              }],
+              referenceSource:
+                lockedCharacter.referenceSource === "uploaded"
+                  ? "uploaded"
+                  : lockedCharacter.referenceSource === "generated"
+                    ? "generated"
+                    : "unknown",
+              capturedAt: new Date().toISOString(),
+            },
+          });
+        }
         return inserted!;
       });
       if (!createdOutfit) {

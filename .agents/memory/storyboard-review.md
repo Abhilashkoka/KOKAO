@@ -36,3 +36,6 @@ description: Design invariants for the video storyboard review flow (awaiting_re
 - The polish result is persisted once as scene.renderVisual before the first render — retries of an approved plan must render from identical prompts, never re-polish.
 - Character shots are exempt from post-approval rewriting: the approved keyframe is the contract.
 - jobRunner tests that deep-compare rendered storyboards must stub polishStoryboardPrompts, or the polish mutates the plan (and can hit a live model).
+
+## Related topics
+- [Storyboard scene editing](storyboard-scene-editing.md)

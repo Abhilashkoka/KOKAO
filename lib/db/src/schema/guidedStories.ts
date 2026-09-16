@@ -6,6 +6,7 @@ import {
   timestamp,
   index,
 } from "drizzle-orm/pg-core";
+import type { AssetProvenanceAncestry } from "./assetProvenance";
 
 export type GuidedStoryGenre =
   | "action_adventure"
@@ -71,6 +72,29 @@ export interface GuidedStoryBillingReceipt {
   recordedAt: string;
 }
 
+/** Immutable server evidence carried into a saved cast/job snapshot. */
+export interface GuidedStoryProvenanceEvidence {
+  assetKind:
+    | "character_reference"
+    | "reference_sheet"
+    | "character_outfit"
+    | "customization"
+    | "video_selection"
+    | "video_asset";
+  operationIdentity: string;
+  artifactPath: string;
+  artifactSha256: string;
+  provenanceRecordId: number;
+  sourceKind?: "textgenerated" | "upload" | "imageedit" | "derived";
+  provider?: string | null;
+  model?: string | null;
+  providerRequestId?: string | null;
+  providerOperationId?: number | null;
+  inputAncestry?: AssetProvenanceAncestry;
+  parentPath?: string | null;
+  parentSha256?: string | null;
+}
+
 export interface GuidedStoryCastSnapshot {
   roleId: string;
   source: "saved" | "generated";
@@ -98,6 +122,20 @@ export interface GuidedStoryCastSnapshot {
   consentGranted: boolean;
   /** Immutable provenance; Atlas never infers this from a role's display source. */
   referenceSource?: "generated" | "uploaded" | null;
+  /** Server-computed safe origin classification; never accepted from clients. */
+  provenanceStatus?: "verified_generated" | "uploaded" | "unknown";
+  /** Safe provider summary; paths, prompts, secrets and internal ids are omitted. */
+  provenanceSummary?: {
+    method: "textgenerated" | "upload" | "imageedit" | "derived";
+    provider: string | null;
+    model: string | null;
+    createdAt: string | null;
+    missingReason?: string;
+  } | null;
+  /** Immutable record/path/hash proof used by provider preflight. */
+  provenanceEvidence?: GuidedStoryProvenanceEvidence | null;
+  /** All frozen evidence records used by this cast selection (portrait/outfit/sheet). */
+  provenanceEvidenceRefs?: GuidedStoryProvenanceEvidence[];
   /** Immutable dispatch policy frozen when this cast selection is approved. */
   requiresBytePlusAsset?: boolean;
   bytePlusAssetId?: string | null;
@@ -122,6 +160,7 @@ export interface GuidedStoryCastSnapshot {
     rawProviderCostPaise?: number | null;
     reservationId?: number | null;
     artifactHash?: string | null;
+    providerRequestId?: string | null;
     sheet?: {
       path: string;
       provider: string;
@@ -130,6 +169,7 @@ export interface GuidedStoryCastSnapshot {
       rawProviderCostPaise: number | null;
       reservationId: number | null;
       artifactHash: string;
+      providerRequestId?: string | null;
     } | null;
   } | null;
 }
@@ -332,6 +372,7 @@ export interface GuidedStoryDraftState {
      artifactHash?: string | null;
     provider?: string;
     model?: string;
+     providerRequestId?: string | null;
     imageBase64?: string;
     imageByteLength?: number;
     path?: string;
@@ -379,6 +420,7 @@ export interface GuidedStoryDraftState {
        artifactHash?: string | null;
       provider?: string;
       model?: string;
+       providerRequestId?: string | null;
       imageBase64?: string;
       imageByteLength?: number;
       path?: string;
@@ -465,6 +507,7 @@ export interface GuidedStoryReferenceOperation {
   artifactHash?: string | null;
   provider?: string | null;
   model?: string | null;
+  providerRequestId?: string | null;
   providerStartedAt?: string | null;
   imageBase64?: string;
   imageByteLength?: number;

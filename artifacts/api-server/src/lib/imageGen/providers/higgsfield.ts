@@ -121,6 +121,7 @@ export async function generateWithHiggsfield(
         buffer: Buffer.from(await output.arrayBuffer()),
         provider: "higgsfield",
         model: input.model,
+        providerRequestId: status.request_id ?? null,
       };
     }
     if (terminal === "failed") {

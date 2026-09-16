@@ -60,6 +60,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  CharacterProvenance,
+  CharacterProvenanceRecovery,
+  GuidedCharacterProvenanceWarning,
+} from "@/components/character-provenance";
 
 
 const GENRES = [
@@ -2707,7 +2712,15 @@ function VoiceOptions({
   );
 }
 
-function CastFields({ role, characters, voices, brandKits, assignments, updateAssignment }: any) {
+function CastFields({
+  role,
+  characters,
+  voices,
+  brandKits,
+  assignments,
+  updateAssignment,
+  draft,
+}: any) {
   const item = assignments[role.id] ?? {};
   const character = characters.find((candidate: Character) => candidate.id === item.characterId);
   const selectableOutfits = character?.outfits.filter(
@@ -2716,7 +2729,91 @@ function CastFields({ role, characters, voices, brandKits, assignments, updateAs
       outfit.status === "approved" &&
       outfit.identityVerified,
   ) ?? [];
-  return <div className="grid gap-2 rounded border p-3" data-testid={`card-guided-cast-${role.id}`}><b>{role.name}</b><Select value={item.characterId?.toString() ?? ""} onValueChange={(value) => updateAssignment(role.id, { characterId: Number(value), outfitId: null })}><SelectTrigger data-testid={`select-guided-character-${role.id}`}><SelectValue placeholder="Select saved character" /></SelectTrigger><SelectContent>{characters.map((candidate: Character) => <SelectItem key={candidate.id} value={String(candidate.id)}>{candidate.name}</SelectItem>)}</SelectContent></Select>{character && <Select value={item.outfitId?.toString() ?? "none"} onValueChange={(value) => updateAssignment(role.id, { outfitId: value === "none" ? null : Number(value) })}><SelectTrigger data-testid={`select-guided-outfit-${role.id}`}><SelectValue placeholder="Default outfit" /></SelectTrigger><SelectContent><SelectItem value="none">Default outfit</SelectItem>{selectableOutfits.map((outfit: Character["outfits"][number]) => <SelectItem key={outfit.id} value={String(outfit.id)}>{outfit.name}</SelectItem>)}</SelectContent></Select>}<Select value={item.voiceId ?? ""} onValueChange={(value) => updateAssignment(role.id, { voiceId: value })}><SelectTrigger data-testid={`select-guided-voice-${role.id}`}><SelectValue placeholder="Select voice" /></SelectTrigger><SelectContent><VoiceOptions voices={voices} brandKits={brandKits} /></SelectContent></Select></div>;
+  return (
+    <div
+      className="grid gap-2 rounded border p-3"
+      data-testid={`card-guided-cast-${role.id}`}
+    >
+      <b>{role.name}</b>
+      <Select
+        value={item.characterId?.toString() ?? ""}
+        onValueChange={(value) =>
+          updateAssignment(role.id, {
+            characterId: Number(value),
+            outfitId: null,
+          })
+        }
+      >
+        <SelectTrigger data-testid={`select-guided-character-${role.id}`}>
+          <SelectValue placeholder="Select saved character" />
+        </SelectTrigger>
+        <SelectContent>
+          {characters.map((candidate: Character) => (
+            <SelectItem key={candidate.id} value={String(candidate.id)}>
+              {candidate.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {character && (
+        <>
+          <CharacterProvenance
+            character={character}
+            detailsTestId={`details-guided-character-provenance-${role.id}`}
+          />
+          <GuidedCharacterProvenanceWarning
+            character={character}
+            imageModelSnapshot={draft?.imageModelSnapshot}
+            testId={`warning-guided-character-provenance-${role.id}`}
+          />
+          <CharacterProvenanceRecovery
+            character={character}
+            characterId={Number(character.id)}
+            draftId={draft?.id}
+            roleId={role.id}
+            testId={`recovery-guided-character-provenance-${role.id}`}
+          />
+        </>
+      )}
+      {character && (
+        <Select
+          value={item.outfitId?.toString() ?? "none"}
+          onValueChange={(value) =>
+            updateAssignment(role.id, {
+              outfitId: value === "none" ? null : Number(value),
+            })
+          }
+        >
+          <SelectTrigger data-testid={`select-guided-outfit-${role.id}`}>
+            <SelectValue placeholder="Default outfit" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Default outfit</SelectItem>
+            {selectableOutfits.map(
+              (outfit: Character["outfits"][number]) => (
+                <SelectItem key={outfit.id} value={String(outfit.id)}>
+                  {outfit.name}
+                </SelectItem>
+              ),
+            )}
+          </SelectContent>
+        </Select>
+      )}
+      <Select
+        value={item.voiceId ?? ""}
+        onValueChange={(value) =>
+          updateAssignment(role.id, { voiceId: value })
+        }
+      >
+        <SelectTrigger data-testid={`select-guided-voice-${role.id}`}>
+          <SelectValue placeholder="Select voice" />
+        </SelectTrigger>
+        <SelectContent>
+          <VoiceOptions voices={voices} brandKits={brandKits} />
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 function GeneratedCastRole({ role }: { role: { id: string; name: string } }) {
   return <div className="rounded border border-dashed p-3" data-testid={`card-guided-generated-cast-${role.id}`}><b>{role.name}</b><p className="text-sm text-muted-foreground">The server will create a wholly fictional appearance and genre-appropriate wardrobe. Dialogue voices are generated automatically from the approved script.</p></div>;

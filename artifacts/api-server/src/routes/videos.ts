@@ -11,6 +11,7 @@ import {
   brandKitsTable,
   charactersTable,
   characterOutfitsTable,
+  assetProvenanceTable,
   guidedStoryDraftsTable,
   walletProviderOperationsTable,
   walletLedgerTable,
@@ -24,6 +25,8 @@ import {
   type GuidedStoryDraftState,
   type GuidedStoryCastSnapshot,
   type GuidedStoryImageModelSnapshot,
+  type GuidedStoryProvenanceEvidence,
+  type AssetProvenance,
 } from "@workspace/db";
 import { and, eq, desc, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import {
@@ -321,6 +324,337 @@ import {
   planGuidedStoryIntrinsicDialogue,
 } from "../lib/videoGen/guidedStory";
 import { refuseIfShortOfCredits } from "../lib/creditPreflight";
+import {
+  captureAssetProvenance,
+  summarizeProvenance,
+  sha256Hex,
+  latestCharacterProvenance,
+  latestOutfitProvenance,
+  immutableProvenanceProof,
+  reuseFrozenProvenanceProof,
+  replaceFrozenProvenanceReference,
+} from "../lib/provenance";
+import { rebuildSavedCastProvenanceSnapshot } from "../lib/provenanceSnapshot";
+import { requiresStrictFictionalProvenance } from "../lib/provenancePolicy";
+
+function provenanceEvidenceSnapshot(
+  evidence: AssetProvenance | null | undefined,
+): GuidedStoryProvenanceEvidence | null {
+  return immutableProvenanceProof(evidence);
+}
+
+function provenanceEvidenceRefs(
+  ...evidence: Array<AssetProvenance | null | undefined>
+): GuidedStoryProvenanceEvidence[] {
+  return evidence
+    .map(provenanceEvidenceSnapshot)
+    .filter((item): item is GuidedStoryProvenanceEvidence => item !== null);
+}
+
+/**
+ * The approved sheet is a separate append-only asset.  Do not derive its
+ * proof from the character row: that would let a changed sheet path inherit
+ * the portrait's origin record.
+ */
+async function latestReferenceSheetProvenance(
+  tenantId: number,
+  characterId: number,
+): Promise<AssetProvenance | null> {
+  const [row] = await db
+    .select()
+    .from(assetProvenanceTable)
+    .where(
+      and(
+        eq(assetProvenanceTable.tenantId, tenantId),
+        eq(assetProvenanceTable.characterId, characterId),
+        eq(assetProvenanceTable.assetKind, "reference_sheet"),
+      ),
+    )
+    .orderBy(desc(assetProvenanceTable.succeededAt), desc(assetProvenanceTable.id))
+    .limit(1);
+  return row ?? null;
+}
+
+function frozenCharacterEvidence(
+  characterEvidence: AssetProvenance | null,
+  outfitEvidence: AssetProvenance | null,
+  sheetEvidence: AssetProvenance | null,
+): {
+  provenanceEvidence: GuidedStoryProvenanceEvidence | null;
+  provenanceEvidenceRefs: GuidedStoryProvenanceEvidence[];
+} {
+  return {
+    provenanceEvidence: provenanceEvidenceSnapshot(characterEvidence),
+    provenanceEvidenceRefs: provenanceEvidenceRefs(
+      characterEvidence,
+      outfitEvidence,
+      sheetEvidence,
+    ),
+  };
+}
+
+/**
+ * New character video rows carry this marker.  It is deliberately nested in
+ * the immutable character snapshot rather than inferred from current library
+ * state, so old funded rows keep their historical replay path.
+ */
+const CHARACTER_PROVENANCE_VERSION = 1 as const;
+
+function proofFor(
+  refs: GuidedStoryProvenanceEvidence[] | undefined,
+  assetKind: GuidedStoryProvenanceEvidence["assetKind"],
+  artifactPath?: string | null,
+): GuidedStoryProvenanceEvidence | null {
+  const proof = refs?.find(
+    (item) =>
+      item.assetKind === assetKind &&
+      (artifactPath == null || item.artifactPath === artifactPath),
+  );
+  return proof &&
+    Number.isSafeInteger(proof.provenanceRecordId) &&
+    proof.provenanceRecordId > 0 &&
+    proof.operationIdentity.trim().length > 0 &&
+    proof.artifactPath.trim().length > 0 &&
+    /^[a-f0-9]{64}$/i.test(proof.artifactSha256)
+    ? proof
+    : null;
+}
+
+function frozenCharacterSnapshotError(
+  options: VideoJobOptions,
+): string | null {
+  if (
+    (options as VideoJobOptions & {
+      characterProvenanceVersion?: number;
+    }).characterProvenanceVersion !== CHARACTER_PROVENANCE_VERSION
+  ) {
+    return null;
+  }
+  if (!requiresStrictFictionalProvenance(options)) return null;
+
+  const snapshot = options.characterSnapshot;
+  if (
+    (options.characterId != null || options.hybridStory != null) &&
+    !snapshot
+  ) {
+    return "Character provenance is unavailable for this attempt. Nothing was charged; refresh the approved character and outfit.";
+  }
+  if (options.characterId != null && options.outfitId == null) {
+    return "Character provenance is unavailable for this attempt. Nothing was charged; refresh the approved character and outfit.";
+  }
+  if (
+    snapshot &&
+    (options.characterId == null || options.outfitId == null)
+  ) {
+    return "Character provenance is unavailable for this attempt. Nothing was charged; refresh the approved character and outfit.";
+  }
+  if (snapshot && options.characterId != null && options.outfitId != null) {
+    if (snapshot.character.referenceSource !== "generated") {
+      return "Fictional-only reference providers require a generated character. Nothing was charged.";
+    }
+    const refs = snapshot.character.provenanceEvidenceRefs;
+    const characterProof = proofFor(
+      refs,
+      "character_reference",
+      snapshot.character.referenceImagePath,
+    );
+    const outfit = snapshot.outfits.find(
+      (candidate) => candidate.id === options.outfitId,
+    );
+    const outfitProof = proofFor(
+      refs,
+      "character_outfit",
+      outfit?.referenceImagePath,
+    );
+    const sheetProof = proofFor(refs, "reference_sheet");
+    if (!characterProof || !outfit || !outfitProof || !sheetProof) {
+      return "Character provenance is unavailable for this attempt. Nothing was charged; refresh the approved character and outfit.";
+    }
+  }
+
+  if (options.guidedStory) {
+    const participating = new Set(
+      options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+    );
+    for (const member of options.guidedStory.cast) {
+      if (!participating.has(member.roleId)) continue;
+      if (member.referenceSource !== "generated") {
+        return "Fictional-only reference providers require generated cast members. Nothing was charged.";
+      }
+      const refs = member.provenanceEvidenceRefs;
+      const characterProof = proofFor(
+        refs,
+        "character_reference",
+        member.character.referenceImagePath,
+      );
+      const outfitProof = proofFor(
+        refs,
+        "character_outfit",
+        member.outfit?.referenceImagePath,
+      );
+      const sheetProof = proofFor(refs, "reference_sheet");
+      if (!characterProof || !outfitProof || !sheetProof) {
+        return "Guided Story character provenance is unavailable for this attempt. Nothing was charged; refresh the approved cast.";
+      }
+    }
+  }
+  return null;
+}
+
+async function frozenCharacterProofRowsError(
+  tenantId: number,
+  options: VideoJobOptions,
+): Promise<string | null> {
+  if (
+    (options as VideoJobOptions & {
+      characterProvenanceVersion?: number;
+    }).characterProvenanceVersion !== CHARACTER_PROVENANCE_VERSION
+  ) {
+    return null;
+  }
+  const strict = requiresStrictFictionalProvenance(options);
+  const expected: Array<{
+    proof: GuidedStoryProvenanceEvidence;
+    characterId: number;
+    outfitId?: number;
+  }> = [];
+  const canonicalPath = (path: string): boolean =>
+    !path.includes("..") &&
+    !path.includes("\\") &&
+    !path.includes("?") &&
+    !path.includes("#") &&
+    new RegExp(
+      `^/objects/${tenantId}/uploads/[A-Za-z0-9][A-Za-z0-9._-]*$`,
+    ).test(path);
+  const add = (
+    refs: GuidedStoryProvenanceEvidence[] | undefined,
+    characterId: number,
+    outfitId?: number,
+  ) => {
+    for (const assetKind of [
+      "character_reference",
+      "character_outfit",
+      "reference_sheet",
+    ] as const) {
+      const proof = refs?.find((item) => item.assetKind === assetKind);
+      if (!proof) {
+        if (strict) throw new Error("Character provenance row is missing.");
+        continue;
+      }
+      expected.push({ proof, characterId, outfitId });
+    }
+  };
+  if (options.characterSnapshot && options.characterId != null) {
+    if (options.outfitId == null) {
+      if (strict) return "Character provenance is unavailable for this attempt.";
+    } else {
+      add(
+        options.characterSnapshot.character.provenanceEvidenceRefs,
+        options.characterId,
+        options.outfitId,
+      );
+    }
+  }
+  if (options.guidedStory) {
+    const participating = new Set(
+      options.guidedStory.script.scenes.flatMap((scene) => scene.roleIds),
+    );
+    for (const member of options.guidedStory.cast) {
+      if (!participating.has(member.roleId)) continue;
+      if (member.characterId == null || member.outfitId == null) {
+        if (strict) {
+          throw new Error("Guided Story character provenance row is missing.");
+        }
+        continue;
+      }
+      add(member.provenanceEvidenceRefs, member.characterId, member.outfitId);
+    }
+  }
+  const rowCache = new Map<number, AssetProvenance | null>();
+  for (const item of expected) {
+    const id = item.proof.provenanceRecordId;
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return "Character provenance is unavailable for this attempt.";
+    }
+    let row = rowCache.get(id);
+    if (row === undefined) {
+      const [loaded] = await db
+        .select()
+        .from(assetProvenanceTable)
+        .where(
+          and(
+            eq(assetProvenanceTable.id, id),
+            eq(assetProvenanceTable.tenantId, tenantId),
+          ),
+        )
+        .limit(1);
+      row = loaded ?? null;
+      rowCache.set(id, row);
+    }
+    const proof = item.proof;
+    if (
+      !row ||
+      row.id !== id ||
+      row.assetKind !== proof.assetKind ||
+      row.characterId !== item.characterId ||
+      (item.outfitId != null && proof.assetKind === "character_outfit" &&
+        row.outfitId !== item.outfitId) ||
+      row.operationIdentity !== proof.operationIdentity ||
+      row.artifactPath !== proof.artifactPath ||
+      !canonicalPath(proof.artifactPath) ||
+      row.artifactSha256 !== proof.artifactSha256 ||
+      (row.parentPath ?? null) !== (proof.parentPath ?? null) ||
+      (row.parentSha256 ?? null) !== (proof.parentSha256 ?? null) ||
+      (proof.parentPath != null && !canonicalPath(proof.parentPath)) ||
+      (proof.sourceKind !== undefined && row.sourceKind !== proof.sourceKind) ||
+      (proof.provider !== undefined && row.provider !== proof.provider) ||
+      (proof.model !== undefined && row.model !== proof.model) ||
+      (proof.providerRequestId !== undefined &&
+        row.providerRequestId !== proof.providerRequestId) ||
+      (proof.providerOperationId !== undefined &&
+        row.providerOperationId !== proof.providerOperationId) ||
+      (proof.inputAncestry !== undefined &&
+        JSON.stringify(row.inputAncestry) !== JSON.stringify(proof.inputAncestry))
+    ) {
+      return "Character provenance record is missing or does not match the approved snapshot.";
+    }
+  }
+  return null;
+}
+
+function freezeProvenanceEvidence(
+  evidence: NonNullable<GuidedStoryCastSnapshot["provenanceEvidence"]>,
+  row: AssetProvenance,
+) {
+  return {
+    ...evidence,
+    provenanceRecordId: row.id,
+    sourceKind: row.sourceKind,
+    provider: row.provider,
+    model: row.model,
+    providerRequestId: row.providerRequestId,
+    providerOperationId: row.providerOperationId,
+    inputAncestry: row.inputAncestry,
+  };
+}
+
+function freezeCandidateProvenance(
+  candidate: GuidedStoryCastSnapshot,
+  row: AssetProvenance,
+): GuidedStoryCastSnapshot {
+  const frozen = candidate.provenanceEvidence
+    ? freezeProvenanceEvidence(candidate.provenanceEvidence, row)
+    : null;
+  return {
+    ...candidate,
+    provenanceEvidence: frozen,
+    provenanceEvidenceRefs: (candidate.provenanceEvidenceRefs ?? []).map((item) =>
+      item.operationIdentity === row.operationIdentity &&
+      item.artifactPath === row.artifactPath
+        ? freezeProvenanceEvidence(item, row)
+        : item),
+  };
+}
 
 const router: IRouter = Router();
 
@@ -1974,10 +2308,19 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
           warnings: [...row.state.script.warnings, nativeScriptWarning],
         }
       : row.state.script;
+  const cast = row.state.cast.map((member) => {
+    const {
+      provenanceEvidence: _provenanceEvidence,
+      provenanceEvidenceRefs: _provenanceEvidenceRefs,
+      ...publicMember
+    } = member;
+    return publicMember;
+  });
   return {
     id: row.id,
     revision: row.revision,
     ...row.state,
+    cast,
     castApprovals: row.state.castApprovals ?? null,
     visualChoices: row.state.visualChoices ?? emptyGuidedVisualChoices(),
     script,
@@ -2029,7 +2372,16 @@ function serializeGuidedReferenceOperation(
     imageContentType: _imageContentType,
     ...publicOperation
   } = operation;
-  return publicOperation;
+  if (!publicOperation.candidate) return publicOperation;
+  const {
+    provenanceEvidence: _provenanceEvidence,
+    provenanceEvidenceRefs: _provenanceEvidenceRefs,
+    ...publicCandidate
+  } = publicOperation.candidate;
+  return {
+    ...publicOperation,
+    candidate: publicCandidate,
+  };
 }
 
 function guidedAcceptedBillingInputs(
@@ -2985,6 +3337,35 @@ async function ensureGuidedGeneratedCharacter(params: {
   characterId: number;
   outfitId: number;
 } | null> {
+  // A customization can start from a real/uploaded tenant character. Preserve
+  // that ancestry: an AI edit of a real person is not a fictional portrait.
+  const operationCharacterId = (
+    await db
+      .select({ id: charactersTable.id, referenceImagePath: charactersTable.referenceImagePath, referenceSource: charactersTable.referenceSource })
+      .from(charactersTable)
+      .where(and(eq(charactersTable.tenantId, params.row.tenantId), eq(charactersTable.id, (
+        params.row.state.castOperations?.[params.roleId]?.characterId ?? -1
+      ))))
+      .limit(1)
+  )[0] ?? null;
+  const inheritedSource = operationCharacterId?.referenceSource ?? null;
+  const inheritedParentPath =
+    operationCharacterId &&
+    operationCharacterId.referenceImagePath !== params.referenceImagePath
+      ? operationCharacterId.referenceImagePath
+      : null;
+  const inheritedParentSha256 = inheritedParentPath
+    ? sha256Hex((await loadReferenceImage(inheritedParentPath, params.row.tenantId)).buffer)
+    : null;
+  const outputReferenceSource = operationCharacterId
+    ? inheritedSource
+    : "generated";
+  const ancestryReferenceSource =
+    outputReferenceSource === "uploaded"
+      ? "uploaded"
+      : outputReferenceSource === "generated"
+        ? "generated"
+        : "unknown";
   return db.transaction(async (tx) => {
     const [fresh] = await tx
       .select()
@@ -3037,21 +3418,8 @@ async function ensureGuidedGeneratedCharacter(params: {
         name: params.name,
         description: params.description,
         referenceImagePath: params.referenceImagePath,
-        referenceSource: "generated",
-        creationEvidence: {
-          version: 1,
-          kind: "guided_story",
-          draftId: fresh.id,
-          draftRevision: fresh.revision,
-          roleId: params.roleId,
-          operationKey: operation.operationKey,
-          provider: operation.provider!,
-          model: operation.model!,
-          providerOperationId: operation.operationId ?? null,
-          sourcePath: params.referenceImagePath,
-          sourceSha256: params.sourceSha256,
-          recordedAt: new Date().toISOString(),
-        },
+        referenceSource: outputReferenceSource,
+        creationEvidence: null,
         referenceSheetImagePath: null,
         referenceSheetStatus: "pending",
         referenceSheetError: null,
@@ -3068,6 +3436,87 @@ async function ensureGuidedGeneratedCharacter(params: {
         atlasApprovedSourceSha256: params.sourceSha256,
         updatedAt: new Date(),
       }).where(and(eq(characterOutfitsTable.id, outfit.id), eq(characterOutfitsTable.characterId, character.id), eq(characterOutfitsTable.tenantId, fresh.tenantId)));
+      const portraitProvenance = await captureAssetProvenance(tx, {
+        tenantId: fresh.tenantId,
+        assetKind: "character_reference",
+        sourceKind:
+          outputReferenceSource === "uploaded"
+            ? "upload"
+            : operation.customization
+              ? "imageedit"
+              : "textgenerated",
+        characterId: character.id,
+        roleId: params.roleId,
+        operationIdentity: operation.operationKey,
+        provider: operation.provider!,
+        model: operation.model!,
+        providerOperationId: operation.operationId ?? null,
+        artifactPath: params.referenceImagePath,
+        artifactSha256: params.sourceSha256,
+        parentPath: inheritedParentPath,
+        parentSha256: inheritedParentSha256,
+        inputAncestry: {
+          parents: inheritedParentPath
+            ? [{
+                kind: "character_reference",
+                path: inheritedParentPath,
+                sha256: inheritedParentSha256,
+                characterId: operationCharacterId?.id ?? null,
+              }]
+            : [],
+          referenceSource: ancestryReferenceSource,
+          capturedAt: new Date().toISOString(),
+        },
+      });
+      if (outputReferenceSource === "generated") {
+        await tx.update(charactersTable).set({
+          creationEvidence: {
+            version: 1,
+            kind: "guided_story",
+            method: operation.customization ? "imageedit" : "textgenerated",
+            draftId: fresh.id,
+            draftRevision: fresh.revision,
+            roleId: params.roleId,
+            operationKey: operation.operationKey,
+            provider: operation.provider!,
+            model: operation.model!,
+            providerOperationId: operation.operationId ?? null,
+            sourcePath: params.referenceImagePath,
+            sourceSha256: params.sourceSha256,
+            provenanceRecordId: portraitProvenance!.id,
+            recordedAt: new Date().toISOString(),
+          },
+        }).where(and(
+          eq(charactersTable.id, character.id),
+          eq(charactersTable.tenantId, fresh.tenantId),
+        ));
+      }
+      await captureAssetProvenance(tx, {
+        tenantId: fresh.tenantId,
+        assetKind: "character_outfit",
+        sourceKind: "derived",
+        characterId: character.id,
+        outfitId: outfit.id,
+        roleId: params.roleId,
+        operationIdentity: `${operation.operationKey}:outfit`,
+        provider: operation.provider!,
+        model: operation.model!,
+        providerOperationId: operation.operationId ?? null,
+        artifactPath: params.referenceImagePath,
+        artifactSha256: params.sourceSha256,
+        parentPath: inheritedParentPath ?? params.referenceImagePath,
+        parentSha256: inheritedParentSha256 ?? params.sourceSha256,
+        inputAncestry: {
+          parents: [{
+            kind: "character_reference",
+            path: inheritedParentPath ?? params.referenceImagePath,
+            sha256: inheritedParentSha256 ?? params.sourceSha256,
+            characterId: character.id,
+          }],
+          referenceSource: ancestryReferenceSource,
+          capturedAt: new Date().toISOString(),
+        },
+      });
       return { row: fresh, characterId: character.id, outfitId: outfit.id };
     }
 
@@ -3079,10 +3528,40 @@ async function ensureGuidedGeneratedCharacter(params: {
         description: params.description,
         referenceImagePath: params.referenceImagePath,
         referenceSheetStatus: "pending",
-        referenceSource: "generated",
+        referenceSource: outputReferenceSource,
+        creationEvidence: null,
+      })
+      .returning();
+    const portraitProvenance = await captureAssetProvenance(tx, {
+      tenantId: fresh.tenantId,
+      assetKind: "character_reference",
+        sourceKind:
+          outputReferenceSource === "uploaded"
+            ? "upload"
+            : operation.customization
+              ? "imageedit"
+              : "textgenerated",
+      characterId: character!.id,
+      roleId: params.roleId,
+      operationIdentity: operation.operationKey,
+      provider: operation.provider!,
+      model: operation.model!,
+      providerOperationId: operation.operationId ?? null,
+      artifactPath: params.referenceImagePath,
+      artifactSha256: params.sourceSha256,
+      inputAncestry: {
+        parents: [],
+        referenceSource:
+          outputReferenceSource === "uploaded" ? "uploaded" : "generated",
+        capturedAt: new Date().toISOString(),
+      },
+    });
+    if (outputReferenceSource === "generated") {
+      await tx.update(charactersTable).set({
         creationEvidence: {
           version: 1,
           kind: "guided_story",
+          method: operation.customization ? "imageedit" : "textgenerated",
           draftId: fresh.id,
           draftRevision: fresh.revision,
           roleId: params.roleId,
@@ -3092,10 +3571,14 @@ async function ensureGuidedGeneratedCharacter(params: {
           providerOperationId: operation.operationId ?? null,
           sourcePath: params.referenceImagePath,
           sourceSha256: params.sourceSha256,
+          provenanceRecordId: portraitProvenance!.id,
           recordedAt: new Date().toISOString(),
         },
-      })
-      .returning();
+      }).where(and(
+        eq(charactersTable.id, character!.id),
+        eq(charactersTable.tenantId, fresh.tenantId),
+      ));
+    }
     const [outfit] = await tx
       .insert(characterOutfitsTable)
       .values({
@@ -3109,6 +3592,33 @@ async function ensureGuidedGeneratedCharacter(params: {
         atlasApprovedSourceSha256: params.sourceSha256,
       })
       .returning();
+    await captureAssetProvenance(tx, {
+      tenantId: fresh.tenantId,
+      assetKind: "character_outfit",
+      sourceKind: "derived",
+      characterId: character!.id,
+      outfitId: outfit!.id,
+      roleId: params.roleId,
+      operationIdentity: `${operation.operationKey}:outfit`,
+      provider: operation.provider!,
+      model: operation.model!,
+      providerOperationId: operation.operationId ?? null,
+      artifactPath: params.referenceImagePath,
+      artifactSha256: params.sourceSha256,
+      parentPath: params.referenceImagePath,
+      parentSha256: params.sourceSha256,
+      inputAncestry: {
+        parents: [{
+          kind: "character_reference",
+          path: params.referenceImagePath,
+          sha256: params.sourceSha256,
+          characterId: character!.id,
+        }],
+         referenceSource:
+           outputReferenceSource === "uploaded" ? "uploaded" : "generated",
+        capturedAt: new Date().toISOString(),
+      },
+    });
     const state: GuidedStoryDraftState = {
       ...fresh.state,
       castOperations: {
@@ -3138,65 +3648,6 @@ async function ensureGuidedGeneratedCharacter(params: {
           outfitId: outfit!.id,
         }
       : null;
-  });
-}
-
-async function upgradeExactLegacyGeneratedCharacter(args: {
-  tenantId: number;
-  characterId: number;
-  approvedPath: string;
-  approvedSha256: string;
-}): Promise<typeof charactersTable.$inferSelect | null> {
-  const current = await loadReferenceImage(args.approvedPath, args.tenantId);
-  const sha256 = createHash("sha256").update(current.buffer).digest("hex");
-  if (sha256 !== args.approvedSha256) return null;
-  return db.transaction(async (tx) => {
-    const [character] = await tx.select().from(charactersTable).where(and(
-      eq(charactersTable.id, args.characterId),
-      eq(charactersTable.tenantId, args.tenantId),
-    )).for("update").limit(1);
-    const evidence = character?.creationEvidence;
-    let valid =
-      character?.referenceSource === null &&
-      character.bytePlusIdentityId === null &&
-      character.referenceImagePath === args.approvedPath &&
-      evidence?.version === 1 &&
-      evidence.kind === "guided_story" &&
-      Number.isSafeInteger(evidence.draftId) &&
-      evidence.draftId > 0 &&
-      Number.isSafeInteger(evidence.draftRevision) &&
-      evidence.draftRevision > 0 &&
-      evidence.roleId.trim().length > 0 &&
-      evidence.operationKey.trim().length > 0 &&
-      evidence.provider.trim().length > 0 &&
-      evidence.model.trim().length > 0 &&
-      Number.isFinite(Date.parse(evidence.recordedAt)) &&
-      evidence.sourcePath === args.approvedPath &&
-      evidence.sourceSha256 === sha256;
-    if (valid && evidence!.providerOperationId !== null) {
-      const [receipt] = await tx.select().from(walletProviderOperationsTable)
-        .where(and(
-          eq(walletProviderOperationsTable.id, evidence!.providerOperationId!),
-          eq(walletProviderOperationsTable.tenantId, args.tenantId),
-        )).limit(1);
-      valid =
-        receipt?.operationKind === "character_reference" &&
-        receipt.operationKey === evidence!.operationKey &&
-        receipt.provider === evidence!.provider &&
-        receipt.model === evidence!.model &&
-        ["succeeded", "settlement_queued", "settled"].includes(receipt.status);
-    }
-    if (!valid) return null;
-    const [upgraded] = await tx.update(charactersTable).set({
-      referenceSource: "generated",
-      updatedAt: new Date(),
-    }).where(and(
-      eq(charactersTable.id, character!.id),
-      eq(charactersTable.tenantId, args.tenantId),
-      isNull(charactersTable.referenceSource),
-      eq(charactersTable.referenceImagePath, args.approvedPath),
-    )).returning();
-    return upgraded ?? null;
   });
 }
 
@@ -3240,29 +3691,84 @@ async function prepareAtlasGuidedCastMember(args: {
       `Role ${member.roleId}'s approved character or outfit snapshot changed. Review and approve the exact references again.`,
     );
   }
-  const upgradedLegacySnapshot = character.referenceSource === null;
-  if (upgradedLegacySnapshot) {
-    const upgraded = await upgradeExactLegacyGeneratedCharacter({
-      tenantId,
-      characterId: character.id,
-      approvedPath: approval.character.referenceImagePath,
-      approvedSha256: approval.character.sha256,
-    });
-    if (!upgraded) {
-      throw new Error(
-        `Role ${member.roleId} has unknown provenance without exact immutable generated-fictional evidence.`,
-      );
-    }
-    character = upgraded;
+  if (character.referenceSource === null) {
+    throw new Error(
+      `Role ${member.roleId} has unknown provenance; explicitly recover the exact historical evidence before dispatch.`,
+    );
   }
+  const frozenPortraitProof = member.provenanceEvidence;
+  const frozenOutfitProof = (member.provenanceEvidenceRefs ?? []).find(
+    (item) => item.assetKind === "character_outfit",
+  );
+  const frozenSheetProof = (member.provenanceEvidenceRefs ?? []).find(
+    (item) => item.assetKind === "reference_sheet",
+  );
+  const frozenProofValid =
+    frozenPortraitProof?.assetKind === "character_reference" &&
+    Number.isSafeInteger(frozenPortraitProof.provenanceRecordId) &&
+    frozenPortraitProof.artifactPath === character.referenceImagePath &&
+    frozenPortraitProof.artifactSha256 === approval?.character.sha256 &&
+    typeof frozenPortraitProof.operationIdentity === "string" &&
+    frozenPortraitProof.operationIdentity.length > 0 &&
+    frozenOutfitProof?.assetKind === "character_outfit" &&
+    Number.isSafeInteger(frozenOutfitProof.provenanceRecordId) &&
+    frozenOutfitProof.artifactPath === outfit.referenceImagePath &&
+    frozenOutfitProof.artifactSha256 === approval?.outfit.sha256 &&
+    typeof frozenOutfitProof.operationIdentity === "string" &&
+    frozenOutfitProof.operationIdentity.length > 0 &&
+    frozenSheetProof?.assetKind === "reference_sheet" &&
+    Number.isSafeInteger(frozenSheetProof.provenanceRecordId) &&
+    frozenSheetProof.artifactPath === character.referenceSheetImagePath &&
+    frozenSheetProof.artifactSha256 === character.referenceSheetApprovedSha256 &&
+    typeof frozenSheetProof.operationIdentity === "string" &&
+    frozenSheetProof.operationIdentity.length > 0;
+  const frozenProofs = [
+    frozenPortraitProof,
+    frozenOutfitProof,
+    frozenSheetProof,
+  ];
+  let ledgerProofValid = frozenProofValid;
+  if (ledgerProofValid) {
+    for (const proof of frozenProofs) {
+      const [row] = await db
+        .select()
+        .from(assetProvenanceTable)
+        .where(
+          and(
+            eq(assetProvenanceTable.id, proof!.provenanceRecordId!),
+            eq(assetProvenanceTable.tenantId, tenantId),
+          ),
+        )
+        .limit(1);
+      if (
+        !row ||
+        row.assetKind !== proof!.assetKind ||
+        row.operationIdentity !== proof!.operationIdentity ||
+        row.artifactPath !== proof!.artifactPath ||
+        row.artifactSha256 !== proof!.artifactSha256 ||
+        (row.parentPath ?? null) !== (proof!.parentPath ?? null) ||
+        (row.parentSha256 ?? null) !== (proof!.parentSha256 ?? null)
+      ) {
+        ledgerProofValid = false;
+        break;
+      }
+    }
+  }
+  // A trusted character-library ledger row is authoritative even when the
+  // older Guided v1 wallet operation receipt was never written.
+  const trustedLibraryLedger =
+    ledgerProofValid &&
+    character.referenceSource === "generated" &&
+    frozenPortraitProof?.sourceKind === "textgenerated";
   const evidence = character.creationEvidence;
   let provenanceValid =
     evidence?.version === 1 &&
-    evidence.kind === "guided_story" &&
-    Number.isSafeInteger(evidence.draftId) &&
-    evidence.draftId > 0 &&
-    Number.isSafeInteger(evidence.draftRevision) &&
-    evidence.draftRevision > 0 &&
+    (evidence.kind === "character_library" ||
+      (evidence.kind === "guided_story" &&
+        Number.isSafeInteger(evidence.draftId) &&
+        evidence.draftId > 0 &&
+        Number.isSafeInteger(evidence.draftRevision) &&
+        evidence.draftRevision > 0)) &&
     evidence.roleId.trim().length > 0 &&
     evidence.operationKey.trim().length > 0 &&
     evidence.provider.trim().length > 0 &&
@@ -3282,10 +3788,12 @@ async function prepareAtlasGuidedCastMember(args: {
       receipt.model === evidence!.model &&
       ["succeeded", "settlement_queued", "settled"].includes(receipt.status);
   }
+  if (trustedLibraryLedger) provenanceValid = true;
   if (
     !provenanceValid ||
+    !ledgerProofValid ||
     character.referenceSource !== "generated" ||
-    (!upgradedLegacySnapshot && member.referenceSource !== "generated") ||
+    member.referenceSource !== "generated" ||
     character.bytePlusIdentityId !== null ||
     outfit.status !== "approved" ||
     !outfit.identityVerified ||
@@ -5068,10 +5576,39 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             });
           return;
         }
+        const savedProvenanceEvidence = await latestCharacterProvenance(
+          req.tenantId,
+          detail.character.id,
+        );
+        const savedOutfitProvenanceEvidence = await latestOutfitProvenance(
+          req.tenantId,
+          outfit.id,
+        );
+        const savedProvenance = summarizeProvenance(savedProvenanceEvidence);
+        if (
+          !savedProvenance.status ||
+          (savedProvenance.status === "unknown" &&
+            detail.character.referenceSource === "uploaded")
+        ) {
+          savedProvenance.status = "uploaded";
+          savedProvenance.summary = {
+            method: "upload",
+            provider: null,
+            model: null,
+            createdAt: detail.character.createdAt.toISOString(),
+          };
+        }
         cast.push({
           roleId: role.id,
           source: "saved",
           referenceSource: detail.character.referenceSource,
+          provenanceStatus: savedProvenance.status,
+          provenanceSummary: savedProvenance.summary,
+          provenanceEvidence: provenanceEvidenceSnapshot(savedProvenanceEvidence),
+          provenanceEvidenceRefs: provenanceEvidenceRefs(
+            savedProvenanceEvidence,
+            savedOutfitProvenanceEvidence,
+          ),
           characterId: detail.character.id,
           outfitId: outfit.id,
           requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
@@ -5311,6 +5848,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 operationId,
                 provider,
                 model,
+                providerRequestId: generated.providerRequestId ?? null,
             rawProviderCostPaise: await computeImageCostPaise({
               provider,
               model,
@@ -5763,6 +6301,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                   operationId: walletSheet?.operationId ?? null,
                   provider: sheet.provider,
                   model: sheet.model,
+                   providerRequestId: sheet.providerRequestId ?? null,
                   rawProviderCostPaise: await computeImageCostPaise({
                     provider: sheet.provider,
                     model: sheet.model,
@@ -5831,21 +6370,57 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               });
             }
 
-            if (sheetOperation?.status === "settled" && sheetOperation.path) {
-              await db
-                .update(charactersTable)
-                .set({
-                  referenceSheetImagePath: sheetOperation.path,
-                  referenceSheetStatus: "pending",
-                  referenceSheetError: null,
-                  updatedAt: new Date(),
-                })
-                .where(
-                  and(
-                    eq(charactersTable.id, owned.characterId),
-                    eq(charactersTable.tenantId, req.tenantId),
-                  ),
-                );
+            const settledSheet = sheetOperation;
+            if (settledSheet?.status === "settled" && settledSheet.path) {
+              await db.transaction(async (tx) => {
+                const [updated] = await tx
+                  .update(charactersTable)
+                  .set({
+                    referenceSheetImagePath: settledSheet.path,
+                    referenceSheetStatus: "pending",
+                    referenceSheetError: null,
+                    updatedAt: new Date(),
+                  })
+                  .where(
+                    and(
+                      eq(charactersTable.id, owned.characterId),
+                      eq(charactersTable.tenantId, req.tenantId),
+                    ),
+                  )
+                  .returning();
+                if (updated && settledSheet.artifactHash) {
+                  await captureAssetProvenance(tx, {
+                    tenantId: req.tenantId,
+                    assetKind: "reference_sheet",
+                    sourceKind: "imageedit",
+                    characterId: owned.characterId,
+                    roleId: role.id,
+                    operationIdentity: sheetOperationKey,
+                    provider: settledSheet.provider ?? null,
+                    model: settledSheet.model ?? null,
+                    providerOperationId: settledSheet.operationId ?? null,
+                    artifactPath: settledSheet.path!,
+                    artifactSha256: settledSheet.artifactHash,
+                    parentPath: referenceImagePath,
+                    parentSha256: sourceSha256,
+                    inputAncestry: {
+                      parents: [{
+                        kind: "character_reference",
+                        path: referenceImagePath,
+                        sha256: sourceSha256,
+                        characterId: owned.characterId,
+                      }],
+                      referenceSource:
+                        ownedCharacter?.referenceSource === "uploaded"
+                          ? "uploaded"
+                          : ownedCharacter?.referenceSource === "generated"
+                            ? "generated"
+                            : "unknown",
+                      capturedAt: new Date().toISOString(),
+                    },
+                  });
+                }
+              });
             }
           } catch (error) {
             req.log.warn(
@@ -5879,10 +6454,42 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         // checkpointSheet advances row independently; construct the accepted
         // asset from that latest durable receipt rather than the pre-sheet copy.
         operation = row.state.castOperations[role.id] ?? operation;
+        const generatedProvenanceEvidence = await latestCharacterProvenance(
+          req.tenantId,
+          owned.characterId,
+        );
+        const generatedOutfitProvenanceEvidence = await latestOutfitProvenance(
+          req.tenantId,
+          owned.outfitId,
+        );
+        const generatedProvenance = summarizeProvenance(
+          generatedProvenanceEvidence,
+        );
         cast.push({
           roleId: role.id,
           source: "generated",
-          referenceSource: "generated",
+          referenceSource: ownedCharacter?.referenceSource ?? null,
+          provenanceStatus:
+            generatedProvenance.status === "unknown"
+              ? "verified_generated"
+              : generatedProvenance.status,
+          provenanceSummary:
+            generatedProvenance.status === "unknown"
+              ? {
+                  method: "textgenerated",
+                  provider,
+                  model,
+                  createdAt: new Date().toISOString(),
+                  missingReason: "Legacy draft evidence is being finalized.",
+                }
+              : generatedProvenance.summary,
+          provenanceEvidence: provenanceEvidenceSnapshot(
+            generatedProvenanceEvidence,
+          ),
+          provenanceEvidenceRefs: provenanceEvidenceRefs(
+            generatedProvenanceEvidence,
+            generatedOutfitProvenanceEvidence,
+          ),
           characterId: owned.characterId,
           outfitId: owned.outfitId,
           brandKitId: voice.brandKitId,
@@ -5905,11 +6512,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           },
           isUserRole: false,
           consentGranted: false,
-          requiresAtlasAsset: true,
+          requiresAtlasAsset: ownedCharacter?.referenceSource === "generated",
           generatedAsset: {
             path: referenceImagePath,
             provider,
             model,
+            providerRequestId: operation.providerRequestId ?? null,
             operationId,
             rawProviderCostPaise: operation.rawProviderCostPaise ?? null,
             reservationId: operation.walletReservation?.id ?? null,
@@ -5921,6 +6529,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 path: sheet.path,
                 provider: sheet.provider,
                 model: sheet.model,
+                providerRequestId: sheet.providerRequestId ?? null,
                 operationId: sheet.operationId ?? null,
                 rawProviderCostPaise: sheet.rawProviderCostPaise ?? null,
                 reservationId: sheet.walletReservation?.id ?? null,
@@ -6772,29 +7381,66 @@ router.put(
       ) {
         return { kind: "confirmation" as const };
       }
+      const [replacementProvenance] = await tx
+        .select()
+        .from(assetProvenanceTable)
+        .where(
+          and(
+            eq(assetProvenanceTable.tenantId, req.tenantId),
+            eq(assetProvenanceTable.characterId, lockedCharacter.id),
+            eq(assetProvenanceTable.assetKind, "character_reference"),
+          ),
+        )
+        .orderBy(desc(assetProvenanceTable.succeededAt), desc(assetProvenanceTable.id))
+        .limit(1);
+      const [replacementOutfitProvenance] = await tx
+        .select()
+        .from(assetProvenanceTable)
+        .where(
+          and(
+            eq(assetProvenanceTable.tenantId, req.tenantId),
+            eq(assetProvenanceTable.outfitId, lockedOutfit.id),
+            eq(assetProvenanceTable.assetKind, "character_outfit"),
+          ),
+        )
+        .orderBy(desc(assetProvenanceTable.succeededAt), desc(assetProvenanceTable.id))
+        .limit(1);
+      const [replacementSheetProvenance] = await tx
+        .select()
+        .from(assetProvenanceTable)
+        .where(
+          and(
+            eq(assetProvenanceTable.tenantId, req.tenantId),
+            eq(assetProvenanceTable.characterId, lockedCharacter.id),
+            eq(assetProvenanceTable.assetKind, "reference_sheet"),
+          ),
+        )
+        .orderBy(desc(assetProvenanceTable.succeededAt), desc(assetProvenanceTable.id))
+        .limit(1);
+      if (
+        !replacementProvenance ||
+        replacementProvenance.artifactPath !== lockedCharacter.referenceImagePath ||
+        !replacementOutfitProvenance ||
+        replacementOutfitProvenance.artifactPath !== lockedOutfit.referenceImagePath ||
+        !replacementSheetProvenance ||
+        replacementSheetProvenance.artifactPath !== lockedCharacter.referenceSheetImagePath ||
+        !lockedCharacter.referenceSheetApprovedSha256 ||
+        replacementSheetProvenance.artifactSha256 !==
+          lockedCharacter.referenceSheetApprovedSha256
+      ) {
+        return { kind: "missing_reference" as const };
+      }
       const nextMember: GuidedStoryCastSnapshot = {
-        ...current,
-        source: "saved",
-        characterId: lockedCharacter.id,
-        outfitId: lockedOutfit.id,
-        requiresBytePlusAsset: lockedCharacter.bytePlusIdentityId !== null,
-        bytePlusAssetId: lockedOutfit.bytePlusAssetId,
-        bytePlusAssetStatus: lockedOutfit.bytePlusAssetStatus,
-        requiresAtlasAsset: lockedCharacter.referenceSource === "generated",
+        ...rebuildSavedCastProvenanceSnapshot({
+          current,
+          character: lockedCharacter,
+          outfit: lockedOutfit,
+          characterEvidence: replacementProvenance,
+          outfitEvidence: replacementOutfitProvenance,
+          sheetEvidence: replacementSheetProvenance,
+        }),
         atlasAssetReferenceId: selectAtlasGenerationReferenceId(lockedOutfit.atlasAssetReferenceId, lockedOutfit.atlasAssetId),
         atlasAssetStatus: lockedOutfit.atlasAssetStatus,
-        character: {
-          name: lockedCharacter.name,
-          description: lockedCharacter.description,
-          referenceImagePath: lockedCharacter.referenceImagePath,
-        },
-        outfit: {
-          name: lockedOutfit.name,
-          description: lockedOutfit.description,
-          referenceImagePath: lockedOutfit.referenceImagePath,
-        },
-        consentGranted: true,
-        generatedAsset: null,
       };
       const cast = draft.state.cast.map((member) =>
         member.roleId === roleId ? nextMember : member,
@@ -7181,6 +7827,60 @@ router.post(
         executionClaimedAt: terminal || releaseClaim ? null : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      if (
+        patch.status === "ready_to_review" &&
+        patch.candidate &&
+        (operation.source === "generated" || operation.source === "upload") &&
+        patch.candidate.provenanceEvidence?.artifactPath &&
+        patch.candidate.provenanceEvidence.artifactSha256
+      ) {
+        const proof = patch.candidate.provenanceEvidence;
+        const captured = await captureAssetProvenance(tx, {
+          tenantId: req.tenantId,
+          assetKind: proof.assetKind,
+          sourceKind:
+            operation.source === "upload"
+              ? "upload"
+              : operation.kind === "character"
+                ? "textgenerated"
+                : "imageedit",
+          characterId: patch.candidate.characterId,
+          outfitId: patch.candidate.outfitId,
+          roleId: operation.roleId,
+          operationIdentity: `guided-reference:${operation.id}`,
+          provider: operation.provider ?? null,
+          model: operation.model ?? null,
+          providerRequestId: operation.providerRequestId ?? null,
+          providerOperationId: operation.providerOperationId ?? null,
+          artifactPath: proof.artifactPath,
+          artifactSha256: proof.artifactSha256,
+          parentPath: proof.parentPath ?? null,
+          parentSha256: proof.parentSha256 ?? null,
+          inputAncestry: {
+            parents: proof.parentPath
+              ? [{
+                  kind: "character_reference",
+                  path: proof.parentPath,
+                  sha256: proof.parentSha256 ?? null,
+                  characterId: patch.candidate.characterId,
+                  outfitId: patch.candidate.outfitId,
+                }]
+              : [],
+            referenceSource:
+              patch.candidate.referenceSource === "uploaded"
+                ? "uploaded"
+                : "generated",
+            capturedAt: new Date().toISOString(),
+          },
+        });
+        if (!captured) {
+          throw new Error("Reference provenance was not persisted.");
+        }
+        updatedOperation.candidate = freezeCandidateProvenance(
+          patch.candidate,
+          captured,
+        );
+      }
       const [saved] = await tx.update(guidedStoryDraftsTable).set({
         state: {
           ...fresh.state,
@@ -7217,46 +7917,33 @@ router.post(
         res.status(409).json({ error: "Approve the character reference sheet and outfit before replacing this cast member." });
         return;
       }
-      candidate = input.kind === "character"
-        ? {
-            ...member,
-            source: "saved",
-            characterId: detail.character.id,
-            outfitId: outfit.id,
-            requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
-            bytePlusAssetId: outfit.bytePlusAssetId,
-            bytePlusAssetStatus: outfit.bytePlusAssetStatus,
-            requiresAtlasAsset: detail.character.referenceSource === "generated",
-            atlasAssetReferenceId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
-            atlasAssetStatus: outfit.atlasAssetStatus,
-            character: {
-              name: detail.character.name,
-              description: detail.character.description,
-              referenceImagePath: detail.character.referenceImagePath,
-            },
-            outfit: {
-              name: outfit.name,
-              description: outfit.description,
-              referenceImagePath: outfit.referenceImagePath,
-            },
-            generatedAsset: null,
-            consentGranted: true,
-          }
-        : {
-            ...member,
-            outfitId: outfit.id,
-            requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
-            bytePlusAssetId: outfit.bytePlusAssetId,
-            bytePlusAssetStatus: outfit.bytePlusAssetStatus,
-            requiresAtlasAsset: detail.character.referenceSource === "generated",
-            atlasAssetReferenceId: selectAtlasGenerationReferenceId(outfit.atlasAssetReferenceId, outfit.atlasAssetId),
-            atlasAssetStatus: outfit.atlasAssetStatus,
-            outfit: {
-              name: outfit.name,
-              description: outfit.description,
-              referenceImagePath: outfit.referenceImagePath,
-            },
-          };
+      const savedReferenceEvidence = await latestCharacterProvenance(
+        req.tenantId,
+        detail.character.id,
+      );
+      const savedOutfitEvidence = await latestOutfitProvenance(
+        req.tenantId,
+        outfit.id,
+      );
+      const savedSheetEvidence = await latestReferenceSheetProvenance(
+        req.tenantId,
+        detail.character.id,
+      );
+      candidate = {
+        ...rebuildSavedCastProvenanceSnapshot({
+          current: member,
+          character: detail.character,
+          outfit,
+          characterEvidence: savedReferenceEvidence,
+          outfitEvidence: savedOutfitEvidence,
+          sheetEvidence: savedSheetEvidence,
+        }),
+        atlasAssetReferenceId: selectAtlasGenerationReferenceId(
+          outfit.atlasAssetReferenceId,
+          outfit.atlasAssetId,
+        ),
+        atlasAssetStatus: outfit.atlasAssetStatus,
+      };
     } else if (input.source === "upload") {
       if (
         !input.uploadPath ||
@@ -7273,6 +7960,15 @@ router.post(
         res.status(400).json({ error: "The uploaded character image is invalid." });
         return;
       }
+      const uploadHash = sha256Hex(
+        (await loadReferenceImage(input.uploadPath, req.tenantId)).buffer,
+      );
+      const uploadCheckpoint = await persist({ artifactHash: uploadHash });
+      if (!uploadCheckpoint) {
+        res.status(409).json({ error: "The uploaded reference operation changed." });
+        return;
+      }
+      row = uploadCheckpoint;
       candidate = {
         ...member,
         source: "generated",
@@ -7296,6 +7992,38 @@ router.post(
           referenceImagePath: input.uploadPath,
         },
         generatedAsset: null,
+        provenanceStatus: "uploaded",
+        provenanceSummary: {
+          method: "upload",
+          provider: null,
+          model: null,
+          createdAt: new Date().toISOString(),
+        },
+        provenanceEvidence: {
+          provenanceRecordId: 0,
+          assetKind: input.kind === "character"
+            ? "character_reference"
+            : "character_outfit",
+          operationIdentity: `guided-reference:${operationId}`,
+          artifactPath: input.uploadPath,
+          artifactSha256: uploadHash,
+          parentPath: null,
+          parentSha256: null,
+        },
+        provenanceEvidenceRefs: replaceFrozenProvenanceReference(
+          member.provenanceEvidenceRefs ?? [],
+          {
+          provenanceRecordId: 0,
+          assetKind: input.kind === "character"
+            ? "character_reference"
+            : "character_outfit",
+          operationIdentity: `guided-reference:${operationId}`,
+          artifactPath: input.uploadPath,
+          artifactSha256: uploadHash,
+          parentPath: null,
+          parentSha256: null,
+          },
+        ),
         consentGranted: true,
       };
     } else {
@@ -7433,6 +8161,7 @@ router.post(
             buffer: Buffer.from(checkpoint.imageBase64, "base64"),
             provider: checkpoint.provider,
             model: checkpoint.model,
+            providerRequestId: checkpoint.providerRequestId ?? null,
           };
           recoveredGeneratedBytes = true;
         } else {
@@ -7472,6 +8201,7 @@ router.post(
           checkpoint: "provider_succeeded",
           provider: generated.provider,
           model: generated.model,
+          providerRequestId: generated.providerRequestId ?? null,
           providerOperationId,
           rawProviderCostPaise,
           reservationId: funding.reservation?.id ?? null,
@@ -7544,6 +8274,35 @@ router.post(
               ...member,
               source: "generated",
               referenceSource: "generated",
+              provenanceStatus: "verified_generated",
+              provenanceSummary: {
+                method: input.kind === "character" ? "textgenerated" : "imageedit",
+                provider: generated.provider,
+                model: generated.model,
+                createdAt: new Date().toISOString(),
+              },
+              provenanceEvidence: {
+                provenanceRecordId: 0,
+                assetKind: "character_reference",
+                operationIdentity: `guided-reference:${operationId}`,
+                artifactPath: path,
+                artifactSha256:
+                  row.state.referenceOperations?.[operationId]?.artifactHash ??
+                  sha256Hex(generated.buffer),
+                parentPath: null,
+                parentSha256: null,
+              },
+              provenanceEvidenceRefs: [{
+                provenanceRecordId: 0,
+                assetKind: "character_reference",
+                operationIdentity: `guided-reference:${operationId}`,
+                artifactPath: path,
+                artifactSha256:
+                  row.state.referenceOperations?.[operationId]?.artifactHash ??
+                  sha256Hex(generated.buffer),
+                parentPath: null,
+                parentSha256: null,
+              }],
               requiresAtlasAsset: true,
               characterId: null,
               outfitId: null,
@@ -7561,6 +8320,7 @@ router.post(
                 path,
                 provider: generated.provider,
                 model: generated.model,
+                providerRequestId: generated.providerRequestId ?? null,
                 operationId: providerOperationId,
                 rawProviderCostPaise:
                   row.state.referenceOperations?.[operationId]?.rawProviderCostPaise ?? null,
@@ -7573,6 +8333,41 @@ router.post(
           : {
               ...member,
               outfitId: null,
+              provenanceStatus:
+                member.referenceSource === "uploaded"
+                  ? "uploaded"
+                  : "verified_generated",
+              provenanceSummary: {
+                method: "imageedit",
+                provider: generated.provider,
+                model: generated.model,
+                createdAt: new Date().toISOString(),
+              },
+              provenanceEvidence: {
+                provenanceRecordId: 0,
+                assetKind: "character_outfit",
+                operationIdentity: `guided-reference:${operationId}`,
+                artifactPath: path,
+                artifactSha256:
+                  row.state.referenceOperations?.[operationId]?.artifactHash ??
+                  sha256Hex(generated.buffer),
+                parentPath: member.character.referenceImagePath,
+                parentSha256: member.provenanceEvidence?.artifactSha256 ?? null,
+              },
+              provenanceEvidenceRefs: replaceFrozenProvenanceReference(
+                member.provenanceEvidenceRefs ?? [],
+                {
+                provenanceRecordId: 0,
+                assetKind: "character_outfit",
+                operationIdentity: `guided-reference:${operationId}`,
+                artifactPath: path,
+                artifactSha256:
+                  row.state.referenceOperations?.[operationId]?.artifactHash ??
+                  sha256Hex(generated.buffer),
+                parentPath: member.character.referenceImagePath,
+                parentSha256: member.provenanceEvidence?.artifactSha256 ?? null,
+                },
+              ),
               outfit: {
                 name: `${member.character.name} custom wardrobe`,
                 description,
@@ -7760,6 +8555,38 @@ router.post(
         operation.status !== "ready_to_review" ||
         !operation.candidate
       ) return { kind: "stale" as const };
+      const frozenEvidence = operation.candidate.provenanceEvidence;
+      const frozenRecordId = frozenEvidence?.provenanceRecordId;
+      if (
+        !frozenEvidence ||
+        frozenRecordId == null ||
+        !Number.isSafeInteger(frozenRecordId) ||
+        frozenRecordId <= 0
+      ) {
+        return { kind: "stale" as const };
+      }
+      const [frozenRecord] = await tx
+        .select()
+        .from(assetProvenanceTable)
+        .where(and(
+          eq(assetProvenanceTable.id, frozenRecordId),
+          eq(assetProvenanceTable.tenantId, req.tenantId),
+        ))
+        .limit(1);
+      if (!frozenRecord || !reuseFrozenProvenanceProof(frozenEvidence, frozenRecord)) {
+        return { kind: "stale" as const };
+      }
+      try {
+        const currentBytes = await loadReferenceImage(
+          frozenRecord.artifactPath,
+          req.tenantId,
+        );
+        if (sha256Hex(currentBytes.buffer) !== frozenRecord.artifactSha256) {
+          return { kind: "stale" as const };
+        }
+      } catch {
+        return { kind: "stale" as const };
+      }
       if (
         operation.candidate.characterId !== null &&
         operation.candidate.outfitId !== null
@@ -9460,6 +10287,26 @@ async function generateVideoHandler(
       }
       characterId = detail.character.id;
       outfitId = outfit.id;
+      const characterProvenanceEvidence = await latestCharacterProvenance(
+        req.tenantId,
+        detail.character.id,
+      );
+      const outfitProvenanceEvidence = await latestOutfitProvenance(
+        req.tenantId,
+        outfit.id,
+      );
+      const sheetProvenanceEvidence = await latestReferenceSheetProvenance(
+        req.tenantId,
+        detail.character.id,
+      );
+      const characterProvenance = summarizeProvenance(
+        characterProvenanceEvidence,
+      );
+      const selectedEvidence = frozenCharacterEvidence(
+        characterProvenanceEvidence,
+        outfitProvenanceEvidence,
+        sheetProvenanceEvidence,
+      );
       characterSnapshot = {
         character: {
           id: detail.character.id,
@@ -9467,6 +10314,12 @@ async function generateVideoHandler(
           description: detail.character.description,
           referenceImagePath: detail.character.referenceImagePath,
           referenceSource: detail.character.referenceSource,
+          provenanceStatus: characterProvenance.status,
+          provenanceSummary: characterProvenance.summary,
+          provenanceEvidence: provenanceEvidenceSnapshot(
+            characterProvenanceEvidence,
+          ),
+          provenanceEvidenceRefs: selectedEvidence.provenanceEvidenceRefs,
           requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
           requiresAtlasAsset: detail.character.referenceSource === "generated",
         },
@@ -9496,6 +10349,12 @@ async function generateVideoHandler(
           outfitName: outfit.name,
           outfitDescription: outfit.description,
           referenceSource: detail.character.referenceSource,
+          provenanceStatus: characterProvenance.status,
+          provenanceSummary: characterProvenance.summary,
+          provenanceEvidence: provenanceEvidenceSnapshot(
+            characterProvenanceEvidence,
+          ),
+          provenanceEvidenceRefs: selectedEvidence.provenanceEvidenceRefs,
           requiresBytePlusAsset: detail.character.bytePlusIdentityId !== null,
           bytePlusAssetId: outfit.bytePlusAssetId,
           bytePlusAssetStatus: outfit.bytePlusAssetStatus,
@@ -9974,6 +10833,42 @@ async function generateVideoHandler(
   const approvedGuidedBackdrops = guidedDraft?.state.visualChoices
     ? guidedBackdropChoices(guidedDraft.state.visualChoices)
     : null;
+  const guidedCastSnapshot = guidedDraft
+    ? await Promise.all(
+        guidedDraft.state.cast.map(async (member) => {
+          if (member.characterId == null || member.outfitId == null) {
+            return member;
+          }
+          const detail = await getCharacterDetail(
+            req.tenantId,
+            member.characterId,
+          );
+          if (!detail) return member;
+          const [characterEvidence, outfitEvidence, sheetEvidence] =
+            await Promise.all([
+              latestCharacterProvenance(req.tenantId, member.characterId),
+              latestOutfitProvenance(req.tenantId, member.outfitId),
+              latestReferenceSheetProvenance(req.tenantId, member.characterId),
+            ]);
+          const frozen = frozenCharacterEvidence(
+            characterEvidence,
+            outfitEvidence,
+            sheetEvidence,
+          );
+          const origin = summarizeProvenance(characterEvidence);
+          return {
+            ...member,
+            // The selected library row is authoritative; a prior cast member
+            // must never launder its source/proof into this replacement.
+            referenceSource: detail.character.referenceSource,
+            provenanceStatus: origin.status,
+            provenanceSummary: origin.summary,
+            provenanceEvidence: frozen.provenanceEvidence,
+            provenanceEvidenceRefs: frozen.provenanceEvidenceRefs,
+          };
+        }),
+      )
+    : null;
   // Decided before the optional pass is resolved, because the two are mutually
   // exclusive and this one is the better of the pair on the character path: it
   // syncs each shot from the original narration PCM before composition, rather
@@ -10011,6 +10906,9 @@ async function generateVideoHandler(
     return;
   }
   const options: VideoJobOptions = {
+    ...(guidedDraft || (characterId != null && !selectedPresetSnapshot)
+      ? { characterProvenanceVersion: CHARACTER_PROVENANCE_VERSION }
+      : {}),
     ...(guidedDraft
       ? {
           billingPolicyVersion: 2 as const,
@@ -10054,7 +10952,7 @@ async function generateVideoHandler(
               durationSeconds: guidedDraft.state.setup.durationSeconds,
             },
             script: guidedDraft.state.script,
-            cast: guidedDraft.state.cast,
+             cast: guidedCastSnapshot ?? guidedDraft.state.cast,
             ...(guidedDraft.state.imageModelSnapshot
               ? { imageModelSnapshot: guidedDraft.state.imageModelSnapshot }
               : {}),
@@ -10756,6 +11654,34 @@ async function generateVideoHandler(
       : null;
   }
 
+  const frozenCharacterError = frozenCharacterSnapshotError(options);
+  if (frozenCharacterError) {
+    const message = provisionalGuidedJob
+      ? `Job #${provisionalGuidedJob.id} stopped before funding: ${frozenCharacterError}`
+      : frozenCharacterError;
+    await failProvisionalGuidedJob(message);
+    res.status(409).json({ error: message });
+    return;
+  }
+  let frozenCharacterRecordError: string | null = null;
+  try {
+    frozenCharacterRecordError = await frozenCharacterProofRowsError(
+      req.tenantId,
+      options,
+    );
+  } catch {
+    frozenCharacterRecordError =
+      "Character provenance is unavailable for this attempt.";
+  }
+  if (frozenCharacterRecordError) {
+    const message = provisionalGuidedJob
+      ? `Job #${provisionalGuidedJob.id} stopped before funding: ${frozenCharacterRecordError}`
+      : frozenCharacterRecordError;
+    await failProvisionalGuidedJob(message);
+    res.status(409).json({ error: message });
+    return;
+  }
+
   // Dependency preflight BEFORE funding: a job that will die four minutes in
   // on a missing key or a provider that is already failing should never take
   // the tenant's quota in the first place. Refunds return credits, not time.
@@ -10870,6 +11796,8 @@ async function generateVideoHandler(
       const wanReferenceModel = isAtlasWanReferenceModel(
         options.resolvedVideoModel?.model ?? "",
       );
+      const strictFictionalProvenance =
+        requiresStrictFictionalProvenance(options);
       for (const member of members) {
         const approval = options.guidedStory.castApprovals?.roles[member.roleId];
         const currentApproval =
@@ -10888,13 +11816,18 @@ async function generateVideoHandler(
           outfit.atlasAssetId,
         );
         const evidence = character?.creationEvidence;
+        const newCharacterProvenance =
+          (options as VideoJobOptions & {
+            characterProvenanceVersion?: number;
+          }).characterProvenanceVersion === CHARACTER_PROVENANCE_VERSION;
         let immutableCreationReceiptValid =
           evidence?.version === 1 &&
-          evidence.kind === "guided_story" &&
-          Number.isSafeInteger(evidence.draftId) &&
-          evidence.draftId > 0 &&
-          Number.isSafeInteger(evidence.draftRevision) &&
-          evidence.draftRevision > 0 &&
+          (evidence.kind === "character_library" ||
+            (evidence.kind === "guided_story" &&
+              Number.isSafeInteger(evidence.draftId) &&
+              evidence.draftId > 0 &&
+              Number.isSafeInteger(evidence.draftRevision) &&
+              evidence.draftRevision > 0)) &&
           evidence.roleId.trim().length > 0 &&
           evidence.operationKey.trim().length > 0 &&
           evidence.provider.trim().length > 0 &&
@@ -10902,7 +11835,65 @@ async function generateVideoHandler(
           Number.isFinite(Date.parse(evidence.recordedAt)) &&
           evidence.sourcePath === approval?.character.referenceImagePath &&
           evidence.sourceSha256 === approval?.character.sha256;
-        if (immutableCreationReceiptValid && evidence!.providerOperationId !== null) {
+        if (newCharacterProvenance && !strictFictionalProvenance) {
+          immutableCreationReceiptValid = true;
+        }
+        if (
+          strictFictionalProvenance &&
+          newCharacterProvenance &&
+          character &&
+          outfit
+        ) {
+          const ledgerProofs = [
+            member.provenanceEvidence,
+            ...(member.provenanceEvidenceRefs ?? []).filter(
+              (proof) =>
+                proof.assetKind === "character_outfit" ||
+                proof.assetKind === "reference_sheet",
+            ),
+          ];
+          let ledgerValid =
+            ledgerProofs.length >= 3 &&
+            ledgerProofs.every(
+              (proof) =>
+                Number.isSafeInteger(proof?.provenanceRecordId) &&
+                proof!.provenanceRecordId! > 0 &&
+                proof!.operationIdentity.trim().length > 0 &&
+                proof!.artifactPath.trim().length > 0 &&
+                /^[a-f0-9]{64}$/i.test(proof!.artifactSha256),
+            );
+          for (const proof of ledgerValid ? ledgerProofs : []) {
+            const [record] = await tx
+              .select()
+              .from(assetProvenanceTable)
+              .where(
+                and(
+                  eq(assetProvenanceTable.id, proof!.provenanceRecordId!),
+                  eq(assetProvenanceTable.tenantId, req.tenantId),
+                ),
+              )
+              .limit(1);
+            if (
+              !record ||
+              record.assetKind !== proof!.assetKind ||
+              record.operationIdentity !== proof!.operationIdentity ||
+              record.artifactPath !== proof!.artifactPath ||
+              record.artifactSha256 !== proof!.artifactSha256 ||
+              (record.parentPath ?? null) !== (proof!.parentPath ?? null) ||
+              (record.parentSha256 ?? null) !== (proof!.parentSha256 ?? null)
+            ) {
+              ledgerValid = false;
+              break;
+            }
+          }
+          if (ledgerValid) immutableCreationReceiptValid = true;
+        }
+        if (
+          !newCharacterProvenance &&
+          immutableCreationReceiptValid &&
+          evidence &&
+          evidence.providerOperationId !== null
+        ) {
           const [providerReceipt] = await tx.select({
             tenantId: walletProviderOperationsTable.tenantId,
             operationKey: walletProviderOperationsTable.operationKey,
@@ -10935,14 +11926,17 @@ async function generateVideoHandler(
           currentMember.outfitId !== member.outfitId ||
           currentMember.character.referenceImagePath !== approval.character.referenceImagePath ||
           currentMember.outfit?.referenceImagePath !== approval.outfit.referenceImagePath ||
-          character.referenceSource !== "generated" ||
-          character.bytePlusIdentityId !== null ||
+          (strictFictionalProvenance &&
+            (character.referenceSource !== "generated" ||
+              character.bytePlusIdentityId !== null)) ||
           character.referenceImagePath !== approval.character.referenceImagePath ||
-          !immutableCreationReceiptValid ||
+          ((!newCharacterProvenance || strictFictionalProvenance) &&
+            !immutableCreationReceiptValid) ||
           character.referenceSheetStatus !== "approved" ||
-          character.referenceSheetImagePath !== member.atlasApprovedReferenceSheetPath ||
-          character.referenceSheetApprovedSha256 !== member.atlasApprovedReferenceSheetSha256 ||
-          (!wanReferenceModel && (
+          (strictFictionalProvenance &&
+            (character.referenceSheetImagePath !== member.atlasApprovedReferenceSheetPath ||
+              character.referenceSheetApprovedSha256 !== member.atlasApprovedReferenceSheetSha256)) ||
+          (strictFictionalProvenance && !wanReferenceModel && (
             character.atlasAssetSourcePath !== member.atlasApprovedReferenceSheetPath ||
             character.atlasAssetSourceSha256 !== member.atlasApprovedReferenceSheetSha256 ||
             character.atlasAssetStatus !== "Active" ||
@@ -10953,8 +11947,9 @@ async function generateVideoHandler(
           outfit.status !== "approved" ||
           !outfit.identityVerified ||
           outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
-          outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
-          (!wanReferenceModel && (
+          (strictFictionalProvenance &&
+            outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256) ||
+          (strictFictionalProvenance && !wanReferenceModel && (
             outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
             outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
             outfit.atlasAssetStatus !== "Active" ||
@@ -13182,25 +14177,17 @@ router.post(
           eq(characterOutfitsTable.tenantId, req.tenantId),
         )).limit(1);
         if (character?.referenceSource === null) {
-          const upgraded = await upgradeExactLegacyGeneratedCharacter({
-            tenantId: req.tenantId,
-            characterId: character.id,
-            approvedPath: approval.character.referenceImagePath,
-            approvedSha256: approval.character.sha256,
-          });
-          if (!upgraded) {
-            const message = await failChild(
-              `was not funded because role ${member.roleId} has unknown provenance without exact immutable generated-fictional evidence.`,
-            );
-            res.status(409).json({ error: message, code: "guided_retry_asset_changed" });
-            return;
-          }
-          character = upgraded;
+          const message = await failChild(
+            `was not funded because role ${member.roleId} has unknown provenance; explicitly recover the exact historical evidence first.`,
+          );
+          res.status(409).json({ error: message, code: "guided_retry_asset_changed" });
+          return;
         }
         const evidence = character?.creationEvidence;
         let provenanceValid =
           evidence?.version === 1 &&
-          evidence.kind === "guided_story" &&
+          (evidence.kind === "character_library" ||
+            evidence.kind === "guided_story") &&
           evidence.operationKey.trim().length > 0 &&
           evidence.provider.trim().length > 0 &&
           evidence.model.trim().length > 0 &&

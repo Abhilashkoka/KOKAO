@@ -8,3 +8,7 @@ description: Pre-publish probe of recent posts so a retried Threads, X, or Linke
 **Why:** A publish can commit but return a transient-looking error; the user re-clicking (or a future auto-retry) would double-post — on Threads a whole reply chain can duplicate.
 
 **How to apply:** Unlike Facebook (probe only after a transient failure inside the retry helper), these routes have no in-request retry, so the probe runs up-front on every publish. Matching is per-chunk and consuming (a matched post is removed from the candidate list), the reply chain resumes from a matched first post, and image upload/signed-URL minting is skipped when the first post already landed. Probe failure is best-effort → publish proceeds normally. All three probes paginate under an exported mutable `*_DEDUPE_PROBE` {pageSize, maxPages} config so busy accounts can't scroll a landed post past page 1. LinkedIn's probe has NO time-based early stop: its API sorts by LAST_MODIFIED (not createdAt), so a page of old-but-recently-edited posts says nothing about later pages — the page cap is the only bound. Window guard means identical intentional re-posts >10 min apart still publish.
+
+## Related topics
+- [Chain resend](chain-resend.md)
+- [FB publish dedupe](fb-publish-dedupe.md)

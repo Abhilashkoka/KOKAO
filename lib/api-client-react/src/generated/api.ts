@@ -347,6 +347,7 @@ import type {
   QuoteCreditsParams,
   RazorpayAppCredentialInput,
   RazorpayAppCredentialStatus,
+  RecoverCharacterProvenanceRequest,
   RedeemPromoInput,
   ReferralInfo,
   ReliabilityAnalytics,
@@ -9072,6 +9073,78 @@ export const useUpdateCharacter = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getUpdateCharacterMutationOptions(options));
+    }
+
+export const getRecoverCharacterProvenanceUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/provenance/recover`
+}
+
+/**
+ * Recovers only when the supplied draft and role identify a durable, successful server generation whose tenant-owned bytes and hash still match. This endpoint never infers origin from billing, labels, or paths and never performs bulk backfill.
+ * @summary Explicitly recover exact historical Guided origin evidence (no charge)
+ */
+export const recoverCharacterProvenance = async (characterId: number,
+    recoverCharacterProvenanceRequest: RecoverCharacterProvenanceRequest, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getRecoverCharacterProvenanceUrl(characterId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(recoverCharacterProvenanceRequest)
+  }
+);}
+
+
+
+
+export const getRecoverCharacterProvenanceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverCharacterProvenance>>, TError,{characterId: number;data: BodyType<RecoverCharacterProvenanceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recoverCharacterProvenance>>, TError,{characterId: number;data: BodyType<RecoverCharacterProvenanceRequest>}, TContext> => {
+
+const mutationKey = ['recoverCharacterProvenance'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recoverCharacterProvenance>>, {characterId: number;data: BodyType<RecoverCharacterProvenanceRequest>}> = (props) => {
+          const {characterId,data} = props ?? {};
+
+          return  recoverCharacterProvenance(characterId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecoverCharacterProvenanceMutationResult = NonNullable<Awaited<ReturnType<typeof recoverCharacterProvenance>>>
+    export type RecoverCharacterProvenanceMutationBody = BodyType<RecoverCharacterProvenanceRequest>
+    export type RecoverCharacterProvenanceMutationError = ErrorType<void>
+
+    /**
+ * @summary Explicitly recover exact historical Guided origin evidence (no charge)
+ */
+export const useRecoverCharacterProvenance = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverCharacterProvenance>>, TError,{characterId: number;data: BodyType<RecoverCharacterProvenanceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recoverCharacterProvenance>>,
+        TError,
+        {characterId: number;data: BodyType<RecoverCharacterProvenanceRequest>},
+        TContext
+      > => {
+      return useMutation(getRecoverCharacterProvenanceMutationOptions(options));
     }
 
 export const getCreateCharacterOutfitUrl = (characterId: number,) => {

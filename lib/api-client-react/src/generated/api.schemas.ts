@@ -8350,12 +8350,27 @@ export interface AnalyzeVideoStyleRequest {
   sourceVideoPath: string;
 }
 
-export type CharacterReferenceSource = typeof CharacterReferenceSource[keyof typeof CharacterReferenceSource];
+/**
+ * @nullable
+ */
+export type CharacterReferenceSource = typeof CharacterReferenceSource[keyof typeof CharacterReferenceSource] | null;
 
 
 export const CharacterReferenceSource = {
   generated: 'generated',
   uploaded: 'uploaded',
+} as const;
+
+/**
+ * Server-computed origin status; never accepted from clients.
+ */
+export type CharacterProvenanceStatus = typeof CharacterProvenanceStatus[keyof typeof CharacterProvenanceStatus];
+
+
+export const CharacterProvenanceStatus = {
+  verified_generated: 'verified_generated',
+  uploaded: 'uploaded',
+  unknown: 'unknown',
 } as const;
 
 export type CharacterReferenceSheetStatus = typeof CharacterReferenceSheetStatus[keyof typeof CharacterReferenceSheetStatus];
@@ -8367,6 +8382,27 @@ export const CharacterReferenceSheetStatus = {
   rejected: 'rejected',
   failed: 'failed',
 } as const;
+
+export type CharacterProvenanceSummaryMethod = typeof CharacterProvenanceSummaryMethod[keyof typeof CharacterProvenanceSummaryMethod];
+
+
+export const CharacterProvenanceSummaryMethod = {
+  textgenerated: 'textgenerated',
+  upload: 'upload',
+  imageedit: 'imageedit',
+  derived: 'derived',
+} as const;
+
+export interface CharacterProvenanceSummary {
+  method: CharacterProvenanceSummaryMethod;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  createdAt: string | null;
+  missingReason?: string;
+}
 
 export interface ProtectedImageRegion {
   /**
@@ -8421,7 +8457,11 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  /** @nullable */
   referenceSource: CharacterReferenceSource;
+  /** Server-computed origin status; never accepted from clients. */
+  provenanceStatus: CharacterProvenanceStatus;
+  provenanceSummary: CharacterProvenanceSummary;
   /**
      * Tenant-owned BytePlus identity attached after successful liveness verification.
      * @nullable
@@ -8439,6 +8479,13 @@ export interface Character {
   outfits: CharacterOutfit[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RecoverCharacterProvenanceRequest {
+  /** @minimum 1 */
+  draftId: number;
+  /** @minLength 1 */
+  roleId: string;
 }
 
 export type PresetStockVoiceSpeaker = typeof PresetStockVoiceSpeaker[keyof typeof PresetStockVoiceSpeaker];

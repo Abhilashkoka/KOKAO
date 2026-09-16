@@ -2988,6 +2988,35 @@ paths:
                 $ref: "#/components/schemas/Character"
         "400": { description: Invalid protected region or identity }
         "404": { description: Not found }
+  /characters/{characterId}/provenance/recover:
+    parameters:
+      - name: characterId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    post:
+      operationId: recoverCharacterProvenance
+      tags: [characters]
+      summary: Explicitly recover exact historical Guided origin evidence (no charge)
+      description: >
+        Recovers only when the supplied draft and role identify a durable,
+        successful server generation whose tenant-owned bytes and hash still
+        match. This endpoint never infers origin from billing, labels, or paths
+        and never performs bulk backfill.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecoverCharacterProvenanceRequest" }
+      responses:
+        "200":
+          description: Recovered character
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Character" }
+        "400": { description: Exact draft and role are required }
+        "404": { description: Character not found }
+        "409": { description: Exact immutable evidence was not found or bytes changed }
   /characters/{characterId}/outfits:
     parameters:
       - name: characterId
@@ -21518,6 +21547,8 @@ components:
           description,
           referenceImagePath,
           referenceSource,
+           provenanceStatus,
+           provenanceSummary,
           identityId,
           referenceSheetImagePath,
           referenceSheetStatus,
@@ -21538,8 +21569,14 @@ components:
           type: string
           description: Canonical reference image; serve via /api/storage{path}.
         referenceSource:
+          type: ["string", "null"]
+          enum: [generated, uploaded, null]
+        provenanceStatus:
           type: string
-          enum: [generated, uploaded]
+          enum: [verified_generated, uploaded, unknown]
+          description: Server-computed origin status; never accepted from clients.
+        provenanceSummary:
+          $ref: "#/components/schemas/CharacterProvenanceSummary"
         identityId:
           type: ["integer", "null"]
           description: Tenant-owned BytePlus identity attached after successful liveness verification.
@@ -21565,6 +21602,29 @@ components:
         updatedAt:
           type: string
           format: date-time
+    CharacterProvenanceSummary:
+      type: object
+      required: [method, provider, model, createdAt]
+      properties:
+        method:
+          type: string
+          enum: [textgenerated, upload, imageedit, derived]
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        createdAt:
+          type: ["string", "null"]
+          format: date-time
+        missingReason:
+          type: string
+    RecoverCharacterProvenanceRequest:
+      type: object
+      additionalProperties: false
+      required: [draftId, roleId]
+      properties:
+        draftId: { type: integer, minimum: 1 }
+        roleId: { type: string, minLength: 1 }
     PresetStockVoice:
       type: object
       required: [id, provider, model, speaker, label, license, languages]

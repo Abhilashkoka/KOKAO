@@ -14,3 +14,6 @@ description: Pitfalls of the OpenAI-chat shim over Replicate's predictions API
 - No OpenAI chat endpoint exists on Replicate; the shim maps chat → predictions API. Stream EOF before the terminal "done" event must reject (truncation).
 - Shares the video-gen Replicate key (stored under videogen_replicate).
 - Same class of bug exists for video models: wrong/undeclared input field names vanish silently — always verify each model's schema.
+
+## Related topics
+- [Replicate video input mapping](replicate-video-inputs.md)

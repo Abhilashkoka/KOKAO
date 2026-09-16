@@ -3611,7 +3611,15 @@ export const ListCharactersResponseItem = zod.union([zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
-  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "provenanceStatus": zod.enum(['verified_generated', 'uploaded', 'unknown']).describe('Server-computed origin status; never accepted from clients.'),
+  "provenanceSummary": zod.object({
+  "method": zod.enum(['textgenerated', 'upload', 'imageedit', 'derived']),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "createdAt": zod.coerce.date().nullable(),
+  "missingReason": zod.string().optional()
+}),
   "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
@@ -3727,7 +3735,15 @@ export const CreateCharacterResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
-  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "provenanceStatus": zod.enum(['verified_generated', 'uploaded', 'unknown']).describe('Server-computed origin status; never accepted from clients.'),
+  "provenanceSummary": zod.object({
+  "method": zod.enum(['textgenerated', 'upload', 'imageedit', 'derived']),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "createdAt": zod.coerce.date().nullable(),
+  "missingReason": zod.string().optional()
+}),
   "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
@@ -4157,7 +4173,15 @@ export const GenerateCharacterReferenceSheetResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
-  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "provenanceStatus": zod.enum(['verified_generated', 'uploaded', 'unknown']).describe('Server-computed origin status; never accepted from clients.'),
+  "provenanceSummary": zod.object({
+  "method": zod.enum(['textgenerated', 'upload', 'imageedit', 'derived']),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "createdAt": zod.coerce.date().nullable(),
+  "missingReason": zod.string().optional()
+}),
   "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
@@ -4228,7 +4252,15 @@ export const ReviewCharacterReferenceSheetResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
-  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "provenanceStatus": zod.enum(['verified_generated', 'uploaded', 'unknown']).describe('Server-computed origin status; never accepted from clients.'),
+  "provenanceSummary": zod.object({
+  "method": zod.enum(['textgenerated', 'upload', 'imageedit', 'derived']),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "createdAt": zod.coerce.date().nullable(),
+  "missingReason": zod.string().optional()
+}),
   "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
@@ -4685,7 +4717,15 @@ export const UpdateCharacterResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
-  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "provenanceStatus": zod.enum(['verified_generated', 'uploaded', 'unknown']).describe('Server-computed origin status; never accepted from clients.'),
+  "provenanceSummary": zod.object({
+  "method": zod.enum(['textgenerated', 'upload', 'imageedit', 'derived']),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "createdAt": zod.coerce.date().nullable(),
+  "missingReason": zod.string().optional()
+}),
   "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
@@ -4710,6 +4750,97 @@ export const UpdateCharacterResponse = zod.object({
   "y": zod.number().min(updateCharacterResponseOutfitsItemProtectedRegionOneYMin).max(updateCharacterResponseOutfitsItemProtectedRegionOneYMax),
   "width": zod.number().gt(updateCharacterResponseOutfitsItemProtectedRegionOneWidthExclusiveMin).max(updateCharacterResponseOutfitsItemProtectedRegionOneWidthMax),
   "height": zod.number().gt(updateCharacterResponseOutfitsItemProtectedRegionOneHeightExclusiveMin).max(updateCharacterResponseOutfitsItemProtectedRegionOneHeightMax)
+}),zod.null()]).optional()
+})),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Recovers only when the supplied draft and role identify a durable, successful server generation whose tenant-owned bytes and hash still match. This endpoint never infers origin from billing, labels, or paths and never performs bulk backfill.
+ * @summary Explicitly recover exact historical Guided origin evidence (no charge)
+ */
+
+
+
+export const RecoverCharacterProvenanceParams = zod.object({
+  "characterId": zod.coerce.number().min(1)
+})
+
+
+
+
+
+export const RecoverCharacterProvenanceBody = zod.object({
+  "draftId": zod.number().min(1),
+  "roleId": zod.string().min(1)
+})
+
+export const recoverCharacterProvenanceResponseProtectedRegionOneXMin = 0;
+export const recoverCharacterProvenanceResponseProtectedRegionOneXMax = 1;
+
+export const recoverCharacterProvenanceResponseProtectedRegionOneYMin = 0;
+export const recoverCharacterProvenanceResponseProtectedRegionOneYMax = 1;
+
+export const recoverCharacterProvenanceResponseProtectedRegionOneWidthExclusiveMin = 0;
+export const recoverCharacterProvenanceResponseProtectedRegionOneWidthMax = 1;
+
+export const recoverCharacterProvenanceResponseProtectedRegionOneHeightExclusiveMin = 0;
+export const recoverCharacterProvenanceResponseProtectedRegionOneHeightMax = 1;
+
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneXMin = 0;
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneXMax = 1;
+
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneYMin = 0;
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneYMax = 1;
+
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneWidthExclusiveMin = 0;
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneWidthMax = 1;
+
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneHeightExclusiveMin = 0;
+export const recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneHeightMax = 1;
+
+
+
+export const RecoverCharacterProvenanceResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().describe('Appearance description used in generation prompts.'),
+  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "provenanceStatus": zod.enum(['verified_generated', 'uploaded', 'unknown']).describe('Server-computed origin status; never accepted from clients.'),
+  "provenanceSummary": zod.object({
+  "method": zod.enum(['textgenerated', 'upload', 'imageedit', 'derived']),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "createdAt": zod.coerce.date().nullable(),
+  "missingReason": zod.string().optional()
+}),
+  "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
+  "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
+  "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
+  "referenceSheetError": zod.string().nullable(),
+  "protectedRegion": zod.union([zod.object({
+  "x": zod.number().min(recoverCharacterProvenanceResponseProtectedRegionOneXMin).max(recoverCharacterProvenanceResponseProtectedRegionOneXMax),
+  "y": zod.number().min(recoverCharacterProvenanceResponseProtectedRegionOneYMin).max(recoverCharacterProvenanceResponseProtectedRegionOneYMax),
+  "width": zod.number().gt(recoverCharacterProvenanceResponseProtectedRegionOneWidthExclusiveMin).max(recoverCharacterProvenanceResponseProtectedRegionOneWidthMax),
+  "height": zod.number().gt(recoverCharacterProvenanceResponseProtectedRegionOneHeightExclusiveMin).max(recoverCharacterProvenanceResponseProtectedRegionOneHeightMax)
+}),zod.null()]).optional(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
+  "isDefault": zod.boolean(),
+  "status": zod.enum(['preview', 'approved', 'rejected']),
+  "identityVerified": zod.boolean(),
+  "canonicalReferenceImagePath": zod.string().nullish(),
+  "protectedRegion": zod.union([zod.object({
+  "x": zod.number().min(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneXMin).max(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneXMax),
+  "y": zod.number().min(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneYMin).max(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneYMax),
+  "width": zod.number().gt(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneWidthExclusiveMin).max(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneWidthMax),
+  "height": zod.number().gt(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneHeightExclusiveMin).max(recoverCharacterProvenanceResponseOutfitsItemProtectedRegionOneHeightMax)
 }),zod.null()]).optional()
 })),
   "createdAt": zod.coerce.date(),
@@ -4784,7 +4915,15 @@ export const CreateCharacterOutfitResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
   "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
-  "referenceSource": zod.enum(['generated', 'uploaded']),
+  "referenceSource": zod.union([zod.literal('generated'),zod.literal('uploaded'),zod.literal(null)]).nullable(),
+  "provenanceStatus": zod.enum(['verified_generated', 'uploaded', 'unknown']).describe('Server-computed origin status; never accepted from clients.'),
+  "provenanceSummary": zod.object({
+  "method": zod.enum(['textgenerated', 'upload', 'imageedit', 'derived']),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "createdAt": zod.coerce.date().nullable(),
+  "missingReason": zod.string().optional()
+}),
   "identityId": zod.number().nullable().describe('Tenant-owned BytePlus identity attached after successful liveness verification.'),
   "referenceSheetImagePath": zod.string().nullable().describe('Separate generated multi-view sheet; serve via \/api\/storage{path}.'),
   "referenceSheetStatus": zod.enum(['pending', 'approved', 'rejected', 'failed']),
