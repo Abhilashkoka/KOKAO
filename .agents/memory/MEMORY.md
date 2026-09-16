@@ -1,4 +1,5 @@
 - [Guided job continuity](guided-job-continuity.md) — submission keeps the story visible and focuses its job; failures return with actionable correction guidance.
+- [Stale servers after merges](stale-servers-after-merge.md) — EADDRINUSE can leave older compiled servers serving previews while managed logs show only duplicate startup failures.
 - [LinkedIn publishing](linkedin-publishing.md) — no Replit connector exists; needs manual OAuth app + "Share on LinkedIn" product; Posts API quirks.
 - [Social publishing in SocialForge](social-publishing.md) — "Connect Account" is record-only; real publishing is per-platform (Facebook+Instagram via meta.ts, LinkedIn) via dedicated routes.
 - [Credential encryption keys](credential-encryption-keys.md) — encrypt with dedicated key, DECRYPT dual-read (dedicated then SESSION_SECRET) so enabling the key never bricks stored creds.

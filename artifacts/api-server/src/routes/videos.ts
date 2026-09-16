@@ -4263,7 +4263,22 @@ router.post(
         await saveGuidedState(claimed, claimed.revision, {
           ...claimed.state,
           scriptGeneration: null,
+        }).catch((releaseError) => {
+          req.log.error(
+            {
+              err: releaseError,
+              draftId: claimed.id,
+              tenantId: req.tenantId,
+            },
+            "Failed to release guided story script generation claim",
+          );
         });
+      }
+      if (error instanceof TextGenNotConfiguredError) {
+        res.status(503).json({
+          error: "AI script writing is not configured. Contact your admin.",
+        });
+        return;
       }
       if (error instanceof VideoGenProviderError) {
         const nativeScriptInvalid =
@@ -4276,7 +4291,14 @@ router.post(
         });
         return;
       }
-      throw error;
+      req.log.error(
+        { err: error, draftId: claimed.id, tenantId: req.tenantId },
+        "Guided story script generation failed",
+      );
+      res.status(500).json({
+        error: `Generating the script for draft #${claimed.id} failed. Please try again.`,
+      });
+      return;
     }
     if (!billed) {
       await saveGuidedState(claimed, claimed.revision, {
