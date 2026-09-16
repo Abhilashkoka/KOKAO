@@ -12,6 +12,18 @@ import type {
 import { bundledPresetAsset, presetPublicAssetRelativePath } from "./presetCharacters";
 import sharp from "sharp";
 import type { MeterContext } from "./meter";
+import { characterImageOutputValidator } from "./characterVisualQa";
+
+export {
+  CharacterVisualQaError,
+  parseCharacterVisualQaResponse,
+  validateCharacterImageOutput,
+} from "./characterVisualQa";
+export type {
+  CharacterVisualQaMode,
+  CharacterVisualQaOptions,
+  CharacterVisualQaObservation,
+} from "./characterVisualQa";
 
 /**
  * Character lock for the Video Studio.
@@ -50,8 +62,10 @@ export function imageSizeForAspect(aspect: VideoJobAspect): ImageSize {
 /** Prompt for a brand-new character reference from a text description. */
 export function characterReferencePrompt(description: string): string {
   return (
-    `Full-body character reference portrait: ${description}. ` +
-    "Standing, facing the camera, full body visible from head to toe, " +
+    `Full-body character reference portrait of one fictional person: ${description}. ` +
+    "Exactly one and only one person is present. Standing, facing the camera, full body " +
+    "visible from head to toe, with no other person, duplicate, reflection, extra body, " +
+    "mannequin, crowd, split panel, or collage. " +
     "neutral light-grey studio background, soft even lighting, " +
     "photorealistic, high detail. No text, no watermark."
   );
@@ -86,14 +100,15 @@ export function characterReferenceSheetPrompt(character: Character): string {
     "shown in the reference image. Preserve their exact identity, face, hair, body, " +
     "clothing, colors, accessories, and footwear." +
     description +
-    " Arrange five photographic panels edge to edge on one clean light gray " +
+    " Arrange exactly five photographic panels edge to edge on one clean light gray " +
     "background: full-body front view, full-body side/profile view, full-body " +
     "back view, a front close-up of the face and hair filling its panel, and a " +
     "top-down view. Photorealistic cinematic quality, natural even lighting, " +
     "consistent scale across panels. Every panel depicts the same person in the " +
     "same clothing; do not invent multiple distinct people, alternate identities, " +
     "or alternate outfits. " +
-    "The image contains photographs and nothing else: absolutely no text, no " +
+    "Each panel contains one view of that one person; the five panels are not five " +
+    "different people. The image contains photographs and nothing else: absolutely no text, no " +
     "titles, no names, no panel labels or captions, no color swatches or chips, " +
     "no arrows, no measurements, no borders, no logo, no watermark, no branding."
   );
@@ -102,12 +117,13 @@ export function characterReferenceSheetPrompt(character: Character): string {
 /** Prompt for an identity-preserving costume variant of the reference. */
 export function outfitVariantPrompt(character: Character, outfitDescription: string): string {
   return (
-    "Show the exact same character from the image — identical face, hair, " +
+    "Show exactly one person: the exact same character from the image — identical face, hair, " +
     "body, and identity — now wearing: " +
     `${outfitDescription}. ` +
     "Keep the same standing full-body pose, the same neutral studio " +
     "background, and the same lighting. Only the clothing changes. " +
-    "No text, no watermark."
+    "No other person, duplicate, reflection, extra body, mannequin, crowd, split panel, " +
+    "or collage. No text, no watermark."
   );
 }
 
@@ -301,6 +317,10 @@ export async function generateCharacterReference(
   return generateImage(characterReferencePrompt(description), "1024x1536", undefined, {
     selectionPolicy,
     meterContext,
+    outputValidator: characterImageOutputValidator({
+      mode: "primary",
+      meterContext,
+    }),
   });
 }
 
@@ -320,6 +340,20 @@ export async function generateCharacterReferenceSheet(
       forceCapabilityFallback: true,
       selectionPolicy,
       meterContext,
+      // Uploaded and legacy references may depict real people. Never send
+      // those bytes to the OpenAI vision QA endpoint; their existing
+      // provider/manual-review workflow remains authoritative. Only the
+      // server-generated fictional-character path is eligible for this
+      // additional remote guard.
+      ...(character.referenceSource === "generated"
+        ? {
+            outputValidator: characterImageOutputValidator({
+              mode: "sheet",
+              approvedPrimary: primaryReference,
+              meterContext,
+            }),
+          }
+        : {}),
     },
   );
 }
@@ -387,8 +421,36 @@ export async function generateOutfitVariant(
     // requireReferenceInput: a costume variant that ignored the base reference
     // would be a different person in the right clothes. See generateSceneKeyframe.
     exactMaskedEdit
-      ? { exactMaskedEdit, onProviderSuccess, requireReferenceInput: true, selectionPolicy, meterContext }
-      : { requireReferenceInput: true, selectionPolicy, meterContext },
+      ? {
+          exactMaskedEdit,
+          onProviderSuccess,
+          requireReferenceInput: true,
+          selectionPolicy,
+          meterContext,
+          ...(character.referenceSource === "generated"
+            ? {
+                outputValidator: characterImageOutputValidator({
+                  mode: "outfit",
+                  approvedPrimary: baseReference,
+                  meterContext,
+                }),
+              }
+            : {}),
+        }
+      : {
+          requireReferenceInput: true,
+          selectionPolicy,
+          meterContext,
+          ...(character.referenceSource === "generated"
+            ? {
+                outputValidator: characterImageOutputValidator({
+                  mode: "outfit",
+                  approvedPrimary: baseReference,
+                  meterContext,
+                }),
+              }
+            : {}),
+        },
   );
 }
 

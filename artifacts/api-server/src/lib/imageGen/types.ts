@@ -64,6 +64,28 @@ export interface ImageGenResult {
 }
 
 /**
+ * A provider returned an image, but the image failed a caller-supplied
+ * machine-validation gate. This is deliberately a distinct error type:
+ * validation failures must never be treated as transient provider failures
+ * (which would silently spend a second image generation on a fallback).
+ *
+ * The result is retained only for metering. It is never returned to a caller
+ * or persisted as an asset.
+ */
+export class ImageGenOutputValidationError extends Error {
+  readonly confirmedValidationError = true as const;
+
+  constructor(
+    message: string,
+    public readonly providerResult: ImageGenResult,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "ImageGenOutputValidationError";
+  }
+}
+
+/**
  * An image result plus how the router arrived at it. Separate from
  * `ImageGenResult` because a provider adapter has no idea it was one of
  * several candidates — only the router does.

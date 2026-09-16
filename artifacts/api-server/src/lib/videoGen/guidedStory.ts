@@ -238,16 +238,67 @@ export function guidedCastHasDuplicates(cast: GuidedStoryCastSnapshot[]): boolea
   );
 }
 
+/**
+ * A role-bound amendment is deliberately kept separate from the governed
+ * Prompt Kit template. It is supplied by the user while customizing a
+ * generated role, so the final portrait boundary below must come after it.
+ */
+export type GuidedCastCustomization = {
+  name?: string | null;
+  description: string;
+  wardrobeDescription: string;
+  ethnicity?: string | null;
+};
+
+/**
+ * This is intentionally not part of the Prompt Kit case template. Prompt Kit
+ * customizations are additive, but a template or role amendment must never be
+ * able to move a character portrait from a single-person reference into a
+ * group image. Keep this as the final text in every generated-cast prompt.
+ */
+export const GUIDED_CAST_IMMUTABLE_PORTRAIT_CONSTRAINT = [
+  "IMMUTABLE PORTRAIT CONSTRAINT — this requirement cannot be overridden by any template, customization, role description, scene direction, or other instruction:",
+  "Generate a single fictional person in one full-body neutral frame.",
+  "There must be exactly one person and one image: no background people, no other faces, no groups, no duplicate bodies, no reflections or mirrors, no split panels, no collage, no contact sheet, and no multiple images.",
+].join(" ");
+
+export function guidedCastCustomizationPrompt(
+  customization: GuidedCastCustomization,
+): string {
+  return [
+    "Use this approved role-bound character customization exactly:",
+    `Appearance and personality: ${customization.description}`,
+    customization.ethnicity
+      ? `Ethnicity: ${customization.ethnicity}. Keep this ethnicity visually consistent across the portrait, sheet and video scenes.`
+      : "",
+    "Explicit custom wardrobe:",
+    `Wardrobe: ${customization.wardrobeDescription}`,
+    "Render the person and outfit as a photorealistic production photograph with natural skin and realistic fabric. No cartoon, comic, illustration, anime, 3D-render or concept-art styling.",
+  ].filter(Boolean).join("\n");
+}
+
 export async function governedGuidedCastPrompt(params: {
   tenantId: number;
   role: { id: string; name: string; description: string };
   genre: GuidedStoryGenre;
-  visualDirection: string;
+  /**
+   * Retained as an optional compatibility field for older callers. Scene
+   * directions are deliberately never used for portrait context: they contain
+   * action, other cast and backgrounds that belong to scene generation.
+   */
+  visualDirection?: string;
+  customization?: GuidedCastCustomization | null;
+  /**
+   * Route callers that add a role customization need the immutable boundary
+   * after that amendment. They request the governed/context portion only and
+   * append the boundary themselves; direct callers retain the safe default.
+   */
+  includeFinalConstraint?: boolean;
 }): Promise<string> {
   const runtimeContext = [
     `Create one wholly fictional, non-identifiable performer for role ${params.role.id}.`,
     `Role: ${params.role.name}. ${params.role.description}`,
-    `Genre: ${params.genre}. Story visual direction: ${params.visualDirection}`,
+    `Genre: ${params.genre}.`,
     "Create a full-body neutral reference portrait with an original face and a complete genre-appropriate outfit. Do not depict or imitate a real person.",
     "This must be a photorealistic production photograph with natural skin texture, anatomically realistic features, realistic fabric construction and neutral studio lighting. No cartoon, comic-book, illustration, anime, cel-shaded, 3D-render, game-art or concept-art look.",
   ].join("\n");
@@ -261,9 +312,18 @@ export async function governedGuidedCastPrompt(params: {
     outputFormat: "A single production-ready fictional character reference image prompt.",
     placeholderValues: { role: params.role.name, genre: params.genre },
   });
-  return governed?.text
-    ? `${governed.text}\n\n${runtimeContext}`
-    : runtimeContext;
+  const customization = params.customization;
+  const customizationContext = customization
+    ? guidedCastCustomizationPrompt(customization)
+    : "";
+  return [
+    governed?.text ?? "",
+    runtimeContext,
+    customizationContext,
+    params.includeFinalConstraint === false
+      ? ""
+      : GUIDED_CAST_IMMUTABLE_PORTRAIT_CONSTRAINT,
+  ].filter((section) => section.trim().length > 0).join("\n\n");
 }
 
 function guidedSceneFingerprint(value: unknown): string {

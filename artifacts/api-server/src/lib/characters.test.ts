@@ -17,6 +17,7 @@ const generateImage = vi.fn(
       exactMaskedEdit?: unknown;
       requireReferenceInput?: boolean;
       forceCapabilityFallback?: boolean;
+      outputValidator?: (result: unknown) => Promise<void>;
       onProviderSuccess?: (meta: { provider: string; model: string }) => Promise<void>;
     },
   ) => ({
@@ -41,6 +42,14 @@ const {
 } = await import("./characters");
 
 const CHARACTER = { name: "Maya", description: "founder" } as Character;
+const GENERATED_CHARACTER = {
+  ...CHARACTER,
+  referenceSource: "generated" as const,
+};
+const UPLOADED_CHARACTER = {
+  ...CHARACTER,
+  referenceSource: "uploaded" as const,
+};
 const OUTFIT = {
   name: "Blue blazer",
   description: "navy blue blazer, white shirt, black trousers",
@@ -118,6 +127,23 @@ describe("reference-required routing", () => {
     expect(prompt).toMatch(/same person/i);
   });
 
+  it("does not send uploaded or legacy primaries to remote sheet QA", async () => {
+    for (const character of [UPLOADED_CHARACTER, CHARACTER]) {
+      generateImage.mockClear();
+      await generateCharacterReferenceSheet(character, REFERENCE, null);
+
+      const options = generateImage.mock.calls[0]?.[3];
+      expect(options?.outputValidator).toBeUndefined();
+    }
+  });
+
+  it("keeps remote sheet QA enabled for server-generated fictional characters", async () => {
+    await generateCharacterReferenceSheet(GENERATED_CHARACTER, REFERENCE, null);
+
+    const options = generateImage.mock.calls[0]?.[3];
+    expect(options?.outputValidator).toEqual(expect.any(Function));
+  });
+
   it("keeps masked-edit routing intact when it applies", async () => {
     const exactMaskedEdit = { protectedRectangle: { x: 0, y: 0, width: 1, height: 0.4 } };
     const onProviderSuccess = vi.fn(async () => {});
@@ -134,6 +160,23 @@ describe("reference-required routing", () => {
     expect(opts.requireReferenceInput).toBe(true);
     expect(opts.exactMaskedEdit).toBe(exactMaskedEdit);
     expect(opts.onProviderSuccess).toBe(onProviderSuccess);
+  });
+
+  it("does not send uploaded or legacy primaries to remote outfit QA", async () => {
+    for (const character of [UPLOADED_CHARACTER, CHARACTER]) {
+      generateImage.mockClear();
+      await generateOutfitVariant(character, "a white coat", REFERENCE, null);
+
+      const options = generateImage.mock.calls[0]?.[3];
+      expect(options?.outputValidator).toBeUndefined();
+    }
+  });
+
+  it("keeps remote outfit QA enabled for server-generated fictional characters", async () => {
+    await generateOutfitVariant(GENERATED_CHARACTER, "a white coat", REFERENCE, null);
+
+    const options = generateImage.mock.calls[0]?.[3];
+    expect(options?.outputValidator).toEqual(expect.any(Function));
   });
 });
 

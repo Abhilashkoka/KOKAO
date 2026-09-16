@@ -16,6 +16,7 @@ import {
   guidedCastApprovalsMatch,
   guidedCastOperationCanRestart,
   guidedCastOperationCanResume,
+  GUIDED_CAST_IMMUTABLE_PORTRAIT_CONSTRAINT,
   governedGuidedCastPrompt,
   guidedStoryApprovalSnapshotMatches,
   guidedStoryEstimates,
@@ -47,6 +48,59 @@ it("keeps generated cast and wardrobe photographic instead of comic-styled", asy
   expect(prompt).toContain("photorealistic production photograph");
   expect(prompt).toContain("realistic fabric construction");
   expect(prompt).toContain("No cartoon, comic-book, illustration, anime");
+});
+
+it("keeps portrait context role-bound and excludes scene directions", async () => {
+  const prompt = await governedGuidedCastPrompt({
+    tenantId: 1,
+    role: {
+      id: "maya",
+      name: "Maya",
+      description: "A warm, observant doctor who leads people calmly.",
+    },
+    genre: "drama",
+    visualDirection:
+      "Maya leads a couple and a doctor through a crowded clinic while three people watch from the background.",
+    customization: {
+      description: "A warm, observant doctor with a patient personality.",
+      wardrobeDescription: "A tailored navy blazer over a pale blouse.",
+      ethnicity: "Tamil",
+    },
+  });
+
+  expect(prompt).toContain("A warm, observant doctor with a patient personality.");
+  expect(prompt).toContain("Explicit custom wardrobe:");
+  expect(prompt).toContain("Wardrobe: A tailored navy blazer over a pale blouse.");
+  expect(prompt).not.toContain("crowded clinic");
+  expect(prompt).not.toContain("three people");
+  expect(prompt).not.toContain("leads a couple");
+  expect(prompt.trim().endsWith(GUIDED_CAST_IMMUTABLE_PORTRAIT_CONSTRAINT)).toBe(true);
+});
+
+it("places the immutable one-person rule after role customization", async () => {
+  const prompt = await governedGuidedCastPrompt({
+    tenantId: 1,
+    role: {
+      id: "hero",
+      name: "Hero",
+      description: "A fictional architect with a thoughtful personality.",
+    },
+    genre: "comedy",
+    customization: {
+      description: "A thoughtful, curious architect.",
+      wardrobeDescription: "An original mustard overshirt and dark trousers.",
+    },
+  });
+
+  expect(prompt.indexOf("Explicit custom wardrobe")).toBeLessThan(
+    prompt.indexOf(GUIDED_CAST_IMMUTABLE_PORTRAIT_CONSTRAINT),
+  );
+  expect(prompt).toContain("exactly one person");
+  expect(prompt).toContain("no background people");
+  expect(prompt).toContain("no other faces");
+  expect(prompt).toContain("no groups");
+  expect(prompt).toContain("no reflections");
+  expect(prompt).toContain("collage");
 });
 
 function approvedBackdrop(

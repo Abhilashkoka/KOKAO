@@ -33,12 +33,17 @@ import { generateWithNvidia, NVIDIA_SDXL_MODEL } from "./providers/nvidia";
 import { generateWithHiggsfield, HIGGSFIELD_IMAGE_MODEL } from "./providers/higgsfield";
 import sharp from "sharp";
 import { applyManualOrder, getAiFallbackOrders } from "../aiFallbackSettings";
-import { meter, type MeterContext } from "../meter";
+import {
+  isDefinitiveProviderRejection,
+  meter,
+  type MeterContext,
+} from "../meter";
 import { isMeterDispatchReplayError } from "../meterErrors";
 import {
   ImageGenNotConfiguredError,
   ImageGenProviderError,
   ImagePreservationError,
+  ImageGenOutputValidationError,
   type ExactMaskedEdit,
   type ImageGenInput,
   type ImageGenResult,
@@ -47,7 +52,12 @@ import {
   type RoutedImageGenResult,
 } from "./types";
 
-export { ImageGenNotConfiguredError, ImageGenProviderError, ImagePreservationError } from "./types";
+export {
+  ImageGenNotConfiguredError,
+  ImageGenProviderError,
+  ImagePreservationError,
+  ImageGenOutputValidationError,
+} from "./types";
 export type {
   ExactMaskedEdit,
   ImageGenInput,
@@ -514,6 +524,10 @@ export function imageGenHealthKey(providerId: string): string {
 function isTransientImageGenError(error: unknown): boolean {
   if (isMeterDispatchReplayError(error)) return false;
   if (error instanceof ImagePreservationError) return false;
+  // A local visual QA rejection is a terminal result, not a provider outage.
+  // Falling through to another image provider would silently bill a second
+  // generation and could still return an unverified portrait.
+  if (error instanceof ImageGenOutputValidationError) return false;
   if (error instanceof ImageGenProviderError) {
     if (error.status === undefined) return true; // timeout / network-shaped
     // OpenRouter occasionally reports Gemini's no-output STOP as HTTP 400 even
@@ -722,6 +736,7 @@ async function runImageGenProvider(
   meterContext: MeterContext | null,
   attemptIndex: number,
   editMask?: ReferenceImage,
+  outputValidator?: (result: ImageGenResult) => void | Promise<void>,
 ): Promise<ImageGenResult> {
   const apiKey = await resolveImageGenApiKey(def);
   const model = isSelected ? effectiveModel(def, selection.model) : def.defaultModel;
@@ -749,20 +764,58 @@ async function runImageGenProvider(
         : null,
       editMask ? "image_edit" : "image",
       1,
-      () => def.generate(
-        {
-          ...input,
-          // Model/baseUrl overrides belong to the SELECTED provider only; a
-          // fallback provider runs with its own default model.
-          model,
-          baseUrl:
-            isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
-          referenceImage: def.supportsImageInput ? referenceImage : undefined,
-          editMask: def.supportsExactMaskedEdits ? editMask : undefined,
-          transparent: transparent && def.supportsTransparency ? true : undefined,
+      async () => {
+        const providerResult = await def.generate(
+          {
+            ...input,
+            // Model/baseUrl overrides belong to the SELECTED provider only; a
+            // fallback provider runs with its own default model.
+            model,
+            baseUrl:
+              isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
+            referenceImage: def.supportsImageInput ? referenceImage : undefined,
+            editMask: def.supportsExactMaskedEdits ? editMask : undefined,
+            transparent: transparent && def.supportsTransparency ? true : undefined,
+          },
+          apiKey,
+        );
+        if (outputValidator) {
+          try {
+            await outputValidator(providerResult);
+          } catch (error) {
+            if (error instanceof ImageGenOutputValidationError) throw error;
+            throw new ImageGenOutputValidationError(
+              error instanceof Error ? error.message : "Generated image failed validation.",
+              providerResult,
+              error,
+            );
+          }
+        }
+        return providerResult;
+      },
+      (providerResult) => ({
+        // Image providers expose token usage rather than a quantity in the
+        // shared meter interface. Keep the output-token figure on both
+        // successful and validation-rejected paid calls.
+        tokens:
+          typeof providerResult.usage?.outputTokens === "number"
+            ? providerResult.usage.outputTokens
+            : null,
+      }),
+      {
+        isFailureConfirmed: (error) =>
+          (error instanceof ImageGenOutputValidationError &&
+            error.confirmedValidationError === true) ||
+          isDefinitiveProviderRejection(error),
+        reportedFromError: (error) => {
+          if (!(error instanceof ImageGenOutputValidationError)) return null;
+          const usage = error.providerResult.usage;
+          return {
+            tokens:
+              typeof usage?.outputTokens === "number" ? usage.outputTokens : null,
+          };
         },
-        apiKey,
-      ),
+      },
     );
     // Only successes are timed. A failure's duration says how fast the vendor
     // said no, which is not the number routing wants to know.
@@ -881,6 +934,13 @@ export async function generateImage(
      * from global settings and is therefore safe for jobs/retries.
      */
     selectionPolicy?: ImageGenSelectionPolicy;
+    /**
+     * Required for generated character portraits. Runs inside the provider
+     * boundary, before the meter records success or the caller can persist the
+     * image. Validation failures are terminal and are never sent to a
+     * fallback provider.
+     */
+    outputValidator?: (result: ImageGenResult) => void | Promise<void>;
   },
 ): Promise<RoutedImageGenResult> {
   const transparent = opts?.transparent === true;
@@ -1021,6 +1081,7 @@ export async function generateImage(
         opts.meterContext,
         step,
         prepared?.editMask,
+        opts.outputValidator,
       );
       // Wallet callers persist the paid provider acknowledgement before local
       // decoding/alignment/pixel restoration can reject the output.

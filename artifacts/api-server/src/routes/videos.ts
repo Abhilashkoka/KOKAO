@@ -210,6 +210,7 @@ import {
   reserveImageFunding,
   settleImageFunding,
   isConfirmedImageFailure,
+  characterVisualQaErrorMessage,
 } from "./characters";
 import { uploadBufferToStorage } from "../lib/storageUpload";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
@@ -301,6 +302,8 @@ import {
   validateGuidedResumableCastOperation,
   invalidateGuidedStoryDownstream,
   governedGuidedCastPrompt,
+  guidedCastCustomizationPrompt,
+  GUIDED_CAST_IMMUTABLE_PORTRAIT_CONSTRAINT,
   guidedStoryStoryboard,
   normalizeGuidedStoryLocale,
   guidedStoryNativeScriptWarning,
@@ -5182,20 +5185,19 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             operation.status !== "upload_succeeded" &&
             operation.status !== "uploaded"
           ) {
-            const castPrompt = await governedGuidedCastPrompt({
+            const governedCastPrompt = await governedGuidedCastPrompt({
               tenantId: req.tenantId,
               role,
               genre: row.state.setup!.genre,
-              visualDirection: script.scenes
-                .filter((scene) =>
-                  scene.lines.some((line) => line.ownerRoleId === role.id),
-                )
-                .map((scene) => scene.visualDirection)
-                .join(" ")
-                .slice(0, 1500),
-            }) + (operation.customization
-              ? `\nUse this approved role-bound character customization exactly: ${operation.customization.description}${operation.customization.ethnicity ? `\nEthnicity: ${operation.customization.ethnicity}. Keep this ethnicity visually consistent across the portrait, sheet and video scenes.` : ""}\nWardrobe: ${operation.customization.wardrobeDescription}\nRender the person and outfit as a photorealistic production photograph with natural skin and realistic fabric. No cartoon, comic, illustration, anime, 3D-render or concept-art styling.`
-              : "");
+              includeFinalConstraint: false,
+            });
+            const castPrompt = [
+              governedCastPrompt,
+              operation.customization
+                ? guidedCastCustomizationPrompt(operation.customization)
+                : "",
+              GUIDED_CAST_IMMUTABLE_PORTRAIT_CONSTRAINT,
+            ].filter((section) => section.trim().length > 0).join("\n\n");
             // This checkpoint is the one-way provider boundary on every funding
             // rail. Once written, a crash or ambiguous exception can never turn
             // into either an automatic refund or a second provider request.
@@ -5310,10 +5312,13 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             { err: error, roleId: role.id },
             "Guided fictional cast generation failed",
           );
+          const visualQaError = characterVisualQaErrorMessage(error, row.id);
           res.status(502).json({
-            error: isConfirmedImageFailure(error)
-              ? `Generating fictional cast for role ${role.name} failed.`
-              : `The provider outcome for role ${role.name} is unknown. Funding remains held pending reconciliation.`,
+            error:
+              visualQaError ??
+              (isConfirmedImageFailure(error)
+                ? `Generating fictional cast for role ${role.name} failed.`
+                : `The provider outcome for role ${role.name} is unknown. Funding remains held pending reconciliation.`),
           });
           return;
         }

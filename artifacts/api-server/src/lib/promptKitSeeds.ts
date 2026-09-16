@@ -418,7 +418,7 @@ export const SEEDS: Array<{
   {
     slug: "guided-story-cast",
     name: "Guided story fictional cast",
-    description: "Privacy-safe fictional supporting cast descriptions.",
+    description: "Privacy-safe fictional supporting character descriptions.",
     flowKey: "guided_story_cast",
     riskLevel: "low",
     templateTitle: "Guided fictional cast v-base",
@@ -427,9 +427,10 @@ export const SEEDS: Array<{
         id: "blk_guided_cast_safety",
         title: "Fictional cast safety",
         content: [
-          "Create wholly fictional, non-identifiable supporting characters.",
+          "Create one wholly fictional, non-identifiable supporting character for the requested role.",
           "Do not name, resemble, imitate, or imply a public figure or real private person.",
-          "Keep appearance and wardrobe concrete, internally consistent, and appropriate to the approved genre and locale.",
+          "Keep the role's appearance, personality, and wardrobe concrete, internally consistent, and appropriate to the approved genre and locale.",
+          "Use only the requested role context; do not turn scene action, other cast, or a background into portrait content.",
         ].join("\n"),
         mandatory: true,
         order: 1,

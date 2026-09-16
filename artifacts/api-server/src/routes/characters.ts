@@ -44,9 +44,11 @@ import {
 } from "../lib/characters";
 import {
   ImageGenNotConfiguredError,
+  ImageGenOutputValidationError,
   ImageGenProviderError,
   ImagePreservationError,
 } from "../lib/imageGen/types";
+import { CharacterVisualQaError } from "../lib/characterVisualQa";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { canonicalAppOrigin } from "../lib/corsOrigins";
 import {
@@ -130,7 +132,12 @@ export function isConfirmedImageFailure(error: unknown): boolean {
   if (error instanceof ImagePreservationError) {
     return !error.providerWorkCompleted;
   }
-  if (error instanceof ImageGenNotConfiguredError || error instanceof CharacterInputError) {
+  if (
+    error instanceof ImageGenNotConfiguredError ||
+    error instanceof CharacterInputError ||
+    error instanceof ImageGenOutputValidationError ||
+    error instanceof CharacterVisualQaError
+  ) {
     return true;
   }
   return (
@@ -140,6 +147,47 @@ export function isConfirmedImageFailure(error: unknown): boolean {
     error.status < 500 &&
     ![408, 409, 425, 429].includes(error.status)
   );
+}
+
+function visualQaFailureKind(
+  error: unknown,
+): CharacterVisualQaError["kind"] | null {
+  if (error instanceof CharacterVisualQaError) return error.kind;
+  if (
+    error instanceof ImageGenOutputValidationError &&
+    error.cause instanceof CharacterVisualQaError
+  ) {
+    return error.cause.kind;
+  }
+  // Keep the route safe if a caller supplied validator predates the typed
+  // CharacterVisualQaError cause. Classification only selects fixed UX copy;
+  // it never forwards the validator's/provider's message.
+  if (error instanceof ImageGenOutputValidationError) {
+    if (/\bmultiple people\b|exactly one|single.person|full[- ]body/i.test(error.message)) {
+      return "invalid";
+    }
+    return "unavailable";
+  }
+  return null;
+}
+
+/**
+ * Translate the machine visual gate into stable UX language. In particular,
+ * never pass through the provider or vision response: those details can
+ * contain implementation data and are not actionable to a customer.
+ */
+export function characterVisualQaErrorMessage(
+  error: unknown,
+  draftId?: number,
+): string | null {
+  const kind = visualQaFailureKind(error);
+  if (!kind) return null;
+  const draftSuffix =
+    draftId == null ? "" : ` for Guided Story draft ${draftId} (draft ID ${draftId})`;
+  if (kind === "invalid") {
+    return `The generated portrait did not pass the single-person visual check (multiple people or an incomplete frame). No portrait was saved${draftSuffix}.`;
+  }
+  return `Portrait visual validation is unavailable or inconclusive. No portrait was saved${draftSuffix}. Try again later.`;
 }
 
 /** Per-tenant cap: characters are curated identities, not a media library. */
@@ -270,6 +318,8 @@ export async function releaseImageFunding(req: Request, funding: Funding): Promi
 
 function imageErrorStatus(err: unknown): { status: number; error: string } {
   if (err instanceof CharacterInputError) return { status: 400, error: err.message };
+  const visualQaError = characterVisualQaErrorMessage(err);
+  if (visualQaError) return { status: 502, error: visualQaError };
   if (err instanceof ImageGenNotConfiguredError) {
     return { status: 503, error: "Image generation is not configured. Contact your admin." };
   }

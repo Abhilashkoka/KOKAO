@@ -3,6 +3,12 @@ name: Character reference sheets
 description: Approval and runtime rules for multi-view identity sheets on tenant characters.
 ---
 
+Generated portraits must not inherit scene-action context as visual instructions. A role's scene can include several cast members even when the portrait is intended to show only that role.
+
+**Why:** A Guided portrait generation produced a group of three people and that group was accepted as the canonical character reference, contaminating the subsequent sheet. A single-person prompt alone did not prevent the failure.
+
+**How to apply:** Keep appearance and wardrobe guidance separate from scene composition; validate newly generated fictional references before saving or checkpointing them. Uncertain QA fails closed, without automatic paid regeneration. Do not send uploaded real-person references to an additional QA provider merely because fictional outputs use that provider.
+
 Every tenant-created character, whether prompted or uploaded from a real photo, keeps its canonical portrait and receives a separately billed multi-view reference sheet generated through reference-capable image routing. The sheet is never auto-approved.
 
 **Why:** A multi-view grid is valuable for human identity review but is a poor sole runtime reference for providers that expect one subject image. Real-photo and AI-created identities need the same explicit consent boundary before new videos use them.

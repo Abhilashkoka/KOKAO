@@ -117,6 +117,15 @@ export interface MeterOptions {
    * ambiguous; they never refund or replay an unknown provider request.
    */
   isFailureConfirmed?: (error: unknown) => boolean;
+  /**
+   * Some local validation gates run after the provider has returned an image
+   * but before the metered operation is considered successful. When such a
+   * gate rejects, retain the provider-reported usage on the failed ledger row
+   * while still refunding the customer for the unusable result.
+   */
+  reportedFromError?: (
+    error: unknown,
+  ) => ProviderReported | null | undefined | Promise<ProviderReported | null | undefined>;
 }
 
 /**
@@ -590,6 +599,17 @@ export async function meter<T>(
     if (providerCallReturned || dispatchOutcomePersisted) {
       throw error;
     }
+    let reportedFromError: ProviderReported | null | undefined;
+    if (options.reportedFromError) {
+      try {
+        reportedFromError = await options.reportedFromError(error);
+      } catch (reportedError) {
+        logger.warn(
+          { err: reportedError, key },
+          "credit meter: failed to read provider usage from validation error",
+        );
+      }
+    }
     await recordMeterEvent({
       ctx,
       key,
@@ -597,6 +617,7 @@ export async function meter<T>(
       creditsMilli: costMilli,
       outcome: "failed",
       mode: effectiveMode,
+      reported: reportedFromError,
     }).catch((err) => logger.warn({ err, key }, "credit meter: failed to record a failed call"));
     let confirmed = false;
     try {
