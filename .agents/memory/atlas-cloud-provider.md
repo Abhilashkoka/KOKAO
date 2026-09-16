@@ -8,6 +8,13 @@ Wan reference models must use approved media URLs in their `refers` input, not S
 **Why:** Sharing an Atlas provider does not imply sharing Seedance's request contract, and an unknown output duration cannot safely use a fixed-duration credit reservation.
 
 **How to apply:** Preserve model-family-specific reference resolution and payload validation when adding Atlas models; never enable smart duration only in the adapter.
+
+Wan snapshots intentionally omit Seedance Asset Library IDs. Shared storyboard resolvers must branch by model family before checking those IDs, not merely before assembling the payload.
+
+**Why:** A valid approved Wan cast failed locally because a shared precondition demanded Seedance IDs before reaching the HTTPS-reference branch.
+
+**How to apply:** Keep provenance, tenant ownership, approval and byte-hash checks common; apply provider-asset registration checks only to model contracts that require them.
+
 Atlas Cloud is a distinct paid video provider; never reuse BytePlus model contracts, credentials, task IDs, prices, or asset IDs for it.
 
 **Why:** Atlas is an aggregator with its own asynchronous prediction API and account-wide Asset Library. Marketing model names do not imply identical provider behavior.

@@ -309,6 +309,7 @@ import {
   guidedBackdropCoversEveryScriptScene,
   guidedBackdropChoices,
   guidedStoryBackdropsAreApproved,
+  guidedStorySceneImmutableInputsMatch,
   planGuidedStoryDialogueReplay,
   planGuidedStoryIntrinsicDialogue,
 } from "../lib/videoGen/guidedStory";
@@ -1085,6 +1086,7 @@ function blocksAnotherRepair(job: VideoGeneration): boolean {
 
 const NATIVE_AUDIO_FRESH_RESTART_CODES = new Set([
   "native_audio_missing_speech",
+  "native_audio_unverified",
   "native_audio_wrong_language",
   "native_audio_dialogue_drift",
 ]);
@@ -1099,33 +1101,60 @@ const INDIC_NATIVE_AUDIO_RECHECK_CODES = new Map([
   ["native_audio_dialogue_drift", "dialogue_drift"],
 ] as const);
 
-function historicalIndicNativeAudioRecheckEligible(
+type NativeAudioVerificationOnlyReason =
+  "indic_cross_script_asr_recheck";
+
+const FROZEN_GUIDED_NATIVE_AUDIO_LOCALES = new Set(["en", "te", "ta", "hi"]);
+
+function isNativeAudioVerificationOnlyRecovery(
+  options: VideoJobOptions | null | undefined,
+): boolean {
+  const marker = options?.recovery?.verificationOnly;
+  return marker?.version === 1 &&
+    marker.reason === "indic_cross_script_asr_recheck";
+}
+
+function nativeAudioVerificationOnlyRecoveryReason(
   job: VideoGeneration,
   inventory = videoRecoveryInventory(job),
-): boolean {
+): NativeAudioVerificationOnlyReason | null {
   const latest = job.errorHistory?.at(-1);
-  const expectedOutcome = latest
+  const latestCode = latest?.code;
+  const isUnverified = latestCode === "native_audio_unverified";
+  const expectedOutcome = latestCode
     ? INDIC_NATIVE_AUDIO_RECHECK_CODES.get(
-        latest.code as "native_audio_wrong_language" | "native_audio_dialogue_drift",
+        latestCode as "native_audio_wrong_language" | "native_audio_dialogue_drift",
       )
     : undefined;
   const options = job.options;
   const qa = options?.guidedNativeAudioQa;
   const board = job.storyboard;
+  const resolvedVideoModel = options?.resolvedVideoModel;
   if (
+    (!isUnverified && expectedOutcome == null) ||
     job.engine !== "topic_to_video" ||
     options?.guidedStoryRenderFlow?.version !== 1 ||
     options.guidedStoryRenderFlow.mode !== "direct_video" ||
     !options.guidedStory ||
     !usesGuidedNativeAudio(options) ||
-    !qa ||
-    qa.version !== 1 ||
-    !["te", "ta", "hi"].includes(qa.expectedLocale) ||
-    options.guidedStory.locale !== qa.expectedLocale ||
-    qa.outcome !== expectedOutcome ||
-    (qa.transcriptionMode != null && qa.transcriptionMode !== "automatic") ||
-    !Number.isInteger(qa.transcriptWordCount) ||
-    qa.transcriptWordCount <= 0 ||
+    !resolvedVideoModel?.provider?.trim() ||
+    !resolvedVideoModel.model?.trim() ||
+    !options.guidedStory.locale ||
+    !FROZEN_GUIDED_NATIVE_AUDIO_LOCALES.has(options.guidedStory.locale) ||
+    (isUnverified
+      ? qa != null &&
+        (
+          qa.version !== 1 ||
+          qa.expectedLocale !== options.guidedStory.locale ||
+          qa.outcome !== "pass"
+        )
+      : !qa ||
+        qa.version !== 1 ||
+        options.guidedStory.locale !== qa.expectedLocale ||
+        qa.outcome !== expectedOutcome ||
+        (qa.transcriptionMode != null && qa.transcriptionMode !== "automatic") ||
+        !Number.isInteger(qa.transcriptWordCount) ||
+        qa.transcriptWordCount <= 0) ||
     !board ||
     board.mode !== "guided_story" ||
     board.scenes.length === 0 ||
@@ -1135,7 +1164,7 @@ function historicalIndicNativeAudioRecheckEligible(
     !Number.isInteger(inventory.units) ||
     inventory.units !== 0
   ) {
-    return false;
+    return null;
   }
   const hasUnmatchedProviderTask = Object.entries(
     options.providerTasks ?? {},
@@ -1151,20 +1180,29 @@ function historicalIndicNativeAudioRecheckEligible(
       task.model !== event.model
     );
   });
-  if (hasUnmatchedProviderTask) return false;
+  if (hasUnmatchedProviderTask) return null;
   const eventIds = new Set<string>();
-  return board.scenes.every((scene) => {
+  if (!board.scenes.every((scene) => {
     const checkpoint = scene.providerCheckpoint;
     const path = checkpoint?.path?.trim();
     const event = checkpoint?.event;
     const eventId = event?.eventId?.trim();
     if (
+      !checkpoint ||
       !path ||
       !path.startsWith(`/objects/${job.tenantId}/`) ||
       !eventId ||
       !event?.provider?.trim() ||
       !event.model?.trim() ||
+      event.provider !== resolvedVideoModel.provider ||
+      event.model !== resolvedVideoModel.model ||
       !event.label?.trim() ||
+      typeof event.durationSec !== "number" ||
+      event.durationSec <= 0 ||
+      event.durationSec !== resolvedVideoModel.durationSec ||
+      checkpoint.provider !== event.provider ||
+      checkpoint.model !== event.model ||
+      checkpoint.durationSec !== event.durationSec ||
       event?.accounted !== true ||
       eventIds.has(eventId)
     ) {
@@ -1172,7 +1210,18 @@ function historicalIndicNativeAudioRecheckEligible(
     }
     eventIds.add(eventId);
     return true;
-  });
+  })) {
+    return null;
+  }
+  return "indic_cross_script_asr_recheck";
+}
+
+function nativeAudioFreshRestartMessage(job: VideoGeneration): string {
+  const code = job.errorHistory?.at(-1)?.code;
+  return code === "native_audio_wrong_language" ||
+    code === "native_audio_dialogue_drift"
+    ? "This completed provider render failed its spoken-audio quality check and cannot reuse the rejected audio. Start a fresh video attempt."
+    : "This completed provider render could not be verified for spoken audio and has no complete saved checkpoints for verification-only recovery. Start a fresh video attempt.";
 }
 
 function usesGuidedNativeAudio(options: VideoJobOptions): boolean {
@@ -1281,7 +1330,7 @@ function serializeVideoJob(
       (job.status === "failed" &&
         RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
         (!requiresFreshRestartAfterNativeAudioFailure(job) ||
-          historicalIndicNativeAudioRecheckEligible(job)) &&
+          nativeAudioVerificationOnlyRecoveryReason(job) != null) &&
         !(
           job.options?.guidedStoryDialogueReplay &&
           Object.values(
@@ -12412,11 +12461,10 @@ router.post(
     }
     if (
       requiresFreshRestartAfterNativeAudioFailure(initial) &&
-      !historicalIndicNativeAudioRecheckEligible(initial)
+      !nativeAudioVerificationOnlyRecoveryReason(initial)
     ) {
       res.status(409).json({
-        error:
-          "This completed provider render failed its spoken-audio quality check and cannot reuse the rejected audio. Start a fresh video attempt.",
+        error: nativeAudioFreshRestartMessage(initial),
         code: "recovery_requires_fresh_restart",
       });
       return;
@@ -12591,17 +12639,18 @@ router.post(
         }
       }
       const lockedInventory = videoRecoveryInventory(source);
-      const verificationOnly =
-        requiresFreshRestartAfterNativeAudioFailure(source) &&
-        historicalIndicNativeAudioRecheckEligible(source, lockedInventory);
+      const verificationOnlyReason =
+        requiresFreshRestartAfterNativeAudioFailure(source)
+          ? nativeAudioVerificationOnlyRecoveryReason(source, lockedInventory)
+          : null;
+      const verificationOnly = verificationOnlyReason !== null;
       if (
         requiresFreshRestartAfterNativeAudioFailure(source) &&
         !verificationOnly
       ) {
         recoveryError = {
           code: "recovery_requires_fresh_restart",
-          message:
-            "This completed provider render failed its spoken-audio quality check and cannot reuse the rejected audio. Start a fresh video attempt.",
+          message: nativeAudioFreshRestartMessage(source),
         };
         return;
       }
@@ -12617,12 +12666,33 @@ router.post(
       const atlasGuidedRecovery =
         source.options?.guidedStory != null &&
         source.options.resolvedVideoModel?.provider === "atlascloud";
-      if (!atlasGuidedRecovery) {
-        recoveryError = verificationOnly
-          ? await validateVerificationOnlyCheckpointObjects(source)
-          : await validateRecoveryObjects(source, lockedInventory);
-        if (recoveryError) return;
+      const verificationStoryboard = source?.storyboard;
+      const verificationGuidedStory = source?.options?.guidedStory;
+      if (verificationOnly && verificationGuidedStory && verificationStoryboard) {
+        const expectedStoryboard = guidedStoryStoryboard(verificationGuidedStory);
+        if (
+          expectedStoryboard.scenes.length !== verificationStoryboard.scenes.length ||
+          expectedStoryboard.scenes.some((expectedScene, index) =>
+            !guidedStorySceneImmutableInputsMatch(
+              verificationStoryboard.scenes[index],
+              expectedScene,
+            ),
+          )
+        ) {
+          recoveryError = {
+            code: "recovery_requires_fresh_restart",
+            message:
+              "The saved storyboard no longer matches the frozen Guided Story inputs. Start a fresh video attempt.",
+          };
+          return;
+        }
       }
+      if (verificationOnly) {
+        recoveryError = await validateVerificationOnlyCheckpointObjects(source);
+      } else if (!atlasGuidedRecovery) {
+        recoveryError = await validateRecoveryObjects(source, lockedInventory);
+      }
+      if (recoveryError) return;
       const tenantJobs = await tx
         .select()
         .from(videoGenerationsTable)
@@ -12856,9 +12926,7 @@ router.post(
     try {
     const options = childJob.options!;
     const verificationOnlyRecovery =
-      options.recovery?.verificationOnly?.version === 1 &&
-      options.recovery.verificationOnly.reason ===
-        "indic_cross_script_asr_recheck";
+      isNativeAudioVerificationOnlyRecovery(options);
     const recoveryLeaseOwner = options.recovery?.creatingLease?.owner;
     const refreshRecoveryCreatingLease = async (): Promise<void> => {
       if (!recoveryLeaseOwner) throw new Error("Retry creating lease is missing.");
@@ -12883,7 +12951,11 @@ router.post(
     await refreshRecoveryCreatingLease();
     const guidedLineageJobId =
       (source as VideoGeneration).options?.recovery?.chainId ?? sourceId;
-    if (atlasGuidedRetry && await rejectDisabledVideoMode(initial.engine, res)) {
+    if (
+      !verificationOnlyRecovery &&
+      atlasGuidedRetry &&
+      await rejectDisabledVideoMode(initial.engine, res)
+    ) {
       await failChild("stopped before funding because this video mode is disabled.");
       return;
     }
@@ -13387,9 +13459,7 @@ router.post(
         return { kind: "insufficient" as const };
       }
       const verificationOnly =
-        childOptions.recovery?.verificationOnly?.version === 1 &&
-        childOptions.recovery.verificationOnly.reason ===
-          "indic_cross_script_asr_recheck";
+        isNativeAudioVerificationOnlyRecovery(childOptions);
       const [fundedChild] = await tx.update(videoGenerationsTable).set({
         options: childOptions,
         funding: verificationOnly ? null : funding,

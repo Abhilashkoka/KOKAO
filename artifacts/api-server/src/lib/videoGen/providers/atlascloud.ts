@@ -7,6 +7,7 @@ import {
   VideoGenProviderError,
   type VideoGenInput,
   type VideoGenResult,
+  type AtlasFailureCategory,
 } from "../types";
 import { isTransientStatus } from "../retry";
 import https from "node:https";
@@ -224,7 +225,17 @@ export function atlasVideoReceipt(prediction: Prediction): {
   };
 }
 
+function categoryForOperation(operation: string): AtlasFailureCategory {
+  if (operation === "generation request") return "submit";
+  if (operation.includes("polling") || operation.includes("refresh")) {
+    return "polling";
+  }
+  return "prediction_unknown";
+}
+
 async function parse(response: Response, operation: string): Promise<Prediction> {
+  const requestId = responseRequestId(response) ?? undefined;
+  const category = categoryForOperation(operation);
   const envelope = await response.json().catch(() => null) as Envelope | null;
   if (!response.ok) {
     const providerDetail = response.status === 402
@@ -233,10 +244,19 @@ async function parse(response: Response, operation: string): Promise<Prediction>
     throw new VideoGenProviderError(
       `Atlas Cloud ${operation} failed (${response.status}): ${providerDetail}`,
       response.status,
+      undefined,
+      requestId,
+      response.status === 402 ? "billing_rejection" : category,
     );
   }
   if (!envelope || !envelope.data || typeof envelope.data !== "object") {
-    throw new VideoGenProviderError(`Atlas Cloud ${operation} returned invalid JSON.`, 502);
+    throw new VideoGenProviderError(
+      `Atlas Cloud ${operation} returned invalid JSON.`,
+      502,
+      undefined,
+      requestId,
+      category,
+    );
   }
   // Atlas returns a numeric application code in its documented envelope. HTTP
   // 200 alone must not be mistaken for an accepted paid generation.
@@ -244,6 +264,9 @@ async function parse(response: Response, operation: string): Promise<Prediction>
     throw new VideoGenProviderError(
       `Atlas Cloud ${operation} failed: ${detail(envelope.message)}`,
       502,
+      undefined,
+      requestId,
+      category,
     );
   }
   return envelope.data;
@@ -371,7 +394,13 @@ export async function pinnedDownload(
 ): Promise<Buffer> {
   const parsed = new URL(url);
   const addresses = await dependencies.resolveHost(parsed.hostname).catch(() => {
-    throw new VideoGenProviderError("Atlas Cloud video output points to a blocked or private host.", 502);
+    throw new VideoGenProviderError(
+      "Atlas Cloud video output points to a blocked or private host.",
+      502,
+      undefined,
+      undefined,
+      "output_download",
+    );
   });
   const uniqueAddresses = addresses.filter(
     (address, index, all) =>
@@ -381,7 +410,13 @@ export async function pinnedDownload(
       ) === index,
   );
   if (uniqueAddresses.length === 0) {
-    throw new VideoGenProviderError("Atlas Cloud video output has no public address.", 502);
+    throw new VideoGenProviderError(
+      "Atlas Cloud video output has no public address.",
+      502,
+      undefined,
+      undefined,
+      "output_download",
+    );
   }
   const overallDeadline = Date.now() + (dependencies.deadlineMs ?? 180_000);
   let lastError: unknown;
@@ -403,7 +438,7 @@ export async function pinnedDownload(
           if (settled) return;
           settled = true;
           if (timer) clearTimeout(timer);
-          reject(new VideoGenProviderError(message, 502));
+          reject(new VideoGenProviderError(message, 502, undefined, undefined, "output_download"));
         };
         try {
           req = dependencies.request({
@@ -466,7 +501,13 @@ export async function pinnedDownload(
   }
   throw lastError instanceof Error
     ? lastError
-    : new VideoGenProviderError("Atlas Cloud video download was blocked or timed out.", 502);
+    : new VideoGenProviderError(
+      "Atlas Cloud video download was blocked or timed out.",
+      502,
+      undefined,
+      undefined,
+      "output_download",
+    );
 }
 
 let pinnedDownloadImpl: AtlasPinnedDownload = pinnedDownload;
@@ -522,14 +563,26 @@ export async function generateWithAtlasCloud(
         !imageMode &&
         !(assetMode && input.assetIds?.length === 1)) ||
       referenceMode && !assetMode) {
-    throw new VideoGenProviderError(`Atlas Cloud only supports the official ${expected} model for this request.`, 400);
+    throw new VideoGenProviderError(
+      `Atlas Cloud only supports the official ${expected} model for this request.`,
+      400,
+      undefined,
+      undefined,
+      "submit",
+    );
   }
   const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
   const deadline = Date.now() + ATLASCLOUD_VIDEO_GEN_TOTAL_DEADLINE_MS;
   let requestId = safeId(input.providerRequestId);
   let taskId = safeId(input.providerTaskId);
   if (input.providerTaskId && !taskId) {
-    throw new VideoGenProviderError("Stored Atlas Cloud prediction id was invalid.", 502);
+    throw new VideoGenProviderError(
+      "Stored Atlas Cloud prediction id was invalid.",
+      502,
+      undefined,
+      undefined,
+      "prediction_unknown",
+    );
   }
   let prediction: Prediction;
   if (taskId) {
@@ -561,6 +614,9 @@ export async function generateWithAtlasCloud(
           throw new VideoGenProviderError(
             "Atlas Cloud submit outcome is uncertain and requires manual reconciliation; it will not be retried.",
             502,
+            undefined,
+            undefined,
+            "submit",
           );
         }
         const submittedRequestId = responseRequestId(response) ?? requestId;
@@ -576,13 +632,21 @@ export async function generateWithAtlasCloud(
     prediction = submitted.prediction;
     requestId = submitted.requestId;
     taskId = safeId(prediction.id);
-    if (!taskId) throw new VideoGenProviderError("Atlas Cloud returned no valid prediction id.", 502);
+    if (!taskId) {
+      throw new VideoGenProviderError(
+        "Atlas Cloud returned no valid prediction id.",
+        502,
+        undefined,
+        requestId ?? undefined,
+        "prediction_unknown",
+      );
+    }
     try {
       await input.onProviderTaskAccepted?.({ taskId, requestId });
     } catch {
       throw new VideoGenProviderError(
         "Atlas Cloud accepted the prediction, but its recovery checkpoint could not be saved.",
-        503, taskId, requestId ?? undefined,
+        503, taskId, requestId ?? undefined, "checkpoint",
       );
     }
   }
@@ -605,7 +669,12 @@ export async function generateWithAtlasCloud(
       if (!(error instanceof VideoGenProviderError) || !isTransientStatus(error.status) || failures >= 3) {
         throw new VideoGenProviderError(
           error instanceof Error ? error.message : "Atlas Cloud prediction polling failed.",
-          error instanceof VideoGenProviderError ? error.status : undefined, taskId, requestId ?? undefined,
+          error instanceof VideoGenProviderError ? error.status : undefined,
+          taskId,
+          requestId ?? undefined,
+          error instanceof VideoGenProviderError
+            ? error.failureCategory ?? "polling"
+            : "polling",
         );
       }
     }
@@ -615,14 +684,36 @@ export async function generateWithAtlasCloud(
     throw new VideoGenProviderError(
       timedOut ? "Atlas Cloud generation timed out before completion." :
         `Atlas Cloud generation did not complete: ${detail(prediction.error ?? prediction.status)}`,
-      undefined, taskId, requestId ?? undefined,
+      undefined,
+      taskId,
+      requestId ?? undefined,
+      timedOut
+        ? "timeout"
+        : ["failed", "error", "cancelled", "canceled"].includes(
+            String(prediction.status).toLowerCase(),
+          )
+          ? "prediction"
+          : "prediction_unknown",
     );
   }
   let buffer: Buffer | null = null;
   let downloadError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const outputs = Array.isArray(prediction.outputs) ? prediction.outputs : [];
-    const url = await safeOutputUrl(outputs[0]);
+    let url: string;
+    try {
+      url = await safeOutputUrl(outputs[0]);
+    } catch (error) {
+      throw new VideoGenProviderError(
+        error instanceof Error
+          ? error.message
+          : "Atlas Cloud returned no valid video output URL.",
+        error instanceof VideoGenProviderError ? error.status : 502,
+        taskId,
+        requestId ?? undefined,
+        "output_download",
+      );
+    }
     try {
       buffer = await download(url);
       break;
@@ -652,9 +743,18 @@ export async function generateWithAtlasCloud(
       downloadError instanceof VideoGenProviderError ? downloadError.status : 502,
       taskId,
       requestId ?? undefined,
+      "output_download",
     );
   }
-  if (!buffer.length) throw new VideoGenProviderError("Atlas Cloud returned an empty video.", 502, taskId);
+  if (!buffer.length) {
+    throw new VideoGenProviderError(
+      "Atlas Cloud returned an empty video.",
+      502,
+      taskId,
+      requestId ?? undefined,
+      "output_download",
+    );
+  }
   return {
     buffer, provider: "atlascloud", model: expected,
     effectiveDurationSec: Math.max(

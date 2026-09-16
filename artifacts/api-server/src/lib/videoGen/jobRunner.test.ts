@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
-import { and } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -162,6 +162,7 @@ const state = vi.hoisted(() => ({
   invokeGuidedAtlasResolver: false,
   guidedAtlasResolvedIds: [] as string[][],
   guidedAtlasAssetCalls: [] as Array<{ characterId: number; includeCharacterSheet?: boolean }>,
+  guidedWanReferenceUrls: [] as string[],
   guidedAtlasBackdropCreates: [] as string[],
   guidedAtlasBackdropDeletes: [] as number[],
   guidedAtlasPredictionTerminal: true,
@@ -232,6 +233,7 @@ vi.mock("../characterAssets", async (importOriginal) => {
         `asset-outfit-${args.characterId}`,
       ];
     }),
+     approvedGuidedReferenceUrls: vi.fn(async () => state.guidedWanReferenceUrls),
   };
 });
 
@@ -964,11 +966,21 @@ import {
   videoGenerationsTable,
   walletBalancesTable,
   walletLedgerTable,
+  videoDeliveryBillingManifestsTable,
+  videoDeliveryBillingItemsTable,
+  usageEventsTable,
   type VideoJobOptions,
   type VideoStoryboard,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { createTenant, deleteTenant, type TestTenant } from "../../test/dbHelpers";
+import {
+  createTenant,
+  deleteTenant,
+  restoreAiSpendSettings,
+  snapshotAiSpendSettings,
+  type TestTenant,
+} from "../../test/dbHelpers";
+import { setAiSpendConfig } from "../aiSpend";
 import { grantCredits } from "../credits";
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { ImageGenProviderError } from "../imageGen";
@@ -1091,6 +1103,7 @@ beforeEach(() => {
   state.invokeGuidedAtlasResolver = false;
   state.guidedAtlasResolvedIds.length = 0;
   state.guidedAtlasAssetCalls.length = 0;
+  state.guidedWanReferenceUrls.length = 0;
   state.guidedAtlasBackdropCreates.length = 0;
   state.guidedAtlasBackdropDeletes.length = 0;
   state.guidedAtlasPredictionTerminal = true;
@@ -3725,8 +3738,9 @@ describe("dialogue_lip_sync runner", () => {
     expect(second.errorHistory?.filter((entry) => entry.providerRequestId === "request-second-5678"))
       .toHaveLength(2);
 
-    // Without a provider request id, separately executed attempts still need
-    // durable identities. Raw provider payloads must never become history.
+    // Without a validated provider request id, separately executed attempts
+    // still need durable identities. Raw provider payloads must never become
+    // history.
     state.topicRenderError = new VideoGenProviderError(
       "provider echoed password=hunter2 token=secret signed_payload=abc input=private",
       503,
@@ -3750,6 +3764,108 @@ describe("dialogue_lip_sync runner", () => {
     )).toBe(true);
     expect(JSON.stringify(fourth.errorHistory)).not.toMatch(/hunter2|secret|signed_payload|private/);
   });
+
+  it.each([
+    {
+      name: "terminal prediction failure",
+      category: "prediction",
+      taskId: "atlas-terminal-task",
+      expectedCode: "atlas_prediction_failed",
+      expectedMessage: /accepted scene task failed/i,
+      raw: "prompt=private hero; signed_url=https://provider.example/out.mp4; request_id=echoed",
+    },
+    {
+      name: "accepted polling failure",
+      category: "polling",
+      taskId: "atlas-polling-task",
+      expectedCode: "atlas_polling_failed",
+      expectedMessage: /could not read the status of the accepted task/i,
+      raw: "provider polling body request_id=echoed",
+    },
+  ] as const)("Atlas structured failure runner: $name", async ({
+    category,
+    taskId,
+    expectedCode,
+    expectedMessage,
+    raw,
+  }) => {
+    const tenant = await newTenant();
+    state.topicPlanMode = "ai";
+    state.topicRenderError = new VideoGenProviderError(
+      `Atlas structured failure ${raw}`,
+      503,
+      taskId,
+      undefined,
+      category,
+    );
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "quota",
+      options: {
+        aspectRatio: "9:16",
+        visualsSource: "ai_video",
+        reviewStoryboard: true,
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "text",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
+          catalogModelId: "atlascloud-seedance-2.5-reference",
+          durationSec: 10,
+          permittedDurationSec: [10],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
+      },
+      storyboard: {
+        version: 1,
+        visualsSource: "ai_video",
+        timelineLocked: true,
+        model: null,
+        provider: null,
+        regenerations: 0,
+        narration: null,
+        scenes: [{
+          id: "s1",
+          text: "Scene one",
+          visual: "A safe fictional scene",
+          durationSec: 4,
+          previewPath: `/objects/${tenant.tenantId}/uploads/s1.png`,
+          outfitId: null,
+        }],
+      },
+    });
+
+    await resumeVideoGenerationJob(job);
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.providerTaskId).toBe(taskId);
+    expect(saved.providerRequestId).toBeNull();
+    expect(saved.error).toMatch(expectedMessage);
+    expect(saved.error).not.toMatch(/private hero|signed_url|request_id=echoed/i);
+    expect(saved.errorHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        jobId: job.id,
+        code: expectedCode,
+        providerRequestId: null,
+        message: expect.stringMatching(expectedMessage),
+      }),
+    ]));
+    expect(JSON.stringify(saved.errorHistory)).not.toMatch(
+      /private hero|signed_url|request_id=echoed/i,
+    );
+    expect(state.topicCheckpointed).toEqual([]);
+    if (category === "polling") {
+      expect(saved.error).toMatch(/no new paid task will be submitted/i);
+      expect(saved.error).not.toMatch(/no Atlas task was accepted|start a fresh attempt/i);
+    }
+  });
+
 });
 
 /* ------------------------------------------------------------------ *
@@ -4230,7 +4346,7 @@ describe("Guided Story preview-only runner", () => {
     expect(saved.storyboard!.scenes).toHaveLength(snapshot.script.scenes.length);
   });
 
-  it("direct-render marker skips the legacy storyboard review pause", async () => {
+  it("direct-render marker skips the legacy storyboard review pause without dispatching or metering", async () => {
     const tenant = await newTenant();
     const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
     snapshot.locale = "en";
@@ -4280,6 +4396,18 @@ describe("Guided Story preview-only runner", () => {
 
     const providerCallsAfterFirstRender = state.topicCheckpointed.length;
     const resumedOptions = structuredClone(saved.options!);
+    // The generic renderer mock uses a different provider/model and duration.
+    // Bind this recovery fixture to the actual frozen native-audio contract.
+    for (const scene of saved.storyboard!.scenes) {
+      const checkpoint = scene.providerCheckpoint!;
+      const receipt = {
+        provider: resumedOptions.resolvedVideoModel!.provider,
+        model: resumedOptions.resolvedVideoModel!.model,
+        durationSec: resumedOptions.resolvedVideoModel!.durationSec,
+      };
+      Object.assign(checkpoint, receipt);
+      Object.assign(checkpoint.event!, receipt, { accounted: true });
+    }
     resumedOptions.billingPolicyVersion = 2;
     resumedOptions.recovery = {
       version: 1,
@@ -4295,6 +4423,7 @@ describe("Guided Story preview-only runner", () => {
         reason: "indic_cross_script_asr_recheck",
       },
     };
+    const usageBeforeRecovery = state.usage.length;
     const resumed = await seedJob(tenant.tenantId, {
       engine: "topic_to_video",
       storyboard: saved.storyboard,
@@ -4308,7 +4437,148 @@ describe("Guided Story preview-only runner", () => {
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
     expect(state.asrCalls).toBe(2);
     expect(state.deliveryReconciliations).toEqual([]);
+    expect(state.usage).toHaveLength(usageBeforeRecovery);
+
+    for (const invalidContract of ["snapshot", "flow", "audio"] as const) {
+      const invalidOptions = structuredClone(resumedOptions);
+      if (invalidContract === "snapshot") delete invalidOptions.guidedStory;
+      if (invalidContract === "flow") delete invalidOptions.guidedStoryRenderFlow;
+      if (invalidContract === "audio") invalidOptions.resolvedVideoModel!.generateAudio = false;
+      const invalid = await seedJob(tenant.tenantId, {
+        engine: "topic_to_video",
+        storyboard: saved.storyboard,
+        options: invalidOptions,
+      });
+      await runVideoGenerationJob(invalid.id, "quota");
+      expect((await readJob(invalid.id)).status, invalidContract).toBe("failed");
+      expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
+      expect(state.asrCalls).toBe(2);
+      expect(state.dialogueSpeech).toHaveLength(speechCallsBefore);
+      expect(state.usage).toHaveLength(usageBeforeRecovery);
+    }
   });
+
+  it.each(["quota", "wallet"] as const)(
+    "skips v2 delivery billing for verification-only recovery from %s funding",
+    async (funding) => {
+      const tenant = await newTenant();
+      const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+      snapshot.locale = "en";
+      state.guidedInitialBoard = guidedStoryStoryboard(snapshot);
+      state.topicPlanMode = "ai";
+      state.guidedPreviewGenerationEnabled = true;
+
+      const source = await seedJob(tenant.tenantId, {
+        engine: "topic_to_video",
+        storyboard: null,
+        options: directNativeOptions(snapshot),
+      });
+      await runVideoGenerationJob(source.id, "quota");
+
+      const completedSource = await readJob(source.id);
+      expect(completedSource.status, completedSource.error ?? undefined).toBe("succeeded");
+      expect(completedSource.storyboard?.scenes[0]?.providerCheckpoint).toBeTruthy();
+
+      const childOptions = structuredClone(completedSource.options!);
+      // Deliberately preserve an inherited provider receipt with no known cost.
+      // The old v2 path froze this as a pending manifest before the recovery
+      // could succeed, leaving the settlement sweep to charge it later.
+      for (const scene of completedSource.storyboard!.scenes) {
+        const checkpoint = scene.providerCheckpoint!;
+        const receipt = {
+          provider: childOptions.resolvedVideoModel!.provider,
+          model: childOptions.resolvedVideoModel!.model,
+          durationSec: childOptions.resolvedVideoModel!.durationSec,
+        };
+        Object.assign(checkpoint, receipt);
+        Object.assign(checkpoint.event!, receipt, { accounted: true });
+      }
+      expect(childOptions.guidedStory!.locale).toBe("en");
+      expect(
+        completedSource.storyboard!.scenes[0]!.providerCheckpoint!.event?.costPaise,
+      ).toBeNull();
+      childOptions.billingPolicyVersion = 2;
+      childOptions.recovery = {
+        version: 1,
+        chainId: source.id,
+        sourceJobId: source.id,
+        fundedUnits: 0,
+        mode: "resume",
+        state: "queued",
+        reusable: ["saved scene checkpoints"],
+        regenerated: ["local composition and speech verification"],
+        verificationOnly: {
+          version: 1,
+          reason: "indic_cross_script_asr_recheck",
+        },
+      };
+
+      const spendSnapshot = await snapshotAiSpendSettings();
+      const changedFeePercent = spendSnapshot?.feePercent === 73 ? 74 : 73;
+      try {
+        // A changed fee must not make a verification-only child enter the
+        // delivery finalizer; it is not a new billable delivery.
+        await setAiSpendConfig({
+          captionCostPaise: spendSnapshot?.captionCostPaise ?? 0,
+          imageCostPaise: spendSnapshot?.imageCostPaise ?? 0,
+          videoCostPaise: spendSnapshot?.videoCostPaise ?? 0,
+          feePercent: changedFeePercent,
+          displayMode: spendSnapshot?.displayMode ?? "flat",
+          marginPercent: spendSnapshot?.marginPercent ?? 0,
+        });
+
+        const usageRowsBefore = await db.select().from(usageEventsTable)
+          .where(eq(usageEventsTable.tenantId, tenant.tenantId));
+        const walletRowsBefore = await db.select().from(walletLedgerTable)
+          .where(eq(walletLedgerTable.tenantId, tenant.tenantId));
+        const walletBalancesBefore = await db.select().from(walletBalancesTable)
+          .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+        const usageBefore = [...state.usage];
+        const walletSettlementsBefore = [...state.walletSettlements];
+        const child = await seedJob(tenant.tenantId, {
+          engine: "topic_to_video",
+          funding,
+          storyboard: completedSource.storyboard,
+          options: childOptions,
+        });
+
+        await runVideoGenerationJob(child.id, funding);
+
+        const completedChild = await readJob(child.id);
+        expect(completedChild.status, completedChild.error ?? undefined).toBe("succeeded");
+        expect(completedChild.spendPaise).toBe(0);
+        expect(state.usage).toEqual(usageBefore);
+        expect(state.walletSettlements).toEqual(walletSettlementsBefore);
+        expect(
+          await db.select().from(usageEventsTable)
+            .where(eq(usageEventsTable.tenantId, tenant.tenantId)),
+        ).toEqual(usageRowsBefore);
+        expect(
+          await db.select().from(walletLedgerTable)
+            .where(eq(walletLedgerTable.tenantId, tenant.tenantId)),
+        ).toEqual(walletRowsBefore);
+        expect(
+          await db.select().from(walletBalancesTable)
+            .where(eq(walletBalancesTable.tenantId, tenant.tenantId)),
+        ).toEqual(walletBalancesBefore);
+        expect(
+          await db.select().from(videoDeliveryBillingManifestsTable)
+            .where(eq(videoDeliveryBillingManifestsTable.completedJobId, child.id)),
+        ).toEqual([]);
+        expect(
+          await db.select().from(videoDeliveryBillingItemsTable).where(
+            sql`${videoDeliveryBillingItemsTable.manifestId} in (
+              select id from video_delivery_billing_manifests
+              where completed_job_id = ${child.id}
+            )`,
+          ),
+        ).toEqual([]);
+        expect(state.deliveryReconciliations).toEqual([]);
+      } finally {
+        await restoreAiSpendSettings(spendSnapshot);
+      }
+    },
+  );
 
   it("blocks verification-only recovery before provider dispatch when a scene checkpoint is missing", async () => {
     const tenant = await newTenant();
@@ -4625,6 +4895,122 @@ describe("Guided Story preview-only runner", () => {
     expect(resumedSaved.status, resumedSaved.error ?? undefined).toBe("succeeded");
     expect(state.guidedAtlasAssetCalls).toHaveLength(resolverCallsAfterFirstRender);
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
+  });
+
+  it("direct Wan rendering uses approved HTTPS references without Atlas mappings", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    Object.assign(snapshot.cast[0], {
+      referenceSource: "generated",
+      requiresAtlasAsset: false,
+      atlasApprovedReferenceSheetPath: `/objects/${tenant.tenantId}/hero-sheet.png`,
+      atlasApprovedReferenceSheetSha256: "c".repeat(64),
+    });
+    snapshot.videoModel = {
+      provider: "atlascloud",
+      model: "alibaba/wan-3.0-prime/reference-to-video",
+    };
+    state.guidedWanReferenceUrls.push(
+      "https://storage.example/approved-hero-sheet.png",
+      "https://storage.example/approved-hero-outfit.png",
+    );
+    state.topicPlanMode = "ai";
+    state.invokeGuidedAtlasResolver = true;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        guidedStory: snapshot,
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        generateAudio: true,
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "text",
+          provider: "atlascloud",
+          model: "alibaba/wan-3.0-prime/reference-to-video",
+          catalogModelId: "atlascloud-wan-3.0-prime-reference",
+          durationSec: 10,
+          permittedDurationSec: [10],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status, saved.error ?? undefined).toBe("succeeded");
+    expect(state.guidedAtlasResolvedIds).toEqual([[
+      "https://storage.example/approved-hero-sheet.png",
+      "https://storage.example/approved-hero-outfit.png",
+      expect.stringContaining("/signed/"),
+    ]]);
+    expect(state.guidedAtlasAssetCalls).toEqual([]);
+  });
+
+  it("invalid approved Wan URLs stop before Atlas mappings or paid render", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    Object.assign(snapshot.cast[0], {
+      referenceSource: "generated",
+      requiresAtlasAsset: false,
+      atlasApprovedReferenceSheetPath: `/objects/${tenant.tenantId}/hero-sheet.png`,
+      atlasApprovedReferenceSheetSha256: "c".repeat(64),
+    });
+    snapshot.videoModel = {
+      provider: "atlascloud",
+      model: "alibaba/wan-3.0-prime/reference-to-video",
+    };
+    state.topicPlanMode = "ai";
+    state.invokeGuidedAtlasResolver = true;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        guidedStory: snapshot,
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        generateAudio: true,
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "text",
+          provider: "atlascloud",
+          model: "alibaba/wan-3.0-prime/reference-to-video",
+          catalogModelId: "atlascloud-wan-3.0-prime-reference",
+          durationSec: 10,
+          permittedDurationSec: [10],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("failed");
+    expect(saved.errorHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        jobId: job.id,
+        code: "video_input_invalid",
+        providerRequestId: null,
+      }),
+    ]));
+    expect(state.guidedAtlasResolvedIds).toEqual([]);
+    expect(state.guidedAtlasAssetCalls).toEqual([]);
+    expect(state.guidedAtlasBackdropCreates).toEqual([]);
+    expect(state.guidedAtlasBackdropDeletes).toEqual([]);
+    expect(state.topicCheckpointed).toEqual([]);
+    expect(state.usage).toEqual([]);
   });
 
   it("retains owned backdrops until accepted Atlas predictions are terminal, then deletes idempotently", async () => {

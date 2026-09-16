@@ -728,13 +728,24 @@ export function guidedStorySceneImmutableInputsMatch(
     inconsistencyFlags: _expectedInconsistencyFlags,
     ...expectedGuided
   } = expected.guidedStory;
+  const withoutUndefined = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(withoutUndefined);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value)
+          .filter(([, child]) => child !== undefined)
+          .map(([key, child]) => [key, withoutUndefined(child)]),
+      );
+    }
+    return value;
+  };
   return (
     actual.id === expected.id &&
     actual.text === expected.text &&
     actual.visual === expected.visual &&
     actual.durationSec === expected.durationSec &&
     actual.outfitId === expected.outfitId &&
-    isDeepStrictEqual(actualGuided, expectedGuided)
+    isDeepStrictEqual(withoutUndefined(actualGuided), withoutUndefined(expectedGuided))
   );
 }
 

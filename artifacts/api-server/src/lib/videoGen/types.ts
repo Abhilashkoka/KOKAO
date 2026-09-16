@@ -180,6 +180,17 @@ export interface VideoGenResult {
   videoTokens?: number;
 }
 
+/** Safe Atlas adapter failure categories used for durable job diagnostics. */
+export type AtlasFailureCategory =
+  | "submit"
+  | "billing_rejection"
+  | "polling"
+  | "timeout"
+  | "checkpoint"
+  | "prediction"
+  | "prediction_unknown"
+  | "output_download";
+
 /** Receipt fields that must survive every video composition/checkpoint wrapper. */
 export type VideoGenReceipt = Pick<
   VideoGenResult,
@@ -211,6 +222,7 @@ export class VideoGenProviderError extends Error {
     public readonly status?: number,
     public readonly providerTaskId?: string,
     public readonly requestId?: string,
+    public readonly failureCategory?: AtlasFailureCategory,
   ) {
     super(message);
     this.name = "VideoGenProviderError";

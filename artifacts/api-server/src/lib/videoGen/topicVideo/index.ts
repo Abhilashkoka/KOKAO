@@ -1794,6 +1794,8 @@ export async function renderTopicStoryboard(params: {
   guidedStory?: VideoJobOptions["guidedStory"] | null;
   /** Exact-marker direct Guided flow: native clip audio, no narration/TTS. */
   directNativeAudio?: boolean;
+  /** Verification-only recovery must fail closed instead of regenerating a missing clip. */
+  requireSavedClips?: boolean;
   /** Reads narration audio and preview stills back from tenant storage. */
   load: (objectPath: string) => Promise<Buffer>;
   onStage?: (stage: string) => void;
@@ -1850,11 +1852,19 @@ export async function renderTopicStoryboard(params: {
     }),
   );
   const savedClips = await Promise.all(
-    board.scenes.map((scene) =>
-      scene.providerCheckpoint?.path
-        ? params.load(scene.providerCheckpoint.path).catch(() => null)
-        : Promise.resolve(null),
-    ),
+    board.scenes.map(async (scene) => {
+      if (!scene.providerCheckpoint?.path) return null;
+      try {
+        return await params.load(scene.providerCheckpoint.path);
+      } catch {
+        if (params.requireSavedClips) {
+          throw new VideoGenProviderError(
+            `A saved verification-only scene checkpoint could not be loaded; no video provider call was made.`,
+          );
+        }
+        return null;
+      }
+    }),
   );
   if (stills.some((still) => still === null)) {
     // The plan's stills ARE the render's inputs, so a missing one cannot be

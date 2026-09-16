@@ -2254,6 +2254,13 @@ describe("Video Studio", () => {
       renderPage();
       const user = userEvent.setup();
 
+      // Atlas output-download failures are safe to recover from without
+      // another paid submit. Keep the durable history traceable to the job
+      // even when Atlas did not return a provider request ID, and never render
+      // the null value as if it were a usable identifier.
+      expect(screen.getByText("Job-wide error history · Job #68999")).toBeTruthy();
+      expect(screen.getByText(/Provider request ID: not recorded/)).toBeTruthy();
+      expect(screen.queryByText(/Provider request ID: null/)).toBeNull();
       expect(screen.getByText("Atlas videos are ready to recover")).toBeTruthy();
       expect(screen.getByText(/will not submit another paid Atlas generation request/i)).toBeTruthy();
       expect(screen.queryByTestId("button-edit-failed-guided-story")).toBeNull();

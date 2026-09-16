@@ -423,3 +423,17 @@ mtime_ms = 1788961670357
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/a6762027-9a4b-44fa-bcc4-5a862c0b8cac/01acc31d-ff4c-4b7c-a834-1b8f00bded42"
 storage_version_token = "1788961759238958"
 content_type = "text/csv"
+
+[[outputs]]
+id = "JoGnhlu6_--Kg7vi8pwtW"
+uri = "file://downloads/job-85967/atlas-video-unverified.mp4"
+type = "video"
+title = "Job #85967 — Download Atlas video"
+description = "18-second MP4 assembled from the three saved Atlas clips in storyboard order, with original audio. Speech verification is incomplete; this is not a QA-approved final delivery."
+logical_id = "716f2119-5351-4c53-a320-70ea182d20e5"
+content_hash = "sha256:aae7d80e517a8d644b4d9cbd8283aff24729fba02d8a65fc4b906ca7761c6491"
+size = 80383851
+mtime_ms = 1789573065830
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/716f2119-5351-4c53-a320-70ea182d20e5/7da28d12-fc43-4e3c-ab40-508d2fc8a289"
+storage_version_token = "1789573121106274"
+content_type = "video/mp4"

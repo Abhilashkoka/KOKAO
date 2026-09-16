@@ -8347,14 +8347,25 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
   async function seedHistoricalIndicNativeAudioFailure(
     tenantId: number,
     corruption?: "missing_checkpoint" | "duplicate_event",
+    overrides?: {
+      locale?: "en" | "te" | "ta" | "hi";
+      sceneCount?: number;
+      errorCode?:
+        | "native_audio_wrong_language"
+        | "native_audio_dialogue_drift"
+        | "native_audio_unverified";
+    },
   ) {
-    const sceneCount = corruption === "duplicate_event" ? 2 : 1;
+    const sceneCount =
+      overrides?.sceneCount ?? (corruption === "duplicate_event" ? 2 : 1);
+    const locale = overrides?.locale ?? "te";
+    const errorCode = overrides?.errorCode ?? "native_audio_dialogue_drift";
     const guidedStory: NonNullable<VideoJobOptions["guidedStory"]> = {
       version: 1,
       draftId: 73061,
       draftRevision: 1,
       scriptApprovedAt: "2026-01-01T00:00:00.000Z",
-      locale: "te",
+       locale,
       platform: {
         id: "tiktok",
         aspectRatio: "9:16",
@@ -8444,18 +8455,22 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
         generateAudio: true,
         supportsEndFrame: false,
       },
-      guidedNativeAudioQa: {
-        version: 1,
-        checkedAt: "2026-01-01T00:00:01.000Z",
-        asrProvider: "groq",
-        asrModel: "whisper-large-v3",
-        expectedLocale: "te",
-        providerDetectedLocale: "ta",
-        transcriptDetectedLocale: "ta",
-        transcriptWordCount: 8,
-        dialogueSimilarity: 0.2,
-        outcome: "dialogue_drift",
-      },
+      ...(errorCode === "native_audio_unverified"
+        ? {}
+        : {
+            guidedNativeAudioQa: {
+              version: 1 as const,
+              checkedAt: "2026-01-01T00:00:01.000Z",
+              asrProvider: "groq",
+              asrModel: "whisper-large-v3",
+              expectedLocale: locale,
+              providerDetectedLocale: "ta",
+              transcriptDetectedLocale: "ta",
+              transcriptWordCount: 8,
+              dialogueSimilarity: 0.2,
+              outcome: "dialogue_drift" as const,
+            },
+          }),
     };
     return (
       await db.insert(videoGenerationsTable).values({
@@ -8479,12 +8494,12 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
           provider: "atlascloud",
           model: "bytedance/seedance-2.5/reference-to-video",
           providerRequestId: null,
-          code: "native_audio_dialogue_drift",
+          code: errorCode,
           message: "Structured historical native-audio failure.",
           attempt: 1,
           recoveryAttempt: 0,
           outcome: "stopped",
-          fingerprint: "historical-indic-dialogue-drift",
+          fingerprint: `historical-native-${errorCode}`,
         }],
       }).returning()
     )[0]!;
@@ -8564,6 +8579,52 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       jobId: child!.id,
       funding: "quota",
     });
+  });
+
+  it("allows native-audio-unverified verification-only recovery for a complete English 3-scene render", async () => {
+    const tenant = await newTenant("pro");
+    const source = await seedHistoricalIndicNativeAudioFailure(tenant.tenantId, undefined, {
+      locale: "en",
+      sceneCount: 3,
+      errorCode: "native_audio_unverified",
+    });
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/retry`);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.units).toBe(0);
+    expect(response.body.recovery.verificationOnly).toEqual({
+      version: 1,
+      reason: "indic_cross_script_asr_recheck",
+    });
+    const [child] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, response.body.id));
+    expect(child?.options?.recovery?.verificationOnly).toEqual({
+      version: 1,
+      reason: "indic_cross_script_asr_recheck",
+    });
+    expect(child?.funding).toBeNull();
+    expect(child?.options?.providerTasks).toHaveProperty("topic_animation:2");
+  });
+
+  it("rejects native-audio-unverified recovery when persisted QA already contains a content failure", async () => {
+    const tenant = await newTenant("pro");
+    const source = await seedHistoricalIndicNativeAudioFailure(tenant.tenantId);
+    await db.update(videoGenerationsTable).set({
+      errorHistory: [{
+        ...source.errorHistory![0]!,
+        code: "native_audio_unverified",
+      }],
+    }).where(eq(videoGenerationsTable.id, source.id));
+
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/retry`);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      code: "recovery_requires_fresh_restart",
+    });
+    expect(response.body.error).toMatch(/could not be verified for spoken audio/i);
   });
 
   it.each([

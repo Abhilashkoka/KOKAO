@@ -253,9 +253,16 @@ describe("Atlas Cloud Seedance 2.5", () => {
       throw new Error(`unexpected URL ${url}`);
     });
     vi.stubGlobal("fetch", fetch);
-    const generation = generateWithAtlasCloud({ ...input, providerTaskId: "prediction-existing" }, "secret");
+    const generation = generateWithAtlasCloud({
+      ...input,
+      providerTaskId: "prediction-existing",
+      providerRequestId: "atlas-resume-request",
+    }, "secret");
     await vi.advanceTimersByTimeAsync(5000);
-    await expect(generation).resolves.toMatchObject({ providerTaskId: "prediction-existing" });
+    await expect(generation).resolves.toMatchObject({
+      providerTaskId: "prediction-existing",
+      providerRequestId: "atlas-resume-request",
+    });
     expect(fetch.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
   });
 
@@ -309,7 +316,13 @@ describe("Atlas Cloud Seedance 2.5", () => {
     const accepted = vi.fn(async () => {});
     const fetch = vi.fn(async () => new Response(
       JSON.stringify({ message: "unknown provider error" }),
-      { status: 402, headers: { "Content-Type": "application/json" } },
+      {
+        status: 402,
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-id": "atlas-billing-84337",
+        },
+      },
     ));
     vi.stubGlobal("fetch", fetch);
 
@@ -320,6 +333,8 @@ describe("Atlas Cloud Seedance 2.5", () => {
       onProviderTaskAccepted: accepted,
     }, "secret")).rejects.toMatchObject({
       status: 402,
+      requestId: "atlas-billing-84337",
+      failureCategory: "billing_rejection",
       message: expect.stringMatching(/insufficient provider credits|unavailable billing/i),
     });
 
@@ -327,6 +342,79 @@ describe("Atlas Cloud Seedance 2.5", () => {
     expect(submitStarted).toHaveBeenCalledTimes(1);
     expect(submitRejected).toHaveBeenCalledTimes(1);
     expect(accepted).not.toHaveBeenCalled();
+  });
+
+  it("retains correlation for a terminal provider prediction failure", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/generateVideo")) {
+        return new Response(JSON.stringify({
+          code: 0,
+          data: {
+            id: "prediction-terminal",
+            status: "failed",
+            error: "provider-internal-detail",
+          },
+        }), { headers: { "x-request-id": "atlas-submit-terminal" } });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const generation = generateWithAtlasCloud(input, "secret");
+    await expect(generation).rejects.toMatchObject({
+      providerTaskId: "prediction-terminal",
+      requestId: "atlas-submit-terminal",
+      failureCategory: "prediction",
+    });
+    expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("does not label an unrecognized prediction status as a confirmed failure", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      code: 0,
+      data: { id: "prediction-unknown", status: "provider-review" },
+    }), { headers: { "x-request-id": "atlas-unknown-status" } }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(generateWithAtlasCloud(input, "secret")).rejects.toMatchObject({
+      providerTaskId: "prediction-unknown",
+      requestId: "atlas-unknown-status",
+      failureCategory: "prediction_unknown",
+    });
+  });
+
+  it("does not invent an Atlas request id from provider text", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      code: 0,
+      data: {
+        id: "prediction-no-request-header",
+        status: "failed",
+        error: "request_id=echoed-but-not-authoritative",
+      },
+    })));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(generateWithAtlasCloud(input, "secret")).rejects.toMatchObject({
+      providerTaskId: "prediction-no-request-header",
+      requestId: undefined,
+      failureCategory: "prediction",
+    });
+  });
+
+  it("classifies missing completed output as an output-download failure", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      code: 0,
+      data: { id: "prediction-no-output", status: "completed", outputs: [] },
+    }), { headers: { "x-request-id": "atlas-no-output" } }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(generateWithAtlasCloud(input, "secret")).rejects.toMatchObject({
+      providerTaskId: "prediction-no-output",
+      requestId: "atlas-no-output",
+      failureCategory: "output_download",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("pins lookup to the validated address while preserving the TLS hostname", async () => {

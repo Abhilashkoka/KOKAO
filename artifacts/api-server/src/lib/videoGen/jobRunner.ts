@@ -217,6 +217,18 @@ import {
   NativeAudioQualityError,
 } from "./nativeAudioGate";
 
+const NATIVE_AUDIO_VERIFICATION_ONLY_REASONS = new Set([
+  "indic_cross_script_asr_recheck",
+] as const);
+
+function isNativeAudioVerificationOnlyRecovery(
+  options: VideoJobOptions | null | undefined,
+): boolean {
+  const marker = options?.recovery?.verificationOnly;
+  return marker?.version === 1 &&
+    NATIVE_AUDIO_VERIFICATION_ONLY_REASONS.has(marker.reason);
+}
+
 /**
  * Executes one queued video_generations row to completion. Runs inside an
  * in-process background job (lib/backgroundJobs.ts) after the enqueue request
@@ -1213,7 +1225,25 @@ export async function cleanupGuidedAtlasBackdropAssets(
   return cleaned;
 }
 /** Never persist arbitrary provider payloads/tokens in the customer-visible audit. */
+const SAFE_VIDEO_INPUT_HISTORY_MESSAGE =
+  "The saved video inputs are no longer valid. Review the approved references, frozen storyboard, and provider settings, then retry.";
+
 function safeVideoErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof VideoJobInputError) {
+    // This error is raised by application-authored, fail-closed input checks.
+    // Preserve their actionable guidance unless a future check accidentally
+    // embeds a path, prompt, or other user/provider detail.
+    const authoredMessage = error.message;
+    if (
+      /https?:\/\/|\/objects\/|signed[_ -]?url|(?:password|secret|token)\s*[:=]/i.test(
+        authoredMessage,
+      ) ||
+      /creative brief issues.*["']/i.test(authoredMessage)
+    ) {
+      return SAFE_VIDEO_INPUT_HISTORY_MESSAGE;
+    }
+    return authoredMessage;
+  }
   if (error instanceof VideoGenNotConfiguredError) {
     // This class is created only from application-authored configuration
     // checks, never from arbitrary provider response bodies.
@@ -1231,6 +1261,44 @@ function safeVideoErrorMessage(error: unknown, fallback: string): string {
       : null;
     return `OpenRouter rejected${inputIndex == null ? " an input image" : ` input image ${inputIndex}`} because it may depict an identifiable real person. Use a fictional or more stylized generated scene, or choose a different image.`;
   }
+  if (error instanceof VideoGenProviderError && error.failureCategory) {
+    const acceptedTask = Boolean(error.providerTaskId);
+    switch (error.failureCategory) {
+      case "submit":
+        return error.status != null &&
+          error.status >= 400 &&
+          error.status < 500 &&
+          error.status !== 408
+          ? "Atlas Cloud rejected this scene before a task was accepted. Review the saved inputs or provider account, then start a fresh attempt."
+          : "Atlas Cloud could not confirm the submit outcome. Do not submit this scene again automatically; reconcile the provider state before starting a fresh attempt.";
+      case "billing_rejection":
+        return acceptedTask
+          ? "Atlas Cloud billing rejected a status request for an already accepted task. Verify Atlas provider credits, then retry this job to continue the saved task; no new paid task will be submitted."
+          : "Atlas Cloud could not start this scene because the configured provider account has insufficient credits or unavailable billing. No Atlas task was accepted. Add Atlas provider credits or select another video provider, then start a fresh attempt.";
+      case "polling":
+        return acceptedTask
+          ? "Atlas Cloud could not read the status of the accepted task. Retry this job to continue polling the saved task; no new paid task will be submitted."
+          : "Atlas Cloud could not read the provider prediction status. Retry after checking the provider state; no new paid submission will be made automatically.";
+      case "timeout":
+        return acceptedTask
+          ? "Atlas Cloud is still processing an accepted scene. Retry this job to continue polling the saved provider task; KOKAO will not submit that scene again."
+          : "Atlas Cloud did not complete the scene before the polling deadline. Review the provider state before starting a fresh attempt.";
+      case "checkpoint":
+        return "Atlas Cloud accepted this scene, but its recovery checkpoint could not be saved. Do not submit it again; reconcile the accepted provider task before retrying.";
+      case "prediction":
+        return acceptedTask
+          ? "Atlas Cloud reported that the accepted scene task failed. Review the provider task, then start a fresh attempt only after confirming the failed task is terminal."
+          : "Atlas Cloud reported an unsuccessful prediction. Review the provider state before starting a fresh attempt.";
+      case "prediction_unknown":
+        return acceptedTask
+          ? "Atlas Cloud returned an unknown status for the accepted scene task. Retry this job to continue polling the saved task; no new paid task will be submitted."
+          : "Atlas Cloud returned an unknown prediction status. Review the provider state before starting a fresh attempt.";
+      case "output_download":
+        return acceptedTask
+          ? "Atlas Cloud accepted this scene, but its output could not be downloaded. Retry this job to reuse the saved task; no new paid task will be submitted."
+          : "Atlas Cloud produced an unusable output. Review the provider state before starting a fresh attempt.";
+    }
+  }
   if (error instanceof VideoGenProviderError && error.status === 402) {
     return "Atlas Cloud could not start this scene because the configured provider account has insufficient credits or unavailable billing. No Atlas task was accepted. Add Atlas provider credits or select another video provider, then start a fresh attempt.";
   }
@@ -1246,6 +1314,14 @@ function safeVideoErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function safeVideoHistoryMessage(error: unknown, fallback: string): string {
+  // There are many application-authored input checks, some of which include
+  // persisted IDs or user-authored terms. Keep history fixed and redact-proof
+  // rather than relying on a denylist that can drift as checks are added.
+  if (error instanceof VideoJobInputError) return SAFE_VIDEO_INPUT_HISTORY_MESSAGE;
+  return safeVideoErrorMessage(error, fallback);
+}
+
 function normalizedRequestId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -1253,10 +1329,19 @@ function normalizedRequestId(value: unknown): string | null {
 }
 
 function providerRequestIdFromError(error: unknown): string | null {
+  // Atlas adapter errors expose only the validated response correlation id.
+  // Never mine their sanitized/fallback message for a token: provider bodies
+  // can echo arbitrary request-looking text that is not authoritative.
+  if (error instanceof VideoGenProviderError && error.failureCategory) {
+    return normalizedRequestId(error.requestId);
+  }
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current && typeof current === "object"; depth++) {
+    if (current instanceof VideoGenProviderError && current.failureCategory) {
+      return normalizedRequestId(current.requestId);
+    }
     const record = current as Record<string, unknown>;
-    const value = record.requestId ?? record.request_id ?? record.traceId ??
+    const value = record.providerRequestId ?? record.requestId ?? record.request_id ?? record.traceId ??
       (record.response as Record<string, unknown> | undefined)?.requestId;
     const normalized = normalizedRequestId(value);
     if (normalized) return normalized;
@@ -1271,6 +1356,9 @@ function providerRequestIdFromError(error: unknown): string | null {
 }
 
 function safeFailureCode(error: unknown): string | null {
+  if (error instanceof VideoJobInputError) {
+    return "video_input_invalid";
+  }
   if (error instanceof VideoModelResolutionError) {
     return error.code;
   }
@@ -1285,6 +1373,26 @@ function safeFailureCode(error: unknown): string | null {
   }
   if (error instanceof VideoGenNotConfiguredError) {
     return "provider_not_configured";
+  }
+  if (error instanceof VideoGenProviderError && error.failureCategory) {
+    switch (error.failureCategory) {
+      case "submit":
+        return "atlas_submit_failed";
+      case "billing_rejection":
+        return "atlas_billing_rejected";
+      case "polling":
+        return "atlas_polling_failed";
+      case "timeout":
+        return "atlas_timeout";
+      case "checkpoint":
+        return "atlas_checkpoint_failed";
+      case "prediction":
+        return "atlas_prediction_failed";
+      case "prediction_unknown":
+        return "atlas_prediction_unknown";
+      case "output_download":
+        return "atlas_output_download_failed";
+    }
   }
   if (
     error instanceof VideoGenProviderError &&
@@ -1399,7 +1507,7 @@ function failureEntry(params: {
     providerRequestId: requestId, code,
     message: notAttempted
       ? `Not attempted because an earlier scene stopped Job #${params.job.id}.`
-      : safeVideoErrorMessage(
+      : safeVideoHistoryMessage(
           params.error,
           "Video generation failed. Please try again.",
         ),
@@ -1963,17 +2071,29 @@ async function fitGuidedReplayWavToSlot(wav: Buffer, targetMs: number): Promise<
   }
 }
 
-async function produceVideo(
-  job: VideoGeneration,
-  onStage: (stage: string) => void,
-): Promise<ProduceResult> {
+async function validateNativeAudioRecoveryInputs(job: VideoGeneration): Promise<void> {
   const options = job.options ?? { aspectRatio: "9:16" as const };
-  const verificationOnly =
-    options.recovery?.verificationOnly?.version === 1 &&
-    options.recovery.verificationOnly.reason ===
-      "indic_cross_script_asr_recheck";
+  const verificationOnly = isNativeAudioVerificationOnlyRecovery(options);
   if (verificationOnly) {
     const board = job.storyboard;
+    const resolvedVideoModel = options.resolvedVideoModel;
+    const expectedStoryboard = options.guidedStory
+      ? guidedStoryStoryboard(options.guidedStory)
+      : null;
+    const boardInputsMismatch =
+      !board ||
+      !expectedStoryboard ||
+      !usesGuidedProviderSpeechOptions(options) ||
+      (expectedStoryboard != null &&
+        (
+          expectedStoryboard.scenes.length !== board.scenes.length ||
+          expectedStoryboard.scenes.some((expectedScene, index) =>
+            !guidedStorySceneImmutableInputsMatch(
+              board.scenes[index],
+              expectedScene,
+            ),
+          )
+        ));
     const eventIds = new Set<string>();
     const invalidScene = board?.scenes.find((scene) => {
       const checkpoint = scene.providerCheckpoint;
@@ -1981,12 +2101,23 @@ async function produceVideo(
       const event = checkpoint?.event;
       const eventId = event?.eventId?.trim();
       const invalid =
+        !checkpoint ||
         !path ||
         !path.startsWith(`/objects/${job.tenantId}/`) ||
         !eventId ||
         !event?.provider?.trim() ||
         !event.model?.trim() ||
+        !resolvedVideoModel?.provider?.trim() ||
+        !resolvedVideoModel.model?.trim() ||
+        event.provider !== resolvedVideoModel.provider ||
+        event.model !== resolvedVideoModel.model ||
         !event.label?.trim() ||
+        typeof event.durationSec !== "number" ||
+        event.durationSec <= 0 ||
+        event.durationSec !== resolvedVideoModel.durationSec ||
+        checkpoint.provider !== event.provider ||
+        checkpoint.model !== event.model ||
+        checkpoint.durationSec !== event.durationSec ||
         event?.accounted !== true ||
         eventIds.has(eventId);
       if (eventId) eventIds.add(eventId);
@@ -1998,6 +2129,7 @@ async function produceVideo(
       !board ||
       board.mode !== "guided_story" ||
       board.scenes.length === 0 ||
+      boardInputsMismatch ||
       options.guidedStoryIntrinsicLipSync != null ||
       options.studioLipSync != null ||
       invalidScene
@@ -2006,7 +2138,25 @@ async function produceVideo(
         `Verification-only native-audio recovery is missing a validated saved checkpoint${invalidScene ? ` for scene ${invalidScene.id}` : ""}; no video provider call was made.`,
       );
     }
+    await Promise.all(
+      board!.scenes.map((scene) =>
+        loadTenantObject(
+          scene.providerCheckpoint!.path,
+          job.tenantId,
+          MAX_SOURCE_VIDEO_BYTES,
+          `Verification-only scene checkpoint ${scene.id}`,
+        ),
+      ),
+    );
   }
+}
+
+async function produceVideo(
+  job: VideoGeneration,
+  onStage: (stage: string) => void,
+): Promise<ProduceResult> {
+  const options = job.options ?? { aspectRatio: "9:16" as const };
+  const verificationOnly = isNativeAudioVerificationOnlyRecovery(options);
   const aspectRatio = options.aspectRatio ?? "9:16";
   // The model-shaped half of the options, resolved once: which catalog model
   // (if any), the duration snapped to a length it renders, and the
@@ -4636,6 +4786,9 @@ async function produceVideo(
                   options.guidedStory!.cast.map((member) => [member.roleId, member]),
                 );
                 const attached: string[] = [];
+                const wanReferenceModel = isAtlasWanReferenceModel(
+                  options.resolvedVideoModel!.model,
+                );
                 for (const roleId of guidedScene.roleIds) {
                   const member = castByRole.get(roleId);
                   const approval =
@@ -4646,17 +4799,52 @@ async function produceVideo(
                     member.characterId == null ||
                     member.outfitId == null ||
                     member.referenceSource !== "generated" ||
+                    !member.atlasApprovedReferenceSheetPath ||
+                    !member.atlasApprovedReferenceSheetSha256 ||
+                    !member.outfit?.referenceImagePath ||
+                    approval.character.referenceImagePath !==
+                      member.character.referenceImagePath ||
+                    approval.outfit.referenceImagePath !==
+                      member.outfit.referenceImagePath
+                  ) {
+                    throw new VideoJobInputError(
+                      wanReferenceModel
+                        ? `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved sheet and outfit references for Wan role ${roleId}.`
+                        : `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas sheet and outfit for role ${roleId}.`,
+                    );
+                  }
+                  if (wanReferenceModel) {
+                    // Wan consumes the exact approved source images as HTTPS
+                    // URLs. It deliberately does not require Atlas Asset
+                    // Library mappings, which are only needed by Seedance.
+                    const urls = await approvedGuidedReferenceUrls({
+                      tenantId: job.tenantId,
+                      characterId: member.characterId,
+                      outfitId: member.outfitId,
+                      expectedReferenceSheetPath:
+                        member.atlasApprovedReferenceSheetPath,
+                      expectedReferenceSheetSha256:
+                        member.atlasApprovedReferenceSheetSha256,
+                      expectedOutfitPath: member.outfit.referenceImagePath,
+                      expectedOutfitSha256: approval.outfit.sha256,
+                    });
+                    if (urls.length !== 2) {
+                      throw new VideoJobInputError(
+                        `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s approved references for role ${roleId} changed or are no longer valid for Wan. No video provider call was made.`,
+                      );
+                    }
+                    attached.push(...urls);
+                    continue;
+                  }
+                  if (
                     member.requiresAtlasAsset !== true ||
                     !member.atlasCharacterLibraryId ||
                     !member.atlasCharacterReferenceId ||
                     !member.atlasOutfitLibraryId ||
-                    !member.atlasApprovedReferenceSheetPath ||
-                    !member.atlasApprovedReferenceSheetSha256 ||
-                    !member.atlasAssetReferenceId ||
-                    !member.outfit?.referenceImagePath
+                    !member.atlasAssetReferenceId
                   ) {
                     throw new VideoJobInputError(
-                      `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas sheet and outfit for role ${roleId}.`,
+                      `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas asset mapping for role ${roleId}.`,
                     );
                   }
                   const refs = await atlasAssetRefsForOutfit({
@@ -4678,24 +4866,9 @@ async function produceVideo(
                       `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s frozen Atlas assets for role ${roleId} are no longer active or were replaced. No video provider call was made.`,
                     );
                   }
-                  if (isAtlasWanReferenceModel(options.resolvedVideoModel!.model)) {
-                    attached.push(
-                      await objectStorageService.getSignedDownloadURL(
-                        member.atlasApprovedReferenceSheetPath,
-                        job.tenantId,
-                        15 * 60,
-                      ),
-                      await objectStorageService.getSignedDownloadURL(
-                        member.outfit.referenceImagePath,
-                        job.tenantId,
-                        15 * 60,
-                      ),
-                    );
-                  } else {
-                    attached.push(...refs);
-                  }
+                  attached.push(...refs);
                 }
-                if (isAtlasWanReferenceModel(options.resolvedVideoModel!.model)) {
+                if (wanReferenceModel) {
                   const effective = effectiveGuidedBackdrop(
                     options.guidedStory!,
                     guidedScene.scriptSceneId,
@@ -4718,6 +4891,7 @@ async function produceVideo(
               }
             : undefined,
         directNativeAudio: directGuidedNativeAudio,
+        requireSavedClips: verificationOnly,
         load: async (objectPath) =>
           (
             await loadTenantObject(
@@ -5476,10 +5650,7 @@ export async function runVideoGenerationJob(
   )[0];
   if (!claimed) return;
   const guided = claimed.options?.guidedStory;
-  const verificationOnly =
-    claimed.options?.recovery?.verificationOnly?.version === 1 &&
-    claimed.options.recovery.verificationOnly.reason ===
-      "indic_cross_script_asr_recheck";
+  const verificationOnly = isNativeAudioVerificationOnlyRecovery(claimed.options);
   if (guided && !verificationOnly) {
     const invalid =
       !guidedStoryBackdropsAreApproved(guided) ||
@@ -7633,10 +7804,8 @@ async function executeVideoJob(
 
   try {
     const guidedSnapshot = job.options?.guidedStory;
-    const verificationOnly =
-      job.options?.recovery?.verificationOnly?.version === 1 &&
-      job.options.recovery.verificationOnly.reason ===
-        "indic_cross_script_asr_recheck";
+    const verificationOnly = isNativeAudioVerificationOnlyRecovery(job.options);
+    await validateNativeAudioRecoveryInputs(job);
     if (
       !verificationOnly &&
       guidedSnapshot &&
@@ -7986,7 +8155,7 @@ async function executeVideoJob(
     // unknown costs remain actionable and can never turn success into failure.
     const terminalFields = {
       status: "succeeded",
-      spendPaise,
+      spendPaise: verificationOnly ? 0 : spendPaise,
       videoPath,
       thumbnailPath,
       provider,
@@ -7999,7 +8168,7 @@ async function executeVideoJob(
       ...(localizedResult != null ? { localizedResult } : {}),
     };
     let deliveryManifest: Awaited<ReturnType<typeof finalizeVideoDeliveryBillingAndSuccess>> | null = null;
-    if (job.options?.billingPolicyVersion === 2) {
+    if (!verificationOnly && job.options?.billingPolicyVersion === 2) {
       const deliveryEvents = applyNormalizedVideoEventCosts(
         normalizedProviderEvents.deliveryEvents,
         providerEvents,
@@ -8143,27 +8312,29 @@ async function executeVideoJob(
         logger.error({ err, jobId }, "Guided v2 delivery reconciliation remains actionable");
       }
     }
-    for (let i = 0; i < providerEvents.length; i++) {
-      const event = providerEvents[i]!;
-      await recordUsage(job.tenantId, "video", {
-        funding,
-        durationMs: i === providerEvents.length - 1 ? durationMs : undefined,
-        responseBytes: i === providerEvents.length - 1 ? buffer.length : undefined,
-        model: event.model,
-        provider: event.provider,
-        requestBytes: event.requestBytes,
-        ...(eventCosts[i] !== null ? { costPaise: eventCosts[i]! } : {}),
-        ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
-      });
-    }
-    for (let i = providerEvents.length; i < usageUnits; i++) {
-      await recordUsage(job.tenantId, "video", {
-        funding,
-        model: model ?? undefined,
-        provider: provider ?? undefined,
-        costPaise: 0,
-        ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
-      });
+    if (!verificationOnly) {
+      for (let i = 0; i < providerEvents.length; i++) {
+        const event = providerEvents[i]!;
+        await recordUsage(job.tenantId, "video", {
+          funding,
+          durationMs: i === providerEvents.length - 1 ? durationMs : undefined,
+          responseBytes: i === providerEvents.length - 1 ? buffer.length : undefined,
+          model: event.model,
+          provider: event.provider,
+          requestBytes: event.requestBytes,
+          ...(eventCosts[i] !== null ? { costPaise: eventCosts[i]! } : {}),
+          ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
+        });
+      }
+      for (let i = providerEvents.length; i < usageUnits; i++) {
+        await recordUsage(job.tenantId, "video", {
+          funding,
+          model: model ?? undefined,
+          provider: provider ?? undefined,
+          costPaise: 0,
+          ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
+        });
+      }
     }
   } catch (error) {
     const [terminal] = await db.select({ status: videoGenerationsTable.status })
@@ -8218,7 +8389,10 @@ async function executeVideoJob(
       // Recovery children inherit durable receipts from their source with
       // accounted=true. They are reusable checkpoints, not new provider work,
       // so a failed child must never record or settle them again.
-      .filter((event) => event.accounted !== true)
+      .filter((event) =>
+        !isNativeAudioVerificationOnlyRecovery(job.options) &&
+        event.accounted !== true
+      )
       .filter((event, index, all) => {
         const id = event.eventId?.trim();
         return !id || all.findIndex((candidate) => candidate.eventId?.trim() === id) === index;
@@ -8234,8 +8408,12 @@ async function executeVideoJob(
               surfacedError,
               "The video provider could not complete this generation. Please try again.",
             )
-          : surfacedError instanceof VideoJobInputError ||
-              surfacedError instanceof CueOverrunError ||
+          : surfacedError instanceof VideoJobInputError
+          ? safeVideoErrorMessage(
+              surfacedError,
+              "The saved video inputs are no longer valid. Review the approved references, frozen storyboard, and provider settings, then retry.",
+            )
+          : surfacedError instanceof CueOverrunError ||
               surfacedError instanceof LocalizedDubInputError
         ? surfacedError.message
         : "Video generation failed. Please try again.";
