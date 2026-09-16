@@ -9,6 +9,12 @@ Purchased unified balances must remain visible even before credit-funded generat
 
 **How to apply:** Display saved credits separately from legacy wallet/quota allowances, explain which balance currently funds generation, and refresh canonical balances after purchases and delayed payment confirmation without enabling enforcement.
 
+An explicitly approved one-time wallet conversion may retain reviewed historical estimated-charge liabilities, without forgiving or finalizing them. Default conversion must continue blocking unresolved estimates.
+
+**Why:** The user may choose to move available value while deferring uncertain legacy charges; transferring value is not approval to waive those charges or to enable credit-funded generation.
+
+**How to apply:** Scope any internal exception to the exact reviewed pending ledger set, preserve those rows unchanged, retain all other blockers, and record the exception in linked conversion receipts.
+
 The unified-credit system must start in shadow mode. Meter provider calls where spend occurs, including retries and paid failures, and reconcile those totals against provider invoices before enabling enforcement.
 
 The enforcement release decision requires a complete live shadow billing window

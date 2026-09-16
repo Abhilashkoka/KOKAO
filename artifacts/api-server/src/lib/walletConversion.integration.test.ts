@@ -47,6 +47,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import {
   convertWalletToCredits,
+  convertWalletToCreditsForReviewedInternalUse,
   WalletConversionConflictError,
 } from "./walletConversion";
 import {
@@ -185,6 +186,44 @@ async function seedFailedSettlementRetry(
   return wallet.balancePaise;
 }
 
+async function seedReviewedTrueUps(): Promise<{
+  walletPaise: number;
+  ledgerIds: number[];
+  review: {
+    estimatedTrueUpLedgerIds: number[];
+    authorization: string;
+  };
+}> {
+  await db.insert(walletBalancesTable).values({
+    tenantId: tenant.tenantId,
+    balancePaise: 250,
+  });
+  const rows = await Promise.all(
+    Array.from({ length: 30 }, (_, index) =>
+      db
+        .insert(walletLedgerTable)
+        .values({
+          tenantId: tenant.tenantId,
+          kind: "settle",
+          amountPaise: index,
+          estimated: true,
+          trueUpAt: null,
+          note: `reviewed true-up fixture ${index}`,
+        })
+        .returning({ id: walletLedgerTable.id }),
+    ),
+  );
+  const ledgerIds = rows.map((row) => row[0]!.id).sort((a, b) => a - b);
+  return {
+    walletPaise: 250,
+    ledgerIds,
+    review: {
+      estimatedTrueUpLedgerIds: ledgerIds,
+      authorization: "tenant4-wallet-conversion-reviewed-trueups-v1",
+    },
+  };
+}
+
 beforeAll(async () => {
   actor = await createTenant({
     isSuperadmin: true,
@@ -312,6 +351,146 @@ describe("wallet conversion against PostgreSQL", () => {
     } else {
       expect(wallet.balancePaise).toBeGreaterThan(0);
     }
+  });
+
+  it("converts with exactly the reviewed true-up set while retaining those rows", async () => {
+    const fixture = await seedReviewedTrueUps();
+    const before = await db
+      .select({
+        id: walletLedgerTable.id,
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+        estimated: walletLedgerTable.estimated,
+        trueUpAt: walletLedgerTable.trueUpAt,
+      })
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.tenantId, tenant.tenantId));
+    const result = await convertWalletToCreditsForReviewedInternalUse(
+      conversionParams("pg-reviewed-trueups-exact", fixture.walletPaise),
+      fixture.review,
+    );
+    expect(result.walletPaiseConverted).toBe(250);
+    const after = await db
+      .select({
+        id: walletLedgerTable.id,
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+        estimated: walletLedgerTable.estimated,
+        trueUpAt: walletLedgerTable.trueUpAt,
+      })
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.tenantId, tenant.tenantId));
+    expect(
+      after.filter((row) => fixture.ledgerIds.includes(row.id)),
+    ).toEqual(before.filter((row) => fixture.ledgerIds.includes(row.id)));
+    const [walletReceipt] = after.filter((row) => row.kind === "admin_debit");
+    expect(walletReceipt?.amountPaise).toBe(-250);
+    expect(
+      (await db
+        .select({ note: walletLedgerTable.note })
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.id, walletReceipt!.id)))[0]?.note,
+    ).toContain("tenant4-wallet-conversion-reviewed-trueups-v1");
+  });
+
+  it("keeps the default conversion strict with reviewed estimates present", async () => {
+    const fixture = await seedReviewedTrueUps();
+    await expect(
+      convertWalletToCredits(
+        conversionParams("pg-reviewed-trueups-default", fixture.walletPaise),
+      ),
+    ).rejects.toThrow(/pending estimated-charge true-up/i);
+  });
+
+  it("rejects a newly added estimate outside the reviewed set", async () => {
+    const fixture = await seedReviewedTrueUps();
+    await db.insert(walletLedgerTable).values({
+      tenantId: tenant.tenantId,
+      kind: "settle",
+      amountPaise: 31,
+      estimated: true,
+      trueUpAt: null,
+      note: "new unreviewed estimate",
+    });
+    await expect(
+      convertWalletToCreditsForReviewedInternalUse(
+        conversionParams("pg-reviewed-trueups-new-row", fixture.walletPaise),
+        fixture.review,
+      ),
+    ).rejects.toThrow(/reviewed estimated-charge set changed/i);
+  });
+
+  it("rejects stale reviewed conversion balance and rate snapshots", async () => {
+    const balanceFixture = await seedReviewedTrueUps();
+    await expect(
+      convertWalletToCreditsForReviewedInternalUse(
+        conversionParams("pg-reviewed-trueups-stale-balance", 249),
+        balanceFixture.review,
+      ),
+    ).rejects.toThrow(/wallet or saved conversion rate changed/i);
+
+    await clearTenantRows();
+    const rateFixture = await seedReviewedTrueUps();
+    await db
+      .update(creditMeterSettingsTable)
+      .set({ creditPricePaise: RATE_PAISE + 1, updatedAt: new Date() })
+      .where(eq(creditMeterSettingsTable.id, 1));
+    await expect(
+      convertWalletToCreditsForReviewedInternalUse(
+        conversionParams("pg-reviewed-trueups-stale-rate", rateFixture.walletPaise),
+        rateFixture.review,
+      ),
+    ).rejects.toThrow(/wallet or saved conversion rate changed/i);
+  });
+
+  it("replays the reviewed conversion idempotently", async () => {
+    const fixture = await seedReviewedTrueUps();
+    const params = conversionParams("pg-reviewed-trueups-replay", fixture.walletPaise);
+    const [first, second] = await Promise.all([
+      convertWalletToCreditsForReviewedInternalUse(params, fixture.review),
+      convertWalletToCreditsForReviewedInternalUse(params, fixture.review),
+    ]);
+    expect(second).toEqual(first);
+    expect(
+      await db
+        .select()
+        .from(creditAccountLedgerTable)
+        .where(eq(creditAccountLedgerTable.tenantId, tenant.tenantId)),
+    ).toHaveLength(1);
+  });
+
+  it("rolls back a reviewed conversion when the outer transaction aborts", async () => {
+    const fixture = await seedReviewedTrueUps();
+    const realTransaction = db.transaction.bind(db);
+    const transactionSpy = vi.spyOn(db, "transaction");
+    transactionSpy.mockImplementationOnce((callback, config) =>
+      realTransaction(async (tx) => {
+        await callback(tx);
+        throw new Error("forced reviewed conversion rollback");
+      }, config),
+    );
+    try {
+      await expect(
+        convertWalletToCreditsForReviewedInternalUse(
+          conversionParams("pg-reviewed-trueups-rollback", fixture.walletPaise),
+          fixture.review,
+        ),
+      ).rejects.toThrow("forced reviewed conversion rollback");
+    } finally {
+      transactionSpy.mockRestore();
+    }
+    expect(
+      await db
+        .select()
+        .from(creditAccountLedgerTable)
+        .where(eq(creditAccountLedgerTable.tenantId, tenant.tenantId)),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(walletBalancesTable)
+        .where(eq(walletBalancesTable.tenantId, tenant.tenantId)),
+    ).toMatchObject([{ balancePaise: 250 }]);
   });
 
   it("ignores a failed outbox with an exact settled ledger target", async () => {

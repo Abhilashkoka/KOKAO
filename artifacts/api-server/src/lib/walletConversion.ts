@@ -9,7 +9,7 @@ import {
   walletProviderOperationsTable,
   walletSettlementRetriesTable,
 } from "@workspace/db";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 const MILLI = 1000n;
 const MODE_ROW_ID = 1;
@@ -32,6 +32,16 @@ export interface WalletConversionResult {
   walletLedgerId: number;
   creditLedgerId: number;
 }
+
+export interface ReviewedWalletConversionException {
+  /** The exact pending estimated-charge ledger rows reviewed for retention. */
+  estimatedTrueUpLedgerIds: readonly number[];
+  /** Human-readable authorization context persisted in both receipts. */
+  authorization: string;
+}
+
+const REVIEWED_TRUE_UP_AUTHORIZATION = "tenant4-wallet-conversion-reviewed-trueups-v1";
+const REVIEWED_TRUE_UP_COUNT = 30;
 
 export class WalletConversionConflictError extends Error {
   readonly status = 409;
@@ -106,6 +116,27 @@ type ConversionBlocker = {
   detail: string;
 };
 
+function validateReviewedWalletConversionException(
+  review: ReviewedWalletConversionException,
+): number[] {
+  const ids = [...review.estimatedTrueUpLedgerIds].sort((a, b) => a - b);
+  if (
+    ids.length !== REVIEWED_TRUE_UP_COUNT ||
+    new Set(ids).size !== ids.length ||
+    ids.some((id) => !Number.isSafeInteger(id) || id <= 0) ||
+    review.authorization !== REVIEWED_TRUE_UP_AUTHORIZATION
+  ) {
+    throw new WalletConversionValidationError(
+      "The reviewed wallet conversion exception is invalid.",
+    );
+  }
+  return ids;
+}
+
+function sameIds(left: number[], right: number[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
 /**
  * These checks deliberately use the same wallet row as reserve/settle. The
  * POST takes that row lock before rechecking them, so a reserve cannot appear
@@ -115,6 +146,10 @@ type ConversionBlocker = {
 async function findConversionBlocker(
   executor: Pick<typeof db, "select">,
   tenantId: number,
+  reviewedException?: {
+    ids: number[];
+    lock: boolean;
+  },
 ): Promise<ConversionBlocker | null> {
   const outstandingReserves = await executor
     .select({ id: walletLedgerTable.id })
@@ -234,8 +269,14 @@ async function findConversionBlocker(
     }
   }
 
-  const pendingTrueUps = await executor
-    .select({ id: walletLedgerTable.id })
+  const pendingTrueUpsQuery = executor
+    .select({
+      id: walletLedgerTable.id,
+      amountPaise: walletLedgerTable.amountPaise,
+      kind: walletLedgerTable.kind,
+      estimated: walletLedgerTable.estimated,
+      trueUpAt: walletLedgerTable.trueUpAt,
+    })
     .from(walletLedgerTable)
     .where(
       and(
@@ -243,12 +284,56 @@ async function findConversionBlocker(
         eq(walletLedgerTable.estimated, true),
         isNull(walletLedgerTable.trueUpAt),
       ),
-    )
-    .limit(1);
-  if (pendingTrueUps.length > 0) {
+    );
+  const pendingTrueUps = reviewedException?.lock
+    ? await pendingTrueUpsQuery.for("update")
+    : await pendingTrueUpsQuery;
+  let reviewedTrueUpsAllowed = false;
+  if (reviewedException) {
+    const reviewedRows = await executor
+      .select({
+        id: walletLedgerTable.id,
+        amountPaise: walletLedgerTable.amountPaise,
+        kind: walletLedgerTable.kind,
+        estimated: walletLedgerTable.estimated,
+        trueUpAt: walletLedgerTable.trueUpAt,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.tenantId, tenantId),
+          inArray(walletLedgerTable.id, reviewedException.ids),
+        ),
+      )
+      .for("update");
+    const pendingIds = pendingTrueUps.map((row) => row.id).sort((a, b) => a - b);
+    const reviewedIds = reviewedRows.map((row) => row.id).sort((a, b) => a - b);
+    reviewedTrueUpsAllowed =
+      sameIds(pendingIds, reviewedException.ids) &&
+      sameIds(reviewedIds, reviewedException.ids) &&
+      reviewedRows.every(
+        (row) =>
+          row.kind === "settle" &&
+          row.estimated === true &&
+          row.trueUpAt === null,
+      );
+  }
+  if (pendingTrueUps.length > 0 && !reviewedTrueUpsAllowed) {
+    if (reviewedException) {
+      return {
+        kind: "true_up",
+        detail: "Reviewed estimated-charge set changed; refresh the review.",
+      };
+    }
     return {
       kind: "true_up",
       detail: "Wallet has a pending estimated-charge true-up.",
+    };
+  }
+  if (reviewedException && !reviewedTrueUpsAllowed) {
+    return {
+      kind: "true_up",
+      detail: "Reviewed estimated-charge set changed; refresh the review.",
     };
   }
 
@@ -408,6 +493,10 @@ async function applyConversion(
   expectedWalletPaise: number,
   expectedCreditPricePaise: number,
   idempotencyKey: string,
+  reviewedException?: {
+    ids: number[];
+    authorization: string;
+  },
 ): Promise<WalletConversionResult> {
   // Wallet is the first business row lock. All reserve and settlement paths
   // must take this lock before touching a wallet ledger reservation.
@@ -515,7 +604,11 @@ async function applyConversion(
   );
   if (!conversion) throw new WalletConversionValidationError(overflowReason());
 
-  const blocker = await findConversionBlocker(tx, tenantId);
+  const blocker = await findConversionBlocker(
+    tx,
+    tenantId,
+    reviewedException ? { ids: reviewedException.ids, lock: true } : undefined,
+  );
   if (blocker) throw new WalletConversionConflictError(blocker.detail);
 
   await tx
@@ -560,6 +653,12 @@ async function applyConversion(
     expectedWalletPaise,
     expectedCreditPricePaise,
     idempotencyKey,
+    ...(reviewedException
+      ? {
+          reviewedEstimatedTrueUpLedgerIds: reviewedException.ids,
+          reviewedAuthorization: reviewedException.authorization,
+        }
+      : {}),
   });
   const [walletEntry] = await tx
     .insert(walletLedgerTable)
@@ -611,6 +710,12 @@ async function applyConversion(
     expectedWalletPaise,
     expectedCreditPricePaise,
     idempotencyKey,
+    ...(reviewedException
+      ? {
+          reviewedEstimatedTrueUpLedgerIds: reviewedException.ids,
+          reviewedAuthorization: reviewedException.authorization,
+        }
+      : {}),
     walletLedgerId: walletEntry.id,
     creditLedgerId: creditEntry.id,
   });
@@ -659,6 +764,46 @@ export async function convertWalletToCredits(params: {
       params.expectedWalletPaise,
       params.expectedCreditPricePaise,
       params.idempotencyKey,
+    ),
+  );
+}
+
+/**
+ * Internal-only reviewed exception. The public conversion entry point above
+ * remains strict; this capability is used only by the guarded tenant-4
+ * migration script after it has fetched and compared the reviewed rows.
+ */
+export async function convertWalletToCreditsForReviewedInternalUse(
+  params: {
+    tenantId: number;
+    expectedWalletPaise: number;
+    expectedCreditPricePaise: number;
+    idempotencyKey: string;
+  },
+  review: ReviewedWalletConversionException,
+): Promise<WalletConversionResult> {
+  const ids = validateReviewedWalletConversionException(review);
+  if (
+    !Number.isSafeInteger(params.expectedWalletPaise) ||
+    params.expectedWalletPaise < 0 ||
+    !Number.isSafeInteger(params.expectedCreditPricePaise) ||
+    params.expectedCreditPricePaise <= 0
+  ) {
+    throw new WalletConversionValidationError(
+      "Expected wallet and credit price snapshots must be finite whole numbers.",
+    );
+  }
+  if (!params.idempotencyKey.trim()) {
+    throw new WalletConversionValidationError("Idempotency key is required.");
+  }
+  return db.transaction((tx) =>
+    applyConversion(
+      tx,
+      params.tenantId,
+      params.expectedWalletPaise,
+      params.expectedCreditPricePaise,
+      params.idempotencyKey,
+      { ids, authorization: review.authorization },
     ),
   );
 }
