@@ -40,14 +40,89 @@ customer charges against configured prices, not provider costs or profitability.
 The explicit development-only setting is `CREDIT_ENFORCEMENT_DEV=1`; it requires
 `NODE_ENV=development` and is denied on a Replit deployment. The meter must also
 be set to `enforce` through its guarded settings service. Keep the setting scoped
-to development. The production release verdict remains no-go until its invoice
-requirements are satisfied.
+to development.
 
 Existing credit balances and deferred legacy wallet estimates are not modified
 by activation. Explicit active zero-priced actions remain free; missing or invalid
 billable rates must fail before provider dispatch.
 
-### Production release
+### Production saved-rate activation
+
+The user-approved production customer policy is a separate, explicit
+saved-rate rollout. It does **not** assert that provider invoices have been
+verified: `CREDIT_RECONCILIATION_GATE` remains `no-go` until that evidence is
+available. It authorizes only the customer credit deductions described by the
+reviewed card.
+
+The deployment must set all of the following before the server starts:
+
+```text
+NODE_ENV=production
+REPLIT_DEPLOYMENT=1
+CREDIT_ENFORCEMENT_PROD=saved-rates-v1
+CREDIT_PRODUCTION_ROLLOUT_JSON=<the reviewed JSON manifest>
+```
+
+The bootstrap refuses to start before binding the HTTP port when the manifest
+is missing, malformed, incomplete, has a different version, contains guessed
+rate keys, or has an incomplete plan list. The exact JSON shape is:
+
+```json
+{
+  "rolloutVersion": "saved-rates-v1",
+  "mode": "enforce",
+  "creditPricePaise": 2000,
+  "rates": [
+    {
+      "key": "<one reviewed supported key>",
+      "label": "<reviewed label>",
+      "unit": "item | second",
+      "credits": "<reviewed non-negative number>",
+      "active": true,
+      "sortOrder": "<reviewed non-negative integer>",
+      "notes": "<reviewed string or null>"
+    }
+  ],
+  "plans": [
+    {
+      "id": "<reviewed plan id>",
+      "billingMode": "credits",
+      "monthlyCredits": "<reviewed non-negative integer>"
+    }
+  ]
+}
+```
+
+`creditPricePaise` is an explicitly reviewed positive integer for the fresh
+production settings row; it prevents a later legacy price read from falling
+back to the development/application default. The bootstrap audit marker uses
+the non-tenant deployment operator (`actorTenantId = 0`), with
+`principal: "deployment-owner"` and the trusted deployment environment as the
+authorization boundary; it never impersonates an admin or customer.
+
+`rates` must contain exactly the supported saved keys (`video`, `video_hd`,
+`image`, `image_edit`, `caption`, `voice`, `lipsync`, and `transcription`),
+with every row active for enforce mode. `plans` must contain unique plan ids.
+The application supplies no rate or allowance defaults; the deployment owner
+must replace every angle-bracketed value with an explicitly reviewed value.
+
+The first boot takes a transaction-scoped advisory lock, confirms
+`credit_meter_settings` and `credit_rates` are empty, inserts the manifest
+card in `enforce`, applies the reviewed allowance and `credits` billing mode
+to the named existing plan rows, and switches existing tenants on those plans
+to the `credits` rail. It writes one `credit_rates_change` audit marker with
+the rollout version. No credit accounts, balances, wallets, usage rows,
+ledgers, history, grants, repricing, or queued/old jobs are changed. Existing
+jobs keep their frozen legacy funding; only future ordinary usage sees the
+new rail and allowances.
+
+On later boots, the marker makes the bootstrap an idempotent no-op. It never
+resets a mode, rate, allowance, or tenant after an administrator changes one.
+An unmarked existing settings/rate row is treated as an unreviewed conflict and
+fails closed rather than being overwritten. There is no production DDL or
+migration script for this activation.
+
+### Provider invoice verdict
 
 The meter has three modes, and the order matters more than anything else here.
 
@@ -66,16 +141,20 @@ Your own `reports/atlas-audit/findings.csv` already flags this: job #69771 had
 4 completed Atlas tasks and only 2 KOKAO cost rows. That is the gap this meter
 is built to close, and shadow mode is how you confirm it closed.
 
-**3. Set plan allowances** in **Admin → Plans**: put a number in *Credits /
-month* on each plan. The estimate under the field tells you what it buys at
-the current rate card, so the allowance and the price get decided together.
-Then run the migration dry run, read it, and apply.
+**3. Compare the full shadow window** with the provider's invoice and record
+any unmetered call paths. This evidence remains useful for the provider-cost
+decision even though it is not a prerequisite for the separately authorized
+customer saved-rate rollout.
 
-**4. Switch to `enforce`.** Credits are debited before each provider call and
-refunded if it fails.
+**4. Switch to `enforce`.** In production, the reviewed bootstrap above is the
+only deployment path for the initial saved card and plan/tenant rail switch.
+Credits are debited before each provider call and refunded if it fails.
 
-Going straight to `enforce` charges from a rate card nobody has checked. The
-switch is one dropdown in either direction, so rolling back is instant.
+The saved-rate rollout is a customer charging authorization, not an invoice
+claim. Continue the invoice reconciliation work independently; the invoice
+verdict is still no-go until provider evidence is verified. The in-app switch
+can still turn the meter off or back to shadow after activation, but a later
+boot never silently turns it back on.
 
 ## What the meter catches that nothing else did
 

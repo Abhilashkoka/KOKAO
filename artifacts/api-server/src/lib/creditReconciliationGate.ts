@@ -1,12 +1,11 @@
 /**
  * Release gate for credit enforcement.
  *
- * The production decision remains an explicit no-go until a complete shadow
- * window has been checked against provider invoices. Development is a separate
- * decision: it may be enabled only with an explicit local setting and a
- * fail-closed runtime identity check. In particular, this must not become a
- * broad "gate is go" environment switch that can accidentally charge a
- * deployed worker.
+ * Provider-invoice reconciliation remains a separate, explicit no-go verdict.
+ * Customer-facing production credit enforcement has its own, narrowly scoped
+ * saved-rate rollout authorization. Keeping those decisions separate is
+ * important: an invoice verdict must not be implied by a customer policy
+ * decision, and a copied development setting must never charge production.
  */
 export type CreditReconciliationVerdict = "go" | "no-go";
 
@@ -18,7 +17,7 @@ export interface CreditReconciliationGate {
 export const CREDIT_RECONCILIATION_GATE: CreditReconciliationGate = Object.freeze({
   verdict: "no-go",
   reason:
-    "A complete production shadow window and matching provider invoices have not been verified; reconcile shadow usage against provider invoices before enabling credit enforcement.",
+    "A complete production shadow window and matching provider invoices have not been verified; provider-invoice reconciliation remains no-go.",
 });
 
 /**
@@ -31,6 +30,14 @@ export const CREDIT_RECONCILIATION_GATE: CreditReconciliationGate = Object.freez
  */
 export const DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING =
   "CREDIT_ENFORCEMENT_DEV";
+
+/** Exact production rollout authorization. The bootstrap validates the
+ * accompanying rate/plan manifest before the process starts serving traffic. */
+export const PRODUCTION_CREDIT_ENFORCEMENT_SETTING =
+  "CREDIT_ENFORCEMENT_PROD";
+export const PRODUCTION_CREDIT_ENFORCEMENT_VERSION = "saved-rates-v1";
+export const PRODUCTION_CREDIT_ROLLOUT_MANIFEST_SETTING =
+  "CREDIT_PRODUCTION_ROLLOUT_JSON";
 
 export interface CreditEnforcementDecision {
   allowed: boolean;
@@ -48,14 +55,20 @@ export function isDevelopmentCreditEnforcementEnabled(
   );
 }
 
-/**
- * Return the current authorization to write the persisted enforce setting.
- *
- * `CREDIT_RECONCILIATION_GATE.verdict` is deliberately still no-go in the
- * shipped production policy. Keeping the test seam here lets algorithm tests
- * mock a reviewed gate without changing the production constant or pretending
- * invoice evidence exists.
- */
+export function isProductionCreditEnforcementEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    env.NODE_ENV === "production" &&
+    env.REPLIT_DEPLOYMENT === "1" &&
+    env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING] ===
+      PRODUCTION_CREDIT_ENFORCEMENT_VERSION
+  );
+}
+
+/** Return the current authorization to write the persisted enforce setting.
+ * The customer saved-rate rollout and the provider-invoice verdict are
+ * intentionally independent decisions. */
 export function getCreditEnforcementDecision(
   env: NodeJS.ProcessEnv = process.env,
 ): CreditEnforcementDecision {
@@ -68,21 +81,26 @@ export function getCreditEnforcementDecision(
     };
   }
 
-  if (CREDIT_RECONCILIATION_GATE.verdict === "go") {
+  if (isProductionCreditEnforcementEnabled(env)) {
     return {
       allowed: true,
       scope: "production",
-      reason: "Production credit enforcement was explicitly released after invoice reconciliation.",
+      reason:
+        "Production saved-rate credit enforcement is explicitly authorized; provider-invoice reconciliation remains a separate no-go verdict.",
     };
   }
 
   const developmentIdentity =
     env.NODE_ENV === "development" && env.REPLIT_DEPLOYMENT !== "1";
+  const productionIdentity =
+    env.NODE_ENV === "production" && env.REPLIT_DEPLOYMENT === "1";
   return {
     allowed: false,
     scope: developmentIdentity ? "development" : "production",
     reason: developmentIdentity
       ? `Development credit enforcement is disabled; set ${DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING}=1 only after rate-card review.`
+      : productionIdentity
+        ? `Production saved-rate enforcement is disabled; set ${PRODUCTION_CREDIT_ENFORCEMENT_SETTING}=${PRODUCTION_CREDIT_ENFORCEMENT_VERSION} with a reviewed rollout manifest.`
       : CREDIT_RECONCILIATION_GATE.reason,
   };
 }

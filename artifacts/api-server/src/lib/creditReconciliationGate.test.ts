@@ -44,8 +44,11 @@ vi.mock("drizzle-orm", () => ({
 import {
   DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING,
   CREDIT_RECONCILIATION_GATE,
+  PRODUCTION_CREDIT_ENFORCEMENT_SETTING,
+  PRODUCTION_CREDIT_ENFORCEMENT_VERSION,
   getCreditEnforcementDecision,
   isDevelopmentCreditEnforcementEnabled,
+  isProductionCreditEnforcementEnabled,
 } from "./creditReconciliationGate";
 import {
   getMeterMode,
@@ -54,6 +57,12 @@ import {
 } from "./creditRates";
 
 beforeEach(() => {
+  // Keep the host environment from accidentally authorizing the production
+  // branch in tests that exercise the default fail-closed behavior.
+  process.env.NODE_ENV = "test";
+  delete process.env.REPLIT_DEPLOYMENT;
+  delete process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING];
+  delete process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING];
   mocks.state.rows = [];
   mocks.state.insertedModes = [];
   mocks.db.select.mockClear();
@@ -147,6 +156,59 @@ describe("credit reconciliation release gate", () => {
         delete process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING];
       else process.env[DEVELOPMENT_CREDIT_ENFORCEMENT_SETTING] = saved.setting;
       invalidateCreditRateCache();
+    }
+  });
+
+  it("allows only the exact production saved-rate authorization", () => {
+    const saved = {
+      nodeEnv: process.env.NODE_ENV,
+      deployment: process.env.REPLIT_DEPLOYMENT,
+      setting: process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING],
+    };
+    try {
+      process.env.NODE_ENV = "production";
+      process.env.REPLIT_DEPLOYMENT = "1";
+      process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING] =
+        PRODUCTION_CREDIT_ENFORCEMENT_VERSION;
+
+      expect(isProductionCreditEnforcementEnabled()).toBe(true);
+      expect(getCreditEnforcementDecision()).toMatchObject({
+        allowed: true,
+        scope: "production",
+      });
+    } finally {
+      if (saved.nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = saved.nodeEnv;
+      if (saved.deployment === undefined) delete process.env.REPLIT_DEPLOYMENT;
+      else process.env.REPLIT_DEPLOYMENT = saved.deployment;
+      if (saved.setting === undefined)
+        delete process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING];
+      else process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING] = saved.setting;
+    }
+  });
+
+  it("fails closed for the production flag in the wrong runtime identity", () => {
+    const saved = {
+      nodeEnv: process.env.NODE_ENV,
+      deployment: process.env.REPLIT_DEPLOYMENT,
+      setting: process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING],
+    };
+    try {
+      process.env.NODE_ENV = "development";
+      process.env.REPLIT_DEPLOYMENT = "1";
+      process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING] =
+        PRODUCTION_CREDIT_ENFORCEMENT_VERSION;
+
+      expect(isProductionCreditEnforcementEnabled()).toBe(false);
+      expect(getCreditEnforcementDecision()).toMatchObject({ allowed: false });
+    } finally {
+      if (saved.nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = saved.nodeEnv;
+      if (saved.deployment === undefined) delete process.env.REPLIT_DEPLOYMENT;
+      else process.env.REPLIT_DEPLOYMENT = saved.deployment;
+      if (saved.setting === undefined)
+        delete process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING];
+      else process.env[PRODUCTION_CREDIT_ENFORCEMENT_SETTING] = saved.setting;
     }
   });
 });

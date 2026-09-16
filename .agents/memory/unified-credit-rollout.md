@@ -15,20 +15,20 @@ An explicitly approved one-time wallet conversion may retain reviewed historical
 
 **How to apply:** Scope any internal exception to the exact reviewed pending ledger set, preserve those rows unchanged, retain all other blockers, and record the exception in linked conversion receipts.
 
-Production credit billing starts in shadow mode. Meter provider calls where spend occurs, including retries and paid failures, and reconcile those totals against provider invoices before enabling production enforcement.
+Production credit billing starts in shadow mode unless an explicitly approved saved-rate rollout authorizes new usage. Meter provider calls where spend occurs, including retries and paid failures.
 
-The production enforcement release decision requires a complete live shadow billing window
+An invoice-verified release decision requires a complete live shadow billing window
 and matching provider invoice evidence. A partial account audit or development
 test events cannot establish approval; unknown paid-failure or rate-key coverage
 must remain a no-go rather than an accepted zero variance.
 
 **Why:** Route-level quota reservations miss provider work performed deep inside generation pipelines. Charging from an unreconciled rate card can undercharge customers, lose money, or debit inconsistently.
 
-Development may use explicitly approved saved-rate billing after behavior checks, separately from the production invoice gate.
+Development and production may use separately approved saved-rate billing after behavior checks, without claiming invoice verification.
 
-**Why:** The user approved development deductions based on configured prices without provider invoices. These checks establish correct customer deductions, not provider-cost accuracy or profitability; that approval does not release production.
+**Why:** The user explicitly approved both environments' deductions based on configured prices without provider invoices. These checks establish correct customer deductions, not provider-cost accuracy or profitability.
 
-**How to apply:** Preserve exact saved prices (including explicit free rates), keep the production gate unchanged, scope the opt-in to development, and verify coverage, insufficient balance, durable refunds, and replay safety before activation.
+**How to apply:** Preserve exact saved prices (including explicit free rates), keep invoice evidence unverified, use separate environment-scoped opt-ins, and verify coverage, insufficient balance, durable refunds, and replay safety before activation. Production activation applies to new usage; never convert legacy balances, grant replacement credits, reprice historical receipts, or rewrite old job funding as part of activation.
 
 Unknown provider outcomes must not be treated as confirmed failures when billing credits. Keep them reviewable and block automatic replay; only confirmed failures qualify for automatic refunds.
 
@@ -44,7 +44,7 @@ Mutually exclusive retries and provider fallbacks must share one logical operati
 
 Actual-quantity operations reserve a documented upper bound before dispatch using one immutable unit-rate snapshot, then settle downward by idempotent refund. Never depend on an extra debit after delivering provider output.
 
-**How to apply:** Keep purchased credits non-expiring and granted credits expiring, spend granted credits first, give every provider attempt a stable base operation identity, and only switch to enforce after every material provider path is metered and invoice totals reconcile.
+**How to apply:** Keep purchased credits non-expiring and granted credits expiring, spend granted credits first, and give every provider attempt a stable base operation identity. Invoice reconciliation and explicitly approved saved-rate billing remain distinct release bases.
 
 Enforcement readiness also requires billing-rail isolation and one consistent funding decision from route reservation through provider dispatch.
 

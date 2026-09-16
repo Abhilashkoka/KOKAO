@@ -508,9 +508,10 @@ export async function creditCostSnapshotFor(
 }
 
 function effectiveMeterMode(mode: MeterMode): MeterMode {
-  // A persisted enforce row is not enough to charge: production still needs
-  // the invoice release decision, while local development needs the explicit
-  // opt-in and runtime identity check.
+  // A persisted enforce row is not enough to charge: production needs the
+  // explicit saved-rate rollout authorization, while local development needs
+  // its separate opt-in and runtime identity check. Provider-invoice
+  // reconciliation remains a separate reporting verdict.
   return mode === "enforce" && !isCreditEnforcementAllowed()
     ? "shadow"
     : mode;
