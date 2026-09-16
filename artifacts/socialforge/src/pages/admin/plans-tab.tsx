@@ -190,18 +190,22 @@ function suggestLimits(
 
 function LimitSuggestion({
   priceRupees,
+  billingMode,
   rates,
   ratesLoaded,
   onApply,
   testIdSuffix,
 }: {
   priceRupees: string;
+  billingMode: PlanBillingMode;
   rates: SpendRates | undefined;
   ratesLoaded: boolean;
   onApply: (v: { captions: number; images: number; videos: number }) => void;
   testIdSuffix: string;
 }) {
   const [ratioText, setRatioText] = useState("4:3:3");
+  if (billingMode === "credits") return null;
+
   const suggestion = suggestLimits(priceRupees, ratioText, rates);
   const noRates =
     ratesLoaded &&
@@ -1031,6 +1035,7 @@ function PlansCard() {
                     <>
                       <LimitSuggestion
                         priceRupees={draft.priceRupees}
+                        billingMode={draft.billingMode}
                         rates={spendRates}
                         ratesLoaded={spendRatesLoaded}
                         testIdSuffix={p.id}
