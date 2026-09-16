@@ -45,6 +45,7 @@ export type AdminAuditAction =
   | "wallet_settings_change"
   | "billing_mode_change"
   | "wallet_adjust"
+  | "wallet_conversion"
   | "video_delivery_billing_reconcile"
   | "payment_gateway_change"
   | "session_timeout_change"

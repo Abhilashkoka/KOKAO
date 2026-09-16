@@ -624,9 +624,10 @@ export function CreditMigrationCard() {
           <ArrowRightLeft className="h-5 w-5 text-primary" /> Migrate workspaces to credits
         </CardTitle>
         <CardDescription>
-          Converts quota, credit-pack and rupee-wallet workspaces onto one
+          Converts eligible quota and credit-pack workspaces onto one
           credit balance. Rounds up, never expires, and skips any workspace that
           already has an account — so a partial run can simply be repeated.
+          Wallet balances must be converted separately with Adjust in the workspaces table.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -634,8 +635,8 @@ export function CreditMigrationCard() {
           <Skeleton className="h-32 w-full" />
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="text-migration-empty">
-            Nothing left to migrate. Every workspace either has a credit account
-            already or holds no convertible balance.
+            No eligible quota or credit-pack balances remain in this bulk migration.
+            Wallet balances are handled separately using Adjust.
           </p>
         ) : (
           <>

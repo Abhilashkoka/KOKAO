@@ -89,7 +89,8 @@ export const walletLedgerTable = pgTable(
     usageKind: text("usage_kind"),
     /**
      * What this charge produced, when known at charge time:
-     * content (library item) | imageJob | videoJob | campaign.
+     * content (library item) | imageJob | videoJob | campaign |
+     * walletConversion (legacy wallet-to-credit conversion).
      * Lets the billing UI link a ledger line back to the item it paid for.
      */
     refKind: text("ref_kind"),

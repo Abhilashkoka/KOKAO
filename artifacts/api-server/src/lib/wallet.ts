@@ -648,9 +648,10 @@ export async function settleWallet(
 /**
  * Resolve one reservation to a precomputed target charge.
  *
- * The reserve ledger row is the serialization lock. A retry that arrives after
- * the original transaction committed reads the existing settle row and returns
- * it instead of applying the balance delta again.
+ * The wallet row is the first serialization lock and the reserve ledger row is
+ * the second. A retry that arrives after the original transaction committed
+ * reads the existing settle row and returns it instead of applying the balance
+ * delta again.
  */
 async function settleWalletToTarget(
   tenantId: number,
@@ -659,6 +660,10 @@ async function settleWalletToTarget(
   target: { paise: number; estimated: boolean },
 ): Promise<{ chargedPaise: number; estimated: boolean; balancePaise: number }> {
   return db.transaction(async (tx) => {
+    // Keep the lock order wallet -> reservation. Reserve already uses this
+    // order, and the admin wallet conversion relies on it to coordinate with
+    // both settlement and refund writers.
+    await lockBalance(tx, tenantId);
     const [reserve] = await tx
       .select({
         id: walletLedgerTable.id,
@@ -772,6 +777,10 @@ export async function refundWallet(
 ): Promise<void> {
   if (reservation.amountPaise <= 0) return;
   await db.transaction(async (tx) => {
+    // Wallet is the first lock for every movement. Conversion takes this lock
+    // before checking reservations, so refund and conversion cannot deadlock
+    // by locking a reservation row in the opposite order.
+    await lockBalance(tx, tenantId);
     const [reserve] = await tx
       .select({
         kind: walletLedgerTable.kind,
@@ -850,8 +859,10 @@ export async function refundWallet(
  * customer bought a delivered video, not its provider checkpoints.
  *
  * The failed job row is locked first and every reservation is then locked in
- * id order. This makes the operation idempotent and serializes it with both
- * immediate settlement and the retry/provider-operation sweep.
+ * id order. The existing reserve lifecycle barrier makes the operation
+ * idempotent and serializes it with both immediate settlement and the
+ * retry/provider-operation sweep; do not invert that established job->wallet
+ * order here.
  */
 export async function refundFailedVideoJobWallet(
   jobId: number,
@@ -3589,6 +3600,15 @@ export async function refundSucceededWalletProviderOperation(
   note = "completed provider work was discarded before settlement",
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
+    // Conversion and every balance movement serialize on the wallet row
+    // before inspecting provider/reservation state.
+    const [candidate] = await tx
+      .select({ tenantId: walletProviderOperationsTable.tenantId })
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .limit(1);
+    if (!candidate) return false;
+    await lockBalance(tx, candidate.tenantId);
     const [operation] = await tx
       .select()
       .from(walletProviderOperationsTable)

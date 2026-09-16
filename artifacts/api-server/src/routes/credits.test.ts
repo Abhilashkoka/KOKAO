@@ -31,7 +31,11 @@ import {
 import { eq } from "drizzle-orm";
 import creditsRouter from "./credits";
 import { grantMonthlyCredits, grantUnbilledPlanCredits } from "../lib/monthlyCreditGrant";
-import { planCreditMigration, DEFAULT_CREDIT_PRICE_PAISE } from "../lib/creditMigration";
+import {
+  planCreditMigration,
+  planCreditMigrationPreview,
+  DEFAULT_CREDIT_PRICE_PAISE,
+} from "../lib/creditMigration";
 import { setMeterMode, invalidateCreditRateCache } from "../lib/creditRates";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
@@ -124,10 +128,15 @@ describe("GET /credits grant safety", () => {
         .from(creditAccountsTable)
         .where(eq(creditAccountsTable.tenantId, tenantId))),
     ).toHaveLength(0);
-    expect((await planCreditMigration()).find((row) => row.tenantId === tenantId)).toMatchObject({
-      source: "wallet",
-      credits: 2,
-    });
+    expect((await planCreditMigration()).find((row) => row.tenantId === tenantId)).toBeUndefined();
+    expect((await planCreditMigrationPreview()).skippedWallets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId,
+          reason: expect.stringContaining("wallet Adjust conversion"),
+        }),
+      ]),
+    );
   });
 
   it("does not duplicate a paid-period allowance for an active subscription", async () => {

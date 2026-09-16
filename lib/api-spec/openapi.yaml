@@ -1472,6 +1472,94 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tenants/{id}/wallet-conversion:
+    get:
+      operationId: adminPreviewWalletConversion
+      tags: [admin]
+      summary: Preview conversion of one tenant's existing wallet balance (superadmin only)
+      description: >-
+        Read-only preview. This never grants credits, creates a balance, runs
+        the broad legacy migration, or changes billing mode or credit
+        enforcement.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Wallet conversion preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletConversionPreview"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminConvertWalletToCredits
+      tags: [admin]
+      summary: Convert one tenant's existing wallet balance to purchased credits (superadmin only)
+      description: >-
+        Atomically retires the existing positive wallet balance and appends
+        purchased milli-credits using the saved rupees-per-credit rate. A
+        snapshot and idempotency key are required. Outstanding wallet work,
+        stale snapshots, unsafe arithmetic, and unavailable rates are rejected.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletConversionInput"
+      responses:
+        "200":
+          description: Conversion receipt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletConversionResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale snapshot, unavailable rate, blocker, or replay conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/tenants/{id}:
     patch:
       operationId: adminUpdateTenantPlan
@@ -14756,16 +14844,36 @@ components:
           type: number
     CreditMigrationPlan:
       type: object
-      required: [rows, totalCredits, workspaces]
+      required: [rows, skippedWallets, totalCredits, workspaces]
       properties:
         rows:
           type: array
           items:
             $ref: "#/components/schemas/CreditMigrationRow"
+        skippedWallets:
+          type: array
+          description: >-
+            Existing wallet balances intentionally excluded from broad
+            migration. Convert each workspace through wallet-conversion after
+            manual review.
+          items:
+            $ref: "#/components/schemas/WalletMigrationSkip"
         totalCredits:
           type: number
         workspaces:
           type: integer
+    WalletMigrationSkip:
+      type: object
+      required: [tenantId, plan, detail, reason]
+      properties:
+        tenantId:
+          type: integer
+        plan:
+          type: string
+        detail:
+          type: string
+        reason:
+          type: string
     CreditMigrationResult:
       type: object
       required: [migrated, skipped, totalCreditsGranted]
@@ -24584,7 +24692,7 @@ components:
           type: ["string", "null"]
         refKind:
           type: ["string", "null"]
-          enum: [content, imageJob, videoJob, campaign, null]
+          enum: [content, imageJob, videoJob, campaign, walletConversion, null]
           description: >-
             What this charge produced, when known at charge time - lets the UI
             link the ledger line to the original item.
@@ -24945,6 +25053,55 @@ components:
         note:
           type: string
           maxLength: 200
+    WalletConversionPreview:
+      type: object
+      required: [walletPaise, creditPricePaise, credits, canConvert, reason]
+      properties:
+        walletPaise:
+          type: integer
+          description: Current existing wallet balance, in paise.
+        creditPricePaise:
+          type: integer
+          minimum: 0
+          description: Saved rupees-per-credit rate, in paise; 0 when unavailable.
+        credits:
+          type: number
+          description: Purchased credits that would be added, rounded up to the nearest 0.001.
+        canConvert:
+          type: boolean
+        reason:
+          type: ["string", "null"]
+          description: Why conversion is unavailable, or null when it can proceed.
+    WalletConversionInput:
+      type: object
+      required: [expectedWalletPaise, expectedCreditPricePaise, idempotencyKey]
+      additionalProperties: false
+      properties:
+        expectedWalletPaise:
+          type: integer
+          minimum: 0
+          description: Wallet balance returned by the preview.
+        expectedCreditPricePaise:
+          type: integer
+          minimum: 1
+          description: Saved rate returned by the preview.
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+    WalletConversionResult:
+      type: object
+      required: [walletPaiseConverted, creditsAdded, remainingWalletPaise]
+      properties:
+        walletPaiseConverted:
+          type: integer
+          minimum: 0
+        creditsAdded:
+          type: number
+          description: Purchased credits added, in whole credits with 0.001 precision.
+        remainingWalletPaise:
+          type: integer
+          minimum: 0
     PromptBlock:
       type: object
       required: [id, title, content, mandatory, order]

@@ -42,6 +42,12 @@ Reward conversion must preserve the terms of existing earned value. Previously i
 
 Provider credit enforcement is authorized by the server's frozen funding decision, not by a fresh global-mode or tenant-mode lookup. Legacy-funded pipelines remain on their original quota/wallet rail; adding metering does not migrate them to credits.
 
+Wallet conversion must exchange value atomically, never grant credits while leaving spendable wallet money. Broad legacy migration must exclude wallet value, and historical wallet-source migration receipts require manual review before any further conversion.
+
+**Why:** The former broad migration could grant wallet-derived credits without retiring the source. A second conversion would double-credit that money even with a new request's own idempotency protection.
+
+**How to apply:** Serialize with wallet writers, reject unsettled work, bind confirmation to the saved rate and balance, and preserve fractional value by rounding up only to the smallest supported credit unit. Conversion does not authorize changing billing mode or enforcement.
+
 **Why:** A mode switch after acceptance must neither add a second charge to reserved work nor remove the only charge from credits-funded work. Nested operations with their own wallet reservation must not inherit credit-debit authorization from their parent.
 
 **How to apply:** Carry the funding decision through provider context copies and asynchronous job boundaries. Charge credits only for explicitly credit-funded work; retain legacy accounting for pipelines not migrated as a complete unit.

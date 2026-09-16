@@ -18,4 +18,5 @@ export const WalletLedgerEntryRefKind = {
   imageJob: 'imageJob',
   videoJob: 'videoJob',
   campaign: 'campaign',
+  walletConversion: 'walletConversion',
 } as const;

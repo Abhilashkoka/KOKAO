@@ -1506,8 +1506,17 @@ export interface CreditMigrationRow {
   credits: number;
 }
 
+export interface WalletMigrationSkip {
+  tenantId: number;
+  plan: string;
+  detail: string;
+  reason: string;
+}
+
 export interface CreditMigrationPlan {
   rows: CreditMigrationRow[];
+  /** Existing wallet balances intentionally excluded from broad migration. Convert each workspace through wallet-conversion after manual review. */
+  skippedWallets: WalletMigrationSkip[];
   totalCredits: number;
   workspaces: number;
 }
@@ -10988,6 +10997,7 @@ export const WalletLedgerEntryRefKind = {
   imageJob: 'imageJob',
   videoJob: 'videoJob',
   campaign: 'campaign',
+  walletConversion: 'walletConversion',
 } as const;
 
 export interface WalletLedgerEntry {
@@ -11357,6 +11367,51 @@ export interface WalletAdjustInput {
   amountPaise: number;
   /** @maxLength 200 */
   note?: string;
+}
+
+export interface WalletConversionPreview {
+  /** Current existing wallet balance, in paise. */
+  walletPaise: number;
+  /**
+     * Saved rupees-per-credit rate, in paise; 0 when unavailable.
+     * @minimum 0
+     */
+  creditPricePaise: number;
+  /** Purchased credits that would be added, rounded up to the nearest 0.001. */
+  credits: number;
+  canConvert: boolean;
+  /**
+     * Why conversion is unavailable, or null when it can proceed.
+     * @nullable
+     */
+  reason: string | null;
+}
+
+export interface WalletConversionInput {
+  /**
+     * Wallet balance returned by the preview.
+     * @minimum 0
+     */
+  expectedWalletPaise: number;
+  /**
+     * Saved rate returned by the preview.
+     * @minimum 1
+     */
+  expectedCreditPricePaise: number;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  idempotencyKey: string;
+}
+
+export interface WalletConversionResult {
+  /** @minimum 0 */
+  walletPaiseConverted: number;
+  /** Purchased credits added, in whole credits with 0.001 precision. */
+  creditsAdded: number;
+  /** @minimum 0 */
+  remainingWalletPaise: number;
 }
 
 export interface PromptBlock {

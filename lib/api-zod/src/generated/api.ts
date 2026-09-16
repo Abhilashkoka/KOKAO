@@ -2203,6 +2203,67 @@ export const AdminListTenantsResponse = zod.array(AdminListTenantsResponseItem)
 
 
 /**
+ * Read-only preview. This never grants credits, creates a balance, runs the broad legacy migration, or changes billing mode or credit enforcement.
+ * @summary Preview conversion of one tenant's existing wallet balance (superadmin only)
+ */
+
+
+
+export const AdminPreviewWalletConversionParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const adminPreviewWalletConversionResponseCreditPricePaiseMin = 0;
+
+
+
+export const AdminPreviewWalletConversionResponse = zod.object({
+  "walletPaise": zod.number().describe('Current existing wallet balance, in paise.'),
+  "creditPricePaise": zod.number().min(adminPreviewWalletConversionResponseCreditPricePaiseMin).describe('Saved rupees-per-credit rate, in paise; 0 when unavailable.'),
+  "credits": zod.number().describe('Purchased credits that would be added, rounded up to the nearest 0.001.'),
+  "canConvert": zod.boolean(),
+  "reason": zod.string().nullable().describe('Why conversion is unavailable, or null when it can proceed.')
+})
+
+
+/**
+ * Atomically retires the existing positive wallet balance and appends purchased milli-credits using the saved rupees-per-credit rate. A snapshot and idempotency key are required. Outstanding wallet work, stale snapshots, unsafe arithmetic, and unavailable rates are rejected.
+ * @summary Convert one tenant's existing wallet balance to purchased credits (superadmin only)
+ */
+
+
+
+export const AdminConvertWalletToCreditsParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const adminConvertWalletToCreditsBodyExpectedWalletPaiseMin = 0;
+
+
+export const adminConvertWalletToCreditsBodyIdempotencyKeyMax = 200;
+
+
+
+export const AdminConvertWalletToCreditsBody = zod.object({
+  "expectedWalletPaise": zod.number().min(adminConvertWalletToCreditsBodyExpectedWalletPaiseMin).describe('Wallet balance returned by the preview.'),
+  "expectedCreditPricePaise": zod.number().min(1).describe('Saved rate returned by the preview.'),
+  "idempotencyKey": zod.string().min(1).max(adminConvertWalletToCreditsBodyIdempotencyKeyMax)
+})
+
+export const adminConvertWalletToCreditsResponseWalletPaiseConvertedMin = 0;
+
+export const adminConvertWalletToCreditsResponseRemainingWalletPaiseMin = 0;
+
+
+
+export const AdminConvertWalletToCreditsResponse = zod.object({
+  "walletPaiseConverted": zod.number().min(adminConvertWalletToCreditsResponseWalletPaiseConvertedMin),
+  "creditsAdded": zod.number().describe('Purchased credits added, in whole credits with 0.001 precision.'),
+  "remainingWalletPaise": zod.number().min(adminConvertWalletToCreditsResponseRemainingWalletPaiseMin)
+})
+
+
+/**
  * @summary Update a tenant's subscription plan (superadmin only)
  */
 export const AdminUpdateTenantPlanParams = zod.object({
@@ -34900,6 +34961,12 @@ export const AdminPlanCreditMigrationResponse = zod.object({
   "detail": zod.string(),
   "credits": zod.number()
 })),
+  "skippedWallets": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "plan": zod.string(),
+  "detail": zod.string(),
+  "reason": zod.string()
+})).describe('Existing wallet balances intentionally excluded from broad migration. Convert each workspace through wallet-conversion after manual review.'),
   "totalCredits": zod.number(),
   "workspaces": zod.number()
 })
@@ -34980,7 +35047,7 @@ export const WalletGetOverviewResponse = zod.object({
   "model": zod.string().nullish(),
   "estimated": zod.boolean().describe('True when the charge used the admin display rate because the model had no catalog price.'),
   "note": zod.string().nullish(),
-  "refKind": zod.union([zod.literal('content'),zod.literal('imageJob'),zod.literal('videoJob'),zod.literal('campaign'),zod.literal(null)]).nullish().describe('What this charge produced, when known at charge time - lets the UI link the ledger line to the original item.'),
+  "refKind": zod.union([zod.literal('content'),zod.literal('imageJob'),zod.literal('videoJob'),zod.literal('campaign'),zod.literal('walletConversion'),zod.literal(null)]).nullish().describe('What this charge produced, when known at charge time - lets the UI link the ledger line to the original item.'),
   "refId": zod.string().nullish().describe('Identifier matching refKind - content id, job id, or campaign uuid.'),
   "createdAt": zod.coerce.date()
 }))

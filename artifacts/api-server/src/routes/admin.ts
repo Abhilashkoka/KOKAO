@@ -36,6 +36,13 @@ import {
   trueUpModel,
 } from "../lib/wallet";
 import {
+  convertWalletToCredits,
+  previewWalletConversion,
+  WalletConversionConflictError,
+  WalletConversionNotFoundError,
+  WalletConversionValidationError,
+} from "../lib/walletConversion";
+import {
   eq,
   sql,
   asc,
@@ -234,6 +241,7 @@ import {
   AdminUpdateWalletSettingsBody,
   AdminUpdateTenantBillingModeBody,
   AdminAdjustTenantWalletBody,
+  AdminConvertWalletToCreditsBody,
   AdminReconcileWalletPendingPricesBody,
   AdminResolveSupportRequestBody,
   AdminSetNvidiaHostedKeyBody,
@@ -327,7 +335,7 @@ import {
 import { CREDIT_RECONCILIATION_GATE } from "../lib/creditReconciliationGate";
 import { meterReport } from "../lib/meter";
 import {
-  planCreditMigration,
+  planCreditMigrationPreview,
   runCreditMigration,
   getLegacyConversionStatus,
   getLegacyConversionStatusesByTenant,
@@ -5799,20 +5807,24 @@ router.get(
 );
 
 /**
- * GET /admin/credit-migration — what every workspace WOULD receive. Writes
- * nothing. Always run this before the POST and read the totals.
+ * GET /admin/credit-migration — what every non-wallet workspace WOULD receive.
+ * Writes nothing. Wallet balances are listed as skipped and must use the
+ * per-workspace wallet-conversion action after manual review.
  */
 router.get("/admin/credit-migration", async (_req: Request, res: Response) => {
-  const rows = await planCreditMigration();
+  const preview = await planCreditMigrationPreview();
   res.json({
-    rows,
-    totalCredits: rows.reduce((sum, r) => sum + r.credits, 0),
-    workspaces: rows.length,
+    rows: preview.rows,
+    skippedWallets: preview.skippedWallets,
+    totalCredits: preview.rows.reduce((sum, r) => sum + r.credits, 0),
+    workspaces: preview.rows.length,
   });
 });
 
 /**
- * POST /admin/credit-migration — explicitly approve conversion onto credits.
+ * POST /admin/credit-migration — explicitly approve non-wallet conversion
+ * onto credits. Wallet balances are never accepted by this broad endpoint;
+ * the GET preview lists them as skipped for per-workspace Adjust conversion.
  *
  * This is intentionally never called by a customer read/claim path. A
  * workspace with a newly-created account is still migrated unless it has a
@@ -7008,6 +7020,125 @@ router.put(
       }
     }
     res.json({ tenantId: id, billingMode });
+  },
+);
+
+/**
+ * GET /admin/tenants/:id/wallet-conversion
+ *
+ * Read-only conversion preview. This intentionally does not create a wallet
+ * or credit account, does not call the broad legacy migration, and does not
+ * change any billing mode or enforcement setting.
+ */
+router.get(
+  "/admin/tenants/:id/wallet-conversion",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const [tenant] = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, id))
+      .limit(1);
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+    try {
+      res.json(await previewWalletConversion(id));
+    } catch (error) {
+      req.log.error({ err: error, tenantId: id }, "Wallet conversion preview failed");
+      res.status(500).json({ error: "Failed to load wallet conversion preview" });
+    }
+  },
+);
+
+/**
+ * POST /admin/tenants/:id/wallet-conversion
+ *
+ * Convert only this workspace's existing positive rupee wallet balance. The
+ * service locks the wallet first, then re-reads the persisted rate and all
+ * outstanding wallet work inside one transaction before retiring the wallet
+ * and appending purchased-credit and wallet-debit receipts.
+ */
+router.post(
+  "/admin/tenants/:id/wallet-conversion",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const parsed = AdminConvertWalletToCreditsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const [tenant] = await db
+      .select({ id: tenantsTable.id, email: tenantsTable.email })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, id))
+      .limit(1);
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+
+    try {
+      const result = await convertWalletToCredits({
+        tenantId: id,
+        expectedWalletPaise: parsed.data.expectedWalletPaise,
+        expectedCreditPricePaise: parsed.data.expectedCreditPricePaise,
+        idempotencyKey: parsed.data.idempotencyKey,
+      });
+      try {
+        await recordAdminAction({
+          action: "wallet_conversion",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: id,
+          targetEmail: tenant.email ?? null,
+          oldValue: JSON.stringify({
+            walletPaise: result.walletPaiseConverted,
+            creditPricePaise: result.creditPricePaise,
+          }),
+          newValue: JSON.stringify({
+            walletPaiseConverted: result.walletPaiseConverted,
+            creditsAdded: result.creditsAdded,
+            remainingWalletPaise: result.remainingWalletPaise,
+            walletLedgerId: result.walletLedgerId,
+            creditLedgerId: result.creditLedgerId,
+            idempotencyKey: parsed.data.idempotencyKey,
+          }),
+        });
+      } catch (error) {
+        req.log.error({ err: error, tenantId: id }, "Failed to write wallet conversion audit log");
+      }
+      res.json({
+        walletPaiseConverted: result.walletPaiseConverted,
+        creditsAdded: result.creditsAdded,
+        remainingWalletPaise: result.remainingWalletPaise,
+      });
+    } catch (error) {
+      if (
+        error instanceof WalletConversionNotFoundError
+      ) {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+      if (
+        error instanceof WalletConversionConflictError ||
+        error instanceof WalletConversionValidationError
+      ) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      req.log.error({ err: error, tenantId: id }, "Wallet conversion failed");
+      res.status(500).json({ error: "Wallet conversion failed" });
+    }
   },
 );
 

@@ -40,6 +40,7 @@ import {
 import {
   getLegacyConversionStatus,
   planCreditMigration,
+  planCreditMigrationPreview,
   runCreditMigration,
 } from "./creditMigration";
 import { creditsMilliFor, MILLI } from "./creditRates";
@@ -248,10 +249,19 @@ describe("the allowance for plans no gateway bills", () => {
       .insert(walletBalancesTable)
       .values({ tenantId, balancePaise: 9000 });
     expect(await grantUnbilledPlanCredits(tenantId)).toBe(0);
-    const walletPlan = (await planCreditMigration()).find(
-      (row) => row.tenantId === tenantId,
+    expect(
+      (await planCreditMigration()).find((row) => row.tenantId === tenantId),
+    ).toBeUndefined();
+    expect(
+      (await planCreditMigrationPreview()).skippedWallets,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId,
+          reason: expect.stringContaining("wallet Adjust conversion"),
+        }),
+      ]),
     );
-    expect(walletPlan).toMatchObject({ source: "wallet", credits: 2 });
     expect(
       await db
         .select()

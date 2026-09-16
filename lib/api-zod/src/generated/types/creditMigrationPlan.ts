@@ -6,9 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreditMigrationRow } from './creditMigrationRow';
+import type { WalletMigrationSkip } from './walletMigrationSkip';
 
 export interface CreditMigrationPlan {
   rows: CreditMigrationRow[];
+  /** Existing wallet balances intentionally excluded from broad migration. Convert each workspace through wallet-conversion after manual review. */
+  skippedWallets: WalletMigrationSkip[];
   totalCredits: number;
   workspaces: number;
 }

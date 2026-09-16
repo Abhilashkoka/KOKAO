@@ -455,6 +455,9 @@ import type {
   VoiceCloneTestResult,
   VoiceSampleCheck,
   WalletAdjustInput,
+  WalletConversionInput,
+  WalletConversionPreview,
+  WalletConversionResult,
   WalletOverview,
   WalletPendingPrice,
   WalletRechargeInput,
@@ -4744,6 +4747,156 @@ export function useAdminListTenants<TData = Awaited<ReturnType<typeof adminListT
 
 
 
+
+export const getAdminPreviewWalletConversionUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/wallet-conversion`
+}
+
+/**
+ * Read-only preview. This never grants credits, creates a balance, runs the broad legacy migration, or changes billing mode or credit enforcement.
+ * @summary Preview conversion of one tenant's existing wallet balance (superadmin only)
+ */
+export const adminPreviewWalletConversion = async (id: number, options?: RequestInit): Promise<WalletConversionPreview> => {
+
+  return customFetch<WalletConversionPreview>(getAdminPreviewWalletConversionUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminPreviewWalletConversionQueryKey = (id: number,) => {
+    return [
+    `/api/admin/tenants/${id}/wallet-conversion`
+    ] as const;
+    }
+
+
+export const getAdminPreviewWalletConversionQueryOptions = <TData = Awaited<ReturnType<typeof adminPreviewWalletConversion>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminPreviewWalletConversion>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminPreviewWalletConversionQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminPreviewWalletConversion>>> = ({ signal }) => adminPreviewWalletConversion(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminPreviewWalletConversion>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminPreviewWalletConversionQueryResult = NonNullable<Awaited<ReturnType<typeof adminPreviewWalletConversion>>>
+export type AdminPreviewWalletConversionQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Preview conversion of one tenant's existing wallet balance (superadmin only)
+ */
+
+export function useAdminPreviewWalletConversion<TData = Awaited<ReturnType<typeof adminPreviewWalletConversion>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminPreviewWalletConversion>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminPreviewWalletConversionQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminConvertWalletToCreditsUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/wallet-conversion`
+}
+
+/**
+ * Atomically retires the existing positive wallet balance and appends purchased milli-credits using the saved rupees-per-credit rate. A snapshot and idempotency key are required. Outstanding wallet work, stale snapshots, unsafe arithmetic, and unavailable rates are rejected.
+ * @summary Convert one tenant's existing wallet balance to purchased credits (superadmin only)
+ */
+export const adminConvertWalletToCredits = async (id: number,
+    walletConversionInput: WalletConversionInput, options?: RequestInit): Promise<WalletConversionResult> => {
+
+  return customFetch<WalletConversionResult>(getAdminConvertWalletToCreditsUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(walletConversionInput)
+  }
+);}
+
+
+
+
+export const getAdminConvertWalletToCreditsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminConvertWalletToCredits>>, TError,{id: number;data: BodyType<WalletConversionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminConvertWalletToCredits>>, TError,{id: number;data: BodyType<WalletConversionInput>}, TContext> => {
+
+const mutationKey = ['adminConvertWalletToCredits'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminConvertWalletToCredits>>, {id: number;data: BodyType<WalletConversionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminConvertWalletToCredits(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminConvertWalletToCreditsMutationResult = NonNullable<Awaited<ReturnType<typeof adminConvertWalletToCredits>>>
+    export type AdminConvertWalletToCreditsMutationBody = BodyType<WalletConversionInput>
+    export type AdminConvertWalletToCreditsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Convert one tenant's existing wallet balance to purchased credits (superadmin only)
+ */
+export const useAdminConvertWalletToCredits = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminConvertWalletToCredits>>, TError,{id: number;data: BodyType<WalletConversionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminConvertWalletToCredits>>,
+        TError,
+        {id: number;data: BodyType<WalletConversionInput>},
+        TContext
+      > => {
+      return useMutation(getAdminConvertWalletToCreditsMutationOptions(options));
+    }
 
 export const getAdminUpdateTenantPlanUrl = (id: number,) => {
 

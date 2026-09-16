@@ -64,6 +64,7 @@ import { useFeatureFlags } from "@/lib/features";
 
 import { PLAN_LABELS } from "./shared";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { WalletConversionDialog } from "./wallet-conversion-dialog";
 
 /** Paise → a compact rupee string for the admin table. */
 function formatInr(paise: number): string {
@@ -298,6 +299,7 @@ export function TenantsTab() {
     canonical: boolean;
   } | null>(null);
   const [detailsTarget, setDetailsTarget] = useState<AdminTenant | null>(null);
+  const [conversionTarget, setConversionTarget] = useState<{ id: number; name: string } | null>(null);
   const [planOverrideConfirm, setPlanOverrideConfirm] = useState<{
     tenantId: number;
     plan: string;
@@ -653,6 +655,13 @@ export function TenantsTab() {
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => setConversionTarget({ id: t.id, name: t.name })}
+                          >
+                            Adjust
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() =>
                               setGrantTarget({
                                 id: t.id,
@@ -661,7 +670,7 @@ export function TenantsTab() {
                               })
                             }
                           >
-                            Adjust
+                            Manual adjustment
                           </Button>
                         </div>
                       </TableCell>
@@ -784,6 +793,7 @@ export function TenantsTab() {
         }}
       />
 
+      {conversionTarget && <WalletConversionDialog tenant={conversionTarget} onClose={() => setConversionTarget(null)} />}
       <Dialog
         open={grantTarget !== null}
         onOpenChange={(open) => {

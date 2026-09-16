@@ -32,7 +32,9 @@ export { DEFAULT_CREDIT_PRICE_PAISE };
  *             video). Each bucket is converted at what that generation costs
  *             on the new rate card, so someone holding 5 video credits gets
  *             the credits 5 videos would now cost.
- *   wallet  — a rupee balance. Converted at the platform credit price.
+ *   wallet  — intentionally excluded here. A rupee balance must use the
+ *              per-workspace wallet-conversion transaction so retirement and
+ *              purchased-credit issuance cannot diverge.
  *
  * Two rules throughout, both in the customer's favour:
  *
@@ -55,6 +57,13 @@ export interface MigrationPlanRow {
   /** What the workspace held before, for the audit trail. */
   detail: string;
   credits: number;
+}
+
+export interface WalletMigrationSkip {
+  tenantId: number;
+  plan: string;
+  detail: string;
+  reason: string;
 }
 
 export interface MigrationResult {
@@ -162,23 +171,11 @@ export async function planCreditMigration(): Promise<MigrationPlanRow[]> {
   for (const tenant of tenants) {
     if (await hasMigrationReceipt(tenant.id)) continue;
 
-    if (tenant.billingMode === "wallet") {
-      const [wallet] = await db
-        .select()
-        .from(walletBalancesTable)
-        .where(eq(walletBalancesTable.tenantId, tenant.id))
-        .limit(1);
-      const paise = wallet?.balancePaise ?? 0;
-      if (paise <= 0) continue;
-      rows.push({
-        tenantId: tenant.id,
-        plan: tenant.plan,
-        source: "wallet",
-        detail: `₹${(paise / 100).toFixed(2)} wallet balance`,
-        credits: Math.ceil(paise / creditPricePaise),
-      });
-      continue;
-    }
+    // A broad migration cannot safely retire a live wallet balance. Wallet
+    // value must go through the per-workspace wallet-conversion transaction,
+    // which records both sides atomically. Keep this preview free of wallet
+    // rows so the batch POST can never grant wallet value without debiting it.
+    if (tenant.billingMode === "wallet") continue;
 
     const [legacy] = await db
       .select()
@@ -226,6 +223,53 @@ export async function planCreditMigration(): Promise<MigrationPlanRow[]> {
 }
 
 /**
+ * Wallet balances are intentionally surfaced separately from the broad
+ * migration rows. This makes the admin preview explicit about skipped work
+ * and points the operator at the only safe per-workspace action.
+ */
+export async function listWalletMigrationSkips(): Promise<WalletMigrationSkip[]> {
+  const tenants = await db
+    .select({
+      id: tenantsTable.id,
+      plan: tenantsTable.plan,
+      billingMode: tenantsTable.billingMode,
+    })
+    .from(tenantsTable);
+  const skipped: WalletMigrationSkip[] = [];
+  for (const tenant of tenants) {
+    if (tenant.billingMode !== "wallet" || await hasMigrationReceipt(tenant.id)) {
+      continue;
+    }
+    const [wallet] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.id))
+      .limit(1);
+    const paise = wallet?.balancePaise ?? 0;
+    if (paise <= 0) continue;
+    skipped.push({
+      tenantId: tenant.id,
+      plan: tenant.plan,
+      detail: `₹${(paise / 100).toFixed(2)} wallet balance`,
+      reason:
+        "Skipped: broad wallet migration is disabled. Use this workspace's wallet Adjust conversion after review.",
+    });
+  }
+  return skipped;
+}
+
+export async function planCreditMigrationPreview(): Promise<{
+  rows: MigrationPlanRow[];
+  skippedWallets: WalletMigrationSkip[];
+}> {
+  const [rows, skippedWallets] = await Promise.all([
+    planCreditMigration(),
+    listWalletMigrationSkips(),
+  ]);
+  return { rows, skippedWallets };
+}
+
+/**
  * Apply the plan. Each grant carries an idempotency key, so re-running after a
  * partial failure grants nobody twice.
  */
@@ -237,13 +281,38 @@ export async function runCreditMigration(
   const migrated: MigrationPlanRow[] = [];
 
   for (const row of rows) {
+    // Reject manually supplied legacy wallet rows too. Older callers could
+    // pass an explicit plan even after the read-only planner stopped emitting
+    // wallet work; neither path may grant wallet value without retirement.
+    if (row.source === "wallet") {
+      logger.warn(
+        { tenantId: row.tenantId },
+        "Skipping unsafe broad wallet migration; use per-workspace wallet conversion",
+      );
+      continue;
+    }
     try {
-      await grantCredits({
-        tenantId: row.tenantId,
-        credits: row.credits,
-        kind: "migrate",
-        idempotencyKey: `migrate:${row.tenantId}`,
-        note: `Converted from ${row.detail}`,
+      await db.transaction(async (tx) => {
+        // The tenant row is the broad-migration gate. Wallet conversion takes
+        // this same lock after locking its wallet, then rechecks migration
+        // receipts before granting or converting anything.
+        const [tenant] = await tx
+          .select({ id: tenantsTable.id })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, row.tenantId))
+          .for("update")
+          .limit(1);
+        if (!tenant) throw new Error("Tenant disappeared during credit migration");
+        await grantCredits(
+          {
+            tenantId: row.tenantId,
+            credits: row.credits,
+            kind: "migrate",
+            idempotencyKey: `migrate:${row.tenantId}`,
+            note: `Converted from ${row.detail}`,
+          },
+          tx,
+        );
       });
       granted += row.credits;
       migrated.push(row);

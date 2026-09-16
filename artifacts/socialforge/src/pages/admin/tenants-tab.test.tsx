@@ -108,7 +108,7 @@ describe("TenantsTab credit-first workspace table", () => {
 
   it("uses the canonical account adjustment for workspaces that have one", () => {
     renderTab();
-    fireEvent.click(screen.getByRole("button", { name: "Adjust" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manual adjustment" }));
     fireEvent.change(screen.getByTestId("input-grant-unified"), {
       target: { value: "2.5" },
     });
@@ -126,7 +126,7 @@ describe("TenantsTab credit-first workspace table", () => {
   it("labels the legacy adjustment controls when no canonical account exists", () => {
     tenant.creditAccountExists = false;
     renderTab();
-    fireEvent.click(screen.getByRole("button", { name: "Adjust" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manual adjustment" }));
 
     expect(screen.getByText("Adjust legacy credits for Unified Workspace")).toBeTruthy();
     expect(screen.getByText("Legacy captions")).toBeTruthy();
