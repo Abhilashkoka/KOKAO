@@ -448,6 +448,7 @@ import {
   setImageGenSelection,
 } from "../lib/imageGen";
 import { grantCredits, getCreditBalances, spendCredit } from "../lib/credits";
+import { grantCredits as grantCreditAccount } from "../lib/creditAccounts";
 import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
 import {
   adminAdjustWallet,
@@ -2982,6 +2983,297 @@ describe("guided story route fail-closed regressions", () => {
         .returning()
     )[0]!;
   }
+
+  async function makeGeneratedWanGuidedDraft(tenantId: number) {
+    const script = routeScript();
+    const hero = script.roles.find((role) => role.id === "hero")!;
+    script.roles = [hero];
+    script.scenes = script.scenes.map((scene) => ({
+      ...scene,
+      roleIds: ["hero"],
+      lines: [scene.lines[0]!],
+      endMs: 2_500,
+    }));
+    script.runtimeSeconds = 3;
+    const draft = await insertEditableGuidedDraft(tenantId, script);
+    const approvedBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const approvedSha = createHash("sha256").update(approvedBytes).digest("hex");
+    const portraitPath = `/objects/${tenantId}/uploads/hero.png`;
+    const sheetPath = `/objects/${tenantId}/uploads/hero-sheet.png`;
+    const outfitPath = `/objects/${tenantId}/uploads/hero-outfit.png`;
+    const [character] = await db.insert(charactersTable).values({
+      tenantId,
+      name: hero.name,
+      description: hero.description,
+      referenceImagePath: portraitPath,
+      referenceSource: "generated",
+      creationEvidence: {
+        version: 1,
+        kind: "guided_story",
+        draftId: draft.id,
+        draftRevision: draft.revision,
+        roleId: "hero",
+        operationKey: `test-guided-${draft.id}`,
+        provider: "test",
+        model: "test",
+        providerOperationId: null,
+        sourcePath: portraitPath,
+        sourceSha256: approvedSha,
+        recordedAt: "2025-01-01T00:00:00.000Z",
+      },
+      referenceSheetImagePath: sheetPath,
+      referenceSheetStatus: "approved",
+      referenceSheetApprovedSha256: approvedSha,
+      bytePlusIdentityId: null,
+    }).returning();
+    const [outfit] = await db.insert(characterOutfitsTable).values({
+      tenantId,
+      characterId: character!.id,
+      name: "Approved outfit",
+      description: "Approved wardrobe",
+      referenceImagePath: outfitPath,
+      status: "approved",
+      identityVerified: true,
+      atlasApprovedSourceSha256: approvedSha,
+    }).returning();
+    const approvedAt = "2025-01-01T00:00:00.000Z";
+    const cast: GuidedStoryDraftState["cast"] = [{
+      roleId: "hero",
+      source: "saved",
+      referenceSource: "generated",
+      characterId: character!.id,
+      outfitId: outfit!.id,
+      brandKitId: null,
+      voiceId: "alloy",
+      requiresBytePlusAsset: false,
+      bytePlusAssetId: null,
+      bytePlusAssetStatus: null,
+      requiresAtlasAsset: false,
+      atlasAssetId: null,
+      atlasAssetStatus: null,
+      character: {
+        name: hero.name,
+        description: hero.description,
+        referenceImagePath: portraitPath,
+      },
+      outfit: {
+        name: outfit!.name,
+        description: outfit!.description,
+        referenceImagePath: outfitPath,
+      },
+      voice: {
+        id: "alloy",
+        label: "Hero",
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: true,
+    }];
+    const backdropInput = {
+      prompt: "A storm shelter",
+      imagePath: `/objects/${tenantId}/uploads/backdrop.png`,
+      imageSha256: approvedSha,
+      sceneIds: script.scenes.map((scene) => scene.id),
+    };
+    const state: GuidedStoryDraftState = {
+      ...draft.state,
+      scriptApprovedAt: approvedAt,
+      castStrategy: "saved",
+      cast,
+      castApprovals: {
+        version: 1,
+        draftRevision: draft.revision,
+        roles: {
+          hero: {
+            roleId: "hero",
+            approvedAt,
+            character: { referenceImagePath: portraitPath, sha256: approvedSha },
+            outfit: { referenceImagePath: outfitPath, sha256: approvedSha },
+          },
+        },
+      },
+      duplicateAssignmentConfirmed: true,
+      visualChoices: {
+        ...draft.state.visualChoices!,
+        backdrops: {
+          version: 1,
+          default: {
+            version: 1,
+            prompt: backdropInput.prompt,
+            imagePath: backdropInput.imagePath,
+            imageSha256: backdropInput.imageSha256,
+            revision: 1,
+            approvedAt,
+            fingerprint: guidedBackdropFingerprint({
+              prompt: backdropInput.prompt,
+              imagePath: backdropInput.imagePath,
+              imageSha256: backdropInput.imageSha256,
+              revision: 1,
+              sceneId: null,
+            }),
+          },
+          sceneOverrides: {},
+        },
+        backdropReference: {
+          version: 1,
+          ...backdropInput,
+          fingerprint: guidedBackdropFingerprint(backdropInput),
+          approvedAt,
+        },
+      },
+    };
+    return (
+      await db.update(guidedStoryDraftsTable)
+        .set({ state })
+        .where(eq(guidedStoryDraftsTable.id, draft.id))
+        .returning()
+    )[0]!;
+  }
+
+  it("rejects invalid references before funding and accepts Wan without Seedance ids", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 100,
+      kind: "admin_grant",
+      note: "guided reference prerequisites",
+    });
+    await grantCreditAccount({
+      tenantId: tenant.tenantId,
+      credits: 100,
+      kind: "grant_admin",
+    });
+    const wanModel = "alibaba/wan-3.0/reference-to-video";
+    const restorePrice = await installVideoTestPrice(wanModel, "atlascloud");
+    const previousSelection = await getVideoGenSelection();
+    await setStoredVideoGenKey("atlascloud", "test-atlas-token");
+    await setVideoGenSelection({
+      provider: "atlascloud",
+      textToVideoModel: wanModel,
+      imageToVideoModel: null,
+      enabledModelIds: null,
+    });
+    try {
+      const validDraft = await makeGeneratedWanGuidedDraft(tenant.tenantId);
+      const validResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${validDraft.id}/enqueue`)
+        .send({ revision: validDraft.revision, consentGranted: true });
+      expect(validResponse.status, JSON.stringify(validResponse.body)).toBe(201);
+      await waitForPendingJobs();
+      const validJob = await readJob(validResponse.body.id);
+      expect(validJob.options?.resolvedVideoModel?.model).toBe(wanModel);
+      expect(validJob.options?.guidedStory?.cast.every((member) =>
+        !member.atlasCharacterReferenceId &&
+        !member.atlasAssetReferenceId &&
+        member.requiresAtlasAsset === false,
+      )).toBe(true);
+      expect(runnerState.calls).toHaveLength(1);
+
+      const beforeInvalidCredits = (await getCreditBalances(tenant.tenantId)).videoCredits;
+      const malformedDraft = await makeGeneratedWanGuidedDraft(tenant.tenantId);
+      const malformedState = structuredClone(malformedDraft.state);
+      malformedState.script!.scenes[0]!.roleIds = ["missing-role"];
+      await db.update(guidedStoryDraftsTable)
+        .set({ state: malformedState })
+        .where(eq(guidedStoryDraftsTable.id, malformedDraft.id));
+      const malformedResponse = await request(app)
+        .post(`/api/ai/guided-story/drafts/${malformedDraft.id}/enqueue`)
+        .send({ revision: malformedDraft.revision, consentGranted: true });
+      expect(malformedResponse.status).toBe(409);
+      expect(malformedResponse.body.code).toBe("guided_storyboard_references_invalid");
+      expect((await getCreditBalances(tenant.tenantId)).videoCredits)
+        .toBe(beforeInvalidCredits);
+      expect(runnerState.calls).toHaveLength(1);
+
+    } finally {
+      await setVideoGenSelection(previousSelection);
+      await clearStoredVideoGenKey("atlascloud");
+      await restorePrice();
+    }
+  });
+
+  it("rejects a retry whose persisted storyboard role references drifted", async () => {
+    const tenant = await newTenant("payg");
+    const draft = await makeGeneratedWanGuidedDraft(tenant.tenantId);
+    const approvedBackdrop = draft.state.visualChoices!.backdropReference!;
+    const guidedStory = {
+      version: 1 as const,
+      draftId: draft.id,
+      draftRevision: draft.revision,
+      scriptApprovedAt: draft.state.scriptApprovedAt!,
+      locale: "en" as const,
+      platform: {
+        id: draft.state.setup!.platform,
+        aspectRatio: draft.state.setup!.aspectRatio,
+        width: draft.state.setup!.width,
+        height: draft.state.setup!.height,
+        safeArea: draft.state.setup!.safeArea,
+        durationSeconds: draft.state.setup!.durationSeconds,
+      },
+      script: draft.state.script!,
+      cast: draft.state.cast,
+      castApprovals: draft.state.castApprovals!,
+      visuals: draft.state.visualChoices,
+      backdropReference: approvedBackdrop,
+      backdrops: draft.state.visualChoices!.backdrops,
+      videoModel: {
+        provider: "atlascloud",
+        model: "alibaba/wan-3.0/reference-to-video",
+      },
+    } as NonNullable<VideoJobOptions["guidedStory"]>;
+    const storyboard = guidedStoryStoryboard(guidedStory);
+    storyboard.scenes[0]!.guidedStory!.roleIds = ["missing-role"];
+    const options = {
+      aspectRatio: "9:16" as const,
+      durationSec: 3,
+      shotCount: 1,
+      guidedStoryRenderFlow: { version: 1 as const, mode: "direct_video" as const },
+      resolvedVideoModel: {
+        provider: "atlascloud",
+        model: "alibaba/wan-3.0/reference-to-video",
+        catalogModelId: "atlascloud-wan-3.0-reference",
+        mode: "text" as const,
+        generateAudio: true,
+      },
+      guidedStory,
+    } as VideoJobOptions;
+    const [source] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "topic_to_video",
+      status: "failed",
+      funding: null,
+      options,
+      storyboard,
+      error: "Provider failed after saving the storyboard.",
+    }).returning();
+    const beforeCredits = await getCreditBalances(tenant.tenantId);
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${source!.id}/retry`);
+    expect(response.status, JSON.stringify(response.body)).toBe(409);
+    expect(response.body.code).toBe("guided_storyboard_references_invalid");
+    expect(await getCreditBalances(tenant.tenantId)).toEqual(beforeCredits);
+    expect(runnerState.calls).toHaveLength(0);
+    const children = await db.select({
+      id: videoGenerationsTable.id,
+      status: videoGenerationsTable.status,
+      funding: videoGenerationsTable.funding,
+    })
+      .from(videoGenerationsTable).where(and(
+      eq(videoGenerationsTable.tenantId, tenant.tenantId),
+    ));
+    expect(children).toHaveLength(2);
+    expect(children.find((row) => row.id === source!.id)).toMatchObject({
+      status: "failed",
+      funding: null,
+    });
+    expect(children.find((row) => row.id !== source!.id)).toMatchObject({
+      status: "failed",
+      funding: null,
+    });
+  });
 
   async function makeEnqueueableGuidedDraft(tenantId: number) {
     const script = routeScript();
@@ -9294,6 +9586,189 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
     }).returning())[0]!;
   }
 
+  it("rejects invalid Guided references before fresh-restart funding", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 2,
+      kind: "admin_grant",
+      note: "fresh guided reference prerequisites",
+    });
+    const hash = "a".repeat(64);
+    const baseGuidedStory = {
+      version: 1,
+      draftId: 7001,
+      draftRevision: 1,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      locale: "en",
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 5,
+      },
+      script: {
+        version: 1,
+        title: "Reference check",
+        logline: "A reference check.",
+        runtimeSeconds: 5,
+        warnings: [],
+        roles: [{ id: "hero", name: "Hero", description: "A hero." }],
+        scenes: [{
+          id: "scene-one",
+          startMs: 0,
+          endMs: 5_000,
+          visualDirection: "A hero walks forward.",
+          roleIds: ["hero"],
+          lines: [{
+            id: "line-one",
+            ownerRoleId: "hero",
+            kind: "dialogue",
+            text: "We keep going.",
+            startMs: 0,
+            endMs: 5_000,
+          }],
+        }],
+      },
+      cast: [{
+        roleId: "hero",
+        source: "saved",
+        referenceSource: "generated",
+        characterId: 1,
+        outfitId: 1,
+        brandKitId: null,
+        voiceId: "alloy",
+        requiresBytePlusAsset: false,
+        bytePlusAssetId: null,
+        bytePlusAssetStatus: null,
+        requiresAtlasAsset: false,
+        atlasAssetId: null,
+        atlasAssetStatus: null,
+        character: {
+          name: "Hero",
+          description: "A hero.",
+          referenceImagePath: "/objects/reference/hero.png",
+        },
+        outfit: {
+          name: "Approved outfit",
+          description: "Approved wardrobe",
+          referenceImagePath: "/objects/reference/hero-outfit.png",
+        },
+        voice: {
+          id: "alloy",
+          label: "Hero",
+          provider: "stock",
+          providerVoiceId: null,
+        },
+        isUserRole: false,
+        consentGranted: true,
+        atlasApprovedReferenceSheetPath: "/objects/reference/hero-sheet.png",
+        atlasApprovedReferenceSheetSha256: hash,
+      }],
+      castApprovals: {
+        version: 1,
+        draftRevision: 1,
+        roles: {
+          hero: {
+            roleId: "hero",
+            approvedAt: "2025-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: "/objects/reference/hero.png",
+              sha256: hash,
+            },
+            outfit: {
+              referenceImagePath: "/objects/reference/hero-outfit.png",
+              sha256: hash,
+            },
+          },
+        },
+      },
+      videoModel: {
+        provider: "atlascloud",
+        model: "alibaba/wan-3.0/reference-to-video",
+      },
+      backdropReference: {
+        version: 1,
+        prompt: "A storm shelter",
+        imagePath: "/objects/reference/backdrop.png",
+        imageSha256: hash,
+        sceneIds: ["scene-one"],
+        revision: 1,
+        approvedAt: "2025-01-01T00:00:00.000Z",
+        fingerprint: "",
+      },
+    } as NonNullable<VideoJobOptions["guidedStory"]>;
+    baseGuidedStory.backdropReference!.fingerprint = guidedBackdropFingerprint(
+      baseGuidedStory.backdropReference!,
+    );
+    const makeOptions = (
+      guidedStory: NonNullable<VideoJobOptions["guidedStory"]>,
+    ) => ({
+      aspectRatio: "9:16" as const,
+      durationSec: 5,
+      shotCount: 1,
+      guidedStoryRenderFlow: { version: 1 as const, mode: "direct_video" as const },
+      resolvedVideoModel: {
+        provider: "atlascloud",
+        model: "alibaba/wan-3.0/reference-to-video",
+        catalogModelId: "atlascloud-wan-3.0-reference",
+        mode: "text" as const,
+        generateAudio: true,
+      },
+      generateAudio: true,
+      guidedStory,
+    }) as VideoJobOptions;
+
+    const malformedStory = structuredClone(baseGuidedStory);
+    malformedStory.script.scenes[0]!.roleIds = ["missing-role"];
+    const malformed = await failedFreshSource(tenant, makeOptions(malformedStory));
+    const beforeMalformedCredits = (await getCreditBalances(tenant.tenantId)).videoCredits;
+    const malformedResponse = await request(app)
+      .post(`/api/ai/video-jobs/${malformed.id}/restart`);
+    expect(malformedResponse.status).toBe(409);
+    expect(malformedResponse.body.code).toBe("guided_storyboard_references_invalid");
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits)
+      .toBe(beforeMalformedCredits);
+    expect(runnerState.calls).toHaveLength(0);
+
+    const missingHashStory = structuredClone(baseGuidedStory);
+    Object.assign(missingHashStory.backdropReference!, { imageSha256: "" });
+    const missingHash = await failedFreshSource(tenant, makeOptions(missingHashStory));
+    const beforeMissingHashCredits = (await getCreditBalances(tenant.tenantId)).videoCredits;
+    const missingHashResponse = await request(app)
+      .post(`/api/ai/video-jobs/${missingHash.id}/restart`);
+    expect(missingHashResponse.status).toBe(409);
+    expect(missingHashResponse.body.code).toBe("guided_storyboard_references_invalid");
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits)
+      .toBe(beforeMissingHashCredits);
+    expect(runnerState.calls).toHaveLength(0);
+
+    const seedanceStory = structuredClone(baseGuidedStory);
+    seedanceStory.videoModel = {
+      provider: "atlascloud",
+      model: "bytedance/seedance-2.5/reference-to-video",
+    };
+    const seedanceOptions = makeOptions(seedanceStory);
+    seedanceOptions.resolvedVideoModel = {
+      ...seedanceOptions.resolvedVideoModel!,
+      model: "bytedance/seedance-2.5/reference-to-video",
+      catalogModelId: "atlascloud-seedance-2.5-reference",
+    };
+    const seedance = await failedFreshSource(tenant, seedanceOptions);
+    const beforeSeedanceCredits = (await getCreditBalances(tenant.tenantId)).videoCredits;
+    const seedanceResponse = await request(app)
+      .post(`/api/ai/video-jobs/${seedance.id}/restart`);
+    expect(seedanceResponse.status).toBe(409);
+    expect(seedanceResponse.body.code).toBe("guided_storyboard_references_invalid");
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits)
+      .toBe(beforeSeedanceCredits);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
   it("creates a clean, fully funded child while retaining source diagnostics and its cancellation link", async () => {
     const tenant = await newTenant("payg");
     await grantCredits({
@@ -9367,6 +9842,19 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
     "freezes the Atlas reference model and ordered cast mappings before %s funding",
     async (expectedFunding, plan) => {
     const tenant = await newTenant(plan);
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 100,
+      kind: "admin_grant",
+      note: "restart reference prerequisites",
+    });
+    await grantCreditAccount({
+      tenantId: tenant.tenantId,
+      credits: 100,
+      kind: "grant_admin",
+    });
     const priorSelection = await getVideoGenSelection();
     const atlasModel = "bytedance/seedance-2.5/reference-to-video";
     const restoreAtlasPrice = await installVideoTestPrice(atlasModel, "atlascloud");
@@ -9393,7 +9881,7 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
 
     const approvedBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     const approvedSha = createHash("sha256").update(approvedBytes).digest("hex");
-    const cast = [];
+    const cast: NonNullable<VideoJobOptions["guidedStory"]>["cast"] = [];
     for (const [index, roleId] of ["friend", "hero"].entries()) {
       const portraitPath = `/objects/${tenant.tenantId}/uploads/${roleId}.png`;
       const sheetPath = `/objects/${tenant.tenantId}/uploads/${roleId}-sheet.png`;
@@ -9404,6 +9892,20 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
         description: `${roleId} description`,
         referenceImagePath: portraitPath,
         referenceSource: "generated",
+        creationEvidence: {
+          version: 1,
+          kind: "guided_story",
+          draftId: 9200,
+          draftRevision: 1,
+          roleId,
+          operationKey: `test-restart-${tenant.tenantId}-${roleId}`,
+          provider: "test",
+          model: "test",
+          providerOperationId: null,
+          sourcePath: portraitPath,
+          sourceSha256: approvedSha,
+          recordedAt: "2026-09-09T00:00:00.000Z",
+        },
         bytePlusIdentityId: null,
         referenceSheetImagePath: sheetPath,
         referenceSheetStatus: "approved",
@@ -9439,9 +9941,15 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
         outfitId: outfit!.id,
         brandKitId: null,
         voiceId: `voice-${roleId}`,
-        requiresAtlasAsset: false,
-        atlasAssetId: null,
-        atlasAssetStatus: null,
+        requiresAtlasAsset: true,
+        atlasCharacterLibraryId: tenant.tenantId * 10 + index,
+        atlasCharacterReferenceId: `asset-restart-${tenant.tenantId}-${roleId}-character`,
+        atlasOutfitLibraryId: tenant.tenantId * 10 + index + 2,
+        atlasAssetReferenceId: `asset-restart-${tenant.tenantId}-${roleId}-outfit`,
+        atlasAssetId: `asset-restart-${tenant.tenantId}-${roleId}-outfit`,
+        atlasAssetStatus: "Active",
+        atlasApprovedReferenceSheetPath: sheetPath,
+        atlasApprovedReferenceSheetSha256: approvedSha,
         character: {
           name: roleId,
           description: `${roleId} description`,
@@ -9471,11 +9979,11 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
           roleId: member.roleId,
           approvedAt: "2026-09-09T00:00:00.000Z",
           character: {
-            referenceImagePath: member.character.referenceImagePath,
+            referenceImagePath: member.character!.referenceImagePath!,
             sha256: approvedSha,
           },
           outfit: {
-            referenceImagePath: member.outfit.referenceImagePath,
+            referenceImagePath: member.outfit!.referenceImagePath!,
             sha256: approvedSha,
           },
         },
@@ -9524,6 +10032,22 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
       },
       cast,
       castApprovals: approvals,
+      backdropReference: {
+        version: 1 as const,
+        prompt: "A sunlit footpath",
+        imagePath: `/objects/${tenant.tenantId}/uploads/restart-backdrop.png`,
+        imageSha256: approvedSha,
+        sceneIds: ["scene-one"],
+        revision: 1,
+        approvedAt: "2026-09-09T00:00:00.000Z",
+        fingerprint: guidedBackdropFingerprint({
+          prompt: "A sunlit footpath",
+          imagePath: `/objects/${tenant.tenantId}/uploads/restart-backdrop.png`,
+          imageSha256: approvedSha,
+          sceneIds: ["scene-one"],
+          revision: 1,
+        }),
+      },
     };
     const insertLegacySource = async () => (
       await db.insert(videoGenerationsTable).values({
@@ -9535,6 +10059,7 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
         options: {
           aspectRatio: "9:16",
           durationSec: 5,
+          shotCount: 1,
           guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
           guidedStory,
         },

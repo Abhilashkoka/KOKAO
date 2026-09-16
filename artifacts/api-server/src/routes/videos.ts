@@ -18,6 +18,7 @@ import {
   storyboardPreviewsAreGenerated,
   type CreativeDirection,
   type VideoJobOptions,
+  type VideoStoryboard,
   type VideoStoryboardScene,
   type GuidedStoryDraft,
   type GuidedStoryDraftState,
@@ -236,6 +237,9 @@ import {
   VoiceCloneNotConfiguredError,
 } from "../lib/voiceClone";
 import { loadStyleGuidance } from "../lib/videoGen/referenceAnalyzer";
+import {
+  guidedStoryReferencePreflightError as guidedStoryboardReferenceError,
+} from "../lib/videoGen/guidedStory";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { getTextGenClient, TextGenNotConfiguredError } from "../lib/textGen";
 import {
@@ -319,6 +323,27 @@ import {
 import { refuseIfShortOfCredits } from "../lib/creditPreflight";
 
 const router: IRouter = Router();
+
+function guidedStorySourceStoryboardReferenceError(
+  options: Pick<VideoJobOptions, "guidedStory">,
+  storyboard: VideoStoryboard | null | undefined,
+): string | null {
+  if (!options.guidedStory || !storyboard) return null;
+  try {
+    const expected = guidedStoryStoryboard(options.guidedStory);
+    if (
+      expected.scenes.length !== storyboard.scenes.length ||
+      expected.scenes.some((scene, index) =>
+        !guidedStorySceneImmutableInputsMatch(storyboard.scenes[index], scene),
+      )
+    ) {
+      return "The saved Guided Story storyboard no longer matches its approved story inputs. Re-review and approve the storyboard again.";
+    }
+    return null;
+  } catch {
+    return "The saved Guided Story storyboard is malformed. Re-review and approve the storyboard again.";
+  }
+}
 
 function legacyVideoFunding(
   tenantId: number,
@@ -10590,6 +10615,20 @@ async function generateVideoHandler(
       return;
     }
   }
+  if (options.guidedStory) {
+    const referenceError = guidedStoryboardReferenceError(options, null);
+    if (referenceError) {
+      const message = provisionalGuidedJob
+        ? `Job #${provisionalGuidedJob.id} stopped before funding: ${referenceError}`
+        : referenceError;
+      await failProvisionalGuidedJob(message);
+      res.status(409).json({
+        error: message,
+        code: "guided_storyboard_references_invalid",
+      });
+      return;
+    }
+  }
 
   if (
     options.guidedStory &&
@@ -13275,6 +13314,22 @@ router.post(
         throw new Error("Retry registration reconciliation CAS changed");
       }
     }
+    if (!verificationOnlyRecovery && options.guidedStory) {
+      const referenceError = guidedStoryboardReferenceError(
+        options,
+        childJob.storyboard,
+      );
+      if (referenceError) {
+        const message = await failChild(
+          `stopped before funding: ${referenceError}`,
+        );
+        res.status(409).json({
+          error: message,
+          code: "guided_storyboard_references_invalid",
+        });
+        return;
+      }
+    }
     const units = videoJobUnits(childJob.engine, options);
     if (
       units > 0 &&
@@ -13778,6 +13833,19 @@ router.post(
       return;
     }
     if (await rejectDisabledVideoMode(initial.engine, res)) return;
+    if (initial.options?.guidedStory && initial.storyboard) {
+      const sourceReferenceError = guidedStorySourceStoryboardReferenceError(
+        initial.options,
+        initial.storyboard,
+      );
+      if (sourceReferenceError) {
+        res.status(409).json({
+          error: sourceReferenceError,
+          code: "guided_storyboard_references_invalid",
+        });
+        return;
+      }
+    }
     let options: VideoJobOptions;
     try {
       options = await prepareFreshRestartOptions(initial, req.tenantId);
@@ -13799,6 +13867,19 @@ router.post(
         return;
       }
       throw error;
+    }
+    if (options.guidedStory) {
+      const referenceError = guidedStoryboardReferenceError(
+        options,
+        null,
+      );
+      if (referenceError) {
+        res.status(409).json({
+          error: referenceError,
+          code: "guided_storyboard_references_invalid",
+        });
+        return;
+      }
     }
     if (await isFeatureEnabled("providerResilience").catch(() => true)) {
       const preflight = await preflightVideoJob(initial.engine, options);

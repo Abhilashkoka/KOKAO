@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   GuidedStoryCastSnapshot,
   GuidedStoryDraftState,
+  VideoJobOptions,
 } from "@workspace/db";
 import {
   GUIDED_STORY_PLATFORMS,
@@ -23,6 +24,7 @@ import {
   guidedStorySnapshotFingerprint,
   guidedStoryStoryboard,
   guidedStoryNativeScriptWarning,
+  guidedStoryReferencePreflightError,
   invalidateGuidedStoryDownstream,
   normalizeGuidedStoryLocale,
   planGuidedStoryDialogueReplay,
@@ -32,6 +34,11 @@ import {
   validateGuidedStoryGeneratedSpeech,
   validateGuidedResumableCastOperation,
 } from "./guidedStory";
+
+const SEEDANCE_REFERENCE_MODEL =
+  "bytedance/seedance-2.5/reference-to-video";
+const WAN_REFERENCE_MODEL =
+  "alibaba/wan-3.0/reference-to-video";
 
 it("keeps generated cast and wardrobe photographic instead of comic-styled", async () => {
   const prompt = await governedGuidedCastPrompt({
@@ -281,6 +288,119 @@ function approvalFixture() {
   };
   return { script, cast, castApprovals, snapshot, storyboard, state };
 }
+
+function atlasReferenceOptions(
+  model: typeof SEEDANCE_REFERENCE_MODEL | typeof WAN_REFERENCE_MODEL,
+): VideoJobOptions {
+  const { snapshot: base } = approvalFixture();
+  const imageSha256 = "b".repeat(64);
+  const canonicalBackdrop = {
+    version: 1 as const,
+    prompt: "A storm shelter command room",
+    imagePath: "/objects/1/backdrop.png",
+    imageSha256,
+    revision: 1,
+    fingerprint: guidedBackdropFingerprint({
+      prompt: "A storm shelter command room",
+      imagePath: "/objects/1/backdrop.png",
+      imageSha256,
+      revision: 1,
+      sceneId: null,
+    }),
+    approvedAt: "2025-01-01T00:00:00.000Z",
+  };
+  const seedance = model === SEEDANCE_REFERENCE_MODEL;
+  const snapshot = {
+    ...base,
+    backdropReference: undefined,
+    backdrops: {
+      version: 1 as const,
+      default: canonicalBackdrop,
+      sceneOverrides: {},
+    },
+    cast: base.cast.map((member, index) => ({
+      ...member,
+      referenceSource: "generated" as const,
+      requiresBytePlusAsset: false,
+      requiresAtlasAsset: seedance,
+      atlasApprovedReferenceSheetPath: `/objects/1/sheet-${index}.png`,
+      atlasApprovedReferenceSheetSha256: "c".repeat(64),
+      ...(seedance
+        ? {
+            atlasCharacterLibraryId: index + 101,
+            atlasCharacterReferenceId: `asset-character-${index}`,
+            atlasOutfitLibraryId: index + 201,
+            atlasAssetReferenceId: `asset-outfit-${index}`,
+          }
+        : {
+            atlasCharacterLibraryId: null,
+            atlasCharacterReferenceId: null,
+            atlasOutfitLibraryId: null,
+            atlasAssetReferenceId: null,
+          }),
+    })),
+    videoModel: { provider: "atlascloud", model },
+  } as unknown as NonNullable<VideoJobOptions["guidedStory"]>;
+  return {
+    guidedStory: snapshot,
+    resolvedVideoModel: {
+      provider: "atlascloud",
+      model,
+    },
+  } as VideoJobOptions;
+}
+
+describe("Guided Story Atlas reference preflight", () => {
+  it("accepts Wan with approved sheet evidence and no Seedance IDs", () => {
+    const options = atlasReferenceOptions(WAN_REFERENCE_MODEL);
+    expect(guidedStoryReferencePreflightError(options, null)).toBeNull();
+    expect(
+      options.guidedStory!.cast.every((member) =>
+        member.atlasCharacterReferenceId == null &&
+        member.atlasAssetReferenceId == null,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects missing approval or backdrop byte hashes before dispatch", () => {
+    const missingApproval = atlasReferenceOptions(WAN_REFERENCE_MODEL);
+    delete missingApproval.guidedStory!.castApprovals!.roles["role-1"];
+    expect(guidedStoryReferencePreflightError(missingApproval, null)).toMatch(
+      /re-review and reapprove.*start again/i,
+    );
+
+    const missingBackdropHash = atlasReferenceOptions(WAN_REFERENCE_MODEL);
+    missingBackdropHash.guidedStory!.backdrops!.default!.imageSha256 = "";
+    expect(guidedStoryReferencePreflightError(missingBackdropHash, null)).toMatch(
+      /approved references are complete and current/i,
+    );
+  });
+
+  it("rejects script role mismatches and unknown or extra storyboard scenes", () => {
+    const missingRole = atlasReferenceOptions(WAN_REFERENCE_MODEL);
+    missingRole.guidedStory!.script.scenes[0]!.roleIds = ["missing-role"];
+    expect(guidedStoryReferencePreflightError(missingRole, null)).toBeTruthy();
+
+    const extraScene = atlasReferenceOptions(WAN_REFERENCE_MODEL);
+    const board = guidedStoryStoryboard(extraScene.guidedStory!);
+    board.scenes.push({
+      ...board.scenes[0]!,
+      id: "extra-scene",
+    });
+    expect(guidedStoryReferencePreflightError(extraScene, board)).toBeTruthy();
+  });
+
+  it("requires strict Seedance asset IDs and positive safe-integer library IDs", () => {
+    const invalidReference = atlasReferenceOptions(SEEDANCE_REFERENCE_MODEL);
+    invalidReference.guidedStory!.cast[0]!.atlasCharacterReferenceId =
+      "character-library-id";
+    expect(guidedStoryReferencePreflightError(invalidReference, null)).toBeTruthy();
+
+    const invalidLibraryId = atlasReferenceOptions(SEEDANCE_REFERENCE_MODEL);
+    invalidLibraryId.guidedStory!.cast[0]!.atlasCharacterLibraryId = 0;
+    expect(guidedStoryReferencePreflightError(invalidLibraryId, null)).toBeTruthy();
+  });
+});
 
 describe("automatic Guided Story intrinsic dialogue planning", () => {
   it.each(["en", "hi", "te", "ta"] as const)(

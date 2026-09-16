@@ -17,6 +17,21 @@ The correction separates Wan approved-image resolution from Seedance Asset Libra
 
 ## Safety and recovery
 
+### Preventing unfunded reference failures
+
+New enqueue, retry, and fresh-restart requests now share a provider-call-free
+check of the frozen Guided Story reference prerequisites with storyboard
+execution. The check runs before video credit or wallet reservation and rejects
+incomplete approval evidence, mismatched participating cast, and invalid
+model-specific references with guidance to review and approve the references
+again. Wan requires approved image evidence, not Seedance Asset Library IDs;
+Seedance requires valid frozen library and generation mappings.
+
+This snapshot check does not replace dispatch-time ownership, approval, or
+stored-image hash validation. References can change after enqueue, so those
+live checks remain required before a new paid submission. Provider activation
+and model capability rules are unchanged.
+
 No historical job record was changed, no restart/retry was requested, and no paid prediction was created during this investigation. Existing accepted tasks on other jobs remain reusable through supported recovery rather than repeat POSTs. Correcting the defect does not automatically run Job #84337 or guarantee that historical references remain available.
 
 New failures retain safe categories and available correlation while customer history excludes raw provider text, prompts, credentials, and signed media URLs. A prediction ID is not a request ID; an absent request ID remains absent.

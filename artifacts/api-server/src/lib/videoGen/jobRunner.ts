@@ -164,6 +164,7 @@ import {
   guidedStoryStoryboard,
   effectiveGuidedBackdrop,
 } from "./guidedStory";
+import { guidedStoryboardReferenceError } from "./guidedReferencePrerequisites";
 import { resolveModelOptions, videoModelMultiplier } from "./modelCatalog";
 import {
   LATENT_SYNC,
@@ -939,15 +940,39 @@ async function loadSourceImage(
 /**
  * Canonical backdrops are immutable provider inputs: validate their retained
  * bytes immediately before any final pipeline can call a provider. Legacy
- * plates predate byte receipts and intentionally retain metadata-only support.
- * Final animation still uses the already-approved scene preview as its
- * image-to-video input; the plate is bound while that preview is made.
+ * plates predate byte receipts, so rows without a retained hash remain
+ * metadata-only; rows that do retain one are checked too. Final animation
+ * still uses the already-approved scene preview as its image-to-video input;
+ * the plate is bound while that preview is made.
  */
 async function verifyGuidedBackdropBytesBeforeRender(
   snapshot: NonNullable<VideoJobOptions["guidedStory"]>,
   tenantId: number,
 ): Promise<void> {
-  if (!snapshot.backdrops) return;
+  if (!snapshot.backdrops) {
+    const legacy = snapshot.backdropReference;
+    const legacyImageSha256 =
+      legacy && "imageSha256" in legacy
+        ? (legacy as { imageSha256?: string }).imageSha256
+        : undefined;
+    // Old legacy plates predate byte receipts and remain metadata-only. When
+    // a legacy row does retain a hash, however, it is an immutable input just
+    // like a canonical backdrop and must be checked before rendering.
+    if (!legacy?.imagePath || !legacyImageSha256) return;
+    const { buffer } = await loadTenantObject(
+      legacy.imagePath,
+      tenantId,
+      MAX_SOURCE_IMAGE_BYTES,
+      "Approved shared backdrop",
+    );
+    const actual = createHash("sha256").update(buffer).digest("hex");
+    if (actual !== legacyImageSha256) {
+      throw new VideoJobInputError(
+        "Guided Story approved shared backdrop bytes no longer match their approval.",
+      );
+    }
+    return;
+  }
   const seen = new Set<string>();
   for (const scene of snapshot.script.scenes) {
     const effective = effectiveGuidedBackdrop(snapshot, scene.id);
@@ -4775,6 +4800,13 @@ async function produceVideo(
           isAtlasReferenceModel(options.resolvedVideoModel.model) &&
           options.guidedStory
             ? async (sceneIndex) => {
+                const referencePreflightError = guidedStoryboardReferenceError(
+                  options,
+                  board,
+                );
+                if (referencePreflightError) {
+                  throw new VideoJobInputError(referencePreflightError);
+                }
                 const scene = board.scenes[sceneIndex];
                 const guidedScene = scene?.guidedStory;
                 if (!guidedScene || guidedScene.roleIds.length === 0) {
@@ -4798,19 +4830,14 @@ async function produceVideo(
                     !approval ||
                     member.characterId == null ||
                     member.outfitId == null ||
-                    member.referenceSource !== "generated" ||
-                    !member.atlasApprovedReferenceSheetPath ||
-                    !member.atlasApprovedReferenceSheetSha256 ||
-                    !member.outfit?.referenceImagePath ||
-                    approval.character.referenceImagePath !==
-                      member.character.referenceImagePath ||
-                    approval.outfit.referenceImagePath !==
-                      member.outfit.referenceImagePath
+                    !member.outfit?.referenceImagePath
                   ) {
                     throw new VideoJobInputError(
-                      wanReferenceModel
-                        ? `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved sheet and outfit references for Wan role ${roleId}.`
-                        : `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas sheet and outfit for role ${roleId}.`,
+                      guidedStoryboardReferenceError(
+                        options,
+                        board,
+                      ) ??
+                        `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved references for role ${roleId}.`,
                     );
                   }
                   if (wanReferenceModel) {
@@ -4822,41 +4849,30 @@ async function produceVideo(
                       characterId: member.characterId,
                       outfitId: member.outfitId,
                       expectedReferenceSheetPath:
-                        member.atlasApprovedReferenceSheetPath,
+                        member.atlasApprovedReferenceSheetPath!,
                       expectedReferenceSheetSha256:
-                        member.atlasApprovedReferenceSheetSha256,
+                        member.atlasApprovedReferenceSheetSha256!,
                       expectedOutfitPath: member.outfit.referenceImagePath,
                       expectedOutfitSha256: approval.outfit.sha256,
                     });
                     if (urls.length !== 2) {
                       throw new VideoJobInputError(
-                        `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s approved references for role ${roleId} changed or are no longer valid for Wan. No video provider call was made.`,
+                        `Guided Story scene ${scene?.id ?? sceneIndex + 1}'s approved references for role ${roleId} changed or are no longer valid for Wan. No new video submission was made.`,
                       );
                     }
                     attached.push(...urls);
                     continue;
                   }
-                  if (
-                    member.requiresAtlasAsset !== true ||
-                    !member.atlasCharacterLibraryId ||
-                    !member.atlasCharacterReferenceId ||
-                    !member.atlasOutfitLibraryId ||
-                    !member.atlasAssetReferenceId
-                  ) {
-                    throw new VideoJobInputError(
-                      `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen approved Atlas asset mapping for role ${roleId}.`,
-                    );
-                  }
                   const refs = await atlasAssetRefsForOutfit({
                     tenantId: job.tenantId,
                     characterId: member.characterId,
                     outfitId: member.outfitId,
-                    expectedCharacterLibraryId: member.atlasCharacterLibraryId,
-                    expectedCharacterReferenceId: member.atlasCharacterReferenceId,
-                    expectedReferenceSheetPath: member.atlasApprovedReferenceSheetPath,
-                    expectedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256,
-                    expectedOutfitLibraryId: member.atlasOutfitLibraryId,
-                    expectedOutfitAssetId: member.atlasAssetReferenceId,
+                    expectedCharacterLibraryId: member.atlasCharacterLibraryId!,
+                    expectedCharacterReferenceId: member.atlasCharacterReferenceId!,
+                    expectedReferenceSheetPath: member.atlasApprovedReferenceSheetPath!,
+                    expectedReferenceSheetSha256: member.atlasApprovedReferenceSheetSha256!,
+                    expectedOutfitLibraryId: member.atlasOutfitLibraryId!,
+                    expectedOutfitAssetId: member.atlasAssetReferenceId!,
                     expectedOutfitPath: member.outfit.referenceImagePath,
                     expectedOutfitSha256: approval.outfit.sha256,
                     includeCharacterSheet: true,
@@ -5649,28 +5665,6 @@ export async function runVideoGenerationJob(
       .returning()
   )[0];
   if (!claimed) return;
-  const guided = claimed.options?.guidedStory;
-  const verificationOnly = isNativeAudioVerificationOnlyRecovery(claimed.options);
-  if (guided && !verificationOnly) {
-    const invalid =
-      !guidedStoryBackdropsAreApproved(guided) ||
-      (claimed.storyboard != null && (() => {
-        const expected = guidedStoryStoryboard(guided);
-        return expected.scenes.length !== claimed.storyboard.scenes.length ||
-          expected.scenes.some((scene, index) =>
-            !guidedStorySceneImmutableInputsMatch(claimed.storyboard!.scenes[index], scene));
-      })());
-    if (invalid) {
-      await db.update(videoGenerationsTable).set({
-        status: "failed",
-        stage: null,
-        error:
-          "Guided Story execution is blocked: review and approve the shared backdrop reference, then start a new immutable attempt.",
-        updatedAt: new Date(),
-      }).where(eq(videoGenerationsTable.id, claimed.id));
-      return;
-    }
-  }
   await executeVideoJob(claimed, funding);
 }
 
@@ -5763,6 +5757,13 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
   try {
     const snapshot = claimed.options?.guidedStory;
     if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
+    const referencePreflightError = guidedStoryboardReferenceError(
+      claimed.options ?? {},
+      board,
+    );
+    if (referencePreflightError) {
+      throw new VideoJobInputError(referencePreflightError);
+    }
     if (
       !guidedStoryBackdropsAreApproved(snapshot)
     ) {
@@ -5789,6 +5790,10 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
         "The Guided Story cast or storyboard fingerprint changed. Start a new immutable attempt.",
       );
     }
+    // Legacy snapshots do not copy the backdrop hash into scene visuals. Do
+    // the same live byte check as final animation before the first preview
+    // provider call so a replaced shared plate cannot be rendered.
+    await verifyGuidedBackdropBytesBeforeRender(snapshot, claimed.tenantId);
 
     const requiredUnits = videoJobUnits(claimed.engine, claimed.options);
     const funding = claimed.options?.storyboardFunding;
@@ -6867,28 +6872,6 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
  * as the straight-through path does.
  */
 export async function resumeVideoGenerationJob(job: VideoGeneration): Promise<void> {
-  const guided = job.options?.guidedStory;
-  if (guided) {
-    const backdropsApproved = guidedStoryBackdropsAreApproved(guided);
-    const expected = backdropsApproved ? guidedStoryStoryboard(guided) : null;
-    const invalid =
-      !backdropsApproved ||
-      !job.storyboard ||
-      !expected ||
-      expected.scenes.length !== job.storyboard.scenes.length ||
-      expected.scenes.some((scene, index) =>
-        !guidedStorySceneImmutableInputsMatch(job.storyboard!.scenes[index], scene));
-    if (invalid) {
-      await db.update(videoGenerationsTable).set({
-        status: "failed",
-        stage: null,
-        error:
-          "Guided Story execution is blocked: review and approve the shared backdrop reference, then start a new immutable attempt.",
-        updatedAt: new Date(),
-      }).where(eq(videoGenerationsTable.id, job.id));
-      return;
-    }
-  }
   await executeVideoJob(job, job.funding ?? "quota");
 }
 
@@ -7806,6 +7789,32 @@ async function executeVideoJob(
     const guidedSnapshot = job.options?.guidedStory;
     const verificationOnly = isNativeAudioVerificationOnlyRecovery(job.options);
     await validateNativeAudioRecoveryInputs(job);
+    if (guidedSnapshot && !verificationOnly) {
+      const referencePreflightError = guidedStoryboardReferenceError(
+        job.options ?? {},
+        job.storyboard,
+      );
+      if (referencePreflightError) {
+        throw new VideoJobInputError(referencePreflightError);
+      }
+      const approvedBackdrops = guidedStoryBackdropsAreApproved(guidedSnapshot);
+      const expectedBoard = approvedBackdrops
+        ? guidedStoryStoryboard(guidedSnapshot)
+        : null;
+      if (
+        !approvedBackdrops ||
+        (job.storyboard != null && (
+          !expectedBoard ||
+          expectedBoard.scenes.length !== job.storyboard.scenes.length ||
+          expectedBoard.scenes.some((scene, index) =>
+            !guidedStorySceneImmutableInputsMatch(job.storyboard!.scenes[index], scene))
+        ))
+      ) {
+        throw new VideoJobInputError(
+          "Guided Story execution is blocked: review and approve the shared backdrop reference, then start again.",
+        );
+      }
+    }
     if (
       !verificationOnly &&
       guidedSnapshot &&

@@ -13,7 +13,7 @@ Wan snapshots intentionally omit Seedance Asset Library IDs. Shared storyboard r
 
 **Why:** A valid approved Wan cast failed locally because a shared precondition demanded Seedance IDs before reaching the HTTPS-reference branch.
 
-**How to apply:** Keep provenance, tenant ownership, approval and byte-hash checks common; apply provider-asset registration checks only to model contracts that require them.
+**How to apply:** Keep provenance, tenant ownership, approval and byte-hash checks common; apply provider-asset registration checks only to model contracts that require them. Validate frozen prerequisites before funding and again at dispatch using the same contract; a pure snapshot check never replaces live ownership, approval, and byte-hash checks.
 
 Atlas Cloud is a distinct paid video provider; never reuse BytePlus model contracts, credentials, task IDs, prices, or asset IDs for it.
 

@@ -4216,6 +4216,7 @@ describe("Guided Story preview-only runner", () => {
     const backdrop = {
       prompt: "Approved studio backdrop",
       imagePath: `/objects/${tenantId}/uploads/backdrop.png`,
+      imageSha256: createHash("sha256").update("fake-video-bytes").digest("hex"),
       sceneIds: scenes.map((scene) => scene.id),
     };
     return {
@@ -5162,6 +5163,179 @@ describe("Guided Story preview-only runner", () => {
     },
   );
 
+  it("refunds a queued credit job when its supplied board is stale before dispatch", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    const hero = snapshot.cast[0]!;
+    Object.assign(hero, {
+      referenceSource: "generated",
+      requiresAtlasAsset: true,
+      requiresBytePlusAsset: false,
+      atlasCharacterLibraryId: 101,
+      atlasCharacterReferenceId: "asset-character-1",
+      atlasOutfitLibraryId: 102,
+      atlasAssetReferenceId: "asset-outfit-1",
+      atlasApprovedReferenceSheetPath: `/objects/${tenant.tenantId}/hero-sheet.png`,
+      atlasApprovedReferenceSheetSha256: "c".repeat(64),
+    });
+    snapshot.videoModel = {
+      provider: "atlascloud",
+      model: "bytedance/seedance-2.5/reference-to-video",
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes[0]!.guidedStory!.cast[0]!.referenceImagePath =
+      `/objects/${tenant.tenantId}/stale-portrait.png`;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard,
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        guidedStory: snapshot,
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "text",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
+          catalogModelId: "atlascloud-seedance-2.5-reference",
+          durationSec: 10,
+          permittedDurationSec: [10],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toMatch(/re-review and reapprove|cannot use Atlas Cloud/i);
+    expect(state.topicCheckpointed).toEqual([]);
+    expect(state.topicRenders).toBe(0);
+    expect(state.videoRequests).toEqual([]);
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+    expect(state.usage).toEqual([]);
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+  });
+
+  it("releases a queued wallet reservation when its supplied board is stale", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    Object.assign(snapshot.cast[0]!, {
+      referenceSource: "generated",
+      requiresAtlasAsset: true,
+      requiresBytePlusAsset: false,
+      atlasCharacterLibraryId: 101,
+      atlasCharacterReferenceId: "asset-character-1",
+      atlasOutfitLibraryId: 102,
+      atlasAssetReferenceId: "asset-outfit-1",
+      atlasApprovedReferenceSheetPath: `/objects/${tenant.tenantId}/hero-sheet.png`,
+      atlasApprovedReferenceSheetSha256: "c".repeat(64),
+    });
+    snapshot.videoModel = {
+      provider: "atlascloud",
+      model: "bytedance/seedance-2.5/reference-to-video",
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes[0]!.guidedStory!.cast[0]!.referenceImagePath =
+      `/objects/${tenant.tenantId}/stale-portrait.png`;
+    let job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      funding: "wallet",
+      storyboard,
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        storyboardFunding: {
+          version: 1,
+          sceneCount: 1,
+          requiredUnits: 2,
+          fundedUnits: 2,
+          planningUnits: 1,
+        },
+        guidedStory: snapshot,
+        guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+        resolvedVideoModel: {
+          version: 1,
+          source: "explicit",
+          mode: "text",
+          provider: "atlascloud",
+          model: "bytedance/seedance-2.5/reference-to-video",
+          catalogModelId: "atlascloud-seedance-2.5-reference",
+          durationSec: 10,
+          permittedDurationSec: [10],
+          resolution: "720p",
+          quality: null,
+          generateAudio: true,
+          supportsEndFrame: false,
+        },
+      },
+    });
+    await db.insert(walletBalancesTable)
+      .values({ tenantId: tenant.tenantId, balancePaise: 1_000_000 })
+      .onConflictDoUpdate({
+        target: walletBalancesTable.tenantId,
+        set: { balancePaise: 1_000_000 },
+      });
+    expect((await reserveVideoJobWalletTopUp(job.id, 2)).heldUnits).toBe(2);
+    const [primaryReserve] = await db.select()
+      .from(walletLedgerTable)
+      .where(and(
+        eq(walletLedgerTable.tenantId, tenant.tenantId),
+        eq(walletLedgerTable.refKind, "videoJob"),
+        eq(walletLedgerTable.refId, String(job.id)),
+      ));
+    const reserved = await readJob(job.id);
+    job = (
+      await db.update(videoGenerationsTable).set({
+        walletReservationId: primaryReserve!.id,
+        walletReservedPaise: reserved.walletReservedPaise,
+        walletReservedUnits: 2,
+      }).where(eq(videoGenerationsTable.id, job.id)).returning()
+    )[0]!;
+
+    await runVideoGenerationJob(job.id, "wallet");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(state.topicCheckpointed).toEqual([]);
+    expect(state.topicRenders).toBe(0);
+    expect(state.videoRequests).toEqual([]);
+    expect(state.walletFailureRefunds).toEqual([job.id]);
+  });
+
+  it("rejects replaced legacy backdrop bytes before paid render and refunds credit", async () => {
+    const tenant = await newTenant();
+    const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    Object.assign(snapshot.backdropReference!, {
+      imageSha256: "0".repeat(64),
+    });
+    snapshot.backdropReference!.fingerprint = guidedBackdropFingerprint(
+      snapshot.backdropReference!,
+    );
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      storyboard: null,
+      options: directNativeOptions(snapshot),
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toMatch(/backdrop bytes no longer match/i);
+    expect(state.topicCheckpointed).toEqual([]);
+    expect(state.topicRenders).toBe(0);
+    expect(state.videoRequests).toEqual([]);
+    expect(state.usage).toEqual([]);
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+  });
+
   it("fails an invalid Guided backdrop fingerprint before initial planning", async () => {
     const tenant = await newTenant();
     const snapshot = guidedSnapshot(tenant.tenantId, 1);
@@ -5326,9 +5500,34 @@ describe("Guided Story preview-only runner", () => {
     const saved = await readJob(seeded.job.id);
     expect(saved.options!.guidedPreviewRender).toMatchObject({
       state: "failed",
-      error: expect.stringMatching(/review and approve every character and outfit/i),
+      error: expect.stringMatching(/re-review and reapprove the exact character sheets, outfits, and backdrops/i),
     });
     expect(state.guidedPreviewProviderCalls).toBe(0);
+  });
+
+  it("rejects replaced legacy backdrop bytes before a preview provider call", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({ tenantId: tenant.tenantId });
+    const options = structuredClone(seeded.job.options!);
+    const legacy = options.guidedStory!.backdropReference!;
+    Object.assign(legacy, { imageSha256: "0".repeat(64) });
+    legacy.fingerprint = guidedBackdropFingerprint(legacy);
+    const storyboard = guidedStoryStoryboard(options.guidedStory!);
+    options.guidedPreviewRender!.state = "queued";
+    options.guidedPreviewRender!.completed = 0;
+    await db.update(videoGenerationsTable).set({ options, storyboard })
+      .where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.options!.guidedPreviewRender).toMatchObject({
+      state: "failed",
+      error: expect.stringMatching(/backdrop bytes no longer match/i),
+    });
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+    expect(state.usage).toEqual([]);
   });
 
   it("reuses completed checkpoints without starting a final render", async () => {

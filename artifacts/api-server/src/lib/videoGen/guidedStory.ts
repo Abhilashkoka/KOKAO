@@ -22,6 +22,7 @@ import { guidedSceneVisualPrompt, type GuidedBackdropLabel } from "./guidedScene
 import { getTextGenClient } from "../textGen";
 import { VideoGenProviderError } from "./types";
 import { isAtlasGenerationReferenceId } from "../atlascloud/assetId";
+import { isAtlasReferenceModel, isAtlasWanReferenceModel } from "./providers/atlascloud";
 import type { MeterContext } from "../meter";
 
 export const GUIDED_STORY_GENRES: readonly GuidedStoryGenre[] = [
@@ -225,6 +226,9 @@ export function invalidateGuidedStoryDownstream(
 
 export const GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE =
   "Review and approve every character and outfit reference before generating Guided Story previews.";
+
+const GUIDED_REFERENCE_PREFLIGHT_MESSAGE =
+  "Guided Story references are incomplete or no longer current. Re-review and reapprove the exact character sheets, outfits, and backdrops, then start again. No new video submission was made.";
 export function guidedCastHasDuplicates(cast: GuidedStoryCastSnapshot[]): boolean {
   const identities = cast
     .filter((item) => item.characterId !== null)
@@ -399,6 +403,12 @@ export function guidedBackdropChoices(
         version: 1 as const,
         prompt: legacy.prompt,
         imagePath: legacy.imagePath,
+        ...("imageSha256" in legacy &&
+        (legacy as { imageSha256?: string }).imageSha256
+          ? {
+              imageSha256: (legacy as { imageSha256?: string }).imageSha256,
+            }
+          : {}),
         revision: 1,
         approvedAt: legacy.approvedAt,
         fingerprint: legacy.fingerprint,
@@ -2168,4 +2178,223 @@ export function guidedCastApprovalsMatch(params: {
       sha256.test(approval.outfit.sha256),
     );
   });
+}
+
+const GUIDED_ATLAS_REFERENCE_PREFLIGHT_MESSAGE =
+  "Guided Story cannot use Atlas Cloud until its approved references are complete and current. Re-review and reapprove the exact character sheets, outfits, and backdrops, then start again. No new video submission was made.";
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length &&
+    new Set(left).size === left.length &&
+    left.every((value) => right.includes(value));
+}
+
+/**
+ * Pure, provider-side-independent validation for Atlas Guided Story inputs.
+ *
+ * The enqueue route and workers call this before any paid storyboard or
+ * animation operation. It deliberately does not load objects or query tenant
+ * data: byte/hash resolution stays in the route/worker immediately after this
+ * check. Wan consumes approved public URLs while Seedance consumes registered
+ * Atlas asset mappings, but both models share the same immutable boundary.
+ */
+export function guidedStoryReferencePreflightError(
+  options: Pick<VideoJobOptions, "guidedStory" | "resolvedVideoModel">,
+  storyboard?: VideoStoryboard | null,
+): string | null {
+  const snapshot = options.guidedStory;
+  if (!snapshot) return null;
+
+  const resolved = options.resolvedVideoModel;
+  const provider = resolved?.provider ?? snapshot.videoModel?.provider;
+  const model = resolved?.model ?? snapshot.videoModel?.model;
+  const atlasReferenceModel =
+    provider === "atlascloud" && Boolean(model) && isAtlasReferenceModel(model!);
+
+  try {
+    const scriptRoleIds = new Set(snapshot.script.roles.map((role) => role.id));
+    const scriptSceneIds = new Set(snapshot.script.scenes.map((scene) => scene.id));
+    const boardById = storyboard
+      ? new Map(storyboard.scenes.map((scene) => [scene.id, scene]))
+      : null;
+    if (
+      scriptRoleIds.size !== snapshot.script.roles.length ||
+      scriptSceneIds.size !== snapshot.script.scenes.length ||
+      (storyboard && storyboard.mode !== "guided_story") ||
+      (boardById && (
+        boardById.size !== storyboard!.scenes.length ||
+        storyboard!.scenes.length !== snapshot.script.scenes.length ||
+        storyboard!.scenes.some((scene) =>
+          !snapshot.script.scenes.some((item) => item.id === scene.id),
+        )
+      ))
+    ) {
+      return guidedReferencePreflightFailure(atlasReferenceModel);
+    }
+    for (const scriptScene of snapshot.script.scenes) {
+      if (
+        new Set(scriptScene.roleIds).size !== scriptScene.roleIds.length ||
+        scriptScene.roleIds.some((roleId) => !scriptRoleIds.has(roleId))
+      ) {
+        return guidedReferencePreflightFailure(atlasReferenceModel);
+      }
+      const boardScene = boardById?.get(scriptScene.id);
+      if (
+        boardById &&
+        (
+          !boardScene?.guidedStory ||
+          new Set(boardScene.guidedStory.roleIds).size !== boardScene.guidedStory.roleIds.length ||
+          !sameStringSet(boardScene.guidedStory.roleIds, scriptScene.roleIds)
+        )
+      ) {
+        return guidedReferencePreflightFailure(atlasReferenceModel);
+      }
+    }
+    if (storyboard) {
+      const expected = guidedStoryStoryboard(snapshot);
+      if (
+        expected.scenes.length !== storyboard.scenes.length ||
+        expected.scenes.some((scene, index) =>
+          !guidedStorySceneImmutableInputsMatch(storyboard.scenes[index], scene),
+        )
+      ) {
+        return guidedReferencePreflightFailure(atlasReferenceModel);
+      }
+    }
+    if (!atlasReferenceModel) return null;
+
+    // Atlas requests must retain a hash for every approved backdrop candidate.
+    if (
+      !guidedStoryBackdropsAreApproved(snapshot) ||
+      !guidedBackdropCoversEveryScriptScene(snapshot)
+    ) {
+      return guidedReferencePreflightFailure(true);
+    }
+    const sha256 = /^[a-f0-9]{64}$/;
+    if (!snapshot.backdrops) {
+      // Legacy shared plates used sceneIds in their fingerprint and had no
+      // revision field. Preserve that representation while still requiring
+      // the now-mandatory byte receipt.
+      const legacy = snapshot.backdropReference;
+      const legacyImageSha256 =
+        legacy && "imageSha256" in legacy
+          ? (legacy as { imageSha256?: string }).imageSha256
+          : undefined;
+      if (
+        !legacy ||
+        !legacy.approvedAt ||
+        !legacy.imagePath?.trim() ||
+        !sha256.test(legacyImageSha256 ?? "") ||
+        guidedBackdropFingerprint(legacy) !== legacy.fingerprint
+      ) {
+        return guidedReferencePreflightFailure(true);
+      }
+    } else {
+      const choices = guidedBackdropChoices(snapshot);
+      const references: Array<{
+        reference: GuidedStoryBackdropReference;
+        sceneId: string | null;
+      }> = [];
+      if (choices.default) references.push({ reference: choices.default, sceneId: null });
+      for (const [sceneId, reference] of Object.entries(choices.sceneOverrides)) {
+        references.push({ reference, sceneId });
+      }
+      if (
+        references.some(({ reference, sceneId }) =>
+          !reference.approvedAt ||
+          !reference.imagePath?.trim() ||
+          !sha256.test(reference.imageSha256 ?? "") ||
+          !Number.isInteger(reference.revision) ||
+          reference.revision < 1 ||
+          guidedBackdropFingerprint({
+            prompt: reference.prompt,
+            imagePath: reference.imagePath,
+            imageSha256: reference.imageSha256,
+            revision: reference.revision,
+            sceneId,
+          }) !== reference.fingerprint,
+        )
+      ) {
+        return guidedReferencePreflightFailure(true);
+      }
+    }
+
+    if (
+      !guidedCastApprovalsMatch({
+        draftRevision: snapshot.draftRevision,
+        cast: snapshot.cast,
+        approvals: snapshot.castApprovals,
+      })
+    ) {
+      return guidedReferencePreflightFailure(true);
+    }
+
+    const castByRole = new Map(snapshot.cast.map((member) => [member.roleId, member]));
+    if (castByRole.size !== snapshot.cast.length) {
+      return guidedReferencePreflightFailure(true);
+    }
+
+    const participatingRoleIds = new Set<string>();
+    for (const scriptScene of snapshot.script.scenes) {
+      if (
+        new Set(scriptScene.roleIds).size !== scriptScene.roleIds.length ||
+        scriptScene.roleIds.some((roleId) => !scriptRoleIds.has(roleId))
+      ) {
+        return guidedReferencePreflightFailure(true);
+      }
+      for (const roleId of scriptScene.roleIds) {
+        participatingRoleIds.add(roleId);
+      }
+    }
+
+    const wanReferenceModel = isAtlasWanReferenceModel(model!);
+    for (const roleId of participatingRoleIds) {
+      const member = castByRole.get(roleId);
+      const characterLibraryId = member?.atlasCharacterLibraryId;
+      const outfitLibraryId = member?.atlasOutfitLibraryId;
+      if (
+        !member ||
+        member.characterId == null ||
+        member.outfitId == null ||
+        member.referenceSource !== "generated" ||
+        member.requiresBytePlusAsset === true ||
+        !member.character?.referenceImagePath?.trim() ||
+        !member.outfit?.referenceImagePath?.trim() ||
+        !member.atlasApprovedReferenceSheetPath?.trim() ||
+        !sha256.test(member.atlasApprovedReferenceSheetSha256 ?? "")
+      ) {
+        return guidedReferencePreflightFailure(true);
+      }
+
+      if (!wanReferenceModel) {
+        // Seedance takes stable Atlas identities. Wan instead receives signed
+        // URLs for the exact approved bytes and must not depend on mappings.
+        if (
+          member.requiresAtlasAsset !== true ||
+          typeof characterLibraryId !== "number" ||
+          !Number.isSafeInteger(characterLibraryId) ||
+          characterLibraryId <= 0 ||
+          !isAtlasGenerationReferenceId(member.atlasCharacterReferenceId) ||
+          typeof outfitLibraryId !== "number" ||
+          !Number.isSafeInteger(outfitLibraryId) ||
+          outfitLibraryId <= 0 ||
+          !isAtlasGenerationReferenceId(member.atlasAssetReferenceId)
+        ) {
+          return guidedReferencePreflightFailure(true);
+        }
+      }
+    }
+  } catch {
+    // A malformed persisted snapshot is an input failure, not a provider
+    // failure. Keep the response safe and actionable without leaking detail.
+    return guidedReferencePreflightFailure(atlasReferenceModel);
+  }
+
+  return null;
+}
+
+function guidedReferencePreflightFailure(atlas = false): string {
+  return atlas
+    ? GUIDED_ATLAS_REFERENCE_PREFLIGHT_MESSAGE
+    : GUIDED_REFERENCE_PREFLIGHT_MESSAGE;
 }
