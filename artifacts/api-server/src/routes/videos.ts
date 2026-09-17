@@ -333,6 +333,7 @@ import {
   immutableProvenanceProof,
   reuseFrozenProvenanceProof,
   replaceFrozenProvenanceReference,
+  persistedProvenanceMatches,
 } from "../lib/provenance";
 import { rebuildSavedCastProvenanceSnapshot } from "../lib/provenanceSnapshot";
 import { requiresStrictFictionalProvenance } from "../lib/provenancePolicy";
@@ -391,6 +392,47 @@ function frozenCharacterEvidence(
       sheetEvidence,
     ),
   };
+}
+
+/**
+ * A generated cast operation may already own its library pair when the
+ * separate reference-sheet step is retried.  In that case the provenance row
+ * is the durable origin checkpoint: do not call captureAssetProvenance again
+ * with a newly-created inputAncestry timestamp (or with the retry's derived
+ * parent ids).  A present row that no longer matches the current owned bytes
+ * is not reusable and must fail closed.
+ */
+async function existingGuidedLibraryProvenance(
+  tx: Pick<typeof db, "select">,
+  input: {
+    tenantId: number;
+    assetKind: AssetProvenance["assetKind"];
+    characterId: number;
+    outfitId: number | null;
+    roleId: string;
+    operationIdentity: string;
+    sourceKind: AssetProvenance["sourceKind"];
+    provider: string | null;
+    model: string | null;
+    providerOperationId: number | null;
+    artifactPath: string;
+    artifactSha256: string;
+  },
+): Promise<{ found: boolean; row: AssetProvenance | null }> {
+  const [row] = await tx
+    .select()
+    .from(assetProvenanceTable)
+    .where(
+      and(
+        eq(assetProvenanceTable.tenantId, input.tenantId),
+        eq(assetProvenanceTable.assetKind, input.assetKind),
+        eq(assetProvenanceTable.operationIdentity, input.operationIdentity),
+      ),
+    )
+    .limit(1);
+  if (!row) return { found: false, row: null };
+  const matches = persistedProvenanceMatches(row, input);
+  return { found: true, row: matches ? row : null };
 }
 
 /**
@@ -3389,7 +3431,10 @@ async function ensureGuidedGeneratedCharacter(params: {
 
     if (operation.characterId && operation.outfitId) {
       const [character] = await tx
-        .select({ id: charactersTable.id })
+        .select({
+          id: charactersTable.id,
+          referenceImagePath: charactersTable.referenceImagePath,
+        })
         .from(charactersTable)
         .where(
           and(
@@ -3399,7 +3444,10 @@ async function ensureGuidedGeneratedCharacter(params: {
         )
         .limit(1);
       const [outfit] = await tx
-        .select({ id: characterOutfitsTable.id })
+        .select({
+          id: characterOutfitsTable.id,
+          referenceImagePath: characterOutfitsTable.referenceImagePath,
+        })
         .from(characterOutfitsTable)
         .where(
           and(
@@ -3410,6 +3458,55 @@ async function ensureGuidedGeneratedCharacter(params: {
         )
         .limit(1);
       if (!character || !outfit) return null;
+      const portraitSourceKind =
+        outputReferenceSource === "uploaded"
+          ? "upload"
+          : operation.customization
+            ? "imageedit"
+            : "textgenerated";
+      const existingPortrait = await existingGuidedLibraryProvenance(tx, {
+        tenantId: fresh.tenantId,
+        assetKind: "character_reference",
+        characterId: character.id,
+        outfitId: null,
+        roleId: params.roleId,
+        operationIdentity: operation.operationKey,
+        sourceKind: portraitSourceKind,
+        provider: operation.provider!,
+        model: operation.model!,
+        providerOperationId: operation.operationId ?? null,
+        artifactPath: params.referenceImagePath,
+        artifactSha256: params.sourceSha256,
+      });
+      const existingOutfit = await existingGuidedLibraryProvenance(tx, {
+        tenantId: fresh.tenantId,
+        assetKind: "character_outfit",
+        characterId: character.id,
+        outfitId: outfit.id,
+        roleId: params.roleId,
+        operationIdentity: `${operation.operationKey}:outfit`,
+        sourceKind: "derived",
+        provider: operation.provider!,
+        model: operation.model!,
+        providerOperationId: operation.operationId ?? null,
+        artifactPath: params.referenceImagePath,
+        artifactSha256: params.sourceSha256,
+      });
+      // Existing provenance is an immutable origin checkpoint.  A changed
+      // path/hash or library binding must fail closed, not be recaptured.
+      if (
+        (existingPortrait.found && !existingPortrait.row) ||
+        (existingOutfit.found && !existingOutfit.row)
+      ) return null;
+      if (
+        (existingPortrait.row &&
+          character.referenceImagePath !== params.referenceImagePath) ||
+        (existingOutfit.row &&
+          outfit.referenceImagePath !== params.referenceImagePath)
+      ) return null;
+      if (existingPortrait.row && existingOutfit.row) {
+        return { row: fresh, characterId: character.id, outfitId: outfit.id };
+      }
       // This branch is only reachable through the role-bound customization
       // handoff. Re-check both tenant and pair ownership above before replacing
       // any library bytes; an arbitrary tenant library character can never be
@@ -3419,10 +3516,12 @@ async function ensureGuidedGeneratedCharacter(params: {
         description: params.description,
         referenceImagePath: params.referenceImagePath,
         referenceSource: outputReferenceSource,
-        creationEvidence: null,
-        referenceSheetImagePath: null,
-        referenceSheetStatus: "pending",
-        referenceSheetError: null,
+        ...(!existingPortrait.row ? {
+          creationEvidence: null,
+          referenceSheetImagePath: null,
+          referenceSheetStatus: "pending" as const,
+          referenceSheetError: null,
+        } : {}),
         updatedAt: new Date(),
       }).where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, fresh.tenantId)));
       await tx.update(characterOutfitsTable).set({
@@ -3436,39 +3535,35 @@ async function ensureGuidedGeneratedCharacter(params: {
         atlasApprovedSourceSha256: params.sourceSha256,
         updatedAt: new Date(),
       }).where(and(eq(characterOutfitsTable.id, outfit.id), eq(characterOutfitsTable.characterId, character.id), eq(characterOutfitsTable.tenantId, fresh.tenantId)));
-      const portraitProvenance = await captureAssetProvenance(tx, {
-        tenantId: fresh.tenantId,
-        assetKind: "character_reference",
-        sourceKind:
-          outputReferenceSource === "uploaded"
-            ? "upload"
-            : operation.customization
-              ? "imageedit"
-              : "textgenerated",
-        characterId: character.id,
-        roleId: params.roleId,
-        operationIdentity: operation.operationKey,
-        provider: operation.provider!,
-        model: operation.model!,
-        providerOperationId: operation.operationId ?? null,
-        artifactPath: params.referenceImagePath,
-        artifactSha256: params.sourceSha256,
-        parentPath: inheritedParentPath,
-        parentSha256: inheritedParentSha256,
-        inputAncestry: {
-          parents: inheritedParentPath
-            ? [{
-                kind: "character_reference",
-                path: inheritedParentPath,
-                sha256: inheritedParentSha256,
-                characterId: operationCharacterId?.id ?? null,
-              }]
-            : [],
-          referenceSource: ancestryReferenceSource,
-          capturedAt: new Date().toISOString(),
-        },
-      });
-      if (outputReferenceSource === "generated") {
+      const portraitProvenance = existingPortrait.row ??
+        await captureAssetProvenance(tx, {
+          tenantId: fresh.tenantId,
+          assetKind: "character_reference",
+          sourceKind: portraitSourceKind,
+          characterId: character.id,
+          roleId: params.roleId,
+          operationIdentity: operation.operationKey,
+          provider: operation.provider!,
+          model: operation.model!,
+          providerOperationId: operation.operationId ?? null,
+          artifactPath: params.referenceImagePath,
+          artifactSha256: params.sourceSha256,
+          parentPath: inheritedParentPath,
+          parentSha256: inheritedParentSha256,
+          inputAncestry: {
+            parents: inheritedParentPath
+              ? [{
+                  kind: "character_reference",
+                  path: inheritedParentPath,
+                  sha256: inheritedParentSha256,
+                  characterId: operationCharacterId?.id ?? null,
+                }]
+              : [],
+            referenceSource: ancestryReferenceSource,
+            capturedAt: new Date().toISOString(),
+          },
+        });
+      if (outputReferenceSource === "generated" && !existingPortrait.row) {
         await tx.update(charactersTable).set({
           creationEvidence: {
             version: 1,
@@ -3491,32 +3586,34 @@ async function ensureGuidedGeneratedCharacter(params: {
           eq(charactersTable.tenantId, fresh.tenantId),
         ));
       }
-      await captureAssetProvenance(tx, {
-        tenantId: fresh.tenantId,
-        assetKind: "character_outfit",
-        sourceKind: "derived",
-        characterId: character.id,
-        outfitId: outfit.id,
-        roleId: params.roleId,
-        operationIdentity: `${operation.operationKey}:outfit`,
-        provider: operation.provider!,
-        model: operation.model!,
-        providerOperationId: operation.operationId ?? null,
-        artifactPath: params.referenceImagePath,
-        artifactSha256: params.sourceSha256,
-        parentPath: inheritedParentPath ?? params.referenceImagePath,
-        parentSha256: inheritedParentSha256 ?? params.sourceSha256,
-        inputAncestry: {
-          parents: [{
-            kind: "character_reference",
-            path: inheritedParentPath ?? params.referenceImagePath,
-            sha256: inheritedParentSha256 ?? params.sourceSha256,
-            characterId: character.id,
-          }],
-          referenceSource: ancestryReferenceSource,
-          capturedAt: new Date().toISOString(),
-        },
-      });
+      if (!existingOutfit.row) {
+        await captureAssetProvenance(tx, {
+          tenantId: fresh.tenantId,
+          assetKind: "character_outfit",
+          sourceKind: "derived",
+          characterId: character.id,
+          outfitId: outfit.id,
+          roleId: params.roleId,
+          operationIdentity: `${operation.operationKey}:outfit`,
+          provider: operation.provider!,
+          model: operation.model!,
+          providerOperationId: operation.operationId ?? null,
+          artifactPath: params.referenceImagePath,
+          artifactSha256: params.sourceSha256,
+          parentPath: inheritedParentPath ?? params.referenceImagePath,
+          parentSha256: inheritedParentSha256 ?? params.sourceSha256,
+          inputAncestry: {
+            parents: [{
+              kind: "character_reference",
+              path: inheritedParentPath ?? params.referenceImagePath,
+              sha256: inheritedParentSha256 ?? params.sourceSha256,
+              characterId: character.id,
+            }],
+            referenceSource: ancestryReferenceSource,
+            capturedAt: new Date().toISOString(),
+          },
+        });
+      }
       return { row: fresh, characterId: character.id, outfitId: outfit.id };
     }
 
@@ -6314,12 +6411,16 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 });
               } catch (error) {
                 const confirmed = isConfirmedImageFailure(error);
+                const qaError = characterVisualQaErrorMessage(error, row.id, "sheet");
+                const safeFailure =
+                  qaError ??
+                  (confirmed
+                    ? "Reference sheet provider confirmed that no image was generated."
+                    : "Reference sheet provider outcome is unknown and requires reconciliation.");
                 await checkpointSheet({
                   ...sheetOperation!,
                   status: confirmed ? "failed" : "outcome_unknown",
-                  error: confirmed
-                    ? "Reference sheet provider confirmed that no image was generated."
-                    : "Reference sheet provider outcome is unknown and requires reconciliation.",
+                  error: safeFailure,
                   updatedAt: new Date().toISOString(),
                 });
                 if (confirmed) await releaseImageFunding(req, sheetFunding);
@@ -6423,17 +6524,25 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               });
             }
           } catch (error) {
+            const qaError = characterVisualQaErrorMessage(error, row.id, "sheet");
             req.log.warn(
-              { err: error, roleId: role.id, characterId: owned.characterId },
+              {
+                roleId: role.id,
+                characterId: owned.characterId,
+                failureCategory: qaError ? "visual_qa" : "durable_sheet_failure",
+                failureReason: qaError,
+              },
               "Guided Story character sheet generation failed",
             );
+            const safeSheetError =
+              sheetOperation?.error ??
+              qaError ??
+              "The canonical portrait was saved, but its separate reference sheet requires retry or reconciliation.";
             await db
               .update(charactersTable)
               .set({
                 referenceSheetStatus: "failed",
-                referenceSheetError:
-                  sheetOperation?.error ??
-                  "The canonical portrait was saved, but its separate reference sheet requires retry or reconciliation.",
+                referenceSheetError: safeSheetError,
                 updatedAt: new Date(),
               })
               .where(
@@ -6444,9 +6553,9 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               );
             roleErrors.push({
               roleId: role.id,
-              error:
-                sheetOperation?.error ??
-                `Reference sheet generation for role ${role.name} requires retry or reconciliation.`,
+              error: /reference sheet/i.test(safeSheetError)
+                ? safeSheetError
+                : `Reference sheet generation for role ${role.name}: ${safeSheetError}`,
             });
             continue;
           }

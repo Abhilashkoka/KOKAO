@@ -209,6 +209,46 @@ export interface CaptureProvenanceInput {
   succeededAt?: Date;
 }
 
+/**
+ * Compare a persisted library-origin checkpoint with the current owned
+ * artifact without comparing inputAncestry.capturedAt.  The persisted row is
+ * authoritative on retry; callers must still reject a mismatch rather than
+ * recapturing it under the same immutable operation identity.
+ */
+export function persistedProvenanceMatches(
+  existing: AssetProvenance,
+  input: Pick<
+    CaptureProvenanceInput,
+    | "tenantId"
+    | "assetKind"
+    | "sourceKind"
+    | "characterId"
+    | "outfitId"
+    | "roleId"
+    | "operationIdentity"
+    | "provider"
+    | "model"
+    | "providerOperationId"
+    | "artifactPath"
+    | "artifactSha256"
+  >,
+): boolean {
+  return (
+    existing.tenantId === input.tenantId &&
+    existing.assetKind === input.assetKind &&
+    existing.sourceKind === input.sourceKind &&
+    existing.characterId === (input.characterId ?? null) &&
+    existing.outfitId === (input.outfitId ?? null) &&
+    existing.roleId === (input.roleId ?? null) &&
+    existing.operationIdentity === input.operationIdentity &&
+    existing.provider === (input.provider ?? null) &&
+    existing.model === (input.model ?? null) &&
+    existing.providerOperationId === (input.providerOperationId ?? null) &&
+    existing.artifactPath === input.artifactPath &&
+    existing.artifactSha256.toLowerCase() === input.artifactSha256.toLowerCase()
+  );
+}
+
 export interface ExactRecoveryEvidenceInput {
   tenantId: number;
   characterTenantId: number;

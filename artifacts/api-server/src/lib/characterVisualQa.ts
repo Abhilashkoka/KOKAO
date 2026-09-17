@@ -42,15 +42,108 @@ export type CharacterVisualQaFailureKind =
   | "unavailable"
   | "timeout";
 
+export type CharacterVisualQaFailureCategory = "invalid" | "uncertain" | "unavailable";
+
 export class CharacterVisualQaError extends Error {
   constructor(
     message: string,
     public readonly kind: CharacterVisualQaFailureKind,
     public readonly cause?: unknown,
+    public readonly mode?: CharacterVisualQaMode,
+    public readonly observation?: CharacterVisualQaObservation,
   ) {
     super(message);
     this.name = "CharacterVisualQaError";
   }
+}
+
+export function characterVisualQaFailureCategory(
+  kind: CharacterVisualQaFailureKind,
+): CharacterVisualQaFailureCategory {
+  if (kind === "invalid") return "invalid";
+  if (kind === "uncertain") return "uncertain";
+  return "unavailable";
+}
+
+function failureSubject(mode: CharacterVisualQaMode): string {
+  return mode === "sheet" ? "reference sheet" : mode === "outfit" ? "outfit" : "portrait";
+}
+
+/**
+ * Return bounded, machine-authored customer copy for a QA failure. This is
+ * deliberately based only on the QA contract and observed booleans/counts;
+ * provider responses and model prose must never cross this boundary.
+ */
+export function describeCharacterVisualQaFailure(
+  error: unknown,
+  mode: CharacterVisualQaMode = "primary",
+): { category: CharacterVisualQaFailureCategory; reason: string } | null {
+  let current: unknown = error;
+  let qaError: CharacterVisualQaError | undefined;
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    if (current instanceof CharacterVisualQaError) {
+      qaError = current;
+      break;
+    }
+    if (typeof current !== "object" || !("cause" in current)) break;
+    current = (current as { cause?: unknown }).cause;
+  }
+  if (!qaError) return null;
+
+  const effectiveMode = qaError.mode ?? mode;
+  const category = characterVisualQaFailureCategory(qaError.kind);
+  if (category === "invalid" && effectiveMode === "sheet") {
+    const observation = qaError.observation;
+    const failedChecks: string[] = [];
+    if (observation?.panelCount !== 5) {
+      failedChecks.push(
+        observation?.panelCount == null
+          ? "panel count must be 5"
+          : `panel count was ${observation.panelCount}, expected 5`,
+      );
+    }
+    if (observation?.allPanelsSingleSubject !== true) {
+      failedChecks.push("each panel must contain one subject");
+    }
+    if (observation?.sameIdentity !== true) {
+      failedChecks.push("all panels must show the same identity");
+    }
+    if (observation?.designConsistent !== true) {
+      failedChecks.push("the design must match the approved primary");
+    }
+    const checks = failedChecks.length
+      ? failedChecks.join("; ")
+      : "the five-panel identity and design checks did not pass";
+    return {
+      category,
+      reason: `Reference sheet visual QA (invalid): ${checks}. No reference sheet was saved.`,
+    };
+  }
+  if (category === "uncertain") {
+    return {
+      category,
+      reason: `${failureSubject(effectiveMode)} visual QA (uncertain): the required visual checks could not be confirmed. No ${failureSubject(effectiveMode)} was saved. Try again later.`,
+    };
+  }
+  if (category === "unavailable") {
+    const detail = qaError.kind === "timeout"
+      ? "the quality-check service timed out"
+      : qaError.kind === "malformed"
+        ? "the quality-check service returned an unreadable response"
+        : "the quality-check service was unavailable";
+    return {
+      category,
+      reason: `${failureSubject(effectiveMode)} visual QA (unavailable): ${detail}. No ${failureSubject(effectiveMode)} was saved. Try again later.`,
+    };
+  }
+  // Portrait/outfit invalid copy intentionally does not include provider text.
+  return {
+    category,
+    reason:
+      effectiveMode === "outfit"
+        ? "Generated outfit visual QA (invalid): exactly one full-body subject matching the approved design is required. No outfit was saved."
+        : "Generated portrait visual QA (invalid): exactly one full-body subject is required. No portrait was saved.",
+  };
 }
 
 function imageMimeTypeFromBytes(buffer: Buffer): string {
@@ -228,10 +321,22 @@ function assertAccepted(
   mode: CharacterVisualQaMode,
 ): void {
   if (observation.decision === "uncertain") {
-    throw new CharacterVisualQaError("Visual QA was uncertain; the image was not accepted.", "uncertain");
+    throw new CharacterVisualQaError(
+      "Visual QA was uncertain; the image was not accepted.",
+      "uncertain",
+      undefined,
+      mode,
+      observation,
+    );
   }
   if (observation.decision !== "accept") {
-    throw new CharacterVisualQaError("Visual QA rejected the generated character image.", "invalid");
+    throw new CharacterVisualQaError(
+      "Visual QA rejected the generated character image.",
+      "invalid",
+      undefined,
+      mode,
+      observation,
+    );
   }
   if (mode === "sheet") {
     if (
@@ -243,6 +348,9 @@ function assertAccepted(
       throw new CharacterVisualQaError(
         "Visual QA did not confirm five views of the same fictional identity.",
         "invalid",
+        undefined,
+        mode,
+        observation,
       );
     }
     return;
@@ -257,6 +365,9 @@ function assertAccepted(
         ? "Visual QA did not confirm one full-body person matching the approved design."
         : "Visual QA did not confirm exactly one full-body person.",
       "invalid",
+      undefined,
+      mode,
+      observation,
     );
   }
 }

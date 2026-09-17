@@ -42,6 +42,7 @@ import {
   captureAssetProvenance,
   immutableProvenanceProof,
   latestCharacterProvenance,
+  persistedProvenanceMatches,
   provenanceStatus,
   replaceFrozenProvenanceReference,
   reuseFrozenProvenanceProof,
@@ -233,6 +234,66 @@ describe("server-owned asset provenance", () => {
     await expect(
       captureAssetProvenance(providerChanged.tx as any, input),
     ).rejects.toThrow("operation identity collision");
+  });
+
+  it("reuses the first promotion origin across a sheet retry without recapture", async () => {
+    const firstPromotion = validInput({
+      inputAncestry: {
+        parents: [],
+        referenceSource: "generated",
+        capturedAt: "2026-09-17T05:58:00.000Z",
+      },
+    });
+    const existing = {
+      ...firstPromotion,
+      id: 772,
+      characterId: 41,
+      outfitId: null,
+      roleId: "hero",
+      providerRequestId: null,
+      providerOperationId: null,
+      parentPath: null,
+      parentSha256: null,
+      succeededAt: new Date("2026-09-17T05:58:01.000Z"),
+    };
+    const retry = {
+      ...firstPromotion,
+      characterId: 41,
+      roleId: "hero",
+      inputAncestry: {
+        ...firstPromotion.inputAncestry,
+        capturedAt: "2026-09-17T05:59:00.000Z",
+      },
+    };
+
+    // This is the promotion retry branch: the durable row is reused, so no
+    // second capture (and therefore no second funding/provider continuation)
+    // is needed for the sheet-only retry.
+    expect(persistedProvenanceMatches(existing as any, retry)).toBe(true);
+    expect(
+      persistedProvenanceMatches(existing as any, {
+        ...retry,
+        artifactPath: "/objects/17/characters/changed.png",
+      }),
+    ).toBe(false);
+    expect(
+      persistedProvenanceMatches(existing as any, {
+        ...retry,
+        artifactSha256: OTHER_HASH,
+      }),
+    ).toBe(false);
+    expect(
+      persistedProvenanceMatches(existing as any, {
+        ...retry,
+        tenantId: 18,
+      }),
+    ).toBe(false);
+    expect(
+      persistedProvenanceMatches(existing as any, {
+        ...retry,
+        characterId: 99,
+      }),
+    ).toBe(false);
   });
 
   it("reuses the ready proof at finalization without recapture timestamps or charge", () => {

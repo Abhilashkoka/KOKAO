@@ -50,7 +50,12 @@ import {
   ImageGenProviderError,
   ImagePreservationError,
 } from "../lib/imageGen/types";
-import { CharacterVisualQaError } from "../lib/characterVisualQa";
+import {
+  CharacterVisualQaError,
+  characterVisualQaFailureCategory,
+  describeCharacterVisualQaFailure,
+  type CharacterVisualQaFailureCategory,
+} from "../lib/characterVisualQa";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { canonicalAppOrigin } from "../lib/corsOrigins";
 import {
@@ -160,12 +165,11 @@ export function isConfirmedImageFailure(error: unknown): boolean {
 function visualQaFailureKind(
   error: unknown,
 ): CharacterVisualQaError["kind"] | null {
-  if (error instanceof CharacterVisualQaError) return error.kind;
-  if (
-    error instanceof ImageGenOutputValidationError &&
-    error.cause instanceof CharacterVisualQaError
-  ) {
-    return error.cause.kind;
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    if (current instanceof CharacterVisualQaError) return current.kind;
+    if (typeof current !== "object" || !("cause" in current)) break;
+    current = (current as { cause?: unknown }).cause;
   }
   // Keep the route safe if a caller supplied validator predates the typed
   // CharacterVisualQaError cause. Classification only selects fixed UX copy;
@@ -179,6 +183,28 @@ function visualQaFailureKind(
   return null;
 }
 
+function visualQaFailureCategory(error: unknown): CharacterVisualQaFailureCategory | null {
+  const kind = visualQaFailureKind(error);
+  return kind ? characterVisualQaFailureCategory(kind) : null;
+}
+
+function safeImageFailureLog(error: unknown): {
+  errorName: string;
+  category?: CharacterVisualQaFailureCategory;
+  providerStatus?: number;
+} {
+  const category = visualQaFailureCategory(error);
+  const providerStatus =
+    error instanceof ImageGenProviderError && Number.isInteger(error.status)
+      ? error.status
+      : undefined;
+  return {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    ...(category ? { category } : {}),
+    ...(providerStatus === undefined ? {} : { providerStatus }),
+  };
+}
+
 /**
  * Translate the machine visual gate into stable UX language. In particular,
  * never pass through the provider or vision response: those details can
@@ -187,11 +213,28 @@ function visualQaFailureKind(
 export function characterVisualQaErrorMessage(
   error: unknown,
   draftId?: number,
+  mode: "primary" | "sheet" | "outfit" = "primary",
 ): string | null {
   const kind = visualQaFailureKind(error);
   if (!kind) return null;
   const draftSuffix =
     draftId == null ? "" : ` for Guided Story draft ${draftId} (draft ID ${draftId})`;
+  const described = describeCharacterVisualQaFailure(error, mode);
+  if (described) {
+    return `${described.reason}${draftSuffix}`;
+  }
+  // A validator supplied by an older caller may preserve only the wrapper
+  // message, not its typed QA cause. Keep that path safe and mode-specific.
+  if (mode === "sheet") {
+    const category = characterVisualQaFailureCategory(kind);
+    if (category === "invalid") {
+      return `Reference sheet visual QA (invalid): the five-panel identity and design checks did not pass. No reference sheet was saved${draftSuffix}.`;
+    }
+    if (category === "uncertain") {
+      return `Reference sheet visual QA (uncertain): the required visual checks could not be confirmed. No reference sheet was saved${draftSuffix}.`;
+    }
+    return `Reference sheet visual QA (unavailable): the machine visual checks could not be completed. No reference sheet was saved${draftSuffix}. Try again later.`;
+  }
   if (kind === "invalid") {
     return `The generated portrait did not pass the single-person visual check (multiple people or an incomplete frame). No portrait was saved${draftSuffix}.`;
   }
@@ -571,7 +614,11 @@ async function generateAndPersistReferenceSheet(
     if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
     const detail = imageErrorStatus(err);
     req.log.warn(
-      { err, characterId: character.id },
+      {
+        ...safeImageFailureLog(err),
+        characterId: character.id,
+        failureReason: characterVisualQaErrorMessage(err, undefined, "sheet"),
+      },
       "Character reference sheet generation failed",
     );
     const [failed] = await db
@@ -579,7 +626,10 @@ async function generateAndPersistReferenceSheet(
       .set({
         referenceSheetStatus: "failed",
         referenceSheetError:
-          err instanceof CharacterInputError ? err.message : REFERENCE_SHEET_RETRY_MESSAGE,
+          err instanceof CharacterInputError
+            ? err.message
+            : characterVisualQaErrorMessage(err, undefined, "sheet") ??
+              REFERENCE_SHEET_RETRY_MESSAGE,
         updatedAt: new Date(),
       })
       .where(
@@ -595,7 +645,10 @@ async function generateAndPersistReferenceSheet(
     return {
       ...failed,
       referenceSheetError:
-        failed.referenceSheetError ?? detail.error ?? REFERENCE_SHEET_RETRY_MESSAGE,
+        failed.referenceSheetError ??
+        characterVisualQaErrorMessage(err, undefined, "sheet") ??
+        detail.error ??
+        REFERENCE_SHEET_RETRY_MESSAGE,
     };
   }
 }

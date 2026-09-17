@@ -14,3 +14,9 @@ Image edits retain their input ancestry. An uploaded real-person image cannot be
 **Why:** Applying fictional-only provider policy globally breaks legitimate approved-photo workflows, while dropping parent ancestry can wrongly allow them into fictional-only providers.
 
 **How to apply:** Apply strict fictional evidence requirements at the relevant provider boundary; retain existing approval/consent rules elsewhere. Reuse the original ready-checkpoint evidence during finalization instead of recapturing it with a new timestamp.
+
+Retrying a later step must not recreate the origin of an already saved, byte-identical portrait.
+
+**Why:** A sheet-only retry can repeat the library-promotion step. Treating that as a fresh origin claim changes capture time and parent context, so strict immutable comparison blocks the retry.
+
+**How to apply:** Verify the existing operation, tenant, owned asset IDs, and exact bytes before reusing its origin. Keep strict collision rejection for changed assets; preserve existing sheet state only on true reuse, not on a new customization.
