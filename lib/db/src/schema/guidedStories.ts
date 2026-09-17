@@ -392,6 +392,10 @@ export interface GuidedStoryDraftState {
     revision: number;
     operationKey: string;
     voiceId: string;
+    /** Internal durable execution lease; never serialize this token to clients. */
+    executionClaimToken?: string | null;
+    /** Heartbeat for conservative pre-provider/known-success recovery. */
+    executionClaimedAt?: string | null;
     status:
       | "claimed"
       | "funded"
@@ -470,6 +474,17 @@ export interface GuidedStoryDraftState {
       path?: string;
       settledAt?: string;
       error?: string;
+      /**
+       * Confirmed provider failures retain their funding evidence until the
+       * corresponding refund is durably proven. A retry may not replace this
+       * sheet operation while the release is pending or needs reconciliation.
+       */
+      fundingRelease?: {
+        status: "pending" | "released" | "reconciliation_required";
+        updatedAt: string;
+        releasedAt?: string;
+        error?: string;
+      };
     };
 
   }>;

@@ -47,14 +47,32 @@ describe("Guided Story locale prompt contract", () => {
         { id: "role-2", name: "B", description: "A fictional person" },
       ],
       scenes: [{
-        id: "scene-1",
+        id: "scene-opening",
         startMs: 0,
+        endMs: 4_000,
+        visualDirection: "The ensemble pauses together at the rescue site.",
+        roleIds: ["role-1", "role-2"],
+        lines: [
+          {
+            id: "opening-line",
+            ownerRoleId: null,
+            kind: "narration",
+            text: "రక్షణ ఉదయాన్నే మొదలవుతుంది",
+            romanizedPronunciation: "Rakshana udayanne modalavutundi",
+            englishTranslation: "A rescue begins at dawn.",
+            startMs: 0,
+            endMs: 4_000,
+          },
+        ],
+      }, {
+        id: "scene-1",
+        startMs: 4_000,
         endMs: 30_000,
         visualDirection: "A two shot",
         roleIds: ["role-1", "role-2"],
         lines: [
-          { id: "line-1", ownerRoleId: "role-1", kind: "dialogue", text: teluguWords, romanizedPronunciation: "manam manam", englishTranslation: "We will go together.", startMs: 0, endMs: 15_000 },
-          { id: "line-2", ownerRoleId: "role-2", kind: "dialogue", text: teluguWords, romanizedPronunciation: "manam manam", englishTranslation: "We will return safely.", startMs: 15_000, endMs: 30_000 },
+          { id: "line-1", ownerRoleId: "role-1", kind: "dialogue", text: teluguWords, romanizedPronunciation: "manam manam", englishTranslation: "We will go together.", startMs: 4_000, endMs: 17_000 },
+          { id: "line-2", ownerRoleId: "role-2", kind: "dialogue", text: teluguWords, romanizedPronunciation: "manam manam", englishTranslation: "We will return safely.", startMs: 17_000, endMs: 30_000 },
         ],
       }],
       warnings: [],
@@ -78,8 +96,8 @@ describe("Guided Story locale prompt contract", () => {
     expect(request.messages[1].content).toMatch(/Do not Romanize/i);
     expect(request.messages[1].content).toContain("englishTranslation");
     expect(request.messages[1].content).toContain("romanizedPronunciation");
-    expect(result.script.scenes[0]!.lines[0]!.romanizedPronunciation).toBe("manam manam");
-    expect(result.script.scenes[0]!.lines[0]!.englishTranslation).toBe("We will go together.");
+    expect(result.script.scenes[1]!.lines[0]!.romanizedPronunciation).toBe("manam manam");
+    expect(result.script.scenes[1]!.lines[0]!.englishTranslation).toBe("We will go together.");
   });
 
   it("rejects newly generated localized lines without complete display metadata", async () => {
@@ -91,14 +109,32 @@ describe("Guided Story locale prompt contract", () => {
         { id: "role-2", name: "B", description: "A fictional person" },
       ],
       scenes: [{
-        id: "scene-1",
+        id: "scene-opening",
         startMs: 0,
+        endMs: 4_000,
+        visualDirection: "The ensemble pauses together at the rescue site.",
+        roleIds: ["role-1", "role-2"],
+        lines: [
+          {
+            id: "opening-line",
+            ownerRoleId: null,
+            kind: "narration",
+            text: "రక్షణ ఉదయాన్నే మొదలవుతుంది",
+            romanizedPronunciation: "Rakshana udayanne modalavutundi",
+            englishTranslation: "A rescue begins at dawn.",
+            startMs: 0,
+            endMs: 4_000,
+          },
+        ],
+      }, {
+        id: "scene-1",
+        startMs: 4_000,
         endMs: 30_000,
         visualDirection: "A two shot",
         roleIds: ["role-1", "role-2"],
         lines: [
-          { id: "line-1", ownerRoleId: "role-1", kind: "dialogue", text: teluguWords, englishTranslation: "We will go together.", startMs: 0, endMs: 15_000 },
-          { id: "line-2", ownerRoleId: "role-2", kind: "dialogue", text: teluguWords, romanizedPronunciation: "manam manam", englishTranslation: "We will return safely.", startMs: 15_000, endMs: 30_000 },
+          { id: "line-1", ownerRoleId: "role-1", kind: "dialogue", text: teluguWords, englishTranslation: "We will go together.", startMs: 4_000, endMs: 17_000 },
+          { id: "line-2", ownerRoleId: "role-2", kind: "dialogue", text: teluguWords, romanizedPronunciation: "manam manam", englishTranslation: "We will return safely.", startMs: 17_000, endMs: 30_000 },
         ],
       }],
       warnings: [],
@@ -114,7 +150,7 @@ describe("Guided Story locale prompt contract", () => {
       topic: "A rescue",
       roleCount: 2,
       brandConstraints: null,
-    })).rejects.toThrow(/scene 1 line 1.*pronunciation/i);
+    })).rejects.toThrow(/scene 2 line 1.*pronunciation/i);
   });
 
   it("applies native-script and complete display-metadata rules to scene insertion", async () => {

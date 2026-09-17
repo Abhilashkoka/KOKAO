@@ -833,7 +833,9 @@ vi.mock("../localization/dub", async (importOriginal) => {
       return Buffer.from("dubbed-mp4");
     }),
     extractVoiceSampleWav: vi.fn(async (media: Buffer) =>
-      Buffer.concat([Buffer.from("sample-wav:"), media]),
+      // Keep the fixture valid WAV input for the production duration probe,
+      // while retaining a marker that proves the ElevenLabs dub seeded it.
+      Buffer.concat([pcmWav(), media]),
     ),
     burnSubtitles: vi.fn(async () => Buffer.from("localized-video")),
     orchestrateLocalizedDubFull: vi.fn(async (
@@ -876,6 +878,7 @@ vi.mock("../voiceClone", async (importOriginal) => {
     speakWithClonedVoiceReceipt: vi.fn(async (
       _voice: unknown,
       text: string,
+      _meterContext?: unknown,
       _onReceipt?: unknown,
       modelId?: string,
       languageCode?: string,

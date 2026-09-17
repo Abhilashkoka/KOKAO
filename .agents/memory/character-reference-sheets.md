@@ -20,3 +20,9 @@ Guided Story uses a script-first cast flow: approving the script automatically c
 **Why:** Characters selected before the story exists often do not satisfy the finalized script's age, appearance, wardrobe, or dramatic requirements.
 
 **How to apply:** Preserve the approved script/dialogue as the source of truth. Character customization may change the role-bound name, appearance, and wardrobe and regenerate visual assets, but must not rewrite script content or auto-approve the new sheet.
+
+Keep managed vision models on their documented output contract until stronger structured-output support is explicitly verified.
+
+**Why:** SDK types do not establish proxy or model compatibility, and an unreadable verdict alone does not distinguish truncation from refusal or malformed output.
+
+**How to apply:** Preserve the complete-response and local typed-verdict gate; never salvage passing text from an incomplete or ambiguous response. Distinguish future failures using sanitized metadata rather than logging model content or assuming every unreadable verdict is truncation.

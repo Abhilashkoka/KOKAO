@@ -104,7 +104,7 @@ describe("character provenance UI", () => {
       />,
     );
     expect(screen.getByTestId("atlas-warning").textContent).toContain(
-      "fictional-only Wan/Atlas path",
+      "Atlas Seedance requires a verified fictional origin",
     );
   });
 

@@ -66,6 +66,9 @@ describe("visual QA failure mapping", () => {
   it.each([
     ["timeout", "unavailable"],
     ["malformed", "unavailable"],
+    ["truncated", "unavailable"],
+    ["empty", "unavailable"],
+    ["refused", "unavailable"],
     ["uncertain", "uncertain"],
   ] as const)("maps direct %s QA failures to the durable category %s", (kind, category) => {
     const error = new CharacterVisualQaError("unsafe raw response", kind);
@@ -75,6 +78,9 @@ describe("visual QA failure mapping", () => {
   it.each([
     ["timeout", "unavailable"],
     ["malformed", "unavailable"],
+    ["truncated", "unavailable"],
+    ["empty", "unavailable"],
+    ["refused", "unavailable"],
     ["uncertain", "uncertain"],
   ] as const)("maps wrapped %s QA failures to the durable category %s", (kind, category) => {
     const qaError = new CharacterVisualQaError("unsafe raw response", kind, undefined, "sheet");
@@ -96,5 +102,16 @@ describe("visual QA failure mapping", () => {
     expect(sheet).not.toContain("portrait");
     expect(portrait).toContain("Generated portrait");
     expect(portrait).not.toContain("reference sheet");
+  });
+
+  it.each(["truncated", "empty"] as const)("explains incomplete %s output without blaming visual quality", (kind) => {
+    const failure = describeCharacterVisualQaFailure(
+      new CharacterVisualQaError("private provider text", kind), "sheet",
+    );
+    expect(failure?.reason).toContain("incomplete response");
+    expect(failure?.reason).toContain("No reference sheet was saved");
+    expect(failure?.reason).toContain("Try again later");
+    expect(failure?.reason).not.toContain("private provider text");
+    expect(failure?.category).toBe("unavailable");
   });
 });

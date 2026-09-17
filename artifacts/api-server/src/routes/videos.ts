@@ -3120,6 +3120,100 @@ async function releaseGuidedSceneInsertionClaim(
 }
 
 const GUIDED_CAST_CLAIM_TTL_MS = 10 * 60 * 1000;
+// This is deliberately independent from the stale cast-claim TTL. A claim can
+// be safely restarted after ten minutes, but a live executor needs a longer
+// lease while it funds, uploads, and settles known provider work.
+const GUIDED_CAST_EXECUTION_CLAIM_LEASE_MS = 15 * 60 * 1000;
+
+export function guidedCastExecutionClaimCanBeRecovered(
+  operation: GuidedStoryDraftState["castOperations"][string],
+  nowMs: number,
+): boolean {
+  // Never take over a provider boundary. The provider may have completed even
+  // if its owner disappeared, so both the portrait and sheet fail closed.
+  if (
+    operation.status === "provider_running" ||
+    operation.status === "provider_outcome_unknown" ||
+    operation.sheetOperation?.status === "provider_running" ||
+    operation.sheetOperation?.status === "outcome_unknown"
+  ) {
+    return false;
+  }
+  if (!operation.executionClaimToken) return true;
+  const claimedAt = operation.executionClaimedAt
+    ? Date.parse(operation.executionClaimedAt)
+    : Number.NaN;
+  return (
+    !Number.isFinite(claimedAt) ||
+    nowMs - claimedAt >= GUIDED_CAST_EXECUTION_CLAIM_LEASE_MS
+  );
+}
+
+/**
+ * Acquire the durable, role-scoped executor lease before any money moves or a
+ * provider is called. This transaction ends before provider work begins; never
+ * retain a pool connection while waiting on an external provider.
+ */
+async function claimGuidedCastOperationExecution(params: {
+  row: GuidedStoryDraft;
+  roleId: string;
+  operationKey: string;
+  executionClaimToken: string;
+}): Promise<GuidedStoryDraft | null> {
+  return db.transaction(async (tx) => {
+    const fresh = (
+      await tx
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(
+          and(
+            eq(guidedStoryDraftsTable.id, params.row.id),
+            eq(guidedStoryDraftsTable.tenantId, params.row.tenantId),
+            eq(guidedStoryDraftsTable.revision, params.row.revision),
+          ),
+        )
+        .for("update")
+        .limit(1)
+    )[0];
+    const operation = fresh?.state.castOperations?.[params.roleId];
+    if (
+      !fresh ||
+      operation?.operationKey !== params.operationKey ||
+      !guidedCastExecutionClaimCanBeRecovered(operation, Date.now())
+    ) {
+      return null;
+    }
+    const now = new Date();
+    return (
+      (
+        await tx
+          .update(guidedStoryDraftsTable)
+          .set({
+            state: {
+              ...fresh.state,
+              castOperations: {
+                ...fresh.state.castOperations,
+                [params.roleId]: {
+                  ...operation,
+                  executionClaimToken: params.executionClaimToken,
+                  executionClaimedAt: now.toISOString(),
+                  updatedAt: now.toISOString(),
+                },
+              },
+            },
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(guidedStoryDraftsTable.id, fresh.id),
+              eq(guidedStoryDraftsTable.revision, fresh.revision),
+            ),
+          )
+          .returning()
+      )[0] ?? null
+    );
+  });
+}
 
 async function claimGuidedCastRoles(params: {
   tenantId: number;
@@ -3157,6 +3251,18 @@ async function claimGuidedCastRoles(params: {
     }
     const now = new Date();
     const operations = { ...(row.state.castOperations ?? {}) };
+    // A request owns a role's executor lease across the entire cast pass, not
+    // merely its next checkpoint. Refuse a second pass before it can advance a
+    // different role from the same draft while the first one is provider-bound.
+    // Stale pre-provider and known-success leases remain recoverable below.
+    for (const [roleId, operation] of Object.entries(operations)) {
+      if (
+        operation.executionClaimToken &&
+        !guidedCastExecutionClaimCanBeRecovered(operation, now.getTime())
+      ) {
+        return { row, busyRoleId: roleId };
+      }
+    }
     const expectedRoles = new Map(
       params.roles.map((role) => [role.roleId, role]),
     );
@@ -3327,6 +3433,10 @@ async function checkpointGuidedCastOperation(params: {
   roleId: string;
   operationKey: string;
   update: Partial<GuidedStoryDraftState["castOperations"][string]>;
+  /** Fence writes from a durable executor lease when provider work is involved. */
+  executionClaimToken?: string;
+  /** Clear a completed/failed executor lease, but only for its owner. */
+  releaseExecutionClaim?: boolean;
 }): Promise<GuidedStoryDraft | null> {
   return db.transaction(async (tx) => {
     const fresh = (
@@ -3344,7 +3454,15 @@ async function checkpointGuidedCastOperation(params: {
         .limit(1)
     )[0];
     const operation = fresh?.state.castOperations?.[params.roleId];
-    if (!fresh || operation?.operationKey !== params.operationKey) return null;
+    if (
+      !fresh ||
+      operation?.operationKey !== params.operationKey ||
+      (params.executionClaimToken !== undefined &&
+        operation.executionClaimToken !== params.executionClaimToken)
+    ) {
+      return null;
+    }
+    const now = new Date();
     const state = {
       ...fresh.state,
       castOperations: {
@@ -3352,7 +3470,18 @@ async function checkpointGuidedCastOperation(params: {
         [params.roleId]: {
           ...operation,
           ...params.update,
-          updatedAt: new Date().toISOString(),
+          ...(params.executionClaimToken === undefined
+            ? {}
+            : params.releaseExecutionClaim
+              ? {
+                  executionClaimToken: null,
+                  executionClaimedAt: null,
+                }
+              : {
+                  executionClaimToken: params.executionClaimToken,
+                  executionClaimedAt: now.toISOString(),
+                }),
+          updatedAt: now.toISOString(),
         },
       },
     };
@@ -3360,7 +3489,7 @@ async function checkpointGuidedCastOperation(params: {
       (
         await tx
           .update(guidedStoryDraftsTable)
-          .set({ state, updatedAt: new Date() })
+          .set({ state, updatedAt: now })
           .where(
             and(
               eq(guidedStoryDraftsTable.id, fresh.id),
@@ -3373,6 +3502,239 @@ async function checkpointGuidedCastOperation(params: {
   });
 }
 
+type GuidedSheetFundingReleaseStatus =
+  | "pending"
+  | "released"
+  | "reconciliation_required";
+
+/**
+ * Resolve a confirmed failed sheet's pre-provider funding before its operation
+ * can be replaced. Credit refunds and the JSON receipt commit atomically. A
+ * wallet refund has its own established transaction, so it is marked released
+ * only after a tenant-scoped, exact reservation receipt is observed.
+ */
+async function releaseGuidedFailedSheetFunding(params: {
+  row: GuidedStoryDraft;
+  roleId: string;
+  operationKey: string;
+  executionClaimToken: string;
+}): Promise<{
+  row: GuidedStoryDraft | null;
+  status: GuidedSheetFundingReleaseStatus | "not_owner";
+}> {
+  const current = params.row.state.castOperations?.[params.roleId];
+  const sheet = current?.sheetOperation;
+  if (
+    !current ||
+    current.operationKey !== params.operationKey ||
+    current.executionClaimToken !== params.executionClaimToken ||
+    sheet?.status !== "failed"
+  ) {
+    return { row: null, status: "not_owner" };
+  }
+  if (sheet.fundingRelease?.status === "released") {
+    return { row: params.row, status: "released" };
+  }
+  const releasedSheet = (
+    latest: NonNullable<typeof sheet>,
+    status: GuidedSheetFundingReleaseStatus,
+    error?: string,
+  ) => ({
+    ...latest,
+    fundingRelease: {
+      status,
+      updatedAt: new Date().toISOString(),
+      ...(status === "released" ? { releasedAt: new Date().toISOString() } : {}),
+      ...(error ? { error } : {}),
+    },
+    updatedAt: new Date().toISOString(),
+  });
+  const checkpointRelease = async (
+    next: NonNullable<typeof sheet>,
+    status: GuidedSheetFundingReleaseStatus,
+    error?: string,
+  ) => {
+    const saved = await checkpointGuidedCastOperation({
+      row: params.row,
+      roleId: params.roleId,
+      operationKey: params.operationKey,
+      update: { sheetOperation: releasedSheet(next, status, error) },
+      executionClaimToken: params.executionClaimToken,
+    });
+    return { row: saved, status: saved ? status : "not_owner" as const };
+  };
+
+  if (!sheet.funding || sheet.funding === "quota") {
+    return checkpointRelease(sheet, "released");
+  }
+  if (sheet.funding === "credit") {
+    // Missing release evidence on a legacy credit operation is ambiguous:
+    // historical best-effort code may already have refunded it. Never grant a
+    // second credit; retain its full evidence for explicit reconciliation.
+    if (!sheet.fundingRelease) {
+      return checkpointRelease(
+        sheet,
+        "reconciliation_required",
+        "Legacy credit refund cannot be verified automatically. Contact support to reconcile this reference-sheet operation.",
+      );
+    }
+    return db.transaction(async (tx) => {
+      const [fresh] = await tx
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(
+          and(
+            eq(guidedStoryDraftsTable.id, params.row.id),
+            eq(guidedStoryDraftsTable.tenantId, params.row.tenantId),
+            eq(guidedStoryDraftsTable.revision, params.row.revision),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      const operation = fresh?.state.castOperations?.[params.roleId];
+      const freshSheet = operation?.sheetOperation;
+      if (
+        !fresh ||
+        operation?.operationKey !== params.operationKey ||
+        operation.executionClaimToken !== params.executionClaimToken ||
+        freshSheet?.status !== "failed"
+      ) {
+        return { row: null, status: "not_owner" as const };
+      }
+      if (freshSheet.fundingRelease?.status === "released") {
+        return { row: fresh, status: "released" as const };
+      }
+      if (!freshSheet.fundingRelease) {
+        const state = {
+          ...fresh.state,
+          castOperations: {
+            ...fresh.state.castOperations,
+            [params.roleId]: {
+              ...operation,
+              sheetOperation: releasedSheet(
+                freshSheet,
+                "reconciliation_required",
+                "Legacy credit refund cannot be verified automatically. Contact support to reconcile this reference-sheet operation.",
+              ),
+            },
+          },
+        };
+        const [saved] = await tx
+          .update(guidedStoryDraftsTable)
+          .set({ state, updatedAt: new Date() })
+          .where(eq(guidedStoryDraftsTable.id, fresh.id))
+          .returning();
+        return {
+          row: saved ?? null,
+          status: saved ? "reconciliation_required" as const : "not_owner" as const,
+        };
+      }
+      // The marker is written before this transaction. A refund exception
+      // rolls back both the credit ledger/balance and this state write, leaving
+      // pending evidence for a safe explicit recovery attempt.
+      await refundCredits(
+        params.row.tenantId,
+        "image",
+        1,
+        "guided story reference sheet generation failed",
+        tx,
+      );
+      const state = {
+        ...fresh.state,
+        castOperations: {
+          ...fresh.state.castOperations,
+          [params.roleId]: {
+            ...operation,
+            sheetOperation: releasedSheet(freshSheet, "released"),
+          },
+        },
+      };
+      const [saved] = await tx
+        .update(guidedStoryDraftsTable)
+        .set({ state, updatedAt: new Date() })
+        .where(eq(guidedStoryDraftsTable.id, fresh.id))
+        .returning();
+      return {
+        row: saved ?? null,
+        status: saved ? "released" as const : "not_owner" as const,
+      };
+    });
+  }
+
+  const reservation = sheet.walletReservation;
+  if (!reservation) {
+    return checkpointRelease(
+      sheet,
+      "reconciliation_required",
+      "Wallet funding evidence is incomplete. Contact support to reconcile this reference-sheet operation.",
+    );
+  }
+  const [reserveReceipt] = await db
+    .select({
+      kind: walletLedgerTable.kind,
+      amountPaise: walletLedgerTable.amountPaise,
+    })
+    .from(walletLedgerTable)
+    .where(
+      and(
+        eq(walletLedgerTable.id, reservation.id),
+        eq(walletLedgerTable.tenantId, params.row.tenantId),
+      ),
+    )
+    .limit(1);
+  if (
+    !reserveReceipt ||
+    reserveReceipt.kind !== "reserve" ||
+    reserveReceipt.amountPaise !== -reservation.amountPaise
+  ) {
+    return checkpointRelease(
+      sheet,
+      "reconciliation_required",
+      "Wallet funding evidence does not match its reservation. Contact support to reconcile this reference-sheet operation.",
+    );
+  }
+  try {
+    await refundWallet(
+      params.row.tenantId,
+      reservation,
+      "guided story reference sheet generation failed",
+    );
+  } catch (error) {
+    return checkpointRelease(
+      sheet,
+      "pending",
+      "Wallet refund attempt failed. Funding remains held and can be retried safely.",
+    );
+  }
+  if (reservation.amountPaise <= 0) {
+    return checkpointRelease(sheet, "released");
+  }
+  const terminalReceipts = await db
+    .select({
+      kind: walletLedgerTable.kind,
+      amountPaise: walletLedgerTable.amountPaise,
+    })
+    .from(walletLedgerTable)
+    .where(
+      and(
+        eq(walletLedgerTable.tenantId, params.row.tenantId),
+        eq(walletLedgerTable.reservationId, reservation.id),
+        inArray(walletLedgerTable.kind, ["refund", "settle"]),
+      ),
+    );
+  const refundReceipt = terminalReceipts.find(
+    (receipt) =>
+      receipt.kind === "refund" &&
+      receipt.amountPaise === reservation.amountPaise,
+  );
+  if (refundReceipt) return checkpointRelease(sheet, "released");
+  return checkpointRelease(
+    sheet,
+    "reconciliation_required",
+    "Wallet funding was not released automatically. Contact support to reconcile this reference-sheet operation.",
+  );
+}
+
 /**
  * Promote a completed fictional portrait into the tenant character library.
  * The draft row is locked with the inserts, so retries and parallel tabs either
@@ -3382,6 +3744,7 @@ async function ensureGuidedGeneratedCharacter(params: {
   row: GuidedStoryDraft;
   roleId: string;
   operationKey: string;
+  executionClaimToken: string;
   name: string;
   description: string;
   wardrobeDescription: string;
@@ -3438,6 +3801,7 @@ async function ensureGuidedGeneratedCharacter(params: {
       !fresh ||
       fresh.revision !== params.row.revision ||
       operation?.operationKey !== params.operationKey ||
+      operation.executionClaimToken !== params.executionClaimToken ||
       operation.status !== "uploaded" ||
       operation.path !== params.referenceImagePath
     ) return null;
@@ -4016,8 +4380,9 @@ async function releaseGuidedCastOperation(
   row: GuidedStoryDraft,
   roleId: string,
   operationKey: string,
-): Promise<void> {
-  await db.transaction(async (tx) => {
+  executionClaimToken?: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
     const fresh = (
       await tx
         .select()
@@ -4036,14 +4401,16 @@ async function releaseGuidedCastOperation(
     if (
       !fresh ||
       operation?.operationKey !== operationKey ||
+      (executionClaimToken !== undefined &&
+        operation.executionClaimToken !== executionClaimToken) ||
       operation.status === "provider_succeeded" ||
       operation.status === "upload_succeeded" ||
       operation.status === "uploaded"
     )
-      return;
+      return false;
     const operations = { ...fresh.state.castOperations };
     delete operations[roleId];
-    await tx
+    const deleted = await tx
       .update(guidedStoryDraftsTable)
       .set({
         state: { ...fresh.state, castOperations: operations },
@@ -4054,7 +4421,9 @@ async function releaseGuidedCastOperation(
           eq(guidedStoryDraftsTable.id, fresh.id),
           eq(guidedStoryDraftsTable.revision, fresh.revision),
         ),
-      );
+      )
+      .returning({ id: guidedStoryDraftsTable.id });
+    return deleted.length > 0;
   });
 }
 
@@ -5309,8 +5678,32 @@ router.post(
         return { kind: "unknown" as const };
       }
       if (sheet.status !== "failed") return { kind: "not_failed" as const };
+      const executionClaimedAt = operation.executionClaimedAt
+        ? Date.parse(operation.executionClaimedAt)
+        : Number.NaN;
+      if (
+        operation.executionClaimToken &&
+        Number.isFinite(executionClaimedAt) &&
+        Date.now() - executionClaimedAt < GUIDED_CAST_EXECUTION_CLAIM_LEASE_MS
+      ) {
+        return { kind: "busy" as const };
+      }
       const expectedKey = `guided-story-sheet:${draft.id}:${draft.revision}:${roleId}`;
       if (sheet.operationKey !== expectedKey) return { kind: "unknown" as const };
+      if (sheet.fundingRelease?.status === "reconciliation_required") {
+        return { kind: "reconciliation_required" as const };
+      }
+      if (sheet.fundingRelease?.status !== "released") {
+        // The first explicit retry after a crash recovers only the durable
+        // funding release. It deliberately does not replace the sheet or
+        // schedule generation; the user must explicitly retry again once the
+        // released failure state is visible.
+        return {
+          kind: "release_required" as const,
+          row: draft,
+          operationKey: operation.operationKey,
+        };
+      }
       const now = new Date().toISOString();
       const nextSheet: NonNullable<typeof sheet> = {
         operationKey: expectedKey,
@@ -5326,6 +5719,11 @@ router.post(
               ...draft.state.castOperations,
               [roleId]: {
                 ...operation,
+                  // A stale pre-provider/known-success executor cannot write
+                  // through this explicit retry. The runner acquires a new
+                  // durable lease before it can fund or dispatch the sheet.
+                  executionClaimToken: null,
+                  executionClaimedAt: null,
                 sheetOperation: nextSheet,
                 updatedAt: now,
               },
@@ -5343,6 +5741,11 @@ router.post(
           .update(charactersTable)
           .set({
             referenceSheetStatus: "pending",
+            // A failed attempt must never leave a stale sheet path that the
+            // cast runner could mistake for the replacement being prepared.
+            // The retry owns exactly one new sheet generation; the approved
+            // portrait, outfit, script, and other roles remain untouched.
+            referenceSheetImagePath: null,
             referenceSheetError: null,
             updatedAt: new Date(),
           })
@@ -5366,6 +5769,91 @@ router.post(
         error: "The provider outcome is unknown and requires reconciliation; it cannot be retried.",
       });
       return;
+    }
+    if (result.kind === "busy") {
+      res.status(409).json({
+        error: "The previous reference-sheet failure is still being finalized. Wait and retry.",
+      });
+      return;
+    }
+    if (result.kind === "reconciliation_required") {
+      res.status(409).json({
+        error: "Reference-sheet funding requires support reconciliation before it can be retried.",
+      });
+      return;
+    }
+    if (result.kind === "release_required") {
+      const executionClaimToken = randomUUID();
+      const claimed = await claimGuidedCastOperationExecution({
+        row: result.row,
+        roleId,
+        operationKey: result.operationKey,
+        executionClaimToken,
+      });
+      if (!claimed) {
+        res.status(409).json({
+          error: "The previous reference-sheet failure is still being finalized. Wait and retry.",
+        });
+        return;
+      }
+      let released = claimed;
+      const releaseRecoveryClaim = async (): Promise<void> => {
+        const cleaned = await checkpointGuidedCastOperation({
+          row: released,
+          roleId,
+          operationKey: result.operationKey,
+          update: {},
+          executionClaimToken,
+          releaseExecutionClaim: true,
+        });
+        if (cleaned) released = cleaned;
+      };
+      try {
+        const recovery = await releaseGuidedFailedSheetFunding({
+          row: claimed,
+          roleId,
+          operationKey: result.operationKey,
+          executionClaimToken,
+        });
+        if (recovery.row) released = recovery.row;
+        if (recovery.status === "released") {
+          await releaseRecoveryClaim();
+          res.status(409).json({
+            error: "Reference-sheet funding was released. Retry again to start a new sheet generation.",
+          });
+          return;
+        }
+        await releaseRecoveryClaim();
+        res.status(409).json({
+          error:
+            recovery.status === "reconciliation_required"
+              ? "Reference-sheet funding requires support reconciliation before it can be retried."
+              : "Reference-sheet funding release is still pending. Wait and retry; no new sheet generation was started.",
+        });
+        return;
+      } catch (error) {
+        req.log.error(
+          { err: error, draftId, roleId },
+          "Failed to recover guided reference-sheet funding release",
+        );
+        await releaseRecoveryClaim().catch((releaseError) => {
+          req.log.error(
+            { err: releaseError, draftId, roleId },
+            "Failed to release guided reference-sheet recovery lease",
+          );
+        });
+        res.status(409).json({
+          error: "Reference-sheet funding release is still pending. Wait and retry; no new sheet generation was started.",
+        });
+        return;
+      } finally {
+        await releaseRecoveryClaim().catch((error) => {
+          req.log.error(
+            { err: error, draftId, roleId },
+            "Failed to release guided reference-sheet recovery lease",
+          );
+        });
+      }
     }
     if (result.kind !== "saved") {
       res.status(409).json({ error: "Only a confirmed failed reference sheet can be retried." });
@@ -5800,59 +6288,9 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           return;
         }
         const operationKey = operation.operationKey;
-        let funding: {
-          source: "quota" | "credit" | "wallet";
-          reservation?: WalletReservation;
-          meterFunding: MeterFundingSnapshot;
-        } | null = operation.funding
-          ? {
-              source: operation.funding,
-              meterFunding: legacyVideoFunding(req.tenantId, operation.funding),
-              ...(operation.walletReservation
-                ? { reservation: operation.walletReservation }
-                : {}),
-            }
-          : null;
-        if (!funding) {
-          funding = await reserveImageFunding(req);
-          if (!funding) {
-            await releaseGuidedCastOperation(row, role.id, operationKey);
-            res.status(402).json({
-              error: `Generated cast asset for role ${role.name} needs one image unit.`,
-            });
-            return;
-          }
-          const funded = await checkpointGuidedCastOperation({
-            row,
-            roleId: role.id,
-            operationKey,
-            update: {
-              status: "funded",
-              funding: funding.source,
-              walletReservation: funding.reservation ?? null,
-            },
-          });
-          if (!funded) {
-            await releaseImageFunding(req, funding);
-            res
-              .status(409)
-              .json({
-                error:
-                  "This cast operation changed before funding was recorded.",
-              });
-            return;
-          }
-          row = funded;
-          operation = row.state.castOperations[role.id];
-          if (!operation) {
-            res
-              .status(409)
-              .json({
-                error: `Funded cast checkpoint for role ${role.name} is missing.`,
-              });
-            return;
-          }
-        }
+        // Validate an already-paid resumable receipt before taking an executor
+        // lease. Invalid/foreign wallet checkpoints are read-only rejection
+        // paths: they must not gain a heartbeat or otherwise mutate evidence.
         if (
           operation.status === "provider_succeeded" ||
           operation.status === "upload_succeeded" ||
@@ -5885,6 +6323,100 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             res.status(409).json({
               error: `Cast checkpoint for role ${role.name} is invalid and requires reconciliation: ${walletSemantic.reason}.`,
             });
+            return;
+          }
+        }
+        const executionClaimToken = randomUUID();
+        const executionClaim = await claimGuidedCastOperationExecution({
+          row,
+          roleId: role.id,
+          operationKey,
+          executionClaimToken,
+        });
+        if (!executionClaim) {
+          res.status(409).json({
+            error: `Cast generation is already in progress for role ${role.name}.`,
+          });
+          return;
+        }
+        row = executionClaim;
+        operation = row.state.castOperations[role.id];
+        if (!operation) {
+          res.status(409).json({
+            error: `Cast checkpoint for role ${role.name} disappeared.`,
+          });
+          return;
+        }
+        const releaseExecutionClaim = async (): Promise<void> => {
+          const current = row!.state.castOperations[role.id];
+          if (!current) return;
+          const released = await checkpointGuidedCastOperation({
+            row: row!,
+            roleId: role.id,
+            operationKey: current.operationKey,
+            update: {},
+            executionClaimToken,
+            releaseExecutionClaim: true,
+          });
+          if (released) row = released;
+        };
+        try {
+          let funding: {
+          source: "quota" | "credit" | "wallet";
+          reservation?: WalletReservation;
+          meterFunding: MeterFundingSnapshot;
+        } | null = operation.funding
+          ? {
+              source: operation.funding,
+              meterFunding: legacyVideoFunding(req.tenantId, operation.funding),
+              ...(operation.walletReservation
+                ? { reservation: operation.walletReservation }
+                : {}),
+            }
+          : null;
+        if (!funding) {
+          funding = await reserveImageFunding(req);
+          if (!funding) {
+            await releaseGuidedCastOperation(
+              row,
+              role.id,
+              operationKey,
+              executionClaimToken,
+            );
+            res.status(402).json({
+              error: `Generated cast asset for role ${role.name} needs one image unit.`,
+            });
+            return;
+          }
+          const funded = await checkpointGuidedCastOperation({
+            row,
+            roleId: role.id,
+            operationKey,
+            update: {
+              status: "funded",
+              funding: funding.source,
+              walletReservation: funding.reservation ?? null,
+            },
+            executionClaimToken,
+          });
+          if (!funded) {
+            await releaseImageFunding(req, funding);
+            res
+              .status(409)
+              .json({
+                error:
+                  "This cast operation changed before funding was recorded.",
+              });
+            return;
+          }
+          row = funded;
+          operation = row.state.castOperations[role.id];
+          if (!operation) {
+            res
+              .status(409)
+              .json({
+                error: `Funded cast checkpoint for role ${role.name} is missing.`,
+              });
             return;
           }
         }
@@ -5924,6 +6456,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               roleId: role.id,
               operationKey,
               update: { status: "provider_running" },
+              executionClaimToken,
             });
             if (!running) {
               throw new Error("Cast provider boundary checkpoint CAS failed.");
@@ -5994,6 +6527,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 imageBase64: paidBuffer.toString("base64"),
                 imageByteLength: paidBuffer.length,
               },
+              executionClaimToken,
             });
             if (!providerSucceeded) {
               throw new WalletProviderPostSuccessError(
@@ -6009,8 +6543,19 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             isConfirmedImageFailure(error),
           );
           if (disposition.releaseFunding) {
-            await releaseImageFunding(req, funding);
-            await releaseGuidedCastOperation(row, role.id, operationKey);
+            // Remove only the exact owner's pre-success operation before
+            // refunding. A stale executor can never erase or refund a newer
+            // executor's reservation.
+            if (
+              await releaseGuidedCastOperation(
+                row,
+                role.id,
+                operationKey,
+                executionClaimToken,
+              )
+            ) {
+              await releaseImageFunding(req, funding);
+            }
           } else {
             // Timeouts, transport failures, process interruption and persistence
             // failures do not prove that the provider did no work. Preserve the
@@ -6020,6 +6565,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               roleId: role.id,
               operationKey,
               update: { status: disposition.nextStatus },
+              executionClaimToken,
             }).catch((checkpointError) => {
               req.log.error(
                 { err: checkpointError, roleId: role.id },
@@ -6104,6 +6650,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 imageBase64: undefined,
                 imageByteLength: imageBuffer.length,
               },
+              executionClaimToken,
             });
             if (!uploaded)
               throw new Error("Cast upload checkpoint CAS failed.");
@@ -6152,6 +6699,26 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             return;
           }
           try {
+            // Heartbeat and fence the claim immediately before settlement. This
+            // is a short DB transaction, not a connection held across payment.
+            const settling = await checkpointGuidedCastOperation({
+              row,
+              roleId: role.id,
+              operationKey,
+              update: {},
+              executionClaimToken,
+            });
+            if (!settling) {
+              res.status(409).json({
+                error: `Cast settlement for role ${role.name} is owned by another worker.`,
+              });
+              return;
+            }
+            row = settling;
+            operation = row.state.castOperations[role.id]!;
+            if (!operation.model || !operation.provider) {
+              throw new Error("Cast settlement checkpoint is incomplete.");
+            }
             await settleImageFunding(
               req,
               funding,
@@ -6168,6 +6735,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               { err: error, roleId: role.id },
               "Guided cast wallet settlement failed",
             );
+            await releaseExecutionClaim().catch((releaseError) => {
+              req.log.error(
+                { err: releaseError, roleId: role.id },
+                "Failed to release guided cast executor after settlement failure",
+              );
+            });
             res.status(500).json({
               error: `Cast settlement for role ${role.name} failed and requires reconciliation.`,
             });
@@ -6178,6 +6751,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             roleId: role.id,
             operationKey,
             update: { status: "uploaded", settledAt: new Date().toISOString() },
+            executionClaimToken,
           });
           if (!settled) {
             res.status(500).json({
@@ -6249,6 +6823,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           row,
           roleId: role.id,
           operationKey,
+          executionClaimToken,
           name: operation.customization?.name ?? role.name,
           description: characterDescription,
           wardrobeDescription,
@@ -6300,12 +6875,15 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             next: NonNullable<
               GuidedStoryDraftState["castOperations"][string]["sheetOperation"]
             >,
+            releaseExecutionClaim = false,
           ) => {
             const savedSheet = await checkpointGuidedCastOperation({
               row: row!,
               roleId: role.id,
               operationKey,
               update: { sheetOperation: next },
+              executionClaimToken,
+              releaseExecutionClaim,
             });
             if (!savedSheet) throw new Error("Sheet operation checkpoint CAS failed.");
             row = savedSheet;
@@ -6329,6 +6907,11 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 await checkpointSheet({
                   ...sheetOperation!,
                   status: "failed",
+                  fundingRelease: {
+                    status: "released",
+                    updatedAt: new Date().toISOString(),
+                    releasedAt: new Date().toISOString(),
+                  },
                   error:
                     "Reference sheet funding is unavailable. Add image credits or recharge, then retry.",
                   updatedAt: new Date().toISOString(),
@@ -6457,10 +7040,32 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 await checkpointSheet({
                   ...sheetOperation!,
                   status: confirmed ? "failed" : "outcome_unknown",
+                  ...(confirmed
+                    ? {
+                        fundingRelease: {
+                          status: "pending" as const,
+                          updatedAt: new Date().toISOString(),
+                        },
+                      }
+                    : {}),
                   error: safeFailure,
                   updatedAt: new Date().toISOString(),
                 });
-                if (confirmed) await releaseImageFunding(req, sheetFunding);
+                // The failed checkpoint retains this lease until its refund is
+                // complete, so a retry cannot spend against the old funding.
+                if (confirmed) {
+                  const released = await releaseGuidedFailedSheetFunding({
+                    row: row!,
+                    roleId: role.id,
+                    operationKey,
+                    executionClaimToken,
+                  });
+                  if (released.row) {
+                    row = released.row;
+                    sheetOperation =
+                      row.state.castOperations[role.id]?.sheetOperation;
+                  }
+                }
                 throw error;
               }
             }
@@ -6488,6 +7093,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 !sheetOperation.provider ||
                 !sheetOperation.model
               ) throw new Error("Uploaded sheet receipt is incomplete.");
+              // Fence the lease immediately before settlement. The checkpoint
+              // transaction finishes before any wallet/provider work.
+              await checkpointSheet({
+                ...sheetOperation,
+                updatedAt: new Date().toISOString(),
+              });
               await settleImageFunding(
                 req,
                 sheetFunding,
@@ -6588,6 +7199,17 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                   eq(charactersTable.tenantId, req.tenantId),
                 ),
               );
+            if (sheetOperation?.status === "failed") {
+              // A confirmed sheet failure is retryable only after its original
+              // funding release and character failure marker are durable.
+              await checkpointSheet(
+                {
+                  ...sheetOperation,
+                  updatedAt: new Date().toISOString(),
+                },
+                true,
+              );
+            }
             roleErrors.push({
               roleId: role.id,
               error: /reference sheet/i.test(safeSheetError)
@@ -6599,6 +7221,25 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         }
         // checkpointSheet advances row independently; construct the accepted
         // asset from that latest durable receipt rather than the pre-sheet copy.
+        operation = row.state.castOperations[role.id] ?? operation;
+        // All provider/funding boundaries for this role are now durable. Drop
+        // the executor lease before moving to another role so a later recovery
+        // can resume a known-success sibling without waiting fifteen minutes.
+        const releasedExecution = await checkpointGuidedCastOperation({
+          row,
+          roleId: role.id,
+          operationKey,
+          update: {},
+          executionClaimToken,
+          releaseExecutionClaim: true,
+        });
+        if (!releasedExecution) {
+          res.status(409).json({
+            error: `Cast completion for role ${role.name} is owned by another worker.`,
+          });
+          return;
+        }
+        row = releasedExecution;
         operation = row.state.castOperations[role.id] ?? operation;
         const generatedProvenanceEvidence = await latestCharacterProvenance(
           req.tenantId,
@@ -6684,6 +7325,18 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             })(),
           },
         });
+        } finally {
+          // The provider boundary itself remains fail-closed in status, so the
+          // lease can be released on every completed request path without
+          // making outcome-unknown work retryable. Safe checkpoints are then
+          // immediately recoverable instead of waiting for the lease TTL.
+          await releaseExecutionClaim().catch((error) => {
+            req.log.error(
+              { err: error, roleId: role.id },
+              "Failed to release guided cast executor lease",
+            );
+          });
+        }
       }
     }
     if (roleErrors.length) {
@@ -12184,11 +12837,12 @@ async function generateVideoHandler(
     return;
   }
   if (fundedResult.kind === "insufficient") {
+    const requestedUnits = `${units} video unit${units === 1 ? "" : "s"}`;
     const message = provisionalGuidedJob
       ? `Job #${provisionalGuidedJob.id} was not funded because ${units} video unit${units === 1 ? " is" : "s are"} unavailable. Recharge or add credits, then create a new approved attempt.`
       : funding === "wallet"
-        ? "Your wallet balance can't cover this video. Recharge to continue."
-        : "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.";
+        ? `Your wallet balance can't cover ${units} generation${units === 1 ? "" : "s"} (${requestedUnits}). Recharge to continue.`
+        : `Monthly video quota reached and no video credits left for ${requestedUnits}. Upgrade your plan or buy a credit pack.`;
     await failProvisionalGuidedJob(message);
     res.status(402).json({ error: message });
     return;

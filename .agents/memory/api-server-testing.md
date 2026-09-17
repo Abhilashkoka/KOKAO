@@ -53,3 +53,10 @@ Tests run against the REAL dev DB. Any test touching singleton config tables (ai
 
 ## Targeted Vitest runs
 Run selected API test files by invoking Vitest directly (`cd artifacts/api-server && pnpm exec vitest run <files>`), not by appending files after `pnpm ... test --`. **Why:** the extra `--` can cause Vitest to ignore the file filters and launch the full DB-backed suite. **How to apply:** use the direct command whenever validating a small set of test files during focused work.
+
+## Deterministic plan and reporting fixtures
+Do not assume admin-owned development plans still match built-in defaults, or that a platform-wide report contains only the current test's events.
+
+**Why:** Saved credit-rollout settings changed quota and billing-mode assumptions, while unrelated development events inflated reporting totals. Both produced failures unrelated to the behavior under test.
+
+**How to apply:** Snapshot and restore any plan overrides needed by a suite, seed the exact billing rail it tests, and scope report fixtures with unique keys or isolated time ranges. Keep strict assertions; never change application limits or erase unrelated events to make tests pass.

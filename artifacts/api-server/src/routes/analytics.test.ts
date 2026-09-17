@@ -478,6 +478,10 @@ describe("GET /analytics/studio-lipsync", () => {
   it("groups complete funnel counts and suppresses cohorts below five accepted submissions", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     const userId = `test_studio_lipsync_${Date.now()}`;
+    // Use a tenant-specific far-future window so this platform-wide report
+    // cannot absorb current events or fixtures from another future-dated test.
+    const from = new Date(Date.UTC(2099, 0, 1) + admin.tenantId * 60_000);
+    const to = new Date(from.getTime() + 60 * 60_000);
     const event = (
       eventName: string,
       workflow: string,
@@ -487,6 +491,7 @@ describe("GET /analytics/studio-lipsync", () => {
     ) => ({
       clerkUserId: userId,
       eventName,
+      createdAt: from,
       params: {
         workflow,
         funding_rail: fundingRail,
@@ -515,7 +520,9 @@ describe("GET /analytics/studio-lipsync", () => {
       ]);
 
       actAs(admin.clerkUserId, "super@example.com");
-      const res = await request(app).get("/api/analytics/studio-lipsync?groupBy=workflow");
+      const res = await request(app).get(
+        `/api/analytics/studio-lipsync?groupBy=workflow&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
+      );
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("available");
       expect(res.body.minimumGroupSize).toBe(5);
@@ -546,9 +553,12 @@ describe("GET /analytics/studio-lipsync", () => {
   it("ranks available groups by finished videos and omits incomparable scene-bucket skips", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     const userId = `test_studio_lipsync_rank_${Date.now()}`;
+    const from = new Date(Date.UTC(2099, 1, 1) + admin.tenantId * 60_000);
+    const to = new Date(from.getTime() + 60 * 60_000);
     const events: Array<{
       clerkUserId: string;
       eventName: string;
+      createdAt: Date;
       params: Record<string, string>;
     }> = [];
     const add = (workflow: string, accepted: number, succeeded: number) => {
@@ -556,6 +566,7 @@ describe("GET /analytics/studio-lipsync", () => {
         events.push({
           clerkUserId: userId,
           eventName: "studio_lipsync_submission_accepted",
+          createdAt: from,
           params: {
             workflow,
             funding_rail: "wallet",
@@ -568,6 +579,7 @@ describe("GET /analytics/studio-lipsync", () => {
         events.push({
           clerkUserId: userId,
           eventName: "studio_lipsync_finishing_succeeded",
+          createdAt: from,
           params: {
             workflow,
             funding_rail: "wallet",
@@ -583,6 +595,7 @@ describe("GET /analytics/studio-lipsync", () => {
       events.push({
         clerkUserId: userId,
         eventName: "studio_lipsync_scene_skipped",
+        createdAt: from,
         params: {
           workflow: "guided_story",
           funding_rail: "wallet",
@@ -594,7 +607,7 @@ describe("GET /analytics/studio-lipsync", () => {
 
       actAs(admin.clerkUserId, "super@example.com");
       const workflow = await request(app).get(
-        "/api/analytics/studio-lipsync?groupBy=workflow",
+        `/api/analytics/studio-lipsync?groupBy=workflow&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
       );
       expect(workflow.body.groups[0]).toMatchObject({
         group: "text_to_video",
@@ -602,7 +615,7 @@ describe("GET /analytics/studio-lipsync", () => {
       });
 
       const scenes = await request(app).get(
-        "/api/analytics/studio-lipsync?groupBy=scene_count_bucket",
+        `/api/analytics/studio-lipsync?groupBy=scene_count_bucket&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
       );
       const availableScene = scenes.body.groups.find(
         (group: { status: string }) => group.status === "available",

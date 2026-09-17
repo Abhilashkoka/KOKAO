@@ -1,4 +1,5 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { createHash } from "node:crypto";
 import { buildTextCostMeta, type CompletionUsageLike } from "./aiCost";
 import { logger } from "./logger";
 import { recordUsage } from "./usage";
@@ -15,6 +16,9 @@ export type CharacterVisualQaMode = "primary" | "sheet" | "outfit";
 
 export const CHARACTER_VISUAL_QA_MODEL = "gpt-5.6-luna";
 export const CHARACTER_VISUAL_QA_TIMEOUT_MS = 30_000;
+// Includes reasoning tokens as well as the small JSON verdict.
+export const CHARACTER_VISUAL_QA_MAX_COMPLETION_TOKENS = 4096;
+const MAX_VERDICT_LENGTH = 4096;
 
 export interface CharacterVisualQaOptions {
   mode: CharacterVisualQaMode;
@@ -39,6 +43,9 @@ export type CharacterVisualQaFailureKind =
   | "invalid"
   | "uncertain"
   | "malformed"
+  | "truncated"
+  | "refused"
+  | "empty"
   | "unavailable"
   | "timeout";
 
@@ -128,8 +135,12 @@ export function describeCharacterVisualQaFailure(
   if (category === "unavailable") {
     const detail = qaError.kind === "timeout"
       ? "the quality-check service timed out"
+      : qaError.kind === "truncated" || qaError.kind === "empty"
+        ? "the quality-check service returned an incomplete response"
+      : qaError.kind === "refused"
+        ? "the quality-check service could not assess this image"
       : qaError.kind === "malformed"
-        ? "the quality-check service returned an unreadable response"
+        ? "the quality-check service returned an invalid response"
         : "the quality-check service was unavailable";
     return {
       category,
@@ -238,82 +249,76 @@ function qaUserPrompt(options: CharacterVisualQaOptions): string {
   );
 }
 
-function textFromCompletion(response: unknown): string | null {
-  if (!response || typeof response !== "object") return null;
+function textFromCompletion(response: unknown): string {
+  const malformed = () => new CharacterVisualQaError("Visual QA returned an invalid completion structure.", "malformed");
+  if (!response || typeof response !== "object") throw malformed();
   const choices = (response as { choices?: unknown }).choices;
-  if (!Array.isArray(choices) || choices.length !== 1) return null;
-  const message = (choices[0] as { message?: unknown } | undefined)?.message;
-  if (!message || typeof message !== "object") return null;
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return null;
-  const text = content
-    .filter(
-      (part): part is { type?: unknown; text?: unknown } =>
-        Boolean(part) && typeof part === "object",
-    )
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text as string)
-    .join("");
-  return text || null;
-}
-
-function asStrictBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function asCount(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
-}
-
-function firstField(value: Record<string, unknown>, ...keys: string[]): unknown {
-  for (const key of keys) {
-    if (key in value) return value[key];
+  if (!Array.isArray(choices) || choices.length !== 1) throw malformed();
+  const choice = choices[0];
+  if (!choice || typeof choice !== "object") throw malformed();
+  const message = choice.message;
+  if (choice.finish_reason === "length") {
+    throw new CharacterVisualQaError("Visual QA exhausted its completion budget.", "truncated");
   }
-  return undefined;
+  if (choice.finish_reason === "content_filter" ||
+      (message && typeof message === "object" && message.refusal != null && message.refusal !== "") ||
+      (Array.isArray(message?.content) && message.content.some((part: { type?: unknown } | null) => part?.type === "refusal"))) {
+    throw new CharacterVisualQaError("Visual QA refused the assessment.", "refused");
+  }
+  // Missing/unknown finish reasons, tool calls, and multiple parts are not a
+  // complete, unambiguous chat verdict. Never salvage a passing fragment.
+  if (choice.finish_reason !== "stop" || !message || typeof message !== "object" ||
+      message.tool_calls != null || message.function_call != null) throw malformed();
+  let content = message.content;
+  if (Array.isArray(content)) {
+    if (content.length !== 1 || content[0]?.type !== "text" || typeof content[0]?.text !== "string") throw malformed();
+    content = content[0].text;
+  }
+  if (content == null || (typeof content === "string" && !content.trim())) {
+    throw new CharacterVisualQaError("Visual QA returned empty output.", "empty");
+  }
+  if (typeof content !== "string" || content.length > MAX_VERDICT_LENGTH) throw malformed();
+  return content;
 }
 
 /** Parse the model's contract without accepting prose or partial responses. */
 export function parseCharacterVisualQaResponse(
   raw: string,
+  mode?: CharacterVisualQaMode,
 ): CharacterVisualQaObservation {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new CharacterVisualQaError("Visual QA returned unparseable JSON.", "malformed", error);
+  } catch {
+    // SyntaxError messages may contain provider text; do not retain the cause.
+    throw new CharacterVisualQaError("Visual QA returned unparseable JSON.", "malformed");
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new CharacterVisualQaError("Visual QA returned an invalid JSON object.", "malformed");
   }
   const value = parsed as Record<string, unknown>;
-  const rawDecision = firstField(value, "decision", "verdict");
-  const decision =
-    rawDecision === "pass"
-      ? "accept"
-      : rawDecision === "fail"
-        ? "reject"
-        : rawDecision;
+  const decision = value.decision;
   if (decision !== "accept" && decision !== "reject" && decision !== "uncertain") {
     throw new CharacterVisualQaError("Visual QA returned no valid decision.", "malformed");
   }
-  return {
-    decision,
-    personCount: asCount(firstField(value, "personCount", "person_count", "subjectCount")),
-    fullBodyVisible: asStrictBoolean(
-      firstField(value, "fullBodyVisible", "full_body_visible", "fullBody", "full_body"),
-    ),
-    panelCount: asCount(firstField(value, "panelCount", "panel_count", "viewCount", "view_count")),
-    allPanelsSingleSubject: asStrictBoolean(
-      firstField(value, "allPanelsSingleSubject", "all_panels_single_subject"),
-    ),
-    sameIdentity: asStrictBoolean(
-      firstField(value, "sameIdentity", "same_identity", "singleIdentity", "single_identity"),
-    ),
-    designConsistent: asStrictBoolean(
-      firstField(value, "designConsistent", "design_consistent", "identityConsistent"),
-    ),
-  };
+  const sheet = mode === "sheet" || (mode == null && "panelCount" in value);
+  const countKey = sheet ? "panelCount" : "personCount";
+  const booleanKeys = sheet
+    ? ["allPanelsSingleSubject", "sameIdentity", "designConsistent"]
+    : ["fullBodyVisible", "designConsistent"];
+  const keys = ["decision", countKey, ...booleanKeys];
+  // JSON.parse silently accepts duplicate keys. Tokenize strings (including
+  // escapes) and count object keys so a later accept cannot override reject.
+  const suppliedKeys = [...raw.matchAll(/"(?:\\.|[^"\\])*"\s*(?=:)/g)]
+    .map((match) => JSON.parse(match[0].trim()) as string);
+  if (raw.length > MAX_VERDICT_LENGTH ||
+      suppliedKeys.length !== keys.length || new Set(suppliedKeys).size !== keys.length ||
+      Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key)) ||
+      !Number.isSafeInteger(value[countKey]) || (value[countKey] as number) < 0 ||
+      booleanKeys.some((key) => typeof value[key] !== "boolean")) {
+    throw new CharacterVisualQaError("Visual QA returned invalid or ambiguous required fields.", "malformed");
+  }
+  return value as unknown as CharacterVisualQaObservation;
 }
 
 function assertAccepted(
@@ -441,14 +446,62 @@ async function recordVisualQaUsage(
         ? `${meterContext.operationKey}:character-visual-qa`
         : undefined,
     });
-  } catch (error) {
+  } catch {
     // Cost telemetry must not turn a legitimate provider response into a
     // quality failure. Unknown/missing usage remains NULL in the telemetry row.
     try {
-      logger.warn({ err: error }, "character visual QA cost telemetry failed");
+      logger.warn({
+        tenantId: meterContext.tenantId,
+        operationKeyHash: diagnosticHash(meterContext.operationKey),
+      }, "character visual QA cost telemetry failed");
     } catch {
       // Logging itself is best-effort and must not alter the QA verdict.
     }
+  }
+}
+
+function diagnosticHash(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0
+    ? createHash("sha256").update(value).digest("hex")
+    : undefined;
+}
+
+/** Explicit allowlist only: never log SDK errors, messages or response bodies.
+ * Hash opaque IDs so even an unexpected provider value cannot leak content.
+ * Operators can correlate an operation/request by hashing its known ID.
+ */
+function recordQaFailure(
+  error: CharacterVisualQaError,
+  response: unknown,
+  options: CharacterVisualQaOptions,
+): void {
+  try {
+    const envelope = response && typeof response === "object"
+      ? response as Record<string, unknown> : {};
+    const choices = Array.isArray(envelope.choices) ? envelope.choices : [];
+    const choice = choices.length === 1 ? choices[0] : undefined;
+    const reason: unknown = choice?.finish_reason;
+    const content: unknown = choice?.message?.content;
+    const contentLength = typeof content === "string" ? content.length
+      : Array.isArray(content) ? content.reduce((sum, part) =>
+        sum + (typeof part?.text === "string" ? part.text.length : 0), 0) : 0;
+    logger.warn({
+      event: "character_visual_qa_failed",
+      kind: error.kind,
+      mode: options.mode,
+      model: CHARACTER_VISUAL_QA_MODEL,
+      tenantId: options.meterContext?.tenantId,
+      operationKeyHash: diagnosticHash(options.meterContext?.operationKey),
+      requestIdHash: diagnosticHash(envelope._request_id),
+      completionIdHash: diagnosticHash(envelope.id),
+      finishReason: typeof reason === "string" &&
+        ["stop", "length", "content_filter", "tool_calls", "function_call"].includes(reason)
+        ? reason : reason == null ? "missing" : "other",
+      choiceCount: Math.min(choices.length, 100),
+      contentLength: Math.min(contentLength, 1_000_000),
+    }, "character visual QA failed");
+  } catch {
+    // Diagnostics must not change failure classification or funding release.
   }
 }
 
@@ -500,29 +553,36 @@ export async function validateCharacterImageOutput(
           { role: "system", content: QA_SYSTEM_PROMPT },
           { role: "user", content },
         ],
-        max_completion_tokens: 300,
+        max_completion_tokens: CHARACTER_VISUAL_QA_MAX_COMPLETION_TOKENS,
+        // Keep the proxy's documented JSON-object contract. Strict json_schema
+        // support for this model alias is not documented; validate locally.
         response_format: { type: "json_object" },
       },
       options.timeoutMs ?? CHARACTER_VISUAL_QA_TIMEOUT_MS,
     );
   } catch (error) {
-    if (error instanceof CharacterVisualQaError) throw error;
-    throw new CharacterVisualQaError(
+    const qaError = error instanceof CharacterVisualQaError ? error : new CharacterVisualQaError(
       "Visual QA was unavailable; the generated image was not accepted.",
       "unavailable",
-      error,
+      undefined,
+      options.mode,
     );
+    recordQaFailure(qaError, undefined, options);
+    throw qaError;
   }
-  const raw = textFromCompletion(response);
-  if (!raw) {
-    throw new CharacterVisualQaError(
-      "Visual QA returned no machine-readable response.",
-      "malformed",
-    );
-  }
+  // A received response can incur provider cost even with no usable verdict.
   await recordVisualQaUsage(response, options.meterContext);
-  const observation = parseCharacterVisualQaResponse(raw);
-  assertAccepted(observation, options.mode);
+  try {
+    const raw = textFromCompletion(response);
+    const observation = parseCharacterVisualQaResponse(raw, options.mode);
+    assertAccepted(observation, options.mode);
+  } catch (error) {
+    const qaError = error instanceof CharacterVisualQaError ? error : new CharacterVisualQaError(
+      "Visual QA returned an invalid response.", "malformed", undefined, options.mode,
+    );
+    recordQaFailure(qaError, response, options);
+    throw qaError;
+  }
 }
 
 /** Adapter used by the image generation router's pre-persistence boundary. */

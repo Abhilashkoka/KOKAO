@@ -861,25 +861,49 @@ describe("meter", () => {
 
 describe("meter report", () => {
   it("totals credits and surfaces failed calls separately", async () => {
-    await meter({ tenantId }, "video", 10, async () => "a");
-    await meter({ tenantId }, "video", 5, async () => "b");
-    await expect(
-      meter({ tenantId }, "image", 1, async () => {
-        throw new Error("nope");
-      }),
-    ).rejects.toThrow();
+    // meterReport is intentionally platform-wide, so use per-test rate keys
+    // rather than folding in events left by another test tenant in the shared
+    // development database.
+    const videoKey = `meter_report_video_${tenantId}`;
+    const imageKey = `meter_report_image_${tenantId}`;
+    try {
+      await upsertCreditRate({
+        key: videoKey,
+        label: "Meter report video",
+        unit: "item",
+        credits: 1,
+        active: true,
+      });
+      await upsertCreditRate({
+        key: imageKey,
+        label: "Meter report image",
+        unit: "item",
+        credits: 1,
+        active: true,
+      });
+      await meter({ tenantId }, videoKey, 10, async () => "a");
+      await meter({ tenantId }, videoKey, 5, async () => "b");
+      await expect(
+        meter({ tenantId }, imageKey, 1, async () => {
+          throw new Error("nope");
+        }),
+      ).rejects.toThrow();
 
-    const report = await meterReport(1);
-    const video = report.rows.find((r) => r.rateKey === "video");
-    expect(video?.calls).toBe(2);
-    expect(video?.quantity).toBe(15);
-    expect(video?.credits).toBe(15);
+      const report = await meterReport(1);
+      const video = report.rows.find((r) => r.rateKey === videoKey);
+      expect(video?.calls).toBe(2);
+      expect(video?.quantity).toBe(15);
+      expect(video?.credits).toBe(15);
 
-    const image = report.rows.find((r) => r.rateKey === "image");
-    expect(image?.failedCalls).toBe(1);
-    expect(report.failedCalls).toBeGreaterThanOrEqual(1);
+      const image = report.rows.find((r) => r.rateKey === imageKey);
+      expect(image?.failedCalls).toBe(1);
+      expect(report.failedCalls).toBeGreaterThanOrEqual(1);
 
-    expect(await tenantMeterCredits(tenantId, 1)).toBeGreaterThanOrEqual(15);
+      expect(await tenantMeterCredits(tenantId, 1)).toBeGreaterThanOrEqual(15);
+    } finally {
+      await deleteCreditRate(videoKey);
+      await deleteCreditRate(imageKey);
+    }
   });
 
   it("distinguishes unpriced, configured-free, and inactive keys", async () => {

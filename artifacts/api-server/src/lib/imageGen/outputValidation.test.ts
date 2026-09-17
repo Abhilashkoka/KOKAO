@@ -183,6 +183,7 @@ vi.mock("./providers/higgsfield", () => ({
 
 const { generateImage } = await import("./index");
 const { ImageGenProviderError } = await import("./types");
+const { validateCharacterImageOutput } = await import("../characterVisualQa");
 
 const SELECTION = {
   provider: "openai" as const,
@@ -211,6 +212,44 @@ describe("image output validation provider boundary", () => {
     vi.clearAllMocks();
     meterEvents.length = 0;
   });
+
+  it.each(["length", "content_filter", "stop"])(
+    "never regenerates or persists after real QA rejects a %s response",
+    async (finishReason) => {
+      providers.openai.mockResolvedValue(result());
+      const onProviderSuccess = vi.fn();
+      const create = vi.fn().mockResolvedValue({
+        choices: [{
+          finish_reason: finishReason,
+          message: { content: finishReason === "stop" ? "" : JSON.stringify({
+            decision: "accept", panelCount: 5, allPanelsSingleSubject: true,
+            sameIdentity: true, designConsistent: true,
+          }) },
+        }],
+      });
+      await expect(generateImage("sheet", "1024x1024", undefined, {
+        selectionPolicy: SELECTION,
+        meterContext,
+        outputValidator: (image) => validateCharacterImageOutput(
+          { buffer: image.buffer, mimeType: "image/png" },
+          { mode: "sheet", approvedPrimary: { buffer: Buffer.from("primary"), mimeType: "image/png" } },
+          { chat: { completions: { create } } },
+        ),
+        onProviderSuccess,
+      })).rejects.toMatchObject({
+        name: "ImageGenOutputValidationError", confirmedValidationError: true,
+      });
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(providers.openai).toHaveBeenCalledTimes(1);
+      for (const [name, provider] of Object.entries(providers)) {
+        if (name !== "openai") expect(provider).not.toHaveBeenCalled();
+      }
+      expect(onProviderSuccess).not.toHaveBeenCalled();
+      expect(meterEvents).toEqual([{ outcome: "failed", reported: { tokens: null }, confirmed: true }]);
+      expect(dbGuard.insert).not.toHaveBeenCalled();
+      expect(dbGuard.update).not.toHaveBeenCalled();
+    },
+  );
 
   it("terminates a rejected QA result, retains provider usage, and skips fallback/success", async () => {
     const providerOutput = {

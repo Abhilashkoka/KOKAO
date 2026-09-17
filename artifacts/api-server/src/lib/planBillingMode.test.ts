@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from "vitest";
 
 vi.mock("@clerk/express", async () => {
   const { authState } = await import("../test/authState");
@@ -25,11 +25,50 @@ vi.mock("@clerk/express", async () => {
 });
 
 import { pool, db, tenantsTable, planSettingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { applyPlanBillingMode, invalidatePlanCache } from "./plans";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
 const createdTenantIds: number[] = [];
+const savedPlanRows: (typeof planSettingsTable.$inferSelect)[] = [];
+
+const deterministicPlanFixtures = [
+  {
+    id: "free",
+    name: "Free (billing-mode test)",
+    priceLabel: "$0 / mo",
+    captions: 20,
+    images: 10,
+    videos: 3,
+    brandKits: 1,
+    scheduledPosts: 10,
+    teamSeats: 0,
+    watermark: true,
+    billingMode: "quota" as const,
+    monthlyCredits: 0,
+    features: [],
+    sortOrder: 0,
+    archived: false,
+  },
+  {
+    id: "payg",
+    name: "Pay As You Go (billing-mode test)",
+    priceLabel: "No monthly fee",
+    captions: 0,
+    images: 0,
+    videos: 0,
+    brandKits: 3,
+    scheduledPosts: 50,
+    teamSeats: 0,
+    watermark: false,
+    // The production credit rollout uses the unified credits rail for payg.
+    billingMode: "credits" as const,
+    monthlyCredits: 0,
+    features: [],
+    sortOrder: 1,
+    archived: false,
+  },
+];
 
 async function makeTenant(): Promise<number> {
   const { tenantId } = await createTenant();
@@ -54,7 +93,27 @@ async function tenantBilling(id: number) {
 
 afterAll(async () => {
   for (const id of createdTenantIds) await deleteTenant(id);
+  await db
+    .delete(planSettingsTable)
+    .where(inArray(planSettingsTable.id, ["free", "payg"]));
+  if (savedPlanRows.length > 0) {
+    await db.insert(planSettingsTable).values(savedPlanRows);
+  }
+  invalidatePlanCache();
   await pool.end();
+});
+
+beforeAll(async () => {
+  const rows = await db
+    .select()
+    .from(planSettingsTable)
+    .where(inArray(planSettingsTable.id, ["free", "payg"]));
+  savedPlanRows.push(...rows);
+  await db
+    .delete(planSettingsTable)
+    .where(inArray(planSettingsTable.id, ["free", "payg"]));
+  await db.insert(planSettingsTable).values(deterministicPlanFixtures);
+  invalidatePlanCache();
 });
 
 beforeEach(() => {
@@ -62,18 +121,18 @@ beforeEach(() => {
 });
 
 describe("applyPlanBillingMode", () => {
-  it("switches a tenant to wallet billing when landing on payg (default wallet plan)", async () => {
+  it("applies the configured payg billing mode when a tenant lands on it", async () => {
     const tenantId = await makeTenant();
     expect((await tenantBilling(tenantId)).billingMode).toBe("quota");
 
     await applyPlanBillingMode(tenantId, "payg");
-    expect((await tenantBilling(tenantId)).billingMode).toBe("wallet");
+    expect((await tenantBilling(tenantId)).billingMode).toBe("credits");
   });
 
   it("switches back to quota when landing on a quota plan", async () => {
     const tenantId = await makeTenant();
     await applyPlanBillingMode(tenantId, "payg");
-    expect((await tenantBilling(tenantId)).billingMode).toBe("wallet");
+    expect((await tenantBilling(tenantId)).billingMode).toBe("credits");
 
     await applyPlanBillingMode(tenantId, "free");
     expect((await tenantBilling(tenantId)).billingMode).toBe("quota");
@@ -120,15 +179,16 @@ describe("applyPlanBillingMode", () => {
     }
   });
 
-  it("no-ops on an unknown plan even when the tenant is wallet-billed", async () => {
+  it("no-ops on an unknown plan even when the tenant is payg-billed", async () => {
     const tenantId = await makeTenant();
     await applyPlanBillingMode(tenantId, "payg");
-    expect((await tenantBilling(tenantId)).billingMode).toBe("wallet");
+    expect((await tenantBilling(tenantId)).billingMode).toBe("credits");
 
     await expect(
       applyPlanBillingMode(tenantId, "no-such-plan"),
     ).resolves.toBeUndefined();
-    // Must stay wallet — an unknown id must not fall back to a default plan.
-    expect((await tenantBilling(tenantId)).billingMode).toBe("wallet");
+    // Must stay on payg's configured mode — an unknown id must not fall back
+    // to a default plan.
+    expect((await tenantBilling(tenantId)).billingMode).toBe("credits");
   });
 });

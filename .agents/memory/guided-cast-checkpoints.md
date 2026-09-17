@@ -11,6 +11,14 @@ Generated cast assets must use stable, revision-bound per-role operations with e
 
 Concurrent identical requests need a durable per-operation execution claim. Fence every checkpoint write, refund, and settlement with that claim; only stale pre-provider or known-success claims may be reclaimed, while provider-running claims remain fail-closed. Usage metering must have its own stable idempotency key because a provider/wallet receipt does not deduplicate quota telemetry.
 
+**Why:** An automatic recovery worker and an HTTP cast request can read the same retry checkpoint concurrently. Matching the same stable operation identity deduplicates receipts, but does not establish exclusive ownership of funding or provider dispatch.
+
+A confirmed generation failure is not proof that its funding was refunded. Preserve failed-operation funding until release is durably verified before creating a replacement claim.
+
+**Why:** A process can stop after saving failure but before refunding, and a best-effort refund can fail. Clearing the failed operation based only on an expired execution lease loses the evidence needed to recover the original charge.
+
+**How to apply:** Make credit refund and release evidence atomic; verify wallet refund receipts before accepting release. Legacy credit failures without provable release need reconciliation rather than a guessed second refund.
+
 Narration voice is not an input to fictional cast image generation. A known-success visual checkpoint may adopt a changed voice without repeating or discarding paid image work; in-flight or uncertain provider checkpoints remain fail-closed. Durable image handoffs must preserve and validate the provider's actual supported format (PNG or JPEG), including the matching upload content type.
 
 Wallet settlement may finish before the draft advances from provider-success to upload-success. Recovery must accept a settled, non-refunded provider operation at the earlier visual checkpoint and resume the saved-byte upload; settlement order must never strand paid cast work.

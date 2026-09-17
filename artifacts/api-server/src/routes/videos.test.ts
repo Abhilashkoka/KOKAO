@@ -3,6 +3,7 @@ import request from "supertest";
 import express, { type Express } from "express";
 import { createHash } from "node:crypto";
 import { CharacterInputError } from "../lib/characters";
+import { CharacterVisualQaError } from "../lib/characterVisualQa";
 
 vi.mock("@clerk/express", async () => {
   const { authState } = await import("../test/authState");
@@ -49,6 +50,7 @@ const guidedCastProviderState = vi.hoisted(() => ({
   calls: 0,
   sheetCalls: 0,
   sheetError: null as Error | null,
+  sheetErrorOnce: null as Error | null,
   sheetFailuresRemaining: 0,
   sheetFailureTenantId: null as number | null,
   sheetCallsByTenant: new Map<number, number>(),
@@ -57,7 +59,29 @@ const guidedCastProviderState = vi.hoisted(() => ({
   contentTypes: [] as string[],
   providerGate: null as Promise<void> | null,
   providerEntered: null as (() => void) | null,
+  sheetProviderGate: null as Promise<void> | null,
+  sheetProviderEntered: null as (() => void) | null,
 }));
+const creditRefundState = vi.hoisted(() => ({
+  calls: 0,
+  failNext: false,
+}));
+vi.mock("../lib/credits", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/credits")>();
+  return {
+    ...actual,
+    refundCredits: vi.fn(
+      async (...args: Parameters<typeof actual.refundCredits>) => {
+        creditRefundState.calls += 1;
+        if (creditRefundState.failNext) {
+          creditRefundState.failNext = false;
+          throw new Error("injected guided sheet credit refund failure");
+        }
+        return actual.refundCredits(...args);
+      },
+    ),
+  };
+});
 vi.mock("../lib/characters", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/characters")>();
   return {
@@ -80,6 +104,10 @@ vi.mock("../lib/characters", async (importOriginal) => {
         character.tenantId,
         (guidedCastProviderState.sheetCallsByTenant.get(character.tenantId) ?? 0) + 1,
       );
+      guidedCastProviderState.sheetProviderEntered?.();
+      if (guidedCastProviderState.sheetProviderGate) {
+        await guidedCastProviderState.sheetProviderGate;
+      }
       if (
         guidedCastProviderState.sheetFailuresRemaining > 0 &&
         (guidedCastProviderState.sheetFailureTenantId === null ||
@@ -87,6 +115,13 @@ vi.mock("../lib/characters", async (importOriginal) => {
       ) {
         guidedCastProviderState.sheetFailuresRemaining -= 1;
         throw new CharacterInputError("confirmed sheet input failure");
+      }
+      if (guidedCastProviderState.sheetErrorOnce &&
+          (guidedCastProviderState.sheetFailureTenantId === null ||
+           character.tenantId === guidedCastProviderState.sheetFailureTenantId)) {
+        const error = guidedCastProviderState.sheetErrorOnce;
+        guidedCastProviderState.sheetErrorOnce = null;
+        throw error;
       }
       if (guidedCastProviderState.sheetError) throw guidedCastProviderState.sheetError;
       return {
@@ -427,6 +462,8 @@ import {
   aiModelPricesTable,
   imageGenSettingsTable,
   guidedStoryDraftsTable,
+  planSettingsTable,
+  assetProvenanceTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
   type VideoJobOptions,
@@ -461,6 +498,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter, {
   directVideoReservationPrice,
+  guidedCastExecutionClaimCanBeRecovered,
   guidedCastSweepAllocation,
   guidedCastOperationNeedsSweep,
   sweepPendingGuidedStoryCasts,
@@ -477,6 +515,7 @@ import {
 } from "../test/dbHelpers";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
+import { invalidatePlanCache } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { videoJobFullUnits, videoJobUnits } from "../lib/videoGen/units";
 import { addVersion, createKit } from "../lib/brandKit/service";
@@ -513,6 +552,40 @@ const app = createVideosTestApp();
 const createdTenants: TestTenant[] = [];
 const createdStyleProfileIds: number[] = [];
 const HIGH_LIP_SYNC_MODEL = "sync/lipsync-2";
+const TEST_REFERENCE_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+const TEST_REFERENCE_SHA256 = createHash("sha256").update(TEST_REFERENCE_BYTES).digest("hex");
+
+async function seedAssetProvenance(
+  values: Array<{
+    tenantId: number;
+    assetKind: "character_reference" | "reference_sheet" | "character_outfit";
+    characterId?: number | null;
+    outfitId?: number | null;
+    artifactPath: string;
+    sourceKind: "upload" | "textgenerated";
+    operationIdentity: string;
+  }>,
+) {
+  return db.insert(assetProvenanceTable).values(values.map((value): typeof assetProvenanceTable.$inferInsert => ({
+    ...value,
+    characterId: value.characterId ?? null,
+    outfitId: value.outfitId ?? null,
+    roleId: null,
+    provider: value.sourceKind === "upload" ? null : "test",
+    model: value.sourceKind === "upload" ? null : "test",
+    providerRequestId: null,
+    providerOperationId: null,
+    artifactSha256: TEST_REFERENCE_SHA256,
+    parentPath: null,
+    parentSha256: null,
+    inputAncestry: {
+      parents: [],
+      referenceSource: value.sourceKind === "upload" ? "uploaded" : "generated",
+      capturedAt: "2025-01-01T00:00:00.000Z",
+    },
+    succeededAt: new Date("2025-01-01T00:00:00.000Z"),
+  }))).returning();
+}
 
 async function restoreHighLipSyncPrice(
   existing: Awaited<ReturnType<typeof findModelPrice>>,
@@ -617,8 +690,37 @@ async function installGuidedNativeTestModel(): Promise<() => Promise<void>> {
 let restoreDefaultTextVideoPrice: (() => Promise<void>) | null = null;
 let restoreDefaultImageVideoPrice: (() => Promise<void>) | null = null;
 let restoreVideoGenSelection: (() => Promise<void>) | null = null;
+let savedVideoQuotaPlanRows: Array<typeof planSettingsTable.$inferSelect> = [];
 
 beforeAll(async () => {
+  savedVideoQuotaPlanRows = await db
+    .select()
+    .from(planSettingsTable)
+    .where(inArray(planSettingsTable.id, ["free", "pro"]));
+  // The route tests intentionally exercise the monthly quota rail. Keep that
+  // fixture independent of an operator-edited plan_settings row (whose
+  // default videos value is zero for production safety).
+  await db
+    .update(planSettingsTable)
+    .set({
+      captions: 20,
+      images: 10,
+      videos: 3,
+      brandKits: 1,
+      scheduledPosts: 10,
+    })
+    .where(eq(planSettingsTable.id, "free"));
+  await db
+    .update(planSettingsTable)
+    .set({
+      captions: 500,
+      images: 200,
+      videos: 50,
+      brandKits: 10,
+      scheduledPosts: 200,
+    })
+    .where(eq(planSettingsTable.id, "pro"));
+  invalidatePlanCache();
   const existingSelection = await getVideoGenSelection();
   restoreVideoGenSelection = () => setVideoGenSelection(existingSelection);
   await setVideoGenSelection({
@@ -712,6 +814,7 @@ beforeEach(() => {
   guidedCastProviderState.calls = 0;
   guidedCastProviderState.sheetCalls = 0;
   guidedCastProviderState.sheetError = null;
+  guidedCastProviderState.sheetErrorOnce = null;
   guidedCastProviderState.sheetFailuresRemaining = 0;
   guidedCastProviderState.sheetFailureTenantId = null;
   guidedCastProviderState.sheetCallsByTenant.clear();
@@ -720,6 +823,10 @@ beforeEach(() => {
   guidedCastProviderState.contentTypes = [];
   guidedCastProviderState.providerGate = null;
   guidedCastProviderState.providerEntered = null;
+  guidedCastProviderState.sheetProviderGate = null;
+  guidedCastProviderState.sheetProviderEntered = null;
+  creditRefundState.calls = 0;
+  creditRefundState.failNext = false;
   // Default: make the LLM throw so tests that don't set this are unaffected
   // (decideShotCountFromBrief is only called when shotCount === 0).
   textGenState.shotCountResponse = null;
@@ -793,6 +900,42 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
       })
       .returning()
   )[0]!;
+  await seedAssetProvenance([
+    {
+      tenantId,
+      assetKind: "character_reference",
+      characterId: character.id,
+      artifactPath: character.referenceImagePath,
+      sourceKind: "upload",
+      operationIdentity: `test-character:${tenantId}:${character.id}:reference`,
+    },
+    {
+      tenantId,
+      assetKind: "reference_sheet",
+      characterId: character.id,
+      artifactPath: character.referenceSheetImagePath!,
+      sourceKind: "upload",
+      operationIdentity: `test-character:${tenantId}:${character.id}:sheet`,
+    },
+    {
+      tenantId,
+      assetKind: "character_outfit",
+      characterId: character.id,
+      outfitId: defaultOutfit.id,
+      artifactPath: defaultOutfit.referenceImagePath,
+      sourceKind: "upload",
+      operationIdentity: `test-character:${tenantId}:${character.id}:outfit:${defaultOutfit.id}`,
+    },
+    {
+      tenantId,
+      assetKind: "character_outfit",
+      characterId: character.id,
+      outfitId: gym.id,
+      artifactPath: gym.referenceImagePath,
+      sourceKind: "upload",
+      operationIdentity: `test-character:${tenantId}:${character.id}:outfit:${gym.id}`,
+    },
+  ]);
   return { characterId: character.id, outfitId: defaultOutfit.id, gymOutfitId: gym.id };
 }
 
@@ -898,6 +1041,9 @@ afterAll(async () => {
     await Promise.all(
       createdTenants.slice(offset, offset + 8).map(async (tenant) => {
         await db
+          .delete(assetProvenanceTable)
+          .where(eq(assetProvenanceTable.tenantId, tenant.tenantId));
+        await db
           .delete(characterOutfitsTable)
           .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
         await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
@@ -923,6 +1069,13 @@ afterAll(async () => {
   await restoreDefaultTextVideoPrice?.();
   await restoreDefaultImageVideoPrice?.();
   await restoreVideoGenSelection?.();
+  await db
+    .delete(planSettingsTable)
+    .where(inArray(planSettingsTable.id, ["free", "pro"]));
+  if (savedVideoQuotaPlanRows.length > 0) {
+    await db.insert(planSettingsTable).values(savedVideoQuotaPlanRows);
+  }
+  invalidatePlanCache();
 }, 120_000);
 
 describe("guided cast sweep allocation", () => {
@@ -948,6 +1101,33 @@ describe("guided cast sweep allocation", () => {
         updatedAt: "2026-09-09T17:25:25.522Z",
       }),
     ).toBe(true);
+  });
+
+  it("recovers only stale safe executor leases and never a provider boundary", () => {
+    const now = Date.parse("2026-09-09T17:45:00.000Z");
+    const safeClaim = {
+      operationKey: "guided-story-cast:1:2:hero",
+      revision: 2,
+      voiceId: "alloy",
+      status: "uploaded" as const,
+      claimedAt: "2026-09-09T17:00:00.000Z",
+      updatedAt: "2026-09-09T17:00:00.000Z",
+      executionClaimToken: "crashed-safe-owner",
+      executionClaimedAt: "2026-09-09T17:00:00.000Z",
+    };
+    expect(guidedCastExecutionClaimCanBeRecovered(safeClaim, now)).toBe(true);
+    expect(guidedCastExecutionClaimCanBeRecovered({
+      ...safeClaim,
+      status: "provider_running",
+    }, now)).toBe(false);
+    expect(guidedCastExecutionClaimCanBeRecovered({
+      ...safeClaim,
+      sheetOperation: {
+        operationKey: "guided-story-sheet:1:2:hero",
+        status: "provider_running",
+        updatedAt: "2026-09-09T17:00:00.000Z",
+      },
+    }, now)).toBe(false);
   });
 });
 
@@ -3036,6 +3216,48 @@ describe("guided story route fail-closed regressions", () => {
       identityVerified: true,
       atlasApprovedSourceSha256: approvedSha,
     }).returning();
+    const [portraitEvidence, sheetEvidence, outfitEvidence] = await seedAssetProvenance([
+      {
+        tenantId,
+        assetKind: "character_reference",
+        characterId: character!.id,
+        artifactPath: portraitPath,
+        sourceKind: "textgenerated",
+        operationIdentity: `test-guided:${draft.id}:hero:portrait`,
+      },
+      {
+        tenantId,
+        assetKind: "reference_sheet",
+        characterId: character!.id,
+        artifactPath: sheetPath,
+        sourceKind: "textgenerated",
+        operationIdentity: `test-guided:${draft.id}:hero:sheet`,
+      },
+      {
+        tenantId,
+        assetKind: "character_outfit",
+        characterId: character!.id,
+        outfitId: outfit!.id,
+        artifactPath: outfitPath,
+        sourceKind: "textgenerated",
+        operationIdentity: `test-guided:${draft.id}:hero:outfit`,
+      },
+    ]);
+    const proof = (row: NonNullable<typeof portraitEvidence>) => ({
+      provenanceRecordId: row.id,
+      assetKind: row.assetKind,
+      operationIdentity: row.operationIdentity,
+      artifactPath: row.artifactPath,
+      artifactSha256: row.artifactSha256,
+      parentPath: row.parentPath,
+      parentSha256: row.parentSha256,
+      sourceKind: row.sourceKind,
+      provider: row.provider,
+      model: row.model,
+      providerRequestId: row.providerRequestId,
+      providerOperationId: row.providerOperationId,
+      inputAncestry: row.inputAncestry,
+    });
     const approvedAt = "2025-01-01T00:00:00.000Z";
     const cast: GuidedStoryDraftState["cast"] = [{
       roleId: "hero",
@@ -3069,6 +3291,12 @@ describe("guided story route fail-closed regressions", () => {
       },
       isUserRole: false,
       consentGranted: true,
+      provenanceEvidence: proof(portraitEvidence!),
+      provenanceEvidenceRefs: [
+        proof(portraitEvidence!),
+        proof(outfitEvidence!),
+        proof(sheetEvidence!),
+      ],
     }];
     const backdropInput = {
       prompt: "A storm shelter",
@@ -3411,8 +3639,8 @@ describe("guided story route fail-closed regressions", () => {
           .where(eq(videoGenerationsTable.id, nativeResponse.body.id))
       )[0]!;
       expect(nativeJob.options!.resolvedVideoModel).toMatchObject({
-        provider: "atlascloud",
-        model: "bytedance/seedance-2.5/reference-to-video",
+        provider: "higgsfield",
+        model: "veo3.1/fast/image-to-video",
         generateAudio: true,
       });
       expect(nativeJob.options!.guidedStoryRenderFlow).toEqual({
@@ -3423,8 +3651,8 @@ describe("guided story route fail-closed regressions", () => {
       expect(nativeJob.options!.generateAudio).toBe(true);
       expect(nativeJob.options!.guidedStory).toMatchObject({
         videoModel: {
-          provider: "atlascloud",
-          model: "bytedance/seedance-2.5/reference-to-video",
+          provider: "higgsfield",
+          model: "veo3.1/fast/image-to-video",
         },
       });
       expect(nativeJob.options!.characterLipSync).toBe(false);
@@ -4559,6 +4787,114 @@ describe("guided story route fail-closed regressions", () => {
     expect(guidedCastProviderState.sheetCalls).toBe(0);
   });
 
+  it.each(["truncated", "refused", "empty", "malformed"] as const)(
+    "treats a confirmed %s sheet QA failure as retryable without re-running paid work",
+    async (kind) => {
+      const tenant = await newTenant("pro");
+      actAs(tenant.clerkUserId);
+      const draft = await insertEditableGuidedDraft(tenant.tenantId);
+      await waitForPendingJobs();
+      // Exercise credit release, not the newly isolated pro-plan quota fixture.
+      await db.insert(usageEventsTable).values(
+        Array.from({ length: 200 }, () => ({
+          tenantId: tenant.tenantId,
+          kind: "image" as const,
+          funding: "quota" as const,
+        })),
+      );
+      await grantCredits({
+        tenantId: tenant.tenantId,
+        captionCredits: 0,
+        imageCredits: 10,
+        kind: "admin_grant",
+        note: "guided sheet QA retry fixture",
+      });
+      const creditsBefore = await getCreditBalances(tenant.tenantId);
+      const creditLedgerBefore = await db
+        .select()
+        .from(creditLedgerTable)
+        .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
+      const imageUsageBefore = await db
+        .select()
+        .from(usageEventsTable)
+        .where(and(
+          eq(usageEventsTable.tenantId, tenant.tenantId),
+          eq(usageEventsTable.kind, "image"),
+        ));
+      const quotaImageUsageBefore = imageUsageBefore.filter(
+        (event) => event.funding === "quota",
+      ).length;
+      guidedCastProviderState.sheetFailureTenantId = tenant.tenantId;
+      guidedCastProviderState.sheetErrorOnce = new CharacterVisualQaError(
+        "provider response must stay out of customer copy",
+        kind,
+      );
+
+      const approved = await request(app)
+        .post(`/api/ai/guided-story/drafts/${draft.id}/script/approve`)
+        .send({ revision: draft.revision });
+      expect(approved.status, approved.text).toBe(200);
+
+      let failedState: GuidedStoryDraftState | null = null;
+      await vi.waitFor(async () => {
+        const [current] = await db
+          .select()
+          .from(guidedStoryDraftsTable)
+          .where(eq(guidedStoryDraftsTable.id, draft.id));
+        failedState = current!.state;
+        expect(current!.state.castOperations.hero?.sheetOperation?.status).toBe("failed");
+        expect(current!.state.castOperations.hero?.sheetOperation?.error)
+          .toMatch(/Reference sheet visual QA/i);
+        expect(current!.state.castOperations.hero?.sheetOperation?.error)
+          .not.toContain("provider response must stay out of customer copy");
+        // A confirmed QA rejection releases only this sheet's funding; later
+        // roles continue and retain their successful portrait/sheet work.
+        expect(current!.state.castOperations.friend?.sheetOperation?.status).toBe("settled");
+      }, { timeout: 10_000 });
+
+      const creditsAfter = await getCreditBalances(tenant.tenantId);
+      expect(creditsAfter.imageCredits).toBe(creditsBefore.imageCredits - 3);
+      const creditLedgerAfter = await db
+        .select()
+        .from(creditLedgerTable)
+        .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
+      expect(creditLedgerAfter.length).toBeGreaterThan(creditLedgerBefore.length);
+      expect(creditLedgerAfter.slice(creditLedgerBefore.length)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "refund", imageDelta: 1 }),
+        ]),
+      );
+      const imageUsageAfter = await db
+        .select()
+        .from(usageEventsTable)
+        .where(and(
+          eq(usageEventsTable.tenantId, tenant.tenantId),
+          eq(usageEventsTable.kind, "image"),
+        ));
+      expect(imageUsageAfter.filter((event) => event.funding === "quota")).toHaveLength(
+        quotaImageUsageBefore,
+      );
+      expect(failedState!.scriptApprovedAt).toEqual(expect.any(String));
+      expect(failedState!.castOperations.hero?.characterId).toEqual(expect.any(Number));
+      expect(failedState!.castOperations.friend?.characterId).toEqual(expect.any(Number));
+      expect(failedState!.castApprovals?.roles.hero).toBeUndefined();
+      const [failedHero] = await db
+        .select()
+        .from(charactersTable)
+        .where(eq(charactersTable.id, failedState!.castOperations.hero!.characterId!));
+      expect(failedHero).toMatchObject({
+        referenceSheetImagePath: null,
+        referenceSheetStatus: "failed",
+      });
+      expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(2);
+
+      // The failed state is durable and does not trigger a hidden second paid
+      // generation. Only the explicit retry endpoint below may claim it.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(2);
+    },
+  );
+
   it("continues later automatic roles after one confirmed sheet failure and safely retries only that sheet", async () => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);
@@ -4566,6 +4902,13 @@ describe("guided story route fail-closed regressions", () => {
     // Let prior tests' scheduled cast work drain before arming this global mock
     // failure, so an unrelated background sheet cannot consume it.
     await waitForPendingJobs();
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 10,
+      kind: "admin_grant",
+      note: "guided sheet manual retry fixture",
+    });
     guidedCastProviderState.sheetFailuresRemaining = 1;
     guidedCastProviderState.sheetFailureTenantId = tenant.tenantId;
 
@@ -4580,38 +4923,104 @@ describe("guided story route fail-closed regressions", () => {
         .select()
         .from(guidedStoryDraftsTable)
         .where(eq(guidedStoryDraftsTable.id, draft.id));
-      failedState = current!.state;
       expect(
         current!.state.castOperations.hero?.sheetOperation?.status,
         JSON.stringify(current!.state.castOperations),
       ).toBe("failed");
+      expect(
+        current!.state.castOperations.hero?.sheetOperation?.fundingRelease
+          ?.status,
+      ).toBe("released");
       expect(current!.state.castOperations.friend?.sheetOperation?.status).toBe("settled");
+      // Capture only after the failed runner has released its durable lease.
+      // This fixture temporarily restores the state to exercise
+      // outcome_unknown, so preserving a live executor token would create a
+      // synthetic conflict unrelated to the retry race.
+      expect(current!.state.castOperations.hero?.executionClaimToken ?? null).toBeNull();
+      expect(current!.state.castOperations.friend?.executionClaimToken ?? null).toBeNull();
+      failedState = current!.state;
     }, { timeout: 10_000 });
     expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(2);
     const heroCharacterId = failedState!.castOperations.hero!.characterId;
     const friendCharacterId = failedState!.castOperations.friend!.characterId;
+    const approvedScript = failedState!.script;
+    const heroPortraitPath = (
+      await db
+        .select({ referenceImagePath: charactersTable.referenceImagePath })
+        .from(charactersTable)
+        .where(eq(charactersTable.id, heroCharacterId!))
+    )[0]?.referenceImagePath;
+    expect(guidedCastProviderState.calls).toBe(2);
 
-    const retried = await request(app)
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...failedState!,
+          castOperations: {
+            ...failedState!.castOperations,
+            hero: {
+              ...failedState!.castOperations.hero!,
+              sheetOperation: {
+                ...failedState!.castOperations.hero!.sheetOperation!,
+                status: "outcome_unknown",
+              },
+            },
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    const unknownRetry = await request(app)
       .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
       .send({ revision: approved.body.revision });
-    expect(retried.status, JSON.stringify(retried.body)).toBe(200);
-    const resumed = await request(app)
-      .put(`/api/ai/guided-story/drafts/${draft.id}/cast`)
-      .send({
-        revision: approved.body.revision,
-        strategy: "generated",
-        duplicateAssignmentConfirmed: true,
-        assignments: routeScript().roles.map((role) => ({
-          roleId: role.id,
-          source: "generated",
-          characterId: null,
-          outfitId: null,
-          voiceId: "alloy",
-          isUserRole: false,
-          consentGranted: false,
-        })),
-      });
-    expect(resumed.status, JSON.stringify(resumed.body)).toBe(200);
+    expect(unknownRetry.status).toBe(409);
+    expect(unknownRetry.body.error).toMatch(/outcome is unknown/i);
+    expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(2);
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ state: failedState! })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    let releaseSheetProvider!: () => void;
+    guidedCastProviderState.sheetProviderGate = new Promise<void>((resolve) => {
+      releaseSheetProvider = resolve;
+    });
+    const sheetProviderEntered = new Promise<void>((resolve) => {
+      guidedCastProviderState.sheetProviderEntered = resolve;
+    });
+    try {
+      const retried = await request(app)
+        .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
+        .send({ revision: approved.body.revision });
+      expect(retried.status, JSON.stringify(retried.body)).toBe(200);
+      // POST schedules the server-owned worker. Hold it at the paid sheet
+      // provider boundary, then overlap an explicit PUT: both see the same
+      // durable retry claim, but only the lease owner may dispatch it.
+      await sheetProviderEntered;
+      expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(3);
+      const overlappingPut = await request(app)
+        .put(`/api/ai/guided-story/drafts/${draft.id}/cast`)
+        .send({
+          revision: approved.body.revision,
+          strategy: "generated",
+          duplicateAssignmentConfirmed: true,
+          assignments: routeScript().roles.map((role) => ({
+            roleId: role.id,
+            source: "generated",
+            characterId: null,
+            outfitId: null,
+            voiceId: "alloy",
+            isUserRole: false,
+            consentGranted: false,
+          })),
+        });
+      expect(overlappingPut.status, JSON.stringify(overlappingPut.body)).toBe(409);
+      expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(3);
+    } finally {
+      releaseSheetProvider();
+      guidedCastProviderState.sheetProviderGate = null;
+      guidedCastProviderState.sheetProviderEntered = null;
+    }
     await vi.waitFor(async () => {
       const [current] = await db
         .select()
@@ -4638,6 +5047,7 @@ describe("guided story route fail-closed regressions", () => {
     }, { timeout: 10_000 });
 
     expect(guidedCastProviderState.sheetCallsByTenant.get(tenant.tenantId)).toBe(3);
+    expect(guidedCastProviderState.calls).toBe(2);
     const generatedCharacters = await db
       .select()
       .from(charactersTable)
@@ -4645,6 +5055,13 @@ describe("guided story route fail-closed regressions", () => {
     expect(generatedCharacters.filter((item) =>
       item.id === heroCharacterId || item.id === friendCharacterId,
     )).toHaveLength(2);
+    expect(generatedCharacters.find((item) => item.id === heroCharacterId)?.referenceImagePath)
+      .toBe(heroPortraitPath);
+    const [completed] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(completed!.state.script).toEqual(approvedScript);
   });
 
   it("saves only validated tenant-owned guided visual choices", async () => {
@@ -6052,7 +6469,23 @@ describe("guided story route fail-closed regressions", () => {
       .from(guidedStoryDraftsTable)
       .where(eq(guidedStoryDraftsTable.id, draft!.id));
     expect(unchanged!.state.cast).toEqual([]);
-    expect(unchanged!.state.castOperations.friend).toEqual(checkpoint);
+    if (malformation === "durable settlement failure") {
+      // This path legitimately acquires an executor to attempt durable
+      // settlement. Its receipt must remain intact, but the completed request
+      // releases the internal lease instead of stranding recovery for 15 min.
+      const {
+        updatedAt: _actualUpdatedAt,
+        executionClaimToken,
+        executionClaimedAt,
+        ...actualReceipt
+      } = unchanged!.state.castOperations.friend!;
+      const { updatedAt: _checkpointUpdatedAt, ...checkpointReceipt } = checkpoint;
+      expect(actualReceipt).toEqual(checkpointReceipt);
+      expect(executionClaimToken ?? null).toBeNull();
+      expect(executionClaimedAt ?? null).toBeNull();
+    } else {
+      expect(unchanged!.state.castOperations.friend).toEqual(checkpoint);
+    }
     if (malformation === "durable settlement failure") {
       const [providerOperation] = await db
         .select()
@@ -6070,6 +6503,280 @@ describe("guided story route fail-closed regressions", () => {
         );
       expect(settlementLedger).toEqual([]);
     }
+  });
+
+  it("recovers a failed sheet's pending credit refund without starting replacement generation", async () => {
+    const tenant = await newTenant("payg");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 1,
+      kind: "admin_grant",
+      note: "guided pending-sheet-refund fixture",
+    });
+    const now = "2025-01-01T00:00:00.000Z";
+    const operationKey = `guided-story-cast:${draft.id}:${draft.revision}:hero`;
+    const sheetOperationKey =
+      `guided-story-sheet:${draft.id}:${draft.revision}:hero`;
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          scriptApprovedAt: now,
+          castStrategy: "generated",
+          castOperations: {
+            hero: {
+              revision: draft.revision,
+              operationKey,
+              voiceId: "alloy",
+              status: "uploaded",
+              claimedAt: now,
+              updatedAt: now,
+              funding: "credit",
+              path: `/objects/${tenant.tenantId}/portrait.png`,
+              provider: "mock",
+              model: "mock",
+              settledAt: now,
+              sheetOperation: {
+                operationKey: sheetOperationKey,
+                status: "failed",
+                updatedAt: now,
+                funding: "credit",
+                error: "Reference sheet provider confirmed that no image was generated.",
+                // This simulates a process stop after the failure checkpoint
+                // committed and before its original credit refund ran.
+                fundingRelease: { status: "pending", updatedAt: now },
+              },
+            },
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    creditRefundState.failNext = true;
+    const firstRecovery = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
+      .send({ revision: draft.revision });
+    expect(firstRecovery.status).toBe(409);
+    expect(firstRecovery.body.error).toMatch(/release is still pending/i);
+    expect(creditRefundState.calls).toBe(1);
+    expect(guidedCastProviderState.sheetCalls).toBe(0);
+    let [saved] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(saved!.state.castOperations.hero).toMatchObject({
+      executionClaimToken: null,
+      executionClaimedAt: null,
+      sheetOperation: {
+        status: "failed",
+        funding: "credit",
+        fundingRelease: { status: "pending" },
+      },
+    });
+
+    const released = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
+      .send({ revision: draft.revision });
+    expect(released.status).toBe(409);
+    expect(released.body.error).toMatch(/funding was released/i);
+    expect(creditRefundState.calls).toBe(2);
+    expect(guidedCastProviderState.sheetCalls).toBe(0);
+    const refunds = await db
+      .select()
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.tenantId, tenant.tenantId),
+          eq(creditLedgerTable.kind, "refund"),
+        ),
+      );
+    expect(refunds).toHaveLength(1);
+    [saved] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(saved!.state.castOperations.hero).toMatchObject({
+      executionClaimToken: null,
+      executionClaimedAt: null,
+      sheetOperation: {
+        status: "failed",
+        funding: "credit",
+        fundingRelease: { status: "released" },
+      },
+    });
+
+    // A third, explicit retry is the only request that may replace the released
+    // failed operation and schedule a new provider run.
+    const replacement = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
+      .send({ revision: draft.revision });
+    expect(replacement.status).toBe(200);
+  });
+
+  it("requires reconciliation for legacy failed credit sheets without durable release evidence", async () => {
+    const tenant = await newTenant("payg");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const now = "2025-01-01T00:00:00.000Z";
+    const operationKey = `guided-story-cast:${draft.id}:${draft.revision}:hero`;
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          scriptApprovedAt: now,
+          castStrategy: "generated",
+          castOperations: {
+            hero: {
+              revision: draft.revision,
+              operationKey,
+              voiceId: "alloy",
+              status: "uploaded",
+              claimedAt: now,
+              updatedAt: now,
+              funding: "credit",
+              path: `/objects/${tenant.tenantId}/portrait.png`,
+              provider: "mock",
+              model: "mock",
+              settledAt: now,
+              sheetOperation: {
+                operationKey:
+                  `guided-story-sheet:${draft.id}:${draft.revision}:hero`,
+                status: "failed",
+                updatedAt: now,
+                funding: "credit",
+                error: "Reference sheet provider confirmed that no image was generated.",
+              },
+            },
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
+      .send({ revision: draft.revision });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/support reconciliation/i);
+    expect(creditRefundState.calls).toBe(0);
+    expect(guidedCastProviderState.sheetCalls).toBe(0);
+    const [saved] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(saved!.state.castOperations.hero).toMatchObject({
+      funding: "credit",
+      executionClaimToken: null,
+      executionClaimedAt: null,
+      sheetOperation: {
+        status: "failed",
+        funding: "credit",
+        fundingRelease: { status: "reconciliation_required" },
+      },
+    });
+  });
+
+  it("does not treat a protected wallet lifecycle as a released failed sheet", async () => {
+    const tenant = await newTenant("payg");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    await adminAdjustWallet({
+      tenantId: tenant.tenantId,
+      amountPaise: 10_000,
+      note: "guided protected-wallet-sheet fixture",
+    });
+    const reservation = await reserveWallet(tenant.tenantId, "image");
+    expect(reservation).not.toBeNull();
+    expect(reservation!.amountPaise).toBeGreaterThan(0);
+    const now = "2025-01-01T00:00:00.000Z";
+    const operationKey = `guided-story-cast:${draft.id}:${draft.revision}:hero`;
+    const executed = await executeWalletProviderOperation(
+      {
+        tenantId: tenant.tenantId,
+        reservation: reservation!,
+        operationKind: "character_reference",
+        operationKey,
+        settlement: {
+          kind: "image",
+          costPaise: null,
+          refKind: "guidedStoryCast",
+          refId: `${draft.id}:${draft.revision}:hero`,
+        },
+      },
+      async () => ({ provider: "mock", model: "mock" }),
+      (value) => value,
+    );
+    // `refundWallet` intentionally returns without a refund when lifecycle
+    // ownership is protected. The route must inspect the durable receipt rather
+    // than interpreting that return as success.
+    await db
+      .update(walletProviderOperationsTable)
+      .set({ status: "settlement_queued" })
+      .where(eq(walletProviderOperationsTable.id, executed.operationId));
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          scriptApprovedAt: now,
+          castStrategy: "generated",
+          castOperations: {
+            hero: {
+              revision: draft.revision,
+              operationKey,
+              voiceId: "alloy",
+              status: "uploaded",
+              claimedAt: now,
+              updatedAt: now,
+              funding: "wallet",
+              walletReservation: reservation,
+              path: `/objects/${tenant.tenantId}/portrait.png`,
+              provider: "mock",
+              model: "mock",
+              settledAt: now,
+              sheetOperation: {
+                operationKey:
+                  `guided-story-sheet:${draft.id}:${draft.revision}:hero`,
+                status: "failed",
+                updatedAt: now,
+                funding: "wallet",
+                walletReservation: reservation,
+                error: "Reference sheet provider confirmed that no image was generated.",
+                fundingRelease: { status: "pending", updatedAt: now },
+              },
+            },
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/cast/hero/reference-sheet/retry`)
+      .send({ revision: draft.revision });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/support reconciliation/i);
+    expect(guidedCastProviderState.sheetCalls).toBe(0);
+    const refunds = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.tenantId, tenant.tenantId),
+          eq(walletLedgerTable.reservationId, reservation!.id),
+          eq(walletLedgerTable.kind, "refund"),
+        ),
+      );
+    expect(refunds).toEqual([]);
+    const [saved] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(saved!.state.castOperations.hero!.sheetOperation).toMatchObject({
+      funding: "wallet",
+      walletReservation: reservation,
+      fundingRelease: { status: "reconciliation_required" },
+    });
   });
 
   it("rejects final approval when the locked draft revision differs from the job snapshot", async () => {
@@ -6276,8 +6983,10 @@ describe("guided story route fail-closed regressions", () => {
       name: "Final Mina",
       description: "Canonical replacement",
       referenceImagePath: `/objects/${tenant.tenantId}/uploads/final-mina.png`,
+      referenceSource: "uploaded",
       referenceSheetImagePath: `/objects/${tenant.tenantId}/uploads/final-mina-sheet.png`,
       referenceSheetStatus: "approved",
+      referenceSheetApprovedSha256: TEST_REFERENCE_SHA256,
       protectedRegion: { x: 0.2, y: 0.05, width: 0.6, height: 0.35 },
     }).returning();
     const [outfit] = await db.insert(characterOutfitsTable).values({
@@ -6290,6 +6999,33 @@ describe("guided story route fail-closed regressions", () => {
       status: "approved",
       identityVerified: true,
     }).returning();
+    await seedAssetProvenance([
+      {
+        tenantId: tenant.tenantId,
+        assetKind: "character_reference",
+        characterId: character!.id,
+        artifactPath: character!.referenceImagePath,
+        sourceKind: "upload",
+        operationIdentity: `test-inline-finalize:${tenant.tenantId}:character`,
+      },
+      {
+        tenantId: tenant.tenantId,
+        assetKind: "reference_sheet",
+        characterId: character!.id,
+        artifactPath: character!.referenceSheetImagePath!,
+        sourceKind: "upload",
+        operationIdentity: `test-inline-finalize:${tenant.tenantId}:sheet`,
+      },
+      {
+        tenantId: tenant.tenantId,
+        assetKind: "character_outfit",
+        characterId: character!.id,
+        outfitId: outfit!.id,
+        artifactPath: outfit!.referenceImagePath,
+        sourceKind: "upload",
+        operationIdentity: `test-inline-finalize:${tenant.tenantId}:outfit`,
+      },
+    ]);
 
     const started = await request(app)
       .put(`/api/ai/video-jobs/${job!.id}/guided-references/${script.roles[0]!.id}/operations`)
@@ -9933,6 +10669,48 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
         atlasAssetSourceSha256: approvedSha,
         atlasApprovedSourceSha256: approvedSha,
       }).returning();
+      const [portraitEvidence, sheetEvidence, outfitEvidence] = await seedAssetProvenance([
+        {
+          tenantId: tenant.tenantId,
+          assetKind: "character_reference",
+          characterId: character!.id,
+          artifactPath: portraitPath,
+          sourceKind: "textgenerated",
+          operationIdentity: `test-restart:${tenant.tenantId}:${roleId}:portrait`,
+        },
+        {
+          tenantId: tenant.tenantId,
+          assetKind: "reference_sheet",
+          characterId: character!.id,
+          artifactPath: sheetPath,
+          sourceKind: "textgenerated",
+          operationIdentity: `test-restart:${tenant.tenantId}:${roleId}:sheet`,
+        },
+        {
+          tenantId: tenant.tenantId,
+          assetKind: "character_outfit",
+          characterId: character!.id,
+          outfitId: outfit!.id,
+          artifactPath: outfitPath,
+          sourceKind: "textgenerated",
+          operationIdentity: `test-restart:${tenant.tenantId}:${roleId}:outfit`,
+        },
+      ]);
+      const proof = (row: NonNullable<typeof portraitEvidence>) => ({
+        provenanceRecordId: row.id,
+        assetKind: row.assetKind,
+        operationIdentity: row.operationIdentity,
+        artifactPath: row.artifactPath,
+        artifactSha256: row.artifactSha256,
+        parentPath: row.parentPath,
+        parentSha256: row.parentSha256,
+        sourceKind: row.sourceKind,
+        provider: row.provider,
+        model: row.model,
+        providerRequestId: row.providerRequestId,
+        providerOperationId: row.providerOperationId,
+        inputAncestry: row.inputAncestry,
+      });
       cast.push({
         roleId,
         source: "saved" as const,
@@ -9968,6 +10746,12 @@ describe("POST /api/ai/video-jobs/:jobId/restart", () => {
         },
         isUserRole: false,
         consentGranted: true,
+        provenanceEvidence: proof(portraitEvidence!),
+        provenanceEvidenceRefs: [
+          proof(portraitEvidence!),
+          proof(outfitEvidence!),
+          proof(sheetEvidence!),
+        ],
       });
     }
     const approvals = {

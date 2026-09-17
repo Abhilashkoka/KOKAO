@@ -1725,7 +1725,7 @@ function CastApprovalStep(props: any) {
                 {sheetImageAvailable
                   ? <>Open <b>View full sheet &amp; approve</b> to inspect the complete multi-view image and approve it.</>
                   : sheetFailed
-                    ? <>Character-sheet generation failed. Retry it here, then inspect the complete image before approval.</>
+                    ? <>Character-sheet generation failed. Retry here to generate one new sheet only; your approved script, portrait, outfit, and other characters stay unchanged. This starts a new image generation, not a free QA-only recheck. Inspect the complete image before approval.</>
                     : <>The character sheet is still preparing. This card refreshes automatically; use <b>Refresh character sheet</b> if it does not appear.</>}
               </p>
             )}

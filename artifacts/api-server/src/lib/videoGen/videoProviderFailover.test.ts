@@ -25,6 +25,12 @@ vi.mock("./providers/atlascloud", () => ({
   ATLASCLOUD_SEEDANCE_25_T2V_MODEL: "bytedance/seedance-2.5/text-to-video",
   ATLASCLOUD_SEEDANCE_25_I2V_MODEL: "bytedance/seedance-2.5/image-to-video",
   ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL: "bytedance/seedance-2.5/reference-to-video",
+  ATLASCLOUD_WAN_30_T2V_MODEL: "alibaba/wan-3.0/text-to-video",
+  ATLASCLOUD_WAN_30_I2V_MODEL: "alibaba/wan-3.0/image-to-video",
+  ATLASCLOUD_WAN_30_REFERENCE_MODEL: "alibaba/wan-3.0/reference-to-video",
+  ATLASCLOUD_WAN_30_PRIME_T2V_MODEL: "alibaba/wan-3.0-prime/text-to-video",
+  ATLASCLOUD_WAN_30_PRIME_I2V_MODEL: "alibaba/wan-3.0-prime/image-to-video",
+  ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL: "alibaba/wan-3.0-prime/reference-to-video",
   generateWithAtlasCloud: vi.fn(),
 }));
 
@@ -90,6 +96,7 @@ describe("generateVideo exact-provider behavior", () => {
     expect(vi.mocked(generateWithReplicate).mock.calls[0]![0].meterContext).toEqual({
       tenantId: 42, refKind: "videoJob", refId: "88",
       provider: "replicate", model: "wan-video/wan-2.5-t2v",
+      operationFamilyKey: "videoJob:88:scene:one",
       operationKey: "videoJob:88:scene:one:endframe:1",
     });
   });

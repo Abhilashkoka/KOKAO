@@ -12,7 +12,7 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; requestedDraftIds: number[]; draftRefetches: number; existingJob: any; created: any; generatedScripts: number; generationError: unknown; generationErrors: unknown[]; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; customizationRequest: any; customizationError: unknown; referenceSheetReview: any; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; requestedDraftIds: number[]; draftRefetches: number; existingJob: any; created: any; generatedScripts: number; generationError: unknown; generationErrors: unknown[]; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; customizationRequest: any; customizationError: unknown; referenceSheetReview: any; retrySheetRequest: any; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   requestedDraftIds: [],
   draftRefetches: 0,
@@ -29,6 +29,7 @@ const state: { draft: any; requestedDraftIds: number[]; draftRefetches: number; 
   customizationRequest: null,
   customizationError: null,
   referenceSheetReview: null,
+  retrySheetRequest: null,
   updated: null,
   translationRequest: null,
   translationError: null,
@@ -205,6 +206,13 @@ vi.mock("@workspace/api-client-react", async () => {
       state.referenceSheetReview = vars;
       return {};
     }),
+    useRetryGuidedStoryGeneratedCastReferenceSheet: () => ({
+      isPending: false,
+      mutateAsync: async (vars: any) => {
+        state.retrySheetRequest = vars;
+        return state.draft;
+      },
+    }),
     useEnqueueGuidedStoryDraft: mutation((vars) => {
       state.enqueued = vars.data;
       return { id: 99 };
@@ -365,7 +373,7 @@ function renderWorkflow(options: {
   };
 }
 
-beforeEach(() => { vi.useRealTimers(); state.draft = undefined; state.requestedDraftIds = []; state.draftRefetches = 0; state.created = null; state.generatedScripts = 0; state.generationError = null; state.generationErrors = []; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.customizationRequest = null; state.customizationError = null; state.referenceSheetReview = null; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { vi.useRealTimers(); state.draft = undefined; state.requestedDraftIds = []; state.draftRefetches = 0; state.created = null; state.generatedScripts = 0; state.generationError = null; state.generationErrors = []; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.customizationRequest = null; state.customizationError = null; state.referenceSheetReview = null; state.retrySheetRequest = null; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("starts a new story without deleting the previously restored draft", async () => {
@@ -1239,6 +1247,62 @@ describe("GuidedStoryWorkflow", () => {
       "complete character sheet is not available",
     );
     expect(screen.getByTestId("button-guided-refresh-reference-sheet")).toBeTruthy();
+  });
+
+  it("explains that a failed sheet retry preserves the script and character assets", async () => {
+    const cast = generatedCast();
+    state.draft = draft({ castStrategy: "generated", cast });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow({
+      characters: cast.map((member) => ({
+        ...character,
+        id: member.characterId,
+        referenceSheetStatus: "failed",
+        referenceSheetImagePath: null,
+        referenceSheetError: "Reference sheet visual QA (unavailable).",
+      })),
+    });
+
+    const card = await screen.findByTestId("card-guided-cast-approval-r1");
+    expect(screen.getByTestId("button-guided-refresh-sheet-r1").textContent)
+      .toContain("Retry character sheet");
+    expect(card.querySelector('[data-testid="status-guided-sheet-pending-r1"]')?.textContent)
+      .toMatch(/one new sheet only/i);
+    expect(card.querySelector('[data-testid="status-guided-sheet-pending-r1"]')?.textContent)
+      .toMatch(/approved script, portrait, outfit, and other characters stay unchanged/i);
+    expect(card.querySelector('[data-testid="status-guided-sheet-pending-r1"]')?.textContent)
+      .toMatch(/not a free QA-only recheck/i);
+  });
+
+  it("retries only the failed sheet without regenerating the script or successful roles", async () => {
+    const cast = generatedCast();
+    const approvedScript = JSON.parse(JSON.stringify(script));
+    state.draft = draft({ castStrategy: "generated", cast });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow({
+      characters: cast.map((member) => ({
+        ...character,
+        id: member.characterId,
+        referenceSheetStatus: member.roleId === "r1" ? "failed" : "approved",
+        referenceSheetImagePath: member.roleId === "r1"
+          ? null
+          : `/objects/99/sheet-${member.roleId}.png`,
+      })),
+    });
+
+    await userEvent.click(screen.getByTestId("button-guided-refresh-sheet-r1"));
+    await waitFor(() => expect(state.retrySheetRequest).toEqual({
+      draftId: 7,
+      roleId: "r1",
+      data: { revision: 2 },
+    }));
+    expect(state.generatedScripts).toBe(0);
+    expect(state.draft.script).toEqual(approvedScript);
+    const successfulRoleCard = screen.getByTestId("card-guided-cast-approval-r2");
+    expect(successfulRoleCard.querySelector('[data-testid="img-guided-character-reference"]')?.getAttribute("src"))
+      .toContain("/objects/99/generated-r2.png");
+    expect(successfulRoleCard.querySelector('[data-testid="img-guided-character-sheet-reference"]')?.getAttribute("src"))
+      .toContain("/objects/99/sheet-r2.png");
   });
 
   it("opens and approves a pending generated sheet directly from the cast card", async () => {

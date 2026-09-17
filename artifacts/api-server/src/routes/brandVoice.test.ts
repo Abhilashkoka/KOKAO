@@ -54,6 +54,13 @@ const billingState = vi.hoisted(() => ({
   recordCalls: [] as unknown[],
   receiptCalls: [] as unknown[],
 }));
+const savedNodeEnv = vi.hoisted(() => {
+  const previous = process.env.NODE_ENV;
+  // voiceClone resolves credentials at call time, but setting this before
+  // imports also protects any module-level test-mode initialization.
+  process.env.NODE_ENV = "test";
+  return previous;
+});
 const audioCostState = vi.hoisted(() => ({
   ttsCostPaise: null as number | null,
   ttsCalls: [] as unknown[],
@@ -339,6 +346,8 @@ afterAll(async () => {
     .where(eq(brandVoiceExtractedSamplesTable.tenantId, tenant.tenantId));
   await deleteTenant(tenant.tenantId);
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "brandVoiceClone"));
+  if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = savedNodeEnv;
   await pool.end();
 });
 

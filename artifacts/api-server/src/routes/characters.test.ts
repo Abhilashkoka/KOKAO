@@ -145,6 +145,32 @@ async function persistReviewedRegion(characterId: number) {
     .update(charactersTable)
     .set({ protectedRegion })
     .where(eq(charactersTable.id, characterId));
+  await grantOutfitConsent(characterId);
+}
+
+async function grantOutfitConsent(characterId: number) {
+  // Outfit generation for an uploaded reference is intentionally behind the
+  // same explicit likeness-consent gate as production. Keep this fixture
+  // consented through the public route instead of bypassing that gate with a
+  // direct grant insert.
+  const descriptor = await request(app)
+    .get(`/api/characters/${characterId}/likeness-consent`);
+  expect(descriptor.status).toBe(200);
+  const consent = await request(app)
+    .post(`/api/characters/${characterId}/likeness-consent`)
+    .send({
+      sourceSha256: descriptor.body.data.sourceSha256,
+      policyVersion: descriptor.body.data.policyVersion,
+      subject: "self",
+      imageRightsConfirmed: true,
+      adultConfirmed: true,
+      likenessConfirmed: true,
+      writtenPermissionConfirmed: false,
+      allowOutfitEdits: true,
+      allowScriptedSpeech: true,
+      providers: ["atlascloud"],
+    });
+  expect(consent.status).toBe(201);
 }
 vi.mock("../lib/characters", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/characters")>();
@@ -976,6 +1002,7 @@ describe("outfits", () => {
       .send({ protectedRegion });
     expect(protectedUpdate.status).toBe(200);
     expect(protectedUpdate.body.protectedRegion).toEqual(protectedRegion);
+    await grantOutfitConsent(created.body.id);
 
     const generated = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
@@ -984,6 +1011,7 @@ describe("outfits", () => {
         description: "black leggings, teal top",
         protectedRegion,
       });
+    expect(generated.status, generated.body.error).toBe(201);
     const preview = generated.body.outfits.find(
       (outfit: { name: string }) => outfit.name === "Gym wear",
     );
