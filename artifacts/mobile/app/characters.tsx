@@ -19,6 +19,7 @@ import {
 } from "@workspace/api-client-react";
 
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { CharacterLikenessConsent } from "@/components/CharacterLikenessConsent";
 import {
   CharacterProvenance,
   CharacterProvenanceRecovery,
@@ -197,10 +198,34 @@ export default function CharactersScreen() {
     }
   };
 
+  const saveUploaded = async () => {
+    if (!draft.name.trim() || !draft.photoPath) return;
+    setError(null);
+    try {
+      await createCharacter.mutateAsync({
+        data: {
+          name: draft.name.trim(),
+          description: draft.description.trim() || null,
+          sourceImagePath: draft.photoPath,
+          identityId: null,
+        },
+      });
+      await AsyncStorage.removeItem(DRAFT_KEY);
+      setDraft(emptyDraft);
+      setNotice("Uploaded character created. Review likeness authorization below before using eligible Wan paths.");
+      await queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
+    } catch (cause) {
+      setError(apiErrorMessage(cause, "Could not create the uploaded character."));
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Real-person characters</Text>
-      <Text style={styles.subtitle}>A liveness check protects a real person’s likeness before KOKAO uses it.</Text>
+      <Text style={styles.subtitle}>
+        Upload your own photo for eligible Wan reference-to-video paths without BytePlus liveness.
+        The separate verified-person BytePlus flow remains available below.
+      </Text>
       {notice ? <Card><Text style={styles.notice}>{notice}</Text></Card> : null}
       {error ? <Card><Text style={styles.error}>{error}</Text></Card> : null}
 
@@ -234,6 +259,13 @@ export default function CharactersScreen() {
           testID="character-description"
         />
         <Button title={draft.photoName || "Choose reference photo"} variant="outline" onPress={() => void pickPhoto()} loading={uploading} testID="choose-character-photo" />
+        <Button
+          title="Create uploaded character"
+          onPress={() => void saveUploaded()}
+          loading={createCharacter.isPending}
+          disabled={!draft.name.trim() || !draft.photoPath}
+          testID="save-uploaded-character"
+        />
         {selectedIdentity && draft.existingCharacterId === null ? (
           <View style={styles.statusRow} testID="identity-status">
             <Text style={styles.statusLabel}>{selectedIdentity.label}</Text>
@@ -273,6 +305,7 @@ export default function CharactersScreen() {
                 testID={`character-recovery-${character.id}`}
               />
             ) : null}
+            <CharacterLikenessConsent characterId={character.id} />
             {draft.existingCharacterId === character.id && selectedIdentity ? (
               <View style={styles.existingVerificationStatus}>
                 <Badge

@@ -45,9 +45,9 @@ Asset registration, outfit insertion, and character/outfit deletion must share p
 
 **How to apply:** Persist a durable fence immediately before Asset POST; unresolved fences block retries and deletion. Serialize existing-character outfit insertion and deletion on the tenant-owned parent, then compare locked child state before deleting.
 
-Only AI-generated fictional characters may enter the Atlas Asset Library. Uploaded, unknown-provenance, or BytePlus-verified identities must never reach Atlas through raw-image or asset paths.
+Only AI-generated fictional characters may enter the Atlas Seedance Asset Library. Uploaded, unknown-provenance, or BytePlus-verified identities must never bypass that restriction through raw-image or asset paths. Wan's separately authorized direct-reference flow is not an Asset Library exception.
 
-**Why:** Atlas documents that real-human references require authorized assets, but its public API does not expose a KOKAO-compatible liveness/right-verification flow.
+**Why:** Atlas Seedance real-human references require authorized assets, but its public API does not expose a KOKAO-compatible liveness/right-verification flow. Wan has a different media-reference contract; BytePlus verification does not transfer to either Atlas contract.
 
 **How to apply:** Freeze provenance and provider-specific asset requirements in job snapshots, then re-check active tenant ownership at dispatch. Missing/deleted mappings fail closed. Routine local deletion requires an affirmative Atlas GET 404; compensation may attempt numeric-ID DELETE, but unsupported/ambiguous cleanup remains fenced.
 

@@ -134,6 +134,7 @@
 - [Atlas Cloud provider](atlas-cloud-provider.md) — separate paid prediction/asset contracts; fictional-only assets, durable submit fence, pinned output transport.
 - [Character reference sheets](character-reference-sheets.md) — every tenant character keeps a canonical portrait plus a separately generated, explicitly approved multi-view sheet.
 - [Character origin evidence](character-origin-evidence.md) — origin is independent of billing/selection; preserve photo ancestry and reuse frozen proof during finalization.
+- [Personal likeness authorization](personal-likeness-authorization.md) — permission is not provider verification; freeze source/grant and disclose separate sheet/wardrobe processors.
 - [Guided direct video](guided-direct-video.md) — new Guided jobs skip storyboard images/review and render approved characters directly through native-audio Higgsfield; legacy jobs stay legacy.
 - [OpenRouter image API](openrouter-image-api.md) — image generation and capability discovery use the dedicated Images API, not chat-completion modalities.
 - [Provider pricing freshness](provider-pricing-freshness.md) — scheduled official-rate refreshes preserve snapshots and alert from the last successful source timestamp, not failure counts.

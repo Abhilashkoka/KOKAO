@@ -121,6 +121,7 @@ import {
   CharacterProvenanceDetails,
   CharacterProvenanceRecovery,
 } from "@/components/character-provenance";
+import { CharacterLikenessConsent } from "@/components/character-likeness-consent";
 import {
   Select,
   SelectContent,
@@ -11949,6 +11950,9 @@ function CharacterManagerDialog({
                             )}
                           </div>
                         )}
+                      {!shared && c.referenceSource === "uploaded" && (
+                        <CharacterLikenessConsent characterId={Number(c.id)} testId={`character-likeness-consent-${c.id}`} />
+                      )}
                       {!shared && (
                         <div
                           className="rounded-md border border-border p-2 space-y-2"

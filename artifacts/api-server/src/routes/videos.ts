@@ -336,7 +336,13 @@ import {
   persistedProvenanceMatches,
 } from "../lib/provenance";
 import { rebuildSavedCastProvenanceSnapshot } from "../lib/provenanceSnapshot";
-import { requiresStrictFictionalProvenance } from "../lib/provenancePolicy";
+import {
+  requiresStrictFictionalProvenance,
+} from "../lib/provenancePolicy";
+import {
+  freezePersonalWanVideoConsent,
+  isFrozenPersonalWanGuidedCast,
+} from "../lib/videoGen/personalLikenessVideo";
 
 function provenanceEvidenceSnapshot(
   evidence: AssetProvenance | null | undefined,
@@ -520,8 +526,15 @@ function frozenCharacterSnapshotError(
     );
     for (const member of options.guidedStory.cast) {
       if (!participating.has(member.roleId)) continue;
+      const personalWan = isFrozenPersonalWanGuidedCast({
+        provider: options.resolvedVideoModel?.provider,
+        model: options.resolvedVideoModel?.model,
+        member,
+      });
       if (member.referenceSource !== "generated") {
-        return "Fictional-only reference providers require generated cast members. Nothing was charged.";
+        if (!personalWan) {
+          return "Fictional-only reference providers require generated cast members. Nothing was charged.";
+        }
       }
       const refs = member.provenanceEvidenceRefs;
       const characterProof = proofFor(
@@ -3758,6 +3771,10 @@ async function prepareAtlasGuidedCastMember(args: {
   refreshLease?: () => Promise<void>;
   /** Wan sends approved image URLs and does not use Atlas Asset Library ids. */
   skipAtlasRegistration?: boolean;
+  /** The immutable Atlas model being prepared, never a client claim. */
+  model?: string;
+  /** A role-owned frozen script line needs the separate speech authorization. */
+  scriptedSpeech?: boolean;
 }): Promise<GuidedStoryCastSnapshot> {
   const { tenantId, member, approval } = args;
   if (member.characterId == null || member.outfitId == null) {
@@ -3858,6 +3875,8 @@ async function prepareAtlasGuidedCastMember(args: {
     character.referenceSource === "generated" &&
     frozenPortraitProof?.sourceKind === "textgenerated";
   const evidence = character.creationEvidence;
+  const personalWan = args.skipAtlasRegistration === true &&
+    character.referenceSource === "uploaded";
   let provenanceValid =
     evidence?.version === 1 &&
     (evidence.kind === "character_library" ||
@@ -3887,11 +3906,13 @@ async function prepareAtlasGuidedCastMember(args: {
   }
   if (trustedLibraryLedger) provenanceValid = true;
   if (
-    !provenanceValid ||
-    !ledgerProofValid ||
-    character.referenceSource !== "generated" ||
-    member.referenceSource !== "generated" ||
-    character.bytePlusIdentityId !== null ||
+    (!personalWan && (
+      !provenanceValid ||
+      !ledgerProofValid ||
+      character.referenceSource !== "generated" ||
+      member.referenceSource !== "generated" ||
+      character.bytePlusIdentityId !== null
+    )) ||
     outfit.status !== "approved" ||
     !outfit.identityVerified ||
     character.referenceSheetStatus !== "approved" ||
@@ -3917,9 +3938,25 @@ async function prepareAtlasGuidedCastMember(args: {
     );
   }
   if (args.skipAtlasRegistration) {
+    const personalLikenessVideo = personalWan
+      ? await freezePersonalWanVideoConsent({
+          tenantId,
+          provider: "atlascloud",
+          model: args.model ?? "",
+          character,
+          outfit,
+          member,
+          approval,
+          characterSha256: approval.character.sha256,
+          outfitSha256: approval.outfit.sha256,
+          referenceSheetSha256: character.referenceSheetApprovedSha256,
+          scriptedSpeech: args.scriptedSpeech === true,
+        })
+      : null;
     return {
       ...member,
-      referenceSource: "generated",
+      referenceSource: personalWan ? "uploaded" : "generated",
+      ...(personalLikenessVideo ? { personalLikenessVideo } : {}),
       requiresAtlasAsset: false,
       atlasCharacterLibraryId: null,
       atlasCharacterReferenceId: null,
@@ -11585,6 +11622,10 @@ async function generateVideoHandler(
           approval,
           refreshLease: refreshGuidedCreatingLease,
           skipAtlasRegistration: wanReferenceModel,
+          model: options.resolvedVideoModel?.model,
+          scriptedSpeech: options.guidedStory.script.scenes.some((scene) =>
+            scene.lines.some((line) => line.ownerRoleId === member.roleId && line.text.trim().length > 0),
+          ),
         }));
       }
       options.guidedStory = { ...options.guidedStory, cast: registeredCast };
@@ -11908,6 +11949,11 @@ async function generateVideoHandler(
       const strictFictionalProvenance =
         requiresStrictFictionalProvenance(options);
       for (const member of members) {
+        const personalWan = isFrozenPersonalWanGuidedCast({
+          provider: options.resolvedVideoModel?.provider,
+          model: options.resolvedVideoModel?.model,
+          member,
+        });
         const approval = options.guidedStory.castApprovals?.roles[member.roleId];
         const currentApproval =
           lockedDraft.state.castApprovals?.roles[member.roleId];
@@ -12035,11 +12081,11 @@ async function generateVideoHandler(
           currentMember.outfitId !== member.outfitId ||
           currentMember.character.referenceImagePath !== approval.character.referenceImagePath ||
           currentMember.outfit?.referenceImagePath !== approval.outfit.referenceImagePath ||
-          (strictFictionalProvenance &&
+          (strictFictionalProvenance && !personalWan &&
             (character.referenceSource !== "generated" ||
               character.bytePlusIdentityId !== null)) ||
           character.referenceImagePath !== approval.character.referenceImagePath ||
-          ((!newCharacterProvenance || strictFictionalProvenance) &&
+          ((!newCharacterProvenance || (strictFictionalProvenance && !personalWan)) &&
             !immutableCreationReceiptValid) ||
           character.referenceSheetStatus !== "approved" ||
           (strictFictionalProvenance &&
@@ -12056,7 +12102,7 @@ async function generateVideoHandler(
           outfit.status !== "approved" ||
           !outfit.identityVerified ||
           outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
-          (strictFictionalProvenance &&
+          (strictFictionalProvenance && !personalWan &&
             outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256) ||
           (strictFictionalProvenance && !wanReferenceModel && (
             outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
@@ -14285,6 +14331,11 @@ router.post(
           eq(characterOutfitsTable.characterId, member.characterId),
           eq(characterOutfitsTable.tenantId, req.tenantId),
         )).limit(1);
+        const personalWan =
+          wanReferenceModel &&
+          character?.referenceSource === "uploaded" &&
+          member.personalLikenessVideo?.provider === "atlascloud" &&
+          member.personalLikenessVideo.model === options.resolvedVideoModel?.model;
         if (character?.referenceSource === null) {
           const message = await failChild(
             `was not funded because role ${member.roleId} has unknown provenance; explicitly recover the exact historical evidence first.`,
@@ -14318,12 +14369,12 @@ router.post(
         if (
           !character ||
           !outfit ||
-          !provenanceValid ||
-          character.referenceSource !== "generated" ||
-          character.bytePlusIdentityId !== null ||
+          (!personalWan && !provenanceValid) ||
+          (!personalWan && character.referenceSource !== "generated") ||
+          (!personalWan && character.bytePlusIdentityId !== null) ||
           outfit.status !== "approved" ||
           !outfit.identityVerified ||
-          outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
+          (!personalWan && outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256) ||
           character.referenceSheetStatus !== "approved" ||
           !character.referenceSheetImagePath ||
           !character.referenceSheetApprovedSha256
@@ -14352,9 +14403,40 @@ router.post(
         }
         await refreshRecoveryCreatingLease();
         if (wanReferenceModel) {
+          let personalLikenessVideo = member.personalLikenessVideo;
+          if (personalWan) {
+            try {
+              personalLikenessVideo = await freezePersonalWanVideoConsent({
+                tenantId: req.tenantId,
+                provider: "atlascloud",
+                model: options.resolvedVideoModel?.model ?? "",
+                character,
+                outfit,
+                member,
+                approval,
+                characterSha256: approval.character.sha256,
+                outfitSha256: approval.outfit.sha256,
+                referenceSheetSha256: character.referenceSheetApprovedSha256,
+                scriptedSpeech: options.guidedStory.script.scenes.some((scene) =>
+                  scene.lines.some((line) =>
+                    line.ownerRoleId === member.roleId && line.text.trim().length > 0,
+                  ),
+                ),
+              });
+            } catch (error) {
+              const message = await failChild(
+                `was not funded because role ${member.roleId}'s frozen personal likeness authorization changed: ${
+                  error instanceof Error ? error.message : "unknown authorization error"
+                }`,
+              );
+              res.status(409).json({ error: message, code: "guided_retry_asset_changed" });
+              return;
+            }
+          }
           reconciledCast.push({
             ...member,
-            referenceSource: "generated",
+            referenceSource: personalWan ? "uploaded" : "generated",
+            ...(personalLikenessVideo ? { personalLikenessVideo } : {}),
             requiresAtlasAsset: false,
             atlasCharacterLibraryId: null,
             atlasCharacterReferenceId: null,
@@ -14563,6 +14645,11 @@ router.post(
           options.resolvedVideoModel?.model ?? "",
         );
         for (const member of members) {
+          const personalWan = isFrozenPersonalWanGuidedCast({
+            provider: options.resolvedVideoModel?.provider,
+            model: options.resolvedVideoModel?.model,
+            member,
+          });
           const current = draft.state.cast.find((item) => item.roleId === member.roleId);
           const approval = draft.state.castApprovals?.roles[member.roleId];
           const sourceApproval = options.guidedStory.castApprovals?.roles[member.roleId];
@@ -14580,11 +14667,11 @@ router.post(
             !outfit ||
             current.characterId !== member.characterId ||
             current.outfitId !== member.outfitId ||
-            parent.referenceSource !== "generated" ||
-            parent.bytePlusIdentityId !== null ||
+            (!personalWan && parent.referenceSource !== "generated") ||
+            (!personalWan && parent.bytePlusIdentityId !== null) ||
             parent.referenceImagePath !== approval.character.referenceImagePath ||
-            parent.creationEvidence?.sourcePath !== approval.character.referenceImagePath ||
-            parent.creationEvidence.sourceSha256 !== approval.character.sha256 ||
+            (!personalWan && parent.creationEvidence?.sourcePath !== approval.character.referenceImagePath) ||
+            (!personalWan && parent.creationEvidence?.sourceSha256 !== approval.character.sha256) ||
             parent.referenceSheetStatus !== "approved" ||
             parent.referenceSheetImagePath !== member.atlasApprovedReferenceSheetPath ||
             parent.referenceSheetApprovedSha256 !== member.atlasApprovedReferenceSheetSha256 ||
@@ -14600,7 +14687,7 @@ router.post(
             outfit.status !== "approved" ||
             !outfit.identityVerified ||
             outfit.referenceImagePath !== approval.outfit.referenceImagePath ||
-            outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256 ||
+            (!personalWan && outfit.atlasApprovedSourceSha256 !== approval.outfit.sha256) ||
             (!wanReferenceModel && (
               outfit.atlasAssetSourcePath !== approval.outfit.referenceImagePath ||
               outfit.atlasAssetSourceSha256 !== approval.outfit.sha256 ||
@@ -14909,6 +14996,10 @@ async function prepareFreshRestartOptions(
           member,
           approval,
           skipAtlasRegistration: wanReferenceModel,
+          model: resolved.model,
+          scriptedSpeech: guided.script.scenes.some((scene) =>
+            scene.lines.some((line) => line.ownerRoleId === member.roleId && line.text.trim().length > 0),
+          ),
         }));
       } catch (error) {
         const detail =

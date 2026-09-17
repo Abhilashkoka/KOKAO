@@ -387,23 +387,35 @@ export function GuidedCharacterProvenanceWarning({
   character,
   imageModelSnapshot,
   testId,
+  onManageCharacters,
 }: {
   character: CharacterWithOptionalProvenance | null | undefined;
   imageModelSnapshot: unknown;
   testId?: string;
+  onManageCharacters?: () => void;
 }) {
   if (!guidedCharacterRequiresRecordedGeneratedOrigin(character, imageModelSnapshot)) {
     return null;
   }
   return (
-    <p
+    <div
       className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
       role="alert"
       data-testid={testId}
     >
-      Origin not verified. This saved character cannot use the fictional-only
-      Wan/Atlas path. Choose a character with Generated origin recorded or use
-      another provider.
-    </p>
+      <p>
+        Origin not verified. Atlas Seedance requires a verified fictional origin (Generated). Uploaded likenesses require explicit Wan authorization. Choose a character with a recorded origin or complete authorization.
+      </p>
+      {onManageCharacters && (
+        <button
+          type="button"
+          onClick={onManageCharacters}
+          className="mt-2 font-medium underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-100"
+          data-testid={testId ? `${testId}-btn-manage` : undefined}
+        >
+          Open Character Library to authorize
+        </button>
+      )}
+    </div>
   );
 }

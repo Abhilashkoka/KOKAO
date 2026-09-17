@@ -330,6 +330,7 @@ export async function generateCharacterReferenceSheet(
   primaryReference: ReferenceImage,
   meterContext: MeterContext | null,
   selectionPolicy?: ImageGenSelectionPolicy,
+  beforeProviderDispatch?: (recipient: { provider: string; model: string }) => Promise<void>,
 ): Promise<ImageGenResult> {
   return generateImage(
     characterReferenceSheetPrompt(character),
@@ -337,9 +338,12 @@ export async function generateCharacterReferenceSheet(
     primaryReference,
     {
       requireReferenceInput: true,
-      forceCapabilityFallback: true,
+      // A personal-source caller supplies a frozen no-fallback policy. It must
+      // not be widened merely because the selected provider lacks capability.
+      forceCapabilityFallback: selectionPolicy === undefined,
       selectionPolicy,
       meterContext,
+      beforeProviderDispatch,
       // Uploaded and legacy references may depict real people. Never send
       // those bytes to the OpenAI vision QA endpoint; their existing
       // provider/manual-review workflow remains authoritative. Only the
@@ -413,6 +417,7 @@ export async function generateOutfitVariant(
     model: string;
   }) => Promise<void>,
   selectionPolicy?: ImageGenSelectionPolicy,
+  beforeProviderDispatch?: (recipient: { provider: string; model: string }) => Promise<void>,
 ): Promise<ImageGenResult> {
   return generateImage(
     outfitVariantPrompt(character, outfitDescription),
@@ -427,6 +432,7 @@ export async function generateOutfitVariant(
           requireReferenceInput: true,
           selectionPolicy,
           meterContext,
+          beforeProviderDispatch,
           ...(character.referenceSource === "generated"
             ? {
                 outputValidator: characterImageOutputValidator({
@@ -441,6 +447,7 @@ export async function generateOutfitVariant(
           requireReferenceInput: true,
           selectionPolicy,
           meterContext,
+          beforeProviderDispatch,
           ...(character.referenceSource === "generated"
             ? {
                 outputValidator: characterImageOutputValidator({

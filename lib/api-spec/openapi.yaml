@@ -2799,6 +2799,56 @@ paths:
               schema: { $ref: "#/components/schemas/Character" }
         "404": { description: Character not found }
         "409": { description: There is no pending sheet to approve }
+  /characters/{characterId}/likeness-consent:
+    parameters:
+      - { name: characterId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      operationId: getCharacterLikenessConsent
+      tags: [characters]
+      summary: Describe current personal-likeness consent and exact Wan eligibility
+      responses:
+        "200":
+          description: Current consent descriptor
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CharacterLikenessConsentEnvelope" }
+        "404": { description: Character not found }
+    post:
+      operationId: grantCharacterLikenessConsent
+      tags: [characters]
+      summary: Record an append-only electronic personal-likeness attestation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GrantCharacterLikenessConsentRequest" }
+      responses:
+        "201":
+          description: Attestation recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CharacterLikenessConsentEnvelope" }
+        "400": { description: Invalid or incomplete attestation }
+        "404": { description: Character not found }
+        "409": { description: "Current source, policy, or processor disclosure changed" }
+    delete:
+      operationId: revokeCharacterLikenessConsent
+      tags: [characters]
+      summary: Append an idempotent revocation for the current likeness attestation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RevokeCharacterLikenessConsentRequest" }
+      responses:
+        "200":
+          description: Revocation descriptor (or unchanged descriptor when nothing was active)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CharacterLikenessConsentEnvelope" }
+        "400": { description: Invalid revocation request }
+        "404": { description: Character not found }
+        "409": { description: Expected consent is not current }
   /preset-characters/{presetId}/outfit-derivatives:
     parameters:
       - { name: presetId, in: path, required: true, schema: { type: string } }
@@ -21625,6 +21675,104 @@ components:
       properties:
         draftId: { type: integer, minimum: 1 }
         roleId: { type: string, minLength: 1 }
+    CharacterLikenessConsentEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/CharacterLikenessConsentResponse"
+    CharacterLikenessConsentResponse:
+      type: object
+      additionalProperties: false
+      required: [status, sourceSha256, policyVersion, statement, consent, eligibility]
+      properties:
+        status:
+          type: string
+          enum: [not_required, missing, active, revoked, stale]
+        sourceSha256:
+          type: ["string", "null"]
+          pattern: "^[a-f0-9]{64}$"
+          description: Current server-read canonical source digest; never client-authored.
+        policyVersion:
+          type: string
+          description: Version including the disclosed image-recipient scope fingerprint.
+        statement:
+          type: string
+          description: Exact current statement. Stored grants retain their own versioned text.
+        consent:
+          anyOf:
+            - $ref: "#/components/schemas/CharacterLikenessConsent"
+            - type: "null"
+        eligibility:
+          type: array
+          items: { $ref: "#/components/schemas/CharacterLikenessEligibility" }
+    CharacterLikenessConsent:
+      type: object
+      additionalProperties: false
+      required: [id, subject, providers, allowOutfitEdits, allowScriptedSpeech, grantedAt, revokedAt]
+      properties:
+        id: { type: integer }
+        subject: { type: string, enum: [self, authorized_person] }
+        providers:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: { type: string, const: atlascloud }
+        allowOutfitEdits: { type: boolean }
+        allowScriptedSpeech: { type: boolean }
+        grantedAt: { type: string, format: date-time }
+        revokedAt: { type: ["string", "null"], format: date-time }
+    CharacterLikenessEligibility:
+      type: object
+      additionalProperties: false
+      required: [provider, modelFamily, status, reason]
+      properties:
+        provider: { type: string, const: atlascloud }
+        modelFamily:
+          type: string
+          enum:
+            - alibaba/wan-3.0/reference-to-video
+            - alibaba/wan-3.0-prime/reference-to-video
+        status:
+          type: string
+          enum: [eligible, consent_required, verification_required, unsupported]
+        reason: { type: string }
+    GrantCharacterLikenessConsentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceSha256
+        - policyVersion
+        - subject
+        - imageRightsConfirmed
+        - adultConfirmed
+        - likenessConfirmed
+        - writtenPermissionConfirmed
+        - allowOutfitEdits
+        - allowScriptedSpeech
+        - providers
+      properties:
+        sourceSha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        policyVersion: { type: string, minLength: 1, maxLength: 160 }
+        subject: { type: string, enum: [self, authorized_person] }
+        imageRightsConfirmed: { type: boolean }
+        adultConfirmed: { type: boolean }
+        likenessConfirmed: { type: boolean }
+        writtenPermissionConfirmed: { type: boolean }
+        allowOutfitEdits: { type: boolean }
+        allowScriptedSpeech: { type: boolean }
+        providers:
+          type: array
+          minItems: 1
+          maxItems: 1
+          uniqueItems: true
+          items: { type: string, const: atlascloud }
+    RevokeCharacterLikenessConsentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        consentId: { type: integer, minimum: 1 }
     PresetStockVoice:
       type: object
       required: [id, provider, model, speaker, label, license, languages]

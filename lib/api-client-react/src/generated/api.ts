@@ -141,6 +141,7 @@ import type {
   CashfreeAppCredentialInput,
   CashfreeAppCredentialStatus,
   Character,
+  CharacterLikenessConsentEnvelope,
   CharacterOutfit,
   CharacterOutfitUpdateInput,
   CharacterUpdateInput,
@@ -211,6 +212,7 @@ import type {
   GoogleDriveAuthUrlResult,
   GoogleDriveFileList,
   GoogleDriveStatus,
+  GrantCharacterLikenessConsentRequest,
   GrantCreditsInput,
   GuidedSceneCorrectionRequest,
   GuidedStoryBackdropApprovalInput,
@@ -360,6 +362,7 @@ import type {
   ResolveSelectionResult,
   RetryGuidedStoryGeneratedCastReferenceSheetInput,
   RevenueAnalytics,
+  RevokeCharacterLikenessConsentRequest,
   SarvamTtsSettingsView,
   SaveVideoToLibraryRequest,
   ScheduleInput,
@@ -8353,6 +8356,225 @@ export const useReviewCharacterReferenceSheet = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getReviewCharacterReferenceSheetMutationOptions(options));
+    }
+
+export const getGetCharacterLikenessConsentUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/likeness-consent`
+}
+
+/**
+ * @summary Describe current personal-likeness consent and exact Wan eligibility
+ */
+export const getCharacterLikenessConsent = async (characterId: number, options?: RequestInit): Promise<CharacterLikenessConsentEnvelope> => {
+
+  return customFetch<CharacterLikenessConsentEnvelope>(getGetCharacterLikenessConsentUrl(characterId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCharacterLikenessConsentQueryKey = (characterId: number,) => {
+    return [
+    `/api/characters/${characterId}/likeness-consent`
+    ] as const;
+    }
+
+
+export const getGetCharacterLikenessConsentQueryOptions = <TData = Awaited<ReturnType<typeof getCharacterLikenessConsent>>, TError = ErrorType<void>>(characterId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCharacterLikenessConsent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCharacterLikenessConsentQueryKey(characterId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCharacterLikenessConsent>>> = ({ signal }) => getCharacterLikenessConsent(characterId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: characterId !== null && characterId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCharacterLikenessConsent>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCharacterLikenessConsentQueryResult = NonNullable<Awaited<ReturnType<typeof getCharacterLikenessConsent>>>
+export type GetCharacterLikenessConsentQueryError = ErrorType<void>
+
+
+/**
+ * @summary Describe current personal-likeness consent and exact Wan eligibility
+ */
+
+export function useGetCharacterLikenessConsent<TData = Awaited<ReturnType<typeof getCharacterLikenessConsent>>, TError = ErrorType<void>>(
+ characterId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCharacterLikenessConsent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCharacterLikenessConsentQueryOptions(characterId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGrantCharacterLikenessConsentUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/likeness-consent`
+}
+
+/**
+ * @summary Record an append-only electronic personal-likeness attestation
+ */
+export const grantCharacterLikenessConsent = async (characterId: number,
+    grantCharacterLikenessConsentRequest: GrantCharacterLikenessConsentRequest, options?: RequestInit): Promise<CharacterLikenessConsentEnvelope> => {
+
+  return customFetch<CharacterLikenessConsentEnvelope>(getGrantCharacterLikenessConsentUrl(characterId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(grantCharacterLikenessConsentRequest)
+  }
+);}
+
+
+
+
+export const getGrantCharacterLikenessConsentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantCharacterLikenessConsent>>, TError,{characterId: number;data: BodyType<GrantCharacterLikenessConsentRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof grantCharacterLikenessConsent>>, TError,{characterId: number;data: BodyType<GrantCharacterLikenessConsentRequest>}, TContext> => {
+
+const mutationKey = ['grantCharacterLikenessConsent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof grantCharacterLikenessConsent>>, {characterId: number;data: BodyType<GrantCharacterLikenessConsentRequest>}> = (props) => {
+          const {characterId,data} = props ?? {};
+
+          return  grantCharacterLikenessConsent(characterId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GrantCharacterLikenessConsentMutationResult = NonNullable<Awaited<ReturnType<typeof grantCharacterLikenessConsent>>>
+    export type GrantCharacterLikenessConsentMutationBody = BodyType<GrantCharacterLikenessConsentRequest>
+    export type GrantCharacterLikenessConsentMutationError = ErrorType<void>
+
+    /**
+ * @summary Record an append-only electronic personal-likeness attestation
+ */
+export const useGrantCharacterLikenessConsent = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantCharacterLikenessConsent>>, TError,{characterId: number;data: BodyType<GrantCharacterLikenessConsentRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof grantCharacterLikenessConsent>>,
+        TError,
+        {characterId: number;data: BodyType<GrantCharacterLikenessConsentRequest>},
+        TContext
+      > => {
+      return useMutation(getGrantCharacterLikenessConsentMutationOptions(options));
+    }
+
+export const getRevokeCharacterLikenessConsentUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/likeness-consent`
+}
+
+/**
+ * @summary Append an idempotent revocation for the current likeness attestation
+ */
+export const revokeCharacterLikenessConsent = async (characterId: number,
+    revokeCharacterLikenessConsentRequest?: RevokeCharacterLikenessConsentRequest, options?: RequestInit): Promise<CharacterLikenessConsentEnvelope> => {
+
+  return customFetch<CharacterLikenessConsentEnvelope>(getRevokeCharacterLikenessConsentUrl(characterId),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(revokeCharacterLikenessConsentRequest)
+  }
+);}
+
+
+
+
+export const getRevokeCharacterLikenessConsentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeCharacterLikenessConsent>>, TError,{characterId: number;data?: BodyType<RevokeCharacterLikenessConsentRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeCharacterLikenessConsent>>, TError,{characterId: number;data?: BodyType<RevokeCharacterLikenessConsentRequest>}, TContext> => {
+
+const mutationKey = ['revokeCharacterLikenessConsent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeCharacterLikenessConsent>>, {characterId: number;data?: BodyType<RevokeCharacterLikenessConsentRequest>}> = (props) => {
+          const {characterId,data} = props ?? {};
+
+          return  revokeCharacterLikenessConsent(characterId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeCharacterLikenessConsentMutationResult = NonNullable<Awaited<ReturnType<typeof revokeCharacterLikenessConsent>>>
+    export type RevokeCharacterLikenessConsentMutationBody = BodyType<RevokeCharacterLikenessConsentRequest> | undefined
+    export type RevokeCharacterLikenessConsentMutationError = ErrorType<void>
+
+    /**
+ * @summary Append an idempotent revocation for the current likeness attestation
+ */
+export const useRevokeCharacterLikenessConsent = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeCharacterLikenessConsent>>, TError,{characterId: number;data?: BodyType<RevokeCharacterLikenessConsentRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeCharacterLikenessConsent>>,
+        TError,
+        {characterId: number;data?: BodyType<RevokeCharacterLikenessConsentRequest>},
+        TContext
+      > => {
+      return useMutation(getRevokeCharacterLikenessConsentMutationOptions(options));
     }
 
 export const getGeneratePresetOutfitDerivativeUrl = (presetId: string,) => {

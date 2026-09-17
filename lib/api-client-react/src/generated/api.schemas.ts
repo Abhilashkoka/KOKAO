@@ -8488,6 +8488,120 @@ export interface RecoverCharacterProvenanceRequest {
   roleId: string;
 }
 
+export type CharacterLikenessConsentResponseStatus = typeof CharacterLikenessConsentResponseStatus[keyof typeof CharacterLikenessConsentResponseStatus];
+
+
+export const CharacterLikenessConsentResponseStatus = {
+  not_required: 'not_required',
+  missing: 'missing',
+  active: 'active',
+  revoked: 'revoked',
+  stale: 'stale',
+} as const;
+
+export type CharacterLikenessConsentSubject = typeof CharacterLikenessConsentSubject[keyof typeof CharacterLikenessConsentSubject];
+
+
+export const CharacterLikenessConsentSubject = {
+  self: 'self',
+  authorized_person: 'authorized_person',
+} as const;
+
+export interface CharacterLikenessConsent {
+  id: number;
+  subject: CharacterLikenessConsentSubject;
+  /**
+     * @minItems 1
+     * @maxItems 1
+     */
+  providers: 'atlascloud'[];
+  allowOutfitEdits: boolean;
+  allowScriptedSpeech: boolean;
+  grantedAt: string;
+  /** @nullable */
+  revokedAt: string | null;
+}
+
+export type CharacterLikenessEligibilityModelFamily = typeof CharacterLikenessEligibilityModelFamily[keyof typeof CharacterLikenessEligibilityModelFamily];
+
+
+export const CharacterLikenessEligibilityModelFamily = {
+  'alibaba/wan-30/reference-to-video': 'alibaba/wan-3.0/reference-to-video',
+  'alibaba/wan-30-prime/reference-to-video': 'alibaba/wan-3.0-prime/reference-to-video',
+} as const;
+
+export type CharacterLikenessEligibilityStatus = typeof CharacterLikenessEligibilityStatus[keyof typeof CharacterLikenessEligibilityStatus];
+
+
+export const CharacterLikenessEligibilityStatus = {
+  eligible: 'eligible',
+  consent_required: 'consent_required',
+  verification_required: 'verification_required',
+  unsupported: 'unsupported',
+} as const;
+
+export interface CharacterLikenessEligibility {
+  provider: 'atlascloud';
+  modelFamily: CharacterLikenessEligibilityModelFamily;
+  status: CharacterLikenessEligibilityStatus;
+  reason: string;
+}
+
+export interface CharacterLikenessConsentResponse {
+  status: CharacterLikenessConsentResponseStatus;
+  /**
+     * Current server-read canonical source digest; never client-authored.
+     * @nullable
+     * @pattern ^[a-f0-9]{64}$
+     */
+  sourceSha256: string | null;
+  /** Version including the disclosed image-recipient scope fingerprint. */
+  policyVersion: string;
+  /** Exact current statement. Stored grants retain their own versioned text. */
+  statement: string;
+  consent: CharacterLikenessConsent | null;
+  eligibility: CharacterLikenessEligibility[];
+}
+
+export interface CharacterLikenessConsentEnvelope {
+  data: CharacterLikenessConsentResponse;
+}
+
+export type GrantCharacterLikenessConsentRequestSubject = typeof GrantCharacterLikenessConsentRequestSubject[keyof typeof GrantCharacterLikenessConsentRequestSubject];
+
+
+export const GrantCharacterLikenessConsentRequestSubject = {
+  self: 'self',
+  authorized_person: 'authorized_person',
+} as const;
+
+export interface GrantCharacterLikenessConsentRequest {
+  /** @pattern ^[a-f0-9]{64}$ */
+  sourceSha256: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  policyVersion: string;
+  subject: GrantCharacterLikenessConsentRequestSubject;
+  imageRightsConfirmed: boolean;
+  adultConfirmed: boolean;
+  likenessConfirmed: boolean;
+  writtenPermissionConfirmed: boolean;
+  allowOutfitEdits: boolean;
+  allowScriptedSpeech: boolean;
+  /**
+     * @minItems 1
+     * @maxItems 1
+     */
+  providers: 'atlascloud'[];
+}
+
+export interface RevokeCharacterLikenessConsentRequest {
+  /** @minimum 1 */
+  consentId?: number;
+}
+
 export type PresetStockVoiceSpeaker = typeof PresetStockVoiceSpeaker[keyof typeof PresetStockVoiceSpeaker];
 
 

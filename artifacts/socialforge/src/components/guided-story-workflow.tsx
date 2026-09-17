@@ -2719,6 +2719,7 @@ function CastFields({
   brandKits,
   assignments,
   updateAssignment,
+  onManageCharacters,
   draft,
 }: any) {
   const item = assignments[role.id] ?? {};
@@ -2765,6 +2766,7 @@ function CastFields({
             character={character}
             imageModelSnapshot={draft?.imageModelSnapshot}
             testId={`warning-guided-character-provenance-${role.id}`}
+            onManageCharacters={onManageCharacters}
           />
           <CharacterProvenanceRecovery
             character={character}

@@ -52,7 +52,20 @@ export async function generateWithReplicate(
       method: "POST",
       headers: { ...headers, Prefer: "wait=60" },
       body: JSON.stringify({
-        input: { prompt: input.prompt, aspect_ratio: ASPECT_BY_SIZE[input.size] },
+        input: {
+          prompt: input.prompt,
+          aspect_ratio: ASPECT_BY_SIZE[input.size],
+          // The maintained Nano Banana Replicate route accepts an input image.
+          // Preserve bytes locally until this one provider POST; do not create
+          // a public URL or forward the reference to any fallback.
+          ...(input.referenceImage
+            ? {
+                image_input: [
+                  `data:${input.referenceImage.mimeType};base64,${input.referenceImage.buffer.toString("base64")}`,
+                ],
+              }
+            : {}),
+        },
       }),
     },
   );

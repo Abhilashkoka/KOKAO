@@ -515,6 +515,17 @@ export function effectiveModel(def: ImageGenProviderDef, override: string | null
   return def.defaultModel;
 }
 
+/** Model-specific capability: only Replicate's maintained Nano Banana route
+ * accepts the canonical source bytes. The default Flux route does not. */
+export function supportsReferenceInput(
+  def: ImageGenProviderDef,
+  model: string,
+): boolean {
+  return def.supportsImageInput ||
+    (def.id === "replicate" &&
+      (model === "google/nano-banana" || model === "google/nano-banana-pro"));
+}
+
 export function imageGenHealthKey(providerId: string): string {
   return `imagegen:${providerId}`;
 }
@@ -737,6 +748,7 @@ async function runImageGenProvider(
   attemptIndex: number,
   editMask?: ReferenceImage,
   outputValidator?: (result: ImageGenResult) => void | Promise<void>,
+  beforeProviderDispatch?: (recipient: { provider: string; model: string }) => Promise<void>,
 ): Promise<ImageGenResult> {
   const apiKey = await resolveImageGenApiKey(def);
   const model = isSelected ? effectiveModel(def, selection.model) : def.defaultModel;
@@ -765,6 +777,9 @@ async function runImageGenProvider(
       editMask ? "image_edit" : "image",
       1,
       async () => {
+        // This is inside the metered provider boundary so a dynamic fallback
+        // cannot send a personal source before its frozen consent is rechecked.
+        await beforeProviderDispatch?.({ provider: def.id, model });
         const providerResult = await def.generate(
           {
             ...input,
@@ -773,7 +788,7 @@ async function runImageGenProvider(
             model,
             baseUrl:
               isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
-            referenceImage: def.supportsImageInput ? referenceImage : undefined,
+            referenceImage: supportsReferenceInput(def, model) ? referenceImage : undefined,
             editMask: def.supportsExactMaskedEdits ? editMask : undefined,
             transparent: transparent && def.supportsTransparency ? true : undefined,
           },
@@ -941,6 +956,8 @@ export async function generateImage(
      * fallback provider.
      */
     outputValidator?: (result: ImageGenResult) => void | Promise<void>;
+    /** Rechecked immediately before every primary or fallback provider POST. */
+    beforeProviderDispatch?: (recipient: { provider: string; model: string }) => Promise<void>;
   },
 ): Promise<RoutedImageGenResult> {
   const transparent = opts?.transparent === true;
@@ -1014,7 +1031,10 @@ export async function generateImage(
     if (
       (transparent && !pinned.supportsTransparency) ||
       (!!exactMaskedEdit && !pinned.supportsExactMaskedEdits) ||
-      (requireReferenceInput && !pinned.supportsImageInput)
+      (requireReferenceInput && !supportsReferenceInput(
+        pinned,
+        effectiveModel(pinned, selection.model),
+      ))
     ) {
       if (!selection.fallbackEnabled) {
         const capability = exactMaskedEdit
@@ -1082,6 +1102,7 @@ export async function generateImage(
         step,
         prepared?.editMask,
         opts.outputValidator,
+        opts.beforeProviderDispatch,
       );
       // Wallet callers persist the paid provider acknowledgement before local
       // decoding/alignment/pixel restoration can reject the output.

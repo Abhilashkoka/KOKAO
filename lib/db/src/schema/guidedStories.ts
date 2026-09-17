@@ -95,6 +95,45 @@ export interface GuidedStoryProvenanceEvidence {
   parentSha256?: string | null;
 }
 
+/**
+ * Server-frozen authorization for the exceptionally narrow case where a
+ * consented uploaded adult likeness is rendered by Atlas Wan reference-to-video.
+ * This is intentionally a cast property: it cannot be supplied by a client or
+ * inferred from a display/source label at dispatch time.
+ */
+export interface PersonalLikenessVideoSnapshot {
+  version: 1;
+  provider: "atlascloud";
+  model:
+    | "alibaba/wan-3.0/reference-to-video"
+    | "alibaba/wan-3.0-prime/reference-to-video";
+  consent: {
+    consentId: number;
+    sourcePath: string;
+    sourceSha256: string;
+    policyVersion: string;
+  };
+  character: {
+    id: number;
+    referenceImagePath: string;
+    sha256: string;
+    proof: GuidedStoryProvenanceEvidence;
+  };
+  outfit: {
+    id: number;
+    referenceImagePath: string;
+    sha256: string;
+    proof: GuidedStoryProvenanceEvidence;
+  };
+  referenceSheet: {
+    referenceImagePath: string;
+    sha256: string;
+    proof: GuidedStoryProvenanceEvidence;
+  };
+  /** True only when the frozen script required this grant scope. */
+  scriptedSpeech: boolean;
+}
+
 export interface GuidedStoryCastSnapshot {
   roleId: string;
   source: "saved" | "generated";
@@ -136,6 +175,11 @@ export interface GuidedStoryCastSnapshot {
   provenanceEvidence?: GuidedStoryProvenanceEvidence | null;
   /** All frozen evidence records used by this cast selection (portrait/outfit/sheet). */
   provenanceEvidenceRefs?: GuidedStoryProvenanceEvidence[];
+  /**
+   * Present only for an uploaded personal likeness using the exact Atlas Wan
+   * reference contract. Seedance and every other provider remain ineligible.
+   */
+  personalLikenessVideo?: PersonalLikenessVideoSnapshot | null;
   /** Immutable dispatch policy frozen when this cast selection is approved. */
   requiresBytePlusAsset?: boolean;
   bytePlusAssetId?: string | null;

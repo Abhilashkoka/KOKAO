@@ -9,9 +9,11 @@ import {
   presetOutfitDerivativesTable,
   guidedStoryDraftsTable,
   walletProviderOperationsTable,
+  characterLikenessConsentGrantsTable,
+  characterLikenessConsentRevocationsTable,
 } from "@workspace/db";
 import type { Character, CharacterOutfit, PresetCharacter } from "@workspace/db";
-import { and, eq, asc, inArray, sql, isNull } from "drizzle-orm";
+import { and, eq, asc, desc, inArray, sql, isNull } from "drizzle-orm";
 import {
   CreateCharacterBody,
   CreateCharacterOutfitBody,
@@ -19,6 +21,8 @@ import {
   UpdateCharacterOutfitBody,
   UpdatePresetOutfitDerivativeBody,
   StartBytePlusIdentityVerificationBody,
+  GrantCharacterLikenessConsentBody,
+  RevokeCharacterLikenessConsentBody,
 } from "@workspace/api-zod";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
@@ -85,6 +89,25 @@ import {
   validateExactRecoveryEvidence,
   type ProvenanceSummary,
 } from "../lib/provenance";
+import {
+  LIKENESS_CONSENT_POLICY_VERSION,
+  isPersonalLikenessSource,
+  likenessConsentStatement,
+} from "../lib/provenancePolicy";
+import {
+  effectiveModel,
+  getImageGenProviderDef,
+  getImageGenSelection,
+  IMAGE_GEN_AUTO,
+  supportsReferenceInput,
+} from "../lib/imageGen";
+import {
+  assertFrozenPersonalImageConsent,
+  freezePersonalImageConsent,
+  PersonalLikenessConsentError,
+  validateLikenessGrantAttestation,
+  hasOnlyLikenessConsentRequestKeys,
+} from "../lib/likenessConsent";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -142,6 +165,10 @@ router.get("/preset-assets/:presetId/:asset", (req, res) => {
 });
 
 export function isConfirmedImageFailure(error: unknown): boolean {
+  // A consent callback runs immediately before the adapter POST. It is a
+  // definitive local refusal, not an ambiguous upstream outcome, so any
+  // pre-reserved wallet/quota funding must be released.
+  if (error instanceof PersonalLikenessConsentError) return true;
   if (error instanceof ImagePreservationError) {
     return !error.providerWorkCompleted;
   }
@@ -346,7 +373,10 @@ interface Funding {
  * Reserve image funding on whichever rail this workspace is on: the rupee
  * wallet, or the original quota-then-credit path. Null → caller 402s.
  */
-export async function reserveImageFunding(req: Request): Promise<Funding | null> {
+export async function reserveImageFunding(
+  req: Request,
+  pinnedRecipient?: { provider: string; model: string },
+): Promise<Funding | null> {
   const tenant = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
   )[0];
@@ -369,7 +399,13 @@ export async function reserveImageFunding(req: Request): Promise<Funding | null>
     }),
   });
   if (await isWalletFunded(req.tenantId)) {
-    const reservation = await reserveWallet(req.tenantId, "image");
+    // A consented personal edit must reserve against the identical frozen
+    // recipient. Never price it against a later admin-selected default.
+    const reservation = await reserveWallet(
+      req.tenantId,
+      "image",
+      pinnedRecipient ?? {},
+    );
     return reservation ? funded("wallet", reservation) : null;
   }
   const limits = await getPlanLimits(tenant.plan);
@@ -418,6 +454,7 @@ export async function releaseImageFunding(req: Request, funding: Funding): Promi
 
 function imageErrorStatus(err: unknown): { status: number; error: string } {
   if (err instanceof CharacterInputError) return { status: 400, error: err.message };
+  if (err instanceof PersonalLikenessConsentError) return { status: 409, error: err.message };
   const visualQaError = characterVisualQaErrorMessage(err);
   if (visualQaError) return { status: 502, error: visualQaError };
   if (err instanceof ImageGenNotConfiguredError) {
@@ -481,17 +518,22 @@ async function generateAndPersistReferenceSheet(
   let successfulAiWork = false;
   const startedAt = Date.now();
   try {
-    funding = await reserveImageFunding(req);
+    const primaryReference = await loadReferenceImage(
+      character.referenceImagePath,
+      req.tenantId,
+    );
+    const likenessGate = await personalImageDispatchGate(
+      character,
+      sha256Hex(primaryReference.buffer),
+      "reference_sheet",
+    );
+    funding = await reserveImageFunding(req, likenessGate.pinnedRecipient);
     if (!funding) {
       throw new CharacterInputError(
         "Image funding is unavailable. Add image credits or recharge, then retry.",
       );
     }
     const reservedFunding = funding;
-    const primaryReference = await loadReferenceImage(
-      character.referenceImagePath,
-      req.tenantId,
-    );
     const generated =
       funding.source === "wallet" && funding.reservation
         ? await executeWalletProviderOperation(
@@ -513,7 +555,7 @@ async function generateAndPersistReferenceSheet(
               refId: String(character.id),
               operationKey: `character-reference-sheet:${character.id}`,
               funding: reservedFunding.meterFunding,
-            }),
+            }, likenessGate.selectionPolicy, likenessGate.beforeProviderDispatch),
             (result) => ({ provider: result.provider, model: result.model }),
             { isFailureConfirmed: isConfirmedImageFailure },
           )
@@ -526,7 +568,7 @@ async function generateAndPersistReferenceSheet(
         refId: String(character.id),
         operationKey: `character-reference-sheet:${character.id}`,
         funding: reservedFunding.meterFunding,
-      }));
+      }, likenessGate.selectionPolicy, likenessGate.beforeProviderDispatch));
     successfulAiWork = true;
     await settleImageFunding(
       req,
@@ -1472,6 +1514,446 @@ async function loadCharacter(req: Request): Promise<Character | undefined> {
   )[0];
 }
 
+interface PersonalImageProcessorRecipient {
+  scopeLabel: string;
+  provider: string;
+  model: string;
+  selectionPolicy: {
+    provider: string;
+    model: string | null;
+    customBaseUrl: string | null;
+    fallbackEnabled: false;
+  };
+}
+
+interface PersonalImageProcessorPlan {
+  scope: string[];
+  reference_sheet: PersonalImageProcessorRecipient;
+  outfit: PersonalImageProcessorRecipient;
+}
+
+function personalProcessorLabel(provider: string, model: string): string | null {
+  const def = getImageGenProviderDef(provider);
+  if (!def || provider === "custom" || provider.startsWith("custom:")) return null;
+  // Only catalogued built-ins and their explicit shipped model choices are
+  // trusted recipients. Free-text/custom/Auto routing fails closed.
+  const vettedModels = new Set([
+    def.defaultModel,
+    ...(def.modelOptions?.map((option) => option.value) ?? []),
+    // Existing workspaces can pin maintained Nano Banana models through the
+    // Replicate adapter; their exact paths remain part of consent scope.
+    "google/nano-banana",
+    "google/nano-banana-pro",
+  ]);
+  if (!vettedModels.has(model)) return null;
+  return `${def.label} / ${model}`;
+}
+
+function recipientFor(
+  purpose: "reference_sheet" | "outfit",
+  provider: string,
+  model: string,
+  modelOverride: string | null,
+): PersonalImageProcessorRecipient | null {
+  const label = personalProcessorLabel(provider, model);
+  if (!label) return null;
+  return {
+    scopeLabel: `${purpose}|${label}`,
+    provider,
+    model,
+    selectionPolicy: {
+      provider,
+      model: modelOverride,
+      customBaseUrl: null,
+      fallbackEnabled: false,
+    },
+  };
+}
+
+/**
+ * A consent describes a closed purpose plan, not a mutable global route.
+ * Sheet work may retain a currently selected trusted reference-capable
+ * recipient; protected wardrobe work is explicitly disclosed as OpenAI's
+ * exact-mask processor. An incapable/unknown sheet selection is likewise
+ * replaced *in the disclosure* by OpenAI, never at runtime as a fallback.
+ */
+async function disclosedPersonalImageProcessorPlan(): Promise<PersonalImageProcessorPlan | null> {
+  const selection = await getImageGenSelection();
+  const openAi = getImageGenProviderDef("openai");
+  if (!openAi) return null;
+  const openAiRecipient = recipientFor(
+    "outfit",
+    "openai",
+    openAi.defaultModel,
+    null,
+  );
+  const openAiSheetRecipient = recipientFor(
+    "reference_sheet",
+    "openai",
+    openAi.defaultModel,
+    null,
+  );
+  if (!openAiRecipient || !openAiSheetRecipient) return null;
+  // Global Auto/custom/unknown settings are not recipients. They produce an
+  // explicit OpenAI sheet plan visible before consent rather than a covert
+  // routing decision after consent.
+  if (selection.provider === IMAGE_GEN_AUTO || selection.customBaseUrl !== null) {
+    return {
+      scope: [openAiSheetRecipient.scopeLabel, openAiRecipient.scopeLabel],
+      reference_sheet: openAiSheetRecipient,
+      outfit: openAiRecipient,
+    };
+  }
+  const def = getImageGenProviderDef(selection.provider);
+  if (!def) {
+    return {
+      scope: [openAiSheetRecipient.scopeLabel, openAiRecipient.scopeLabel],
+      reference_sheet: openAiSheetRecipient,
+      outfit: openAiRecipient,
+    };
+  }
+  const model = effectiveModel(def, selection.model);
+  const selectedSheet = recipientFor(
+    "reference_sheet",
+    selection.provider,
+    model,
+    selection.model,
+  );
+  const referenceSheet = selectedSheet && supportsReferenceInput(def, model)
+    ? selectedSheet
+    : openAiSheetRecipient;
+  return {
+    scope: [referenceSheet.scopeLabel, openAiRecipient.scopeLabel],
+    reference_sheet: referenceSheet,
+    outfit: openAiRecipient,
+  };
+}
+
+async function personalImageDispatchGate(
+  character: Character,
+  sourceSha256: string,
+  operation: "reference_sheet" | "outfit",
+) {
+  const plan = await disclosedPersonalImageProcessorPlan();
+  const imageProcessorScope = plan?.scope ?? [];
+  const policyVersion = likenessPolicyVersion(imageProcessorScope);
+  const recipient = plan?.[operation];
+  const provider = recipient && getImageGenProviderDef(recipient.provider);
+  if (!plan || !recipient || !provider) {
+    throw new PersonalLikenessConsentError(
+      "Personal image processing requires a configured trusted built-in image provider and exact catalog model; Auto, custom endpoints, and unknown models are not eligible.",
+    );
+  }
+  if (
+    !supportsReferenceInput(provider, recipient.model) ||
+    (operation === "outfit" && !provider.supportsExactMaskedEdits)
+  ) {
+    const requirement = operation === "outfit"
+      ? "reference input plus exact protected-region masked edits"
+      : "approved reference-image input";
+    throw new PersonalLikenessConsentError(
+      `The consented processor ${recipient.scopeLabel} cannot perform ${requirement}. No fallback provider will be called.`,
+    );
+  }
+  const frozen = await freezePersonalImageConsent({
+    tenantId: character.tenantId,
+    character,
+    sourceSha256,
+    imageProcessorScope,
+    policyVersion,
+  });
+  return {
+    pinnedRecipient: frozen
+      ? { provider: recipient.provider, model: recipient.model }
+      : undefined,
+    selectionPolicy: frozen
+      ? recipient.selectionPolicy
+      : undefined,
+    beforeProviderDispatch: frozen
+      ? (recipient: { provider: string; model: string }) =>
+          assertFrozenPersonalImageConsent({
+            tenantId: character.tenantId,
+            characterId: character.id,
+            frozen,
+            sourceSha256,
+            processor:
+              `${operation}|${
+                personalProcessorLabel(recipient.provider, recipient.model) ??
+                `${recipient.provider}/${recipient.model}`
+              }`,
+          })
+      : undefined,
+  };
+}
+
+function likenessPolicyVersion(imageProcessorScope: readonly string[]): string {
+  return `${LIKENESS_CONSENT_POLICY_VERSION}:image-processors:${
+    createHash("sha256").update(JSON.stringify(imageProcessorScope)).digest("hex").slice(0, 16)
+  }`;
+}
+
+async function currentSourceSha256(
+  character: Character,
+  tenantId: number,
+): Promise<string | null> {
+  try {
+    return sha256Hex(
+      (await loadReferenceImage(character.referenceImagePath, tenantId)).buffer,
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function likenessConsentDescriptor(character: Character, tenantId: number) {
+  const [sourceSha256, imageProcessorPlan] = await Promise.all([
+    currentSourceSha256(character, tenantId),
+    disclosedPersonalImageProcessorPlan(),
+  ]);
+  const imageProcessorScope = imageProcessorPlan?.scope ?? [];
+  const policyVersion = likenessPolicyVersion(imageProcessorScope);
+  const statement = likenessConsentStatement(imageProcessorScope);
+  const [grant] = await db
+    .select()
+    .from(characterLikenessConsentGrantsTable)
+    .where(
+      and(
+        eq(characterLikenessConsentGrantsTable.tenantId, tenantId),
+        eq(characterLikenessConsentGrantsTable.characterId, character.id),
+      ),
+    )
+    .orderBy(
+      desc(characterLikenessConsentGrantsTable.grantedAt),
+      desc(characterLikenessConsentGrantsTable.id),
+    )
+    .limit(1);
+  const [revocation] = grant
+    ? await db
+      .select()
+      .from(characterLikenessConsentRevocationsTable)
+      .where(
+        and(
+          eq(characterLikenessConsentRevocationsTable.tenantId, tenantId),
+          eq(characterLikenessConsentRevocationsTable.characterId, character.id),
+          eq(characterLikenessConsentRevocationsTable.consentId, grant.id),
+        ),
+      )
+      .limit(1)
+    : [];
+  const personal = isPersonalLikenessSource(character);
+  const currentGrant =
+    grant &&
+    grant.sourcePath === character.referenceImagePath &&
+    grant.sourceSha256 === sourceSha256 &&
+    grant.policyVersion === policyVersion &&
+    JSON.stringify(grant.imageProcessorScope) === JSON.stringify(imageProcessorScope);
+  const status = !personal
+    ? "not_required"
+    : !grant
+      ? "missing"
+      : !currentGrant
+        ? "stale"
+        : revocation
+          ? "revoked"
+          : "active";
+  const videoEligible = status === "active" && grant?.allowScriptedSpeech === true;
+  const eligibility = [
+    {
+      provider: "atlascloud",
+      modelFamily: "alibaba/wan-3.0/reference-to-video",
+      status: !personal || videoEligible ? "eligible" :
+        sourceSha256 ? "consent_required" : "verification_required",
+      reason: !personal
+        ? "This is not an uploaded personal source; existing fictional provenance rules apply."
+        : videoEligible
+          ? "Current electronic likeness attestation permits this exact Wan reference-to-video family."
+          : sourceSha256
+            ? "A current unrevoked likeness attestation with scripted-speech scope is required."
+            : "The current tenant-owned source bytes could not be verified.",
+    },
+    {
+      provider: "atlascloud",
+      modelFamily: "alibaba/wan-3.0-prime/reference-to-video",
+      status: !personal || videoEligible ? "eligible" :
+        sourceSha256 ? "consent_required" : "verification_required",
+      reason: !personal
+        ? "This is not an uploaded personal source; existing fictional provenance rules apply."
+        : videoEligible
+          ? "Current electronic likeness attestation permits this exact Wan reference-to-video family."
+          : sourceSha256
+            ? "A current unrevoked likeness attestation with scripted-speech scope is required."
+            : "The current tenant-owned source bytes could not be verified.",
+    },
+  ] as const;
+  return {
+    status,
+    sourceSha256,
+    policyVersion,
+    statement,
+    consent: grant
+      ? {
+          id: grant.id,
+          subject: grant.subject,
+          providers: grant.providers,
+          allowOutfitEdits: grant.allowOutfitEdits,
+          allowScriptedSpeech: grant.allowScriptedSpeech,
+          grantedAt: grant.grantedAt.toISOString(),
+          revokedAt: revocation?.revokedAt.toISOString() ?? null,
+        }
+      : null,
+    eligibility,
+  };
+}
+
+router.get("/characters/:characterId/likeness-consent", async (req: Request, res: Response) => {
+  const character = await loadCharacter(req);
+  if (!character) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json({ data: await likenessConsentDescriptor(character, req.tenantId) });
+});
+
+router.post("/characters/:characterId/likeness-consent", async (req: Request, res: Response) => {
+  if (!hasOnlyLikenessConsentRequestKeys(req.body, "grant")) {
+    res.status(400).json({ error: "Invalid likeness consent attestation." });
+    return;
+  }
+  const parsed = GrantCharacterLikenessConsentBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid likeness consent attestation." });
+    return;
+  }
+  const requested = parsed.data;
+  const character = await loadCharacter(req);
+  if (!character) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  if (!isPersonalLikenessSource(character)) {
+    res.status(409).json({
+      error: "Only an uploaded personal source can receive a likeness attestation; generated and unknown sources are never relabeled.",
+    });
+    return;
+  }
+  const attestationError = validateLikenessGrantAttestation(requested);
+  if (attestationError) {
+    res.status(400).json({ error: attestationError });
+    return;
+  }
+  const imageProcessorPlan = await disclosedPersonalImageProcessorPlan();
+  const imageProcessorScope = imageProcessorPlan?.scope ?? [];
+  if (requested.allowOutfitEdits && imageProcessorScope.length === 0) {
+    res.status(409).json({
+      error: "Personal outfit editing requires the current trusted built-in image provider and an exact catalog model; Auto, custom endpoints, and unknown models cannot be consented.",
+    });
+    return;
+  }
+  const policyVersion = likenessPolicyVersion(imageProcessorScope);
+  if (requested.policyVersion !== policyVersion) {
+    res.status(409).json({ error: "The consent policy or disclosed processors changed. Reload and review it again." });
+    return;
+  }
+  const granted = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(charactersTable)
+      .where(and(
+        eq(charactersTable.id, character.id),
+        eq(charactersTable.tenantId, req.tenantId),
+      ))
+      .for("update")
+      .limit(1);
+    if (!locked || !isPersonalLikenessSource(locked)) return null;
+    const sourceSha256 = await currentSourceSha256(locked, req.tenantId);
+    if (!sourceSha256 || sourceSha256 !== requested.sourceSha256.toLowerCase()) {
+      return null;
+    }
+    const [row] = await tx
+      .insert(characterLikenessConsentGrantsTable)
+      .values({
+        tenantId: req.tenantId,
+        characterId: locked.id,
+        sourcePath: locked.referenceImagePath,
+        sourceSha256,
+        sourceReferenceSource: "uploaded",
+        policyVersion,
+        statement: likenessConsentStatement(imageProcessorScope),
+        imageProcessorScope,
+        subject: requested.subject,
+        providers: ["atlascloud"],
+        imageRightsConfirmed: requested.imageRightsConfirmed,
+        adultConfirmed: requested.adultConfirmed,
+        likenessConfirmed: requested.likenessConfirmed,
+        writtenPermissionConfirmed: requested.writtenPermissionConfirmed,
+        allowOutfitEdits: requested.allowOutfitEdits,
+        allowScriptedSpeech: requested.allowScriptedSpeech,
+        actingClerkUserId: req.clerkUserId,
+      })
+      .returning();
+    return row ?? null;
+  });
+  if (!granted) {
+    res.status(409).json({ error: "The current tenant-owned source changed or could not be verified. Reload before attesting." });
+    return;
+  }
+  const current = await loadCharacter(req);
+  res.status(201).json({ data: await likenessConsentDescriptor(current!, req.tenantId) });
+});
+
+router.delete("/characters/:characterId/likeness-consent", async (req: Request, res: Response) => {
+  if (!hasOnlyLikenessConsentRequestKeys(req.body ?? {}, "revoke")) {
+    res.status(400).json({ error: "Invalid likeness consent revocation." });
+    return;
+  }
+  const parsed = RevokeCharacterLikenessConsentBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid likeness consent revocation." });
+    return;
+  }
+  const character = await loadCharacter(req);
+  if (!character) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const conflict = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(charactersTable)
+      .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)))
+      .for("update")
+      .limit(1);
+    if (!locked) return true;
+    const [grant] = await tx
+      .select()
+      .from(characterLikenessConsentGrantsTable)
+      .where(and(
+        eq(characterLikenessConsentGrantsTable.tenantId, req.tenantId),
+        eq(characterLikenessConsentGrantsTable.characterId, locked.id),
+      ))
+      .orderBy(desc(characterLikenessConsentGrantsTable.grantedAt), desc(characterLikenessConsentGrantsTable.id))
+      .limit(1);
+    if (!grant) return false;
+    if (parsed.data.consentId !== undefined && parsed.data.consentId !== grant.id) return true;
+    await tx
+      .insert(characterLikenessConsentRevocationsTable)
+      .values({
+        tenantId: req.tenantId,
+        characterId: locked.id,
+        consentId: grant.id,
+        actingClerkUserId: req.clerkUserId,
+      })
+      .onConflictDoNothing();
+    return false;
+  });
+  if (conflict) {
+    res.status(409).json({ error: "The requested consent is no longer current. Reload before revoking." });
+    return;
+  }
+  const current = await loadCharacter(req);
+  res.json({ data: await likenessConsentDescriptor(current!, req.tenantId) });
+});
+
 /**
  * Explicit, narrow recovery for a historical Guided character whose immutable
  * origin fields were never written. This endpoint never guesses from a label,
@@ -2187,7 +2669,16 @@ router.post(
     let successfulAiWork = false;
     const startedAt = Date.now();
     try {
-      funding = await reserveImageFunding(req);
+      const baseReference = await loadReferenceImage(
+        character.referenceImagePath,
+        req.tenantId,
+      );
+      const likenessGate = await personalImageDispatchGate(
+        character,
+        sha256Hex(baseReference.buffer),
+        "outfit",
+      );
+      funding = await reserveImageFunding(req, likenessGate.pinnedRecipient);
       if (!funding) {
         res.status(402).json({
           error:
@@ -2196,10 +2687,6 @@ router.post(
         return;
       }
       const reservedFunding = funding;
-      const baseReference = await loadReferenceImage(
-        character.referenceImagePath,
-        req.tenantId,
-      );
       const exactMaskedEdit = await createOutfitMaskedEdit(
         baseReference,
         protectedRegion,
@@ -2233,6 +2720,8 @@ router.post(
                   },
                   exactMaskedEdit,
                   (meta) => confirmSuccess(meta),
+                  likenessGate.selectionPolicy,
+                  likenessGate.beforeProviderDispatch,
                 ),
               (result) => ({ provider: result.provider, model: result.model }),
               { isFailureConfirmed: isConfirmedImageFailure },
@@ -2253,6 +2742,8 @@ router.post(
           },
           exactMaskedEdit,
           undefined,
+          likenessGate.selectionPolicy,
+          likenessGate.beforeProviderDispatch,
         ));
       successfulAiWork = true;
       await settleImageFunding(req, funding, {

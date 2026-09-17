@@ -173,7 +173,14 @@ import {
   verifyFrozenAssetProvenance,
   type ImmutableProvenanceProof,
 } from "../provenance";
-import { requiresStrictFictionalProvenance } from "../provenancePolicy";
+import {
+  requiresStrictFictionalProvenance,
+} from "../provenancePolicy";
+import {
+  assertFrozenPersonalWanVideoConsent,
+  isFrozenPersonalWanGuidedCast,
+  PersonalLikenessVideoError,
+} from "./personalLikenessVideo";
 import { resolveModelOptions, videoModelMultiplier } from "./modelCatalog";
 import {
   LATENT_SYNC,
@@ -1140,6 +1147,11 @@ export async function verifyFrozenCharacterSnapshotProvenance(
     );
     for (const member of options.guidedStory.cast) {
       if (!participating.has(member.roleId)) continue;
+      const personalWan = isFrozenPersonalWanGuidedCast({
+        provider: options.resolvedVideoModel?.provider,
+        model: options.resolvedVideoModel?.model,
+        member,
+      });
       const memberRefs = member.provenanceEvidenceRefs ?? [];
       if (member.characterId == null || member.outfitId == null) {
         if (strict) {
@@ -1186,7 +1198,7 @@ export async function verifyFrozenCharacterSnapshotProvenance(
       if (
         !character ||
         !outfit ||
-        (strict && (
+        (strict && !personalWan && (
           character.referenceSource !== "generated" ||
           character.bytePlusIdentityId !== null ||
           !character.referenceSheetImagePath ||
@@ -1197,7 +1209,7 @@ export async function verifyFrozenCharacterSnapshotProvenance(
         )) ||
         member.character.referenceImagePath !== character.referenceImagePath ||
         member.referenceSource !== character.referenceSource ||
-        (strict && member.referenceSource !== "generated") ||
+        (strict && !personalWan && member.referenceSource !== "generated") ||
         member.outfit?.referenceImagePath !== outfit.referenceImagePath ||
         (member.atlasApprovedReferenceSheetPath &&
           member.atlasApprovedReferenceSheetPath !== character.referenceSheetImagePath)
@@ -5232,6 +5244,43 @@ async function produceVideo(
                     // Wan consumes the exact approved source images as HTTPS
                     // URLs. It deliberately does not require Atlas Asset
                     // Library mappings, which are only needed by Seedance.
+                    if (member.personalLikenessVideo) {
+                      const [characterSource, outfitSource, sheetSource] = await Promise.all([
+                        loadTenantObject(
+                          member.character.referenceImagePath!,
+                          job.tenantId,
+                          MAX_NARRATION_BYTES,
+                          "Personal likeness source",
+                        ),
+                        loadTenantObject(
+                          member.outfit.referenceImagePath,
+                          job.tenantId,
+                          MAX_NARRATION_BYTES,
+                          "Personal likeness wardrobe",
+                        ),
+                        loadTenantObject(
+                          member.atlasApprovedReferenceSheetPath!,
+                          job.tenantId,
+                          MAX_NARRATION_BYTES,
+                          "Personal likeness reference sheet",
+                        ),
+                      ]);
+                      try {
+                        await assertFrozenPersonalWanVideoConsent({
+                          tenantId: job.tenantId,
+                          snapshot: member.personalLikenessVideo,
+                          characterSha256: createHash("sha256").update(characterSource.buffer).digest("hex"),
+                          outfitSha256: createHash("sha256").update(outfitSource.buffer).digest("hex"),
+                          referenceSheetSha256: createHash("sha256").update(sheetSource.buffer).digest("hex"),
+                        });
+                      } catch (error) {
+                        throw new VideoJobInputError(
+                          error instanceof PersonalLikenessVideoError
+                            ? error.message
+                            : "Personal likeness authorization could not be verified. No video provider submission was made.",
+                        );
+                      }
+                    }
                     const urls = await approvedGuidedReferenceUrls({
                       tenantId: job.tenantId,
                       characterId: member.characterId,

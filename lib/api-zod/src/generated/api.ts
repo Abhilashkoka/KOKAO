@@ -4293,6 +4293,153 @@ export const ReviewCharacterReferenceSheetResponse = zod.object({
 
 
 /**
+ * @summary Describe current personal-likeness consent and exact Wan eligibility
+ */
+
+
+
+export const GetCharacterLikenessConsentParams = zod.object({
+  "characterId": zod.coerce.number().min(1)
+})
+
+export const getCharacterLikenessConsentResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const getCharacterLikenessConsentResponseDataConsentOneProvidersMax = 1;
+
+
+
+export const GetCharacterLikenessConsentResponse = zod.object({
+  "data": zod.object({
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale']),
+  "sourceSha256": zod.string().regex(getCharacterLikenessConsentResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
+  "policyVersion": zod.string().describe('Version including the disclosed image-recipient scope fingerprint.'),
+  "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "consent": zod.union([zod.object({
+  "id": zod.number(),
+  "subject": zod.enum(['self', 'authorized_person']),
+  "providers": zod.array(zod.literal("atlascloud")).min(1).max(getCharacterLikenessConsentResponseDataConsentOneProvidersMax),
+  "allowOutfitEdits": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean(),
+  "grantedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+}),zod.null()]),
+  "eligibility": zod.array(zod.object({
+  "provider": zod.literal("atlascloud"),
+  "modelFamily": zod.enum(['alibaba/wan-3.0/reference-to-video', 'alibaba/wan-3.0-prime/reference-to-video']),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported']),
+  "reason": zod.string()
+}))
+})
+})
+
+
+/**
+ * @summary Record an append-only electronic personal-likeness attestation
+ */
+
+
+
+export const GrantCharacterLikenessConsentParams = zod.object({
+  "characterId": zod.coerce.number().min(1)
+})
+
+export const grantCharacterLikenessConsentBodySourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const grantCharacterLikenessConsentBodyPolicyVersionMax = 160;
+
+export const grantCharacterLikenessConsentBodyProvidersMax = 1;
+
+
+
+export const GrantCharacterLikenessConsentBody = zod.object({
+  "sourceSha256": zod.string().regex(grantCharacterLikenessConsentBodySourceSha256RegExp),
+  "policyVersion": zod.string().min(1).max(grantCharacterLikenessConsentBodyPolicyVersionMax),
+  "subject": zod.enum(['self', 'authorized_person']),
+  "imageRightsConfirmed": zod.boolean(),
+  "adultConfirmed": zod.boolean(),
+  "likenessConfirmed": zod.boolean(),
+  "writtenPermissionConfirmed": zod.boolean(),
+  "allowOutfitEdits": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean(),
+  "providers": zod.array(zod.literal("atlascloud")).min(1).max(grantCharacterLikenessConsentBodyProvidersMax)
+})
+
+export const grantCharacterLikenessConsentResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const grantCharacterLikenessConsentResponseDataConsentOneProvidersMax = 1;
+
+
+
+export const GrantCharacterLikenessConsentResponse = zod.object({
+  "data": zod.object({
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale']),
+  "sourceSha256": zod.string().regex(grantCharacterLikenessConsentResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
+  "policyVersion": zod.string().describe('Version including the disclosed image-recipient scope fingerprint.'),
+  "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "consent": zod.union([zod.object({
+  "id": zod.number(),
+  "subject": zod.enum(['self', 'authorized_person']),
+  "providers": zod.array(zod.literal("atlascloud")).min(1).max(grantCharacterLikenessConsentResponseDataConsentOneProvidersMax),
+  "allowOutfitEdits": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean(),
+  "grantedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+}),zod.null()]),
+  "eligibility": zod.array(zod.object({
+  "provider": zod.literal("atlascloud"),
+  "modelFamily": zod.enum(['alibaba/wan-3.0/reference-to-video', 'alibaba/wan-3.0-prime/reference-to-video']),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported']),
+  "reason": zod.string()
+}))
+})
+})
+
+
+/**
+ * @summary Append an idempotent revocation for the current likeness attestation
+ */
+
+
+
+export const RevokeCharacterLikenessConsentParams = zod.object({
+  "characterId": zod.coerce.number().min(1)
+})
+
+
+
+
+export const RevokeCharacterLikenessConsentBody = zod.object({
+  "consentId": zod.number().min(1).optional()
+})
+
+export const revokeCharacterLikenessConsentResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const revokeCharacterLikenessConsentResponseDataConsentOneProvidersMax = 1;
+
+
+
+export const RevokeCharacterLikenessConsentResponse = zod.object({
+  "data": zod.object({
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale']),
+  "sourceSha256": zod.string().regex(revokeCharacterLikenessConsentResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
+  "policyVersion": zod.string().describe('Version including the disclosed image-recipient scope fingerprint.'),
+  "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "consent": zod.union([zod.object({
+  "id": zod.number(),
+  "subject": zod.enum(['self', 'authorized_person']),
+  "providers": zod.array(zod.literal("atlascloud")).min(1).max(revokeCharacterLikenessConsentResponseDataConsentOneProvidersMax),
+  "allowOutfitEdits": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean(),
+  "grantedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+}),zod.null()]),
+  "eligibility": zod.array(zod.object({
+  "provider": zod.literal("atlascloud"),
+  "modelFamily": zod.enum(['alibaba/wan-3.0/reference-to-video', 'alibaba/wan-3.0-prime/reference-to-video']),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported']),
+  "reason": zod.string()
+}))
+})
+})
+
+
+/**
  * @summary Generate a tenant-owned preset outfit preview (billed as one image)
  */
 export const GeneratePresetOutfitDerivativeParams = zod.object({

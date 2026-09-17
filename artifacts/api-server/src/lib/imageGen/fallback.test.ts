@@ -188,6 +188,22 @@ describe("generateImage provider fallback", () => {
     expect(generateWithGemini).not.toHaveBeenCalled();
   });
 
+  it("stops before any provider call when the dispatch consent recheck refuses", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    const refuse = vi.fn(async () => {
+      throw new Error("personal likeness consent was revoked");
+    });
+
+    await expect(generateImage("p", "1024x1024", undefined, {
+      meterContext: null,
+      beforeProviderDispatch: refuse,
+    })).rejects.toThrow("consent was revoked");
+
+    expect(refuse).toHaveBeenCalledWith({ provider: "openai", model: "gpt-image-1" });
+    expect(generateWithOpenAIBuiltin).not.toHaveBeenCalled();
+    expect(generateWithGemini).not.toHaveBeenCalled();
+  });
+
   it("rethrows the primary error when no alternate is configured", async () => {
     vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
       new ImageGenProviderError("rate limited", 429),
