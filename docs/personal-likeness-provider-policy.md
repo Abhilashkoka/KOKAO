@@ -1,5 +1,71 @@
 # Personal likeness and provider authorization
 
+## Two layers
+
+The attestation and the recipients are separate records, because they answer
+separate questions and change on different schedules.
+
+1. **Subject attestation** (`character_likeness_consent_grants`) — who is
+   depicted, whose authority the submitter holds, and which of the three uses
+   they authorize. Provider-independent: swapping Replicate for OpenRouter does
+   not change who is in the photograph, so it must not invalidate a statement
+   about them. Bound to the exact source bytes.
+2. **Recipient disclosure ledger** (`character_likeness_recipient_disclosures`)
+   — append-only, one row per (grant, provider, model, operation) the user has
+   been shown and accepted. This is what keeps a provider-independent
+   attestation an *informed* one, and it makes a newly configured provider cost
+   one acknowledgement instead of a re-signature. Each recipient can be
+   withdrawn on its own, without destroying an attestation that remains true.
+
+The previous design welded the two together: the policy version hashed the
+selected image-processor scope, so an admin changing the global image provider
+marked every attestation in the system stale. `LIKENESS_CONSENT_POLICY_VERSION`
+is now the version of the statement text and nothing else.
+
+Provider-independent is not use-independent. Wardrobe editing, video depiction
+and scripted speech stay separate permissions: permission to depict someone is
+not permission to put words in their mouth.
+
+## Subject classes
+
+- `uploaded_self` and `uploaded_authorized_person` — a real, identifiable
+  person. Hard gate: no recipient receives these bytes without a current,
+  unrevoked grant and an acknowledged disclosure.
+- `generated_fictional` — a photorealistic AI face depicting nobody real. There
+  is no subject to attest for and the server creates generated cast with no user
+  in the loop, so these are covered by a workspace-level standing declaration
+  (`tenant_likeness_standing_declarations`) rather than a per-character
+  signature. That declaration is also the evidence for the reverse argument when
+  a provider's classifier flags an AI face as a possible real human.
+
+  Recorded but not blocking by default, so deploying this does not brick
+  existing workspaces mid-generation. Set
+  `LIKENESS_STANDING_DECLARATION_ENFORCED=true` to make it a hard gate once
+  workspaces have been prompted; the status is reported either way.
+
+## Provider eligibility is declared, not discovered
+
+`artifacts/api-server/src/lib/likenessProviderPolicy.ts` holds one reviewed
+declaration per catalogued provider and surface. Two independent axes, because
+several providers' input classifiers reject a generated face precisely because
+they cannot tell it from a real one:
+
+- `realLikeness` — a real, identifiable person.
+- `generatedPhotorealistic` — an AI face depicting nobody real.
+
+`undeclared` fails closed. `likenessProviderPolicy.test.ts` asserts
+exhaustiveness against both provider registries, so adding a provider fails the
+suite until somebody decides what it may receive.
+
+Routing is checked **before** the attestation and before any funding is
+reserved. A provider that will certainly refuse the image produces a fast,
+explained failure instead of a paid rejection, and the user is never asked to
+sign for a submission that could not have succeeded.
+
+Operation-level refusals are subject-aware: Atlas Cloud's Asset Library is the
+working home for generated fictional characters and must never receive a real
+person, which is one declaration rather than two code paths.
+
 ## Policy basis
 
 Reviewed against Atlas Cloud's public documentation on 2026-09-17:
@@ -31,6 +97,13 @@ An authorization declaration is not proof of identity. BytePlus verification is 
 - Withdrawal stops future submissions. It cannot recall an upstream request already sent or guarantee deletion of outputs already downloaded or published.
 
 ## Provider boundaries
+
+Asset-library registration is a likeness submission like any other: the bytes
+leave the process and the provider retains them under an id. It used to be the
+one lane decided purely on whether a BytePlus identity row said "verified" —
+the provider's check, not KOKAO's, leaving nothing behind if the provider ever
+asked. Provider verification and KOKAO's rights record remain separate claims,
+and having the first no longer stands in for the second.
 
 Wan's direct-reference media flow is not Seedance's Asset Library. Permission for Wan must not register an uploaded likeness as a fictional Atlas asset, relax BytePlus requirements, enable an unknown provider, or authorize an undisclosed fallback recipient.
 

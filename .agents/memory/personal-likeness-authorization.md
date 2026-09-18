@@ -14,3 +14,9 @@ Choose and disclose image processors by purpose rather than requiring a global p
 **Why:** A processor that accepts reference images may not support the protected-mask editing needed for personal wardrobes. Restricting the entire flow to the globally selected processor can make an otherwise valid personal-photo workflow impossible.
 
 **How to apply:** Consent must cover each planned processor and purpose before use. Pin the relevant processor for sheet or wardrobe work, price that same selection, and disable undisclosed runtime fallback. A configuration change must not silently broaden the permission.
+
+Keep the subject attestation independent of recipient acknowledgements.
+
+**Why:** Changing a configured provider does not change who is depicted or whether the user holds image rights. Requiring the entire statement to be signed again for that routing change confuses recipient permission with subject permission.
+
+**How to apply:** A new recipient needs its own acknowledgement, not a replacement subject attestation. A substantive statement change still requires renewed consent. Frozen jobs must retain both the original grant and recipient authorization, including independent withdrawal checks.

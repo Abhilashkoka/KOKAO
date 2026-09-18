@@ -8497,6 +8497,16 @@ export const CharacterLikenessConsentResponseStatus = {
   active: 'active',
   revoked: 'revoked',
   stale: 'stale',
+  needs_recipient_acknowledgement: 'needs_recipient_acknowledgement',
+} as const;
+
+export type CharacterLikenessSubjectClass = typeof CharacterLikenessSubjectClass[keyof typeof CharacterLikenessSubjectClass];
+
+
+export const CharacterLikenessSubjectClass = {
+  uploaded_self: 'uploaded_self',
+  uploaded_authorized_person: 'uploaded_authorized_person',
+  generated_fictional: 'generated_fictional',
 } as const;
 
 export type CharacterLikenessConsentSubject = typeof CharacterLikenessConsentSubject[keyof typeof CharacterLikenessConsentSubject];
@@ -8510,24 +8520,53 @@ export const CharacterLikenessConsentSubject = {
 export interface CharacterLikenessConsent {
   id: number;
   subject: CharacterLikenessConsentSubject;
-  /**
-     * @minItems 1
-     * @maxItems 1
-     */
-  providers: 'atlascloud'[];
+  subjectClass: CharacterLikenessSubjectClass;
   allowOutfitEdits: boolean;
+  allowVideoDepiction: boolean;
   allowScriptedSpeech: boolean;
   grantedAt: string;
   /** @nullable */
   revokedAt: string | null;
 }
 
-export type CharacterLikenessEligibilityModelFamily = typeof CharacterLikenessEligibilityModelFamily[keyof typeof CharacterLikenessEligibilityModelFamily];
+export type CharacterLikenessRecipientOperation = typeof CharacterLikenessRecipientOperation[keyof typeof CharacterLikenessRecipientOperation];
 
 
-export const CharacterLikenessEligibilityModelFamily = {
-  'alibaba/wan-30/reference-to-video': 'alibaba/wan-3.0/reference-to-video',
-  'alibaba/wan-30-prime/reference-to-video': 'alibaba/wan-3.0-prime/reference-to-video',
+export const CharacterLikenessRecipientOperation = {
+  reference_sheet: 'reference_sheet',
+  outfit: 'outfit',
+  video: 'video',
+  asset_registration: 'asset_registration',
+} as const;
+
+export interface CharacterLikenessRecipient {
+  id: number;
+  provider: string;
+  model: string;
+  operation: CharacterLikenessRecipientOperation;
+  scopeLabel: string;
+  acknowledgedAt: string;
+  /** @nullable */
+  revokedAt: string | null;
+}
+
+export interface CharacterLikenessPendingRecipient {
+  operation: CharacterLikenessRecipientOperation;
+  provider: string;
+  model: string;
+  scopeLabel: string;
+  /** False when the reviewed provider policy refuses this likeness class. */
+  providerAccepts: boolean;
+  /** @nullable */
+  reason: string | null;
+}
+
+export type CharacterLikenessEligibilitySurface = typeof CharacterLikenessEligibilitySurface[keyof typeof CharacterLikenessEligibilitySurface];
+
+
+export const CharacterLikenessEligibilitySurface = {
+  image: 'image',
+  video: 'video',
 } as const;
 
 export type CharacterLikenessEligibilityStatus = typeof CharacterLikenessEligibilityStatus[keyof typeof CharacterLikenessEligibilityStatus];
@@ -8538,11 +8577,15 @@ export const CharacterLikenessEligibilityStatus = {
   consent_required: 'consent_required',
   verification_required: 'verification_required',
   unsupported: 'unsupported',
+  provider_refused: 'provider_refused',
 } as const;
 
 export interface CharacterLikenessEligibility {
-  provider: 'atlascloud';
-  modelFamily: CharacterLikenessEligibilityModelFamily;
+  surface: CharacterLikenessEligibilitySurface;
+  provider: string;
+  modelFamily: string;
+  /** A provider-side identity check the attestation records but never replaces. */
+  requiresVerifiedIdentity: boolean;
   status: CharacterLikenessEligibilityStatus;
   reason: string;
 }
@@ -8555,11 +8598,16 @@ export interface CharacterLikenessConsentResponse {
      * @pattern ^[a-f0-9]{64}$
      */
   sourceSha256: string | null;
-  /** Version including the disclosed image-recipient scope fingerprint. */
+  /** Version of the attestation TEXT only. Deliberately independent of provider routing, so changing a provider never marks a truthful statement about the depicted person stale. */
   policyVersion: string;
   /** Exact current statement. Stored grants retain their own versioned text. */
   statement: string;
+  subjectClass?: CharacterLikenessSubjectClass;
   consent: CharacterLikenessConsent | null;
+  /** Every provider disclosed under this attestation, with any withdrawal. */
+  recipients?: CharacterLikenessRecipient[];
+  /** Recipients the current routing needs that have not been acknowledged. A one-click gap, never a reason to re-sign the attestation. */
+  pendingRecipients?: CharacterLikenessPendingRecipient[];
   eligibility: CharacterLikenessEligibility[];
 }
 
@@ -8589,17 +8637,68 @@ export interface GrantCharacterLikenessConsentRequest {
   likenessConfirmed: boolean;
   writtenPermissionConfirmed: boolean;
   allowOutfitEdits: boolean;
+  allowVideoDepiction: boolean;
   allowScriptedSpeech: boolean;
-  /**
-     * @minItems 1
-     * @maxItems 1
-     */
-  providers: 'atlascloud'[];
 }
 
 export interface RevokeCharacterLikenessConsentRequest {
   /** @minimum 1 */
   consentId?: number;
+}
+
+export interface AcknowledgeCharacterLikenessRecipientRequest {
+  /** @minimum 1 */
+  consentId?: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  provider: string;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  model: string;
+  operation: CharacterLikenessRecipientOperation;
+}
+
+export interface GrantTenantLikenessDeclarationRequest {
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  policyVersion: string;
+  fictionalOnlyConfirmed: boolean;
+  adultConfirmed: boolean;
+  noRealPersonConfirmed: boolean;
+}
+
+export type TenantLikenessDeclarationResponseStatus = typeof TenantLikenessDeclarationResponseStatus[keyof typeof TenantLikenessDeclarationResponseStatus];
+
+
+export const TenantLikenessDeclarationResponseStatus = {
+  missing: 'missing',
+  stale: 'stale',
+  active: 'active',
+} as const;
+
+export interface TenantLikenessDeclaration {
+  id: number;
+  policyVersion: string;
+  grantedAt: string;
+}
+
+export interface TenantLikenessDeclarationResponse {
+  statement: string;
+  policyVersion: string;
+  /** Whether a missing declaration blocks generated work or is only recorded and surfaced. */
+  enforced: boolean;
+  status: TenantLikenessDeclarationResponseStatus;
+  declaration: TenantLikenessDeclaration | null;
+}
+
+export interface TenantLikenessDeclarationEnvelope {
+  data: TenantLikenessDeclarationResponse;
 }
 
 export type PresetStockVoiceSpeaker = typeof PresetStockVoiceSpeaker[keyof typeof PresetStockVoiceSpeaker];
@@ -8747,6 +8846,32 @@ export interface CharacterOutfitUpdateInput {
   status?: CharacterOutfitUpdateInputStatus;
 }
 
+export type CreateCharacterLikenessAttestationSubject = typeof CreateCharacterLikenessAttestationSubject[keyof typeof CreateCharacterLikenessAttestationSubject];
+
+
+export const CreateCharacterLikenessAttestationSubject = {
+  self: 'self',
+  authorized_person: 'authorized_person',
+} as const;
+
+export interface CreateCharacterLikenessAttestation {
+  /**
+     * Optional. Send it only when the exact server statement was displayed verbatim, to assert the user saw that version. Omitted at creation, where the form shows a summary and the server stamps its own current version into the stored grant alongside the authoritative statement text. Creation therefore never depends on an extra round trip.
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  policyVersion?: string | null;
+  subject: CreateCharacterLikenessAttestationSubject;
+  imageRightsConfirmed: boolean;
+  adultConfirmed: boolean;
+  likenessConfirmed: boolean;
+  writtenPermissionConfirmed: boolean;
+  allowOutfitEdits: boolean;
+  allowVideoDepiction: boolean;
+  allowScriptedSpeech: boolean;
+}
+
 export interface CreateCharacterRequest {
   /**
      * @minLength 1
@@ -8769,6 +8894,8 @@ export interface CreateCharacterRequest {
      * @nullable
      */
   identityId?: number | null;
+  /** Required when sourceImagePath is given. Recorded in the SAME transaction as the character, so an uploaded likeness can never exist without its rights attestation and the user cannot spend reference-sheet or wardrobe credits before the gate is satisfied. */
+  likenessAttestation?: CreateCharacterLikenessAttestation | null;
 }
 
 export type BytePlusIdentityStatus = typeof BytePlusIdentityStatus[keyof typeof BytePlusIdentityStatus];

@@ -8,6 +8,9 @@
 import type { CharacterLikenessConsent } from './characterLikenessConsent';
 import type { CharacterLikenessConsentResponseStatus } from './characterLikenessConsentResponseStatus';
 import type { CharacterLikenessEligibility } from './characterLikenessEligibility';
+import type { CharacterLikenessPendingRecipient } from './characterLikenessPendingRecipient';
+import type { CharacterLikenessRecipient } from './characterLikenessRecipient';
+import type { CharacterLikenessSubjectClass } from './characterLikenessSubjectClass';
 
 export interface CharacterLikenessConsentResponse {
   status: CharacterLikenessConsentResponseStatus;
@@ -17,10 +20,15 @@ export interface CharacterLikenessConsentResponse {
      * @pattern ^[a-f0-9]{64}$
      */
   sourceSha256: string | null;
-  /** Version including the disclosed image-recipient scope fingerprint. */
+  /** Version of the attestation TEXT only. Deliberately independent of provider routing, so changing a provider never marks a truthful statement about the depicted person stale. */
   policyVersion: string;
   /** Exact current statement. Stored grants retain their own versioned text. */
   statement: string;
+  subjectClass?: CharacterLikenessSubjectClass;
   consent: CharacterLikenessConsent | null;
+  /** Every provider disclosed under this attestation, with any withdrawal. */
+  recipients?: CharacterLikenessRecipient[];
+  /** Recipients the current routing needs that have not been acknowledged. A one-click gap, never a reason to re-sign the attestation. */
+  pendingRecipients?: CharacterLikenessPendingRecipient[];
   eligibility: CharacterLikenessEligibility[];
 }

@@ -21,6 +21,7 @@ import type {
 
 import type {
   AccountInput,
+  AcknowledgeCharacterLikenessRecipientRequest,
   AcquisitionAnalytics,
   ActivateVersionInput,
   AdAccountChoice,
@@ -214,6 +215,7 @@ import type {
   GoogleDriveStatus,
   GrantCharacterLikenessConsentRequest,
   GrantCreditsInput,
+  GrantTenantLikenessDeclarationRequest,
   GuidedSceneCorrectionRequest,
   GuidedStoryBackdropApprovalInput,
   GuidedStoryBackdropInput,
@@ -405,6 +407,7 @@ import type {
   TeamOverview,
   Tenant,
   TenantBillingModeInput,
+  TenantLikenessDeclarationEnvelope,
   TenantSettings,
   TextGenSettingsView,
   ThreadsAppCredentialInput,
@@ -8575,6 +8578,297 @@ export const useRevokeCharacterLikenessConsent = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getRevokeCharacterLikenessConsentMutationOptions(options));
+    }
+
+export const getAcknowledgeCharacterLikenessRecipientUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/likeness-recipients`
+}
+
+/**
+ * Adding a provider costs one acknowledgement rather than a re-signature, because the attestation covers the depicted person and does not change when the routing does. A recipient the reviewed provider policy refuses cannot be acknowledged.
+ * @summary Acknowledge one disclosed recipient under the current attestation
+ */
+export const acknowledgeCharacterLikenessRecipient = async (characterId: number,
+    acknowledgeCharacterLikenessRecipientRequest: AcknowledgeCharacterLikenessRecipientRequest, options?: RequestInit): Promise<CharacterLikenessConsentEnvelope> => {
+
+  return customFetch<CharacterLikenessConsentEnvelope>(getAcknowledgeCharacterLikenessRecipientUrl(characterId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(acknowledgeCharacterLikenessRecipientRequest)
+  }
+);}
+
+
+
+
+export const getAcknowledgeCharacterLikenessRecipientMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acknowledgeCharacterLikenessRecipient>>, TError,{characterId: number;data: BodyType<AcknowledgeCharacterLikenessRecipientRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acknowledgeCharacterLikenessRecipient>>, TError,{characterId: number;data: BodyType<AcknowledgeCharacterLikenessRecipientRequest>}, TContext> => {
+
+const mutationKey = ['acknowledgeCharacterLikenessRecipient'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acknowledgeCharacterLikenessRecipient>>, {characterId: number;data: BodyType<AcknowledgeCharacterLikenessRecipientRequest>}> = (props) => {
+          const {characterId,data} = props ?? {};
+
+          return  acknowledgeCharacterLikenessRecipient(characterId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AcknowledgeCharacterLikenessRecipientMutationResult = NonNullable<Awaited<ReturnType<typeof acknowledgeCharacterLikenessRecipient>>>
+    export type AcknowledgeCharacterLikenessRecipientMutationBody = BodyType<AcknowledgeCharacterLikenessRecipientRequest>
+    export type AcknowledgeCharacterLikenessRecipientMutationError = ErrorType<void>
+
+    /**
+ * @summary Acknowledge one disclosed recipient under the current attestation
+ */
+export const useAcknowledgeCharacterLikenessRecipient = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acknowledgeCharacterLikenessRecipient>>, TError,{characterId: number;data: BodyType<AcknowledgeCharacterLikenessRecipientRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof acknowledgeCharacterLikenessRecipient>>,
+        TError,
+        {characterId: number;data: BodyType<AcknowledgeCharacterLikenessRecipientRequest>},
+        TContext
+      > => {
+      return useMutation(getAcknowledgeCharacterLikenessRecipientMutationOptions(options));
+    }
+
+export const getRevokeCharacterLikenessRecipientUrl = (characterId: number,
+    disclosureId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/likeness-recipients/${disclosureId}`
+}
+
+/**
+ * @summary Withdraw one recipient without revoking the attestation
+ */
+export const revokeCharacterLikenessRecipient = async (characterId: number,
+    disclosureId: number, options?: RequestInit): Promise<CharacterLikenessConsentEnvelope> => {
+
+  return customFetch<CharacterLikenessConsentEnvelope>(getRevokeCharacterLikenessRecipientUrl(characterId,disclosureId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRevokeCharacterLikenessRecipientMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeCharacterLikenessRecipient>>, TError,{characterId: number;disclosureId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeCharacterLikenessRecipient>>, TError,{characterId: number;disclosureId: number}, TContext> => {
+
+const mutationKey = ['revokeCharacterLikenessRecipient'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeCharacterLikenessRecipient>>, {characterId: number;disclosureId: number}> = (props) => {
+          const {characterId,disclosureId} = props ?? {};
+
+          return  revokeCharacterLikenessRecipient(characterId,disclosureId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeCharacterLikenessRecipientMutationResult = NonNullable<Awaited<ReturnType<typeof revokeCharacterLikenessRecipient>>>
+
+    export type RevokeCharacterLikenessRecipientMutationError = ErrorType<void>
+
+    /**
+ * @summary Withdraw one recipient without revoking the attestation
+ */
+export const useRevokeCharacterLikenessRecipient = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeCharacterLikenessRecipient>>, TError,{characterId: number;disclosureId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeCharacterLikenessRecipient>>,
+        TError,
+        {characterId: number;disclosureId: number},
+        TContext
+      > => {
+      return useMutation(getRevokeCharacterLikenessRecipientMutationOptions(options));
+    }
+
+export const getGetTenantLikenessDeclarationUrl = () => {
+
+
+
+
+  return `/api/characters/likeness-declaration`
+}
+
+/**
+ * @summary Read the workspace declaration covering generated fictional cast
+ */
+export const getTenantLikenessDeclaration = async ( options?: RequestInit): Promise<TenantLikenessDeclarationEnvelope> => {
+
+  return customFetch<TenantLikenessDeclarationEnvelope>(getGetTenantLikenessDeclarationUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTenantLikenessDeclarationQueryKey = () => {
+    return [
+    `/api/characters/likeness-declaration`
+    ] as const;
+    }
+
+
+export const getGetTenantLikenessDeclarationQueryOptions = <TData = Awaited<ReturnType<typeof getTenantLikenessDeclaration>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTenantLikenessDeclaration>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTenantLikenessDeclarationQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTenantLikenessDeclaration>>> = ({ signal }) => getTenantLikenessDeclaration({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTenantLikenessDeclaration>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTenantLikenessDeclarationQueryResult = NonNullable<Awaited<ReturnType<typeof getTenantLikenessDeclaration>>>
+export type GetTenantLikenessDeclarationQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Read the workspace declaration covering generated fictional cast
+ */
+
+export function useGetTenantLikenessDeclaration<TData = Awaited<ReturnType<typeof getTenantLikenessDeclaration>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTenantLikenessDeclaration>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTenantLikenessDeclarationQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGrantTenantLikenessDeclarationUrl = () => {
+
+
+
+
+  return `/api/characters/likeness-declaration`
+}
+
+/**
+ * @summary Record the workspace declaration for generated fictional cast
+ */
+export const grantTenantLikenessDeclaration = async (grantTenantLikenessDeclarationRequest: GrantTenantLikenessDeclarationRequest, options?: RequestInit): Promise<TenantLikenessDeclarationEnvelope> => {
+
+  return customFetch<TenantLikenessDeclarationEnvelope>(getGrantTenantLikenessDeclarationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(grantTenantLikenessDeclarationRequest)
+  }
+);}
+
+
+
+
+export const getGrantTenantLikenessDeclarationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantTenantLikenessDeclaration>>, TError,{data: BodyType<GrantTenantLikenessDeclarationRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof grantTenantLikenessDeclaration>>, TError,{data: BodyType<GrantTenantLikenessDeclarationRequest>}, TContext> => {
+
+const mutationKey = ['grantTenantLikenessDeclaration'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof grantTenantLikenessDeclaration>>, {data: BodyType<GrantTenantLikenessDeclarationRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  grantTenantLikenessDeclaration(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GrantTenantLikenessDeclarationMutationResult = NonNullable<Awaited<ReturnType<typeof grantTenantLikenessDeclaration>>>
+    export type GrantTenantLikenessDeclarationMutationBody = BodyType<GrantTenantLikenessDeclarationRequest>
+    export type GrantTenantLikenessDeclarationMutationError = ErrorType<void>
+
+    /**
+ * @summary Record the workspace declaration for generated fictional cast
+ */
+export const useGrantTenantLikenessDeclaration = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantTenantLikenessDeclaration>>, TError,{data: BodyType<GrantTenantLikenessDeclarationRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof grantTenantLikenessDeclaration>>,
+        TError,
+        {data: BodyType<GrantTenantLikenessDeclarationRequest>},
+        TContext
+      > => {
+      return useMutation(getGrantTenantLikenessDeclarationMutationOptions(options));
     }
 
 export const getGeneratePresetOutfitDerivativeUrl = (presetId: string,) => {

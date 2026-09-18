@@ -11,8 +11,17 @@ import {
   walletProviderOperationsTable,
   characterLikenessConsentGrantsTable,
   characterLikenessConsentRevocationsTable,
+  characterLikenessRecipientDisclosuresTable,
+  characterLikenessRecipientRevocationsTable,
+  tenantLikenessStandingDeclarationsTable,
 } from "@workspace/db";
-import type { Character, CharacterOutfit, PresetCharacter } from "@workspace/db";
+import type {
+  Character,
+  CharacterOutfit,
+  LikenessRecipientOperation,
+  LikenessSubjectClass,
+  PresetCharacter,
+} from "@workspace/db";
 import { and, eq, asc, desc, inArray, sql, isNull } from "drizzle-orm";
 import {
   CreateCharacterBody,
@@ -93,6 +102,9 @@ import {
   LIKENESS_CONSENT_POLICY_VERSION,
   isPersonalLikenessSource,
   likenessConsentStatement,
+  routingSubjectClassFor,
+  standingDeclarationEnforced,
+  tenantStandingDeclarationStatement,
 } from "../lib/provenancePolicy";
 import {
   effectiveModel,
@@ -104,10 +116,17 @@ import {
 import {
   assertFrozenPersonalImageConsent,
   freezePersonalImageConsent,
+  latestGrant,
+  latestStandingDeclaration,
   PersonalLikenessConsentError,
   validateLikenessGrantAttestation,
   hasOnlyLikenessConsentRequestKeys,
 } from "../lib/likenessConsent";
+import {
+  PROVIDER_LIKENESS_DECLARATIONS,
+  recipientScopeLabel,
+  resolveLikenessRouting,
+} from "../lib/likenessProviderPolicy";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -1262,6 +1281,56 @@ router.post("/characters", async (req: Request, res: Response) => {
     }
   }
 
+  /**
+   * An uploaded likeness attests at creation, in the same transaction as the
+   * character row.
+   *
+   * Previously the attestation was a separate call the user had to find in a
+   * panel afterwards, so a character could be created, sheeted and dressed —
+   * spending image credits at each step — and only fail at video funding. The
+   * gate belongs at the moment the photograph arrives.
+   */
+  const attestation = parsed.data.likenessAttestation ?? null;
+  const attestationSubjectClass: LikenessSubjectClass | null = sourceImagePath
+    ? (attestation?.subject === "authorized_person"
+        ? "uploaded_authorized_person"
+        : "uploaded_self")
+    : null;
+  if (sourceImagePath) {
+    if (!attestation) {
+      res.status(400).json({
+        error:
+          "A likeness-rights attestation is required to create a character from an uploaded photo.",
+      });
+      return;
+    }
+    // policyVersion is optional here. The creation form shows a summary rather
+    // than the server statement verbatim, so asserting "I saw exactly v X"
+    // would add a round trip without adding the protection it implies. When a
+    // client does send one it still has to match. Either way the stored grant
+    // carries the server's own version and the authoritative statement text.
+    if (
+      attestation.policyVersion != null &&
+      attestation.policyVersion !== likenessPolicyVersion()
+    ) {
+      res.status(409).json({
+        error: "The consent policy changed. Reload and review it again.",
+      });
+      return;
+    }
+    const attestationError = validateLikenessGrantAttestation(attestation);
+    if (attestationError) {
+      res.status(400).json({ error: attestationError });
+      return;
+    }
+  } else if (attestation) {
+    res.status(400).json({
+      error:
+        "A generated character has no real subject to attest for; the workspace declaration covers it.",
+    });
+    return;
+  }
+
   const existing = await db
     .select({ id: charactersTable.id })
     .from(charactersTable)
@@ -1389,6 +1458,64 @@ router.post("/characters", async (req: Request, res: Response) => {
         })
         .returning()
     )[0]!;
+    // Same transaction: no uploaded likeness row can exist without its grant.
+    if (sourceImagePath && attestation && attestationSubjectClass) {
+      const [grant] = await tx
+        .insert(characterLikenessConsentGrantsTable)
+        .values({
+          tenantId: req.tenantId,
+          characterId: character.id,
+          sourcePath: referenceImagePath,
+          sourceSha256: referenceSha256,
+          sourceReferenceSource: "uploaded",
+          subjectClass: attestationSubjectClass,
+          policyVersion: likenessPolicyVersion(),
+          statement: likenessConsentStatement(attestationSubjectClass),
+          subject: attestation.subject,
+          imageRightsConfirmed: attestation.imageRightsConfirmed,
+          adultConfirmed: attestation.adultConfirmed,
+          likenessConfirmed: attestation.likenessConfirmed,
+          writtenPermissionConfirmed: attestation.writtenPermissionConfirmed,
+          allowOutfitEdits: attestation.allowOutfitEdits,
+          allowVideoDepiction: attestation.allowVideoDepiction,
+          allowScriptedSpeech: attestation.allowScriptedSpeech,
+          actingClerkUserId: req.clerkUserId,
+        })
+        .returning();
+      // Disclose the recipients the reference sheet is about to use, so the
+      // very next step in this flow is not blocked on a second click.
+      if (grant) {
+        const plan = await disclosedPersonalImageProcessorPlan();
+        for (const operation of ["reference_sheet", "outfit"] as const) {
+          const recipient = plan?.[operation];
+          if (!recipient) continue;
+          if (
+            !resolveLikenessRouting({
+              surface: "image",
+              provider: recipient.provider,
+              model: recipient.model,
+              operation,
+              subjectClass: attestationSubjectClass,
+            }).allowed
+          ) {
+            continue;
+          }
+          await tx
+            .insert(characterLikenessRecipientDisclosuresTable)
+            .values({
+              tenantId: req.tenantId,
+              characterId: character.id,
+              consentId: grant.id,
+              provider: recipient.provider,
+              model: recipient.model,
+              operation,
+              scopeLabel: recipient.scopeLabel,
+              actingClerkUserId: req.clerkUserId,
+            })
+            .onConflictDoNothing();
+        }
+      }
+    }
     const defaultOutfit = (
       await tx
         .insert(characterOutfitsTable)
@@ -1635,8 +1762,7 @@ async function personalImageDispatchGate(
   operation: "reference_sheet" | "outfit",
 ) {
   const plan = await disclosedPersonalImageProcessorPlan();
-  const imageProcessorScope = plan?.scope ?? [];
-  const policyVersion = likenessPolicyVersion(imageProcessorScope);
+  const policyVersion = likenessPolicyVersion();
   const recipient = plan?.[operation];
   const provider = recipient && getImageGenProviderDef(recipient.provider);
   if (!plan || !recipient || !provider) {
@@ -1659,8 +1785,10 @@ async function personalImageDispatchGate(
     tenantId: character.tenantId,
     character,
     sourceSha256,
-    imageProcessorScope,
     policyVersion,
+    provider: recipient.provider,
+    model: recipient.model,
+    operation,
   });
   return {
     pinnedRecipient: frozen
@@ -1669,27 +1797,34 @@ async function personalImageDispatchGate(
     selectionPolicy: frozen
       ? recipient.selectionPolicy
       : undefined,
+    // Re-checked against whatever recipient the pipeline actually reaches, not
+    // against the one planned here, so a mid-flight substitution is caught.
     beforeProviderDispatch: frozen
-      ? (recipient: { provider: string; model: string }) =>
+      ? (dispatched: { provider: string; model: string }) =>
           assertFrozenPersonalImageConsent({
             tenantId: character.tenantId,
             characterId: character.id,
             frozen,
             sourceSha256,
-            processor:
-              `${operation}|${
-                personalProcessorLabel(recipient.provider, recipient.model) ??
-                `${recipient.provider}/${recipient.model}`
-              }`,
+            provider: dispatched.provider,
+            model: dispatched.model,
+            operation,
           })
       : undefined,
   };
 }
 
-function likenessPolicyVersion(imageProcessorScope: readonly string[]): string {
-  return `${LIKENESS_CONSENT_POLICY_VERSION}:image-processors:${
-    createHash("sha256").update(JSON.stringify(imageProcessorScope)).digest("hex").slice(0, 16)
-  }`;
+/**
+ * The attestation's version is the policy text's version, full stop.
+ *
+ * It deliberately no longer mixes in a hash of the selected image processors.
+ * Doing so meant an admin changing the global image provider marked every
+ * attestation in the system stale, because a statement about who is in a
+ * photograph was being versioned by routing that does not change who is in the
+ * photograph. Recipients are disclosed and acknowledged per provider instead.
+ */
+function likenessPolicyVersion(): string {
+  return LIKENESS_CONSENT_POLICY_VERSION;
 }
 
 async function currentSourceSha256(
@@ -1710,23 +1845,11 @@ async function likenessConsentDescriptor(character: Character, tenantId: number)
     currentSourceSha256(character, tenantId),
     disclosedPersonalImageProcessorPlan(),
   ]);
-  const imageProcessorScope = imageProcessorPlan?.scope ?? [];
-  const policyVersion = likenessPolicyVersion(imageProcessorScope);
-  const statement = likenessConsentStatement(imageProcessorScope);
-  const [grant] = await db
-    .select()
-    .from(characterLikenessConsentGrantsTable)
-    .where(
-      and(
-        eq(characterLikenessConsentGrantsTable.tenantId, tenantId),
-        eq(characterLikenessConsentGrantsTable.characterId, character.id),
-      ),
-    )
-    .orderBy(
-      desc(characterLikenessConsentGrantsTable.grantedAt),
-      desc(characterLikenessConsentGrantsTable.id),
-    )
-    .limit(1);
+  const policyVersion = likenessPolicyVersion();
+  const subjectClass = routingSubjectClassFor(character);
+  const statement = likenessConsentStatement(subjectClass);
+  const personal = isPersonalLikenessSource(character);
+  const grant = await latestGrant(tenantId, character.id);
   const [revocation] = grant
     ? await db
       .select()
@@ -1740,13 +1863,78 @@ async function likenessConsentDescriptor(character: Character, tenantId: number)
       )
       .limit(1)
     : [];
-  const personal = isPersonalLikenessSource(character);
+
+  // Recipients disclosed under this grant, with any per-recipient withdrawal.
+  const recipientRows = grant
+    ? await db
+      .select({
+        disclosure: characterLikenessRecipientDisclosuresTable,
+        revokedAt: characterLikenessRecipientRevocationsTable.revokedAt,
+      })
+      .from(characterLikenessRecipientDisclosuresTable)
+      .leftJoin(
+        characterLikenessRecipientRevocationsTable,
+        eq(
+          characterLikenessRecipientRevocationsTable.disclosureId,
+          characterLikenessRecipientDisclosuresTable.id,
+        ),
+      )
+      .where(
+        and(
+          eq(characterLikenessRecipientDisclosuresTable.tenantId, tenantId),
+          eq(characterLikenessRecipientDisclosuresTable.consentId, grant.id),
+        ),
+      )
+      .orderBy(desc(characterLikenessRecipientDisclosuresTable.acknowledgedAt))
+    : [];
+  const recipients = recipientRows.map((row) => ({
+    id: row.disclosure.id,
+    provider: row.disclosure.provider,
+    model: row.disclosure.model,
+    operation: row.disclosure.operation,
+    scopeLabel: row.disclosure.scopeLabel,
+    acknowledgedAt: row.disclosure.acknowledgedAt.toISOString(),
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+  }));
+  const acknowledged = new Set(
+    recipientRows
+      .filter((row) => !row.revokedAt)
+      .map((row) =>
+        `${row.disclosure.operation}|${row.disclosure.provider}|${row.disclosure.model}`
+      ),
+  );
+
+  // Recipients the CURRENT routing needs but that have not been acknowledged.
+  // This is a one-click gap, never a reason to re-sign the attestation.
+  const pendingRecipients = (
+    ["reference_sheet", "outfit"] as const
+  ).flatMap((operation) => {
+    const recipient = imageProcessorPlan?.[operation];
+    if (!recipient) return [];
+    const key = `${operation}|${recipient.provider}|${recipient.model}`;
+    if (acknowledged.has(key)) return [];
+    const routing = resolveLikenessRouting({
+      surface: "image",
+      provider: recipient.provider,
+      model: recipient.model,
+      operation,
+      subjectClass,
+    });
+    return [{
+      operation,
+      provider: recipient.provider,
+      model: recipient.model,
+      scopeLabel: recipient.scopeLabel,
+      providerAccepts: routing.allowed,
+      reason: routing.allowed ? null : routing.reason,
+    }];
+  });
+
   const currentGrant =
     grant &&
     grant.sourcePath === character.referenceImagePath &&
     grant.sourceSha256 === sourceSha256 &&
-    grant.policyVersion === policyVersion &&
-    JSON.stringify(grant.imageProcessorScope) === JSON.stringify(imageProcessorScope);
+    grant.policyVersion === policyVersion;
   const status = !personal
     ? "not_required"
     : !grant
@@ -1755,55 +1943,71 @@ async function likenessConsentDescriptor(character: Character, tenantId: number)
         ? "stale"
         : revocation
           ? "revoked"
-          : "active";
-  const videoEligible = status === "active" && grant?.allowScriptedSpeech === true;
-  const eligibility = [
-    {
-      provider: "atlascloud",
-      modelFamily: "alibaba/wan-3.0/reference-to-video",
-      status: !personal || videoEligible ? "eligible" :
-        sourceSha256 ? "consent_required" : "verification_required",
-      reason: !personal
-        ? "This is not an uploaded personal source; existing fictional provenance rules apply."
-        : videoEligible
-          ? "Current electronic likeness attestation permits this exact Wan reference-to-video family."
+          : pendingRecipients.some((entry) => entry.providerAccepts)
+            ? "needs_recipient_acknowledgement"
+            : "active";
+
+  /**
+   * Universal eligibility: every catalogued provider, with a reviewed verdict
+   * for THIS character's subject class. The old shape hard-coded two Atlas Wan
+   * rows, which answered the question for one provider and left the rest of the
+   * catalog silent.
+   */
+  const eligibility = PROVIDER_LIKENESS_DECLARATIONS.map((declaration) => {
+    const routing = resolveLikenessRouting({
+      surface: declaration.surface,
+      provider: declaration.providerId,
+      model: declaration.realLikenessModelAllowlist?.[0] ?? null,
+      operation: declaration.surface === "video" ? "video" : "outfit",
+      subjectClass,
+    });
+    const attestationSatisfied = !personal || status === "active";
+    return {
+      surface: declaration.surface,
+      provider: declaration.providerId,
+      modelFamily: declaration.realLikenessModelAllowlist?.join(", ") ?? "all catalogued models",
+      requiresVerifiedIdentity: declaration.requiresVerifiedIdentity,
+      status: !routing.allowed
+        ? "provider_refused"
+        : attestationSatisfied
+          ? "eligible"
           : sourceSha256
-            ? "A current unrevoked likeness attestation with scripted-speech scope is required."
-            : "The current tenant-owned source bytes could not be verified.",
-    },
-    {
-      provider: "atlascloud",
-      modelFamily: "alibaba/wan-3.0-prime/reference-to-video",
-      status: !personal || videoEligible ? "eligible" :
-        sourceSha256 ? "consent_required" : "verification_required",
-      reason: !personal
-        ? "This is not an uploaded personal source; existing fictional provenance rules apply."
-        : videoEligible
-          ? "Current electronic likeness attestation permits this exact Wan reference-to-video family."
+            ? "consent_required"
+            : "verification_required",
+      reason: !routing.allowed
+        ? routing.reason
+        : attestationSatisfied
+          ? "A current attestation and an acknowledged recipient permit this provider."
           : sourceSha256
-            ? "A current unrevoked likeness attestation with scripted-speech scope is required."
+            ? "A current unrevoked attestation covering the requested uses is required."
             : "The current tenant-owned source bytes could not be verified.",
-    },
-  ] as const;
+    };
+  });
+
   return {
     status,
     sourceSha256,
     policyVersion,
     statement,
+    subjectClass,
     consent: grant
       ? {
           id: grant.id,
           subject: grant.subject,
-          providers: grant.providers,
+          subjectClass: grant.subjectClass,
           allowOutfitEdits: grant.allowOutfitEdits,
+          allowVideoDepiction: grant.allowVideoDepiction,
           allowScriptedSpeech: grant.allowScriptedSpeech,
           grantedAt: grant.grantedAt.toISOString(),
           revokedAt: revocation?.revokedAt.toISOString() ?? null,
         }
       : null,
+    recipients,
+    pendingRecipients,
     eligibility,
   };
 }
+
 
 router.get("/characters/:characterId/likeness-consent", async (req: Request, res: Response) => {
   const character = await loadCharacter(req);
@@ -1842,18 +2046,20 @@ router.post("/characters/:characterId/likeness-consent", async (req: Request, re
     return;
   }
   const imageProcessorPlan = await disclosedPersonalImageProcessorPlan();
-  const imageProcessorScope = imageProcessorPlan?.scope ?? [];
-  if (requested.allowOutfitEdits && imageProcessorScope.length === 0) {
+  if (requested.allowOutfitEdits && !imageProcessorPlan) {
     res.status(409).json({
       error: "Personal outfit editing requires the current trusted built-in image provider and an exact catalog model; Auto, custom endpoints, and unknown models cannot be consented.",
     });
     return;
   }
-  const policyVersion = likenessPolicyVersion(imageProcessorScope);
+  const policyVersion = likenessPolicyVersion();
   if (requested.policyVersion !== policyVersion) {
-    res.status(409).json({ error: "The consent policy or disclosed processors changed. Reload and review it again." });
+    res.status(409).json({ error: "The consent policy changed. Reload and review it again." });
     return;
   }
+  const subjectClass: LikenessSubjectClass = requested.subject === "authorized_person"
+    ? "uploaded_authorized_person"
+    : "uploaded_self";
   const granted = await db.transaction(async (tx) => {
     const [locked] = await tx
       .select()
@@ -1877,21 +2083,51 @@ router.post("/characters/:characterId/likeness-consent", async (req: Request, re
         sourcePath: locked.referenceImagePath,
         sourceSha256,
         sourceReferenceSource: "uploaded",
+        subjectClass,
         policyVersion,
-        statement: likenessConsentStatement(imageProcessorScope),
-        imageProcessorScope,
+        statement: likenessConsentStatement(subjectClass),
         subject: requested.subject,
-        providers: ["atlascloud"],
         imageRightsConfirmed: requested.imageRightsConfirmed,
         adultConfirmed: requested.adultConfirmed,
         likenessConfirmed: requested.likenessConfirmed,
         writtenPermissionConfirmed: requested.writtenPermissionConfirmed,
         allowOutfitEdits: requested.allowOutfitEdits,
+        allowVideoDepiction: requested.allowVideoDepiction ?? false,
         allowScriptedSpeech: requested.allowScriptedSpeech,
         actingClerkUserId: req.clerkUserId,
       })
       .returning();
-    return row ?? null;
+    if (!row) return null;
+    // Disclose the recipients the current routing will actually use, in the
+    // same transaction, so the common case needs no second click. Only
+    // recipients the reviewed policy accepts are written; a refused one is
+    // surfaced by the descriptor instead of being silently authorized.
+    for (const operation of ["reference_sheet", "outfit"] as const) {
+      const recipient = imageProcessorPlan?.[operation];
+      if (!recipient) continue;
+      const routing = resolveLikenessRouting({
+        surface: "image",
+        provider: recipient.provider,
+        model: recipient.model,
+        operation,
+        subjectClass,
+      });
+      if (!routing.allowed) continue;
+      await tx
+        .insert(characterLikenessRecipientDisclosuresTable)
+        .values({
+          tenantId: req.tenantId,
+          characterId: locked.id,
+          consentId: row.id,
+          provider: recipient.provider,
+          model: recipient.model,
+          operation,
+          scopeLabel: recipient.scopeLabel,
+          actingClerkUserId: req.clerkUserId,
+        })
+        .onConflictDoNothing();
+    }
+    return row;
   });
   if (!granted) {
     res.status(409).json({ error: "The current tenant-owned source changed or could not be verified. Reload before attesting." });
@@ -1953,6 +2189,237 @@ router.delete("/characters/:characterId/likeness-consent", async (req: Request, 
   const current = await loadCharacter(req);
   res.json({ data: await likenessConsentDescriptor(current!, req.tenantId) });
 });
+
+/**
+ * Acknowledge one recipient under the current attestation.
+ *
+ * This is the cheap half of the two-layer design: the attestation covers the
+ * person and does not change when the routing does, so a newly configured
+ * provider costs one acknowledgement instead of a re-signature. Only a
+ * recipient the reviewed provider policy accepts can be acknowledged — a user
+ * cannot consent their way past a provider that will refuse the image.
+ */
+router.post("/characters/:characterId/likeness-recipients", async (req: Request, res: Response) => {
+  if (!hasOnlyLikenessConsentRequestKeys(req.body ?? {}, "recipient")) {
+    res.status(400).json({ error: "Invalid recipient acknowledgement." });
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const provider = typeof body.provider === "string" ? body.provider : null;
+  const model = typeof body.model === "string" ? body.model : null;
+  const operation = typeof body.operation === "string" ? body.operation : null;
+  const consentId = typeof body.consentId === "number" ? body.consentId : null;
+  const validOperations = ["reference_sheet", "outfit", "video", "asset_registration"];
+  if (!provider || !model || !operation || !validOperations.includes(operation)) {
+    res.status(400).json({ error: "Invalid recipient acknowledgement." });
+    return;
+  }
+  const character = await loadCharacter(req);
+  if (!character) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const subjectClass = routingSubjectClassFor(character);
+  const surface = operation === "video" || operation === "asset_registration"
+    ? "video" as const
+    : "image" as const;
+  const routing = resolveLikenessRouting({
+    surface,
+    provider,
+    model,
+    operation: operation as LikenessRecipientOperation,
+    subjectClass,
+  });
+  if (!routing.allowed) {
+    res.status(409).json({ error: routing.reason });
+    return;
+  }
+  const providerLabel = surface === "image"
+    ? getImageGenProviderDef(provider)?.label ?? provider
+    : provider;
+  const conflict = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(charactersTable)
+      .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)))
+      .for("update")
+      .limit(1);
+    if (!locked) return "gone";
+    const [grant] = await tx
+      .select()
+      .from(characterLikenessConsentGrantsTable)
+      .where(and(
+        eq(characterLikenessConsentGrantsTable.tenantId, req.tenantId),
+        eq(characterLikenessConsentGrantsTable.characterId, locked.id),
+      ))
+      .orderBy(
+        desc(characterLikenessConsentGrantsTable.grantedAt),
+        desc(characterLikenessConsentGrantsTable.id),
+      )
+      .limit(1);
+    if (!grant) return "no_grant";
+    if (consentId !== null && consentId !== grant.id) return "stale";
+    await tx
+      .insert(characterLikenessRecipientDisclosuresTable)
+      .values({
+        tenantId: req.tenantId,
+        characterId: locked.id,
+        consentId: grant.id,
+        provider,
+        model,
+        operation: operation as LikenessRecipientOperation,
+        scopeLabel: recipientScopeLabel({
+          operation: operation as LikenessRecipientOperation,
+          providerLabel,
+          model,
+        }),
+        actingClerkUserId: req.clerkUserId,
+      })
+      .onConflictDoNothing();
+    return null;
+  });
+  if (conflict === "no_grant") {
+    res.status(409).json({
+      error: "Attest to this likeness before acknowledging a recipient for it.",
+    });
+    return;
+  }
+  if (conflict) {
+    res.status(409).json({ error: "The attestation changed. Reload before acknowledging a recipient." });
+    return;
+  }
+  const current = await loadCharacter(req);
+  res.status(201).json({ data: await likenessConsentDescriptor(current!, req.tenantId) });
+});
+
+/**
+ * Withdraw one recipient without destroying the attestation. Stopping delivery
+ * to a provider is not a statement that the person no longer consents to being
+ * depicted at all, and the old all-or-nothing revoke could not express that.
+ */
+router.delete(
+  "/characters/:characterId/likeness-recipients/:disclosureId",
+  async (req: Request, res: Response) => {
+    const disclosureId = Number(req.params.disclosureId);
+    if (!Number.isInteger(disclosureId) || disclosureId <= 0) {
+      res.status(400).json({ error: "Invalid recipient id." });
+      return;
+    }
+    const character = await loadCharacter(req);
+    if (!character) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const [disclosure] = await db
+      .select()
+      .from(characterLikenessRecipientDisclosuresTable)
+      .where(and(
+        eq(characterLikenessRecipientDisclosuresTable.id, disclosureId),
+        eq(characterLikenessRecipientDisclosuresTable.tenantId, req.tenantId),
+        eq(characterLikenessRecipientDisclosuresTable.characterId, character.id),
+      ))
+      .limit(1);
+    if (!disclosure) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    await db
+      .insert(characterLikenessRecipientRevocationsTable)
+      .values({
+        tenantId: req.tenantId,
+        characterId: character.id,
+        disclosureId: disclosure.id,
+        actingClerkUserId: req.clerkUserId,
+      })
+      .onConflictDoNothing();
+    const current = await loadCharacter(req);
+    res.json({ data: await likenessConsentDescriptor(current!, req.tenantId) });
+  },
+);
+
+/**
+ * The workspace-level declaration covering server-created generated cast,
+ * which has no real subject and no user present when it is created. It is also
+ * the record that a photorealistic generated face depicts nobody real — the
+ * evidence for the reverse argument when a provider's classifier flags an AI
+ * face as a possible real human.
+ */
+router.get("/characters/likeness-declaration", async (req: Request, res: Response) => {
+  const declaration = await latestStandingDeclaration(req.tenantId);
+  const policyVersion = likenessPolicyVersion();
+  res.json({
+    data: {
+      statement: tenantStandingDeclarationStatement(),
+      policyVersion,
+      enforced: standingDeclarationEnforced(),
+      status: !declaration
+        ? "missing"
+        : declaration.policyVersion !== policyVersion
+          ? "stale"
+          : "active",
+      declaration: declaration
+        ? {
+            id: declaration.id,
+            policyVersion: declaration.policyVersion,
+            grantedAt: declaration.grantedAt.toISOString(),
+          }
+        : null,
+    },
+  });
+});
+
+router.post("/characters/likeness-declaration", async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const allowed = new Set([
+    "policyVersion",
+    "fictionalOnlyConfirmed",
+    "adultConfirmed",
+    "noRealPersonConfirmed",
+  ]);
+  if (!Object.keys(body).every((key) => allowed.has(key))) {
+    res.status(400).json({ error: "Invalid declaration." });
+    return;
+  }
+  const policyVersion = likenessPolicyVersion();
+  if (body.policyVersion !== policyVersion) {
+    res.status(409).json({ error: "The declaration text changed. Reload and review it again." });
+    return;
+  }
+  if (
+    body.fictionalOnlyConfirmed !== true ||
+    body.adultConfirmed !== true ||
+    body.noRealPersonConfirmed !== true
+  ) {
+    res.status(400).json({ error: "All declaration confirmations are required." });
+    return;
+  }
+  await db.insert(tenantLikenessStandingDeclarationsTable).values({
+    tenantId: req.tenantId,
+    policyVersion,
+    statement: tenantStandingDeclarationStatement(),
+    fictionalOnlyConfirmed: true,
+    adultConfirmed: true,
+    noRealPersonConfirmed: true,
+    actingClerkUserId: req.clerkUserId,
+  });
+  const declaration = await latestStandingDeclaration(req.tenantId);
+  res.status(201).json({
+    data: {
+      statement: tenantStandingDeclarationStatement(),
+      policyVersion,
+      enforced: standingDeclarationEnforced(),
+      status: "active",
+      declaration: declaration
+        ? {
+            id: declaration.id,
+            policyVersion: declaration.policyVersion,
+            grantedAt: declaration.grantedAt.toISOString(),
+          }
+        : null,
+    },
+  });
+});
+
 
 /**
  * Explicit, narrow recovery for a historical Guided character whose immutable

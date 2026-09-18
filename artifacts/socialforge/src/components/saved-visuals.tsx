@@ -1,4 +1,12 @@
 import { useRef, useState } from "react";
+import type { CreateCharacterLikenessAttestation } from "@workspace/api-client-react";
+import {
+  CharacterCreationAttestation,
+  creationAttestationComplete,
+  creationAttestationPayload,
+  emptyCreationAttestation,
+  type CreationAttestationDraft,
+} from "@/components/character-creation-attestation";
 import {
   useListCharacters,
   useCreateCharacter,
@@ -129,24 +137,45 @@ function AddSavedImageDialog({
   saving,
   onSave,
   onVerify,
+  requireLikenessAttestation = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description: string;
   saving: boolean;
-  onSave: (name: string, file: File) => void;
-  onVerify?: (name: string, file: File) => void;
+  onSave: (
+    name: string,
+    file: File,
+    attestation: CreateCharacterLikenessAttestation | null,
+  ) => void;
+  onVerify?: (
+    name: string,
+    file: File,
+    attestation: CreateCharacterLikenessAttestation | null,
+  ) => void;
+  /** Set for the character library: an uploaded photo depicts a real person. */
+  requireLikenessAttestation?: boolean;
 }) {
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [attestation, setAttestation] = useState<CreationAttestationDraft>(
+    emptyCreationAttestation,
+  );
 
   const reset = () => {
     setName("");
     setFile(null);
+    setAttestation(emptyCreationAttestation);
     if (fileRef.current) fileRef.current.value = "";
   };
+
+  const attestationReady =
+    !requireLikenessAttestation || creationAttestationComplete(attestation);
+  const attestationValue = requireLikenessAttestation
+    ? creationAttestationPayload(attestation)
+    : null;
 
   return (
     <Dialog
@@ -186,14 +215,21 @@ function AddSavedImageDialog({
             <Upload className="h-4 w-4 mr-2" />
             {file ? file.name : "Choose image"}
           </Button>
+          {requireLikenessAttestation && file && (
+            <CharacterCreationAttestation
+              value={attestation}
+              onChange={setAttestation}
+              testId="saved-visual-creation-attestation"
+            />
+          )}
         </div>
         <DialogFooter>
           {onVerify && (
             <Button
               type="button"
               variant="outline"
-              disabled={saving || !name.trim() || !file}
-              onClick={() => file && onVerify(name.trim(), file)}
+              disabled={saving || !name.trim() || !file || !attestationReady}
+              onClick={() => file && onVerify(name.trim(), file, attestationValue)}
               data-testid="button-verify-saved-character"
             >
               Verify real person
@@ -201,8 +237,8 @@ function AddSavedImageDialog({
           )}
           <Button
             type="button"
-            disabled={saving || !name.trim() || !file}
-            onClick={() => file && onSave(name.trim(), file)}
+            disabled={saving || !name.trim() || !file || !attestationReady}
+            onClick={() => file && onSave(name.trim(), file, attestationValue)}
             data-testid="button-saved-visual-save"
           >
             {saving ? <RippleSpinner className="mr-2 h-4 w-4" /> : null}
@@ -231,11 +267,17 @@ function CharactersCard() {
   const items = (characters ?? []).filter((character) => typeof character.id === "number");
   const atCap = items.length >= MAX_CHARACTERS;
 
-  const handleSave = async (name: string, file: File) => {
+  const handleSave = async (
+    name: string,
+    file: File,
+    likenessAttestation: CreateCharacterLikenessAttestation | null,
+  ) => {
     const objectPath = await upload(file);
     if (!objectPath) return;
     try {
-      await createCharacter.mutateAsync({ data: { name, sourceImagePath: objectPath } });
+      await createCharacter.mutateAsync({
+        data: { name, sourceImagePath: objectPath, likenessAttestation },
+      });
       await queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
       setAddOpen(false);
       toast({ title: "Character saved" });
@@ -244,7 +286,11 @@ function CharactersCard() {
     }
   };
 
-  const handleVerify = async (name: string, file: File) => {
+  const handleVerify = async (
+    name: string,
+    file: File,
+    likenessAttestation: CreateCharacterLikenessAttestation | null,
+  ) => {
     const objectPath = await upload(file);
     if (!objectPath) return;
     try {
@@ -259,6 +305,7 @@ function CharactersCard() {
           photoPath: objectPath,
           photoName: file.name,
           identityId: identity.id,
+          likenessAttestation,
         }),
       );
       window.location.assign(identity.verificationUrl);
@@ -333,6 +380,7 @@ function CharactersCard() {
           <Upload className="h-4 w-4 mr-2" /> Add character
         </Button>
         <AddSavedImageDialog
+          requireLikenessAttestation
           open={addOpen}
           onOpenChange={setAddOpen}
           title="Add a character"
@@ -342,8 +390,8 @@ function CharactersCard() {
             createCharacter.isPending ||
             startIdentityVerification.isPending
           }
-          onSave={(name, file) => void handleSave(name, file)}
-          onVerify={(name, file) => void handleVerify(name, file)}
+          onSave={(name, file, attestation) => void handleSave(name, file, attestation)}
+          onVerify={(name, file, attestation) => void handleVerify(name, file, attestation)}
         />
       </CardContent>
     </Card>

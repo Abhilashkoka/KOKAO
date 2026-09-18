@@ -8,19 +8,21 @@ const state = vi.hoisted(() => ({
 vi.mock("@workspace/db", () => {
   const column = (name: string) => ({ name });
   const table = new Proxy({}, { get: (_target, property) => column(String(property)) });
-  const query = () => ({
-    from: () => ({
-      where: () => ({
-        orderBy: () => ({ limit: async () => state.rows.shift() ?? [] }),
-        limit: async () => state.rows.shift() ?? [],
-      }),
-    }),
-  });
+  const terminal: Record<string, unknown> = {};
+  terminal.limit = async () => state.rows.shift() ?? [];
+  terminal.orderBy = () => terminal;
+  terminal.where = () => terminal;
+  terminal.leftJoin = () => terminal;
+  terminal.from = () => terminal;
+  const query = () => terminal;
   return {
     db: { select: () => query() },
     assetProvenanceTable: table,
     characterLikenessConsentGrantsTable: table,
     characterLikenessConsentRevocationsTable: table,
+    characterLikenessRecipientDisclosuresTable: table,
+    characterLikenessRecipientRevocationsTable: table,
+    tenantLikenessStandingDeclarationsTable: table,
     charactersTable: table,
     characterOutfitsTable: table,
   };
@@ -29,20 +31,37 @@ vi.mock("@workspace/db", () => {
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   desc: (value: unknown) => value,
+  isNull: (value: unknown) => value,
   eq: (column: { name: string }, value: unknown) => {
     state.eqValues.push([column.name, value]);
     return [column, value];
   },
 }));
 
-vi.mock("../provenancePolicy", () => ({
-  isWanPersonalLikenessModel: (provider: string, model: string) =>
-    provider === "atlascloud" &&
-    [
-      "alibaba/wan-3.0/reference-to-video",
-      "alibaba/wan-3.0-prime/reference-to-video",
-    ].includes(model),
-}));
+vi.mock("../provenancePolicy", async () => {
+  const { resolveLikenessRouting } = await import("../likenessProviderPolicy");
+  type Source = { referenceSource: string };
+  return {
+    isPersonalLikenessSource: (c: Source) => c.referenceSource === "uploaded",
+    requiresPerCharacterAttestation: (c: Source) => c.referenceSource === "uploaded",
+    requiresStandingDeclaration: (c: Source) => c.referenceSource === "generated",
+    routingSubjectClassFor: (c: Source) =>
+      c.referenceSource === "uploaded" ? "uploaded_self" : "generated_fictional",
+    standingDeclarationEnforced: () => false,
+    isLikenessEligibleVideoTarget: (
+      provider: string | null,
+      model: string | null,
+      subjectClass: "uploaded_self" | "uploaded_authorized_person" | "generated_fictional",
+    ) =>
+      resolveLikenessRouting({
+        surface: "video",
+        provider,
+        model,
+        operation: "video",
+        subjectClass,
+      }).allowed,
+  };
+});
 
 import {
   assertFrozenPersonalWanVideoConsent,
@@ -149,14 +168,25 @@ const grant = {
   sourceReferenceSource: "uploaded",
   sourcePath: CHAR_PATH,
   sourceSha256: CHAR_SHA,
-  policyVersion: "2026-09-17",
-  providers: ["atlascloud"],
+  subjectClass: "uploaded_self",
+  policyVersion: "2026-09-18",
   imageRightsConfirmed: true,
   adultConfirmed: true,
   likenessConfirmed: true,
   writtenPermissionConfirmed: true,
   allowOutfitEdits: true,
+  allowVideoDepiction: true,
   allowScriptedSpeech: true,
+};
+
+const disclosure = {
+  id: 601,
+  tenantId: TENANT,
+  characterId: CHARACTER_ID,
+  consentId: 811,
+  provider: "atlascloud",
+  model: MODEL,
+  operation: "video",
 };
 
 function member(extra: Record<string, unknown> = {}) {
@@ -185,15 +215,43 @@ function freezeInput(extra: Record<string, unknown> = {}) {
   } as any;
 }
 
-function frozenRows() {
-  return [[grant], [], [characterEvidence], [outfitEvidence], [sheetEvidence]];
+/** currentPolicyVersion, then latestGrant + revocation + disclosure, then proofs. */
+function frozenRows(overrides: { grant?: unknown; disclosure?: unknown } = {}) {
+  const g = overrides.grant === undefined ? grant : overrides.grant;
+  const d = overrides.disclosure === undefined ? disclosure : overrides.disclosure;
+  return [
+    g ? [g] : [],
+    g ? [g] : [],
+    [],
+    d ? [{ disclosure: d }] : [],
+    [characterEvidence], [outfitEvidence], [sheetEvidence],
+  ];
 }
 
 function recheckRows(revocation: unknown[] = []) {
-  return [[character], [grant], revocation, [outfit], [characterEvidence], [outfitEvidence], [sheetEvidence]];
+  return [
+    [character],
+    [grant], revocation, [{ disclosure }],
+    [outfit],
+    [characterEvidence], [outfitEvidence], [sheetEvidence],
+  ];
 }
 
-describe("personal Wan likeness authorization", () => {
+/** Same read order as recheckRows, with the grant row swapped. */
+function withRecheckGrant(replacement: unknown) {
+  const rows = recheckRows();
+  rows[1] = [replacement];
+  return rows;
+}
+
+/** Same read order as recheckRows, with the character provenance row swapped. */
+function withRecheckEvidence(replacement: unknown) {
+  const rows = recheckRows();
+  rows[5] = [replacement];
+  return rows;
+}
+
+describe("personal likeness video authorization", () => {
   beforeEach(() => {
     state.rows = [];
     state.eqValues = [];
@@ -203,7 +261,8 @@ describe("personal Wan likeness authorization", () => {
     state.rows = frozenRows();
     const frozen = await freezePersonalWanVideoConsent(freezeInput({ scriptedSpeech: true }));
     expect(frozen).toMatchObject({
-      provider: "atlascloud", model: MODEL, scriptedSpeech: true,
+      version: 2, provider: "atlascloud", model: MODEL, scriptedSpeech: true,
+      subjectClass: "uploaded_self", recipientDisclosureId: disclosure.id,
       consent: { consentId: grant.id, sourcePath: CHAR_PATH, sourceSha256: CHAR_SHA },
       outfit: { id: OUTFIT_ID, referenceImagePath: OUTFIT_PATH, sha256: OUTFIT_SHA },
     });
@@ -211,7 +270,7 @@ describe("personal Wan likeness authorization", () => {
   });
 
   it("rejects missing, revoked, or replacement grants rather than silently changing consent", async () => {
-    state.rows = [[]];
+    state.rows = frozenRows({ grant: null });
     await expect(freezePersonalWanVideoConsent(freezeInput()))
       .rejects.toBeInstanceOf(PersonalLikenessVideoError);
 
@@ -222,11 +281,11 @@ describe("personal Wan likeness authorization", () => {
     await expect(assertFrozenPersonalWanVideoConsent({
       tenantId: TENANT, snapshot: frozen, characterSha256: CHAR_SHA,
       outfitSha256: OUTFIT_SHA, referenceSheetSha256: SHEET_SHA,
-    })).rejects.toThrow("no longer current");
+    })).rejects.toThrow("withdrawn");
 
-    state.rows = recheckRows().map((rows, index) =>
-      index === 1 ? [{ ...grant, id: grant.id + 1 }] : rows,
-    );
+    // A newer grant must never be silently substituted for the one this job
+    // was funded against.
+    state.rows = withRecheckGrant({ ...grant, id: grant.id + 1 });
     await expect(assertFrozenPersonalWanVideoConsent({
       tenantId: TENANT, snapshot: frozen, characterSha256: CHAR_SHA,
       outfitSha256: OUTFIT_SHA, referenceSheetSha256: SHEET_SHA,
@@ -234,7 +293,7 @@ describe("personal Wan likeness authorization", () => {
   });
 
   it("denies source, parent/proof, tenant, model, and missing scope mismatches", async () => {
-    state.rows = [[{ ...grant, sourceSha256: "d".repeat(64) }]];
+    state.rows = frozenRows({ grant: { ...grant, sourceSha256: "d".repeat(64) } });
     await expect(freezePersonalWanVideoConsent(freezeInput()))
       .rejects.toBeInstanceOf(PersonalLikenessVideoError);
 
@@ -249,18 +308,37 @@ describe("personal Wan likeness authorization", () => {
       }),
     }))).rejects.toThrow("source, ancestry, tenant, or provider");
 
+    // The Wan-only allowlist now comes from the reviewed provider declaration
+    // rather than an inlined branch, and reports itself as such.
     state.rows = frozenRows();
     await expect(freezePersonalWanVideoConsent(freezeInput({
       model: "alibaba/wan-3.0/image-to-video",
-    }))).rejects.toThrow("only for exact Atlas Wan");
+    }))).rejects.toThrow("accepts a real likeness only on these exact models");
 
-    state.rows = [[{ ...grant, allowOutfitEdits: false }]];
+    // A provider whose classifier refuses photorealistic humans is refused
+    // before any funding is reserved, whatever the attestation says.
+    state.rows = frozenRows();
+    await expect(freezePersonalWanVideoConsent(freezeInput({
+      provider: "replicate", model: "wan-video/wan-2.2-i2v-fast",
+    }))).rejects.toThrow(/refuses|never receive/);
+
+    state.rows = frozenRows({ grant: { ...grant, allowOutfitEdits: false } });
     await expect(freezePersonalWanVideoConsent(freezeInput()))
       .rejects.toBeInstanceOf(PersonalLikenessVideoError);
 
-    state.rows = [[{ ...grant, allowScriptedSpeech: false }]];
+    state.rows = frozenRows({ grant: { ...grant, allowVideoDepiction: false } });
+    await expect(freezePersonalWanVideoConsent(freezeInput()))
+      .rejects.toThrow("video depiction");
+
+    state.rows = frozenRows({ grant: { ...grant, allowScriptedSpeech: false } });
     await expect(freezePersonalWanVideoConsent(freezeInput({ scriptedSpeech: true })))
-      .rejects.toThrow("scripted-speech");
+      .rejects.toThrow("scripted speech");
+
+    // An unacknowledged recipient blocks the submission without touching the
+    // attestation, which remains true and reusable.
+    state.rows = frozenRows({ disclosure: null });
+    await expect(freezePersonalWanVideoConsent(freezeInput()))
+      .rejects.toThrow("does not require re-attesting");
 
     state.rows = frozenRows();
     await expect(freezePersonalWanVideoConsent(freezeInput({
@@ -273,7 +351,8 @@ describe("personal Wan likeness authorization", () => {
       character: { ...character, referenceSource: "generated" },
     }))).resolves.toBeNull();
     const frozen = {
-      version: 1, provider: "atlascloud", model: MODEL,
+      version: 2, provider: "atlascloud", model: MODEL,
+      subjectClass: "uploaded_self", recipientDisclosureId: disclosure.id,
       consent: { consentId: grant.id, sourcePath: CHAR_PATH, sourceSha256: CHAR_SHA, policyVersion: grant.policyVersion },
       character: { id: CHARACTER_ID, referenceImagePath: CHAR_PATH, sha256: CHAR_SHA, proof: proof(characterEvidence) },
       outfit: { id: OUTFIT_ID, referenceImagePath: OUTFIT_PATH, sha256: OUTFIT_SHA, proof: proof(outfitEvidence) },
@@ -297,9 +376,7 @@ describe("personal Wan likeness authorization", () => {
       outfitSha256: OUTFIT_SHA, referenceSheetSha256: SHEET_SHA,
     })).rejects.toThrow("source or approved references");
 
-    state.rows = recheckRows().map((rows, index) =>
-      index === 4 ? [{ ...characterEvidence, tenantId: TENANT + 1 }] : rows,
-    );
+    state.rows = withRecheckEvidence({ ...characterEvidence, tenantId: TENANT + 1 });
     await expect(assertFrozenPersonalWanVideoConsent({
       tenantId: TENANT, snapshot: frozen, characterSha256: CHAR_SHA,
       outfitSha256: OUTFIT_SHA, referenceSheetSha256: SHEET_SHA,

@@ -21,10 +21,6 @@ export interface GrantCharacterLikenessConsentRequest {
   likenessConfirmed: boolean;
   writtenPermissionConfirmed: boolean;
   allowOutfitEdits: boolean;
+  allowVideoDepiction: boolean;
   allowScriptedSpeech: boolean;
-  /**
-     * @minItems 1
-     * @maxItems 1
-     */
-  providers: 'atlascloud'[];
 }

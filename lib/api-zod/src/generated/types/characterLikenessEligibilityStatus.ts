@@ -14,4 +14,5 @@ export const CharacterLikenessEligibilityStatus = {
   consent_required: 'consent_required',
   verification_required: 'verification_required',
   unsupported: 'unsupported',
+  provider_refused: 'provider_refused',
 } as const;

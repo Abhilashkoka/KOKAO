@@ -6,16 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CharacterLikenessConsentSubject } from './characterLikenessConsentSubject';
+import type { CharacterLikenessSubjectClass } from './characterLikenessSubjectClass';
 
 export interface CharacterLikenessConsent {
   id: number;
   subject: CharacterLikenessConsentSubject;
-  /**
-     * @minItems 1
-     * @maxItems 1
-     */
-  providers: 'atlascloud'[];
+  subjectClass: CharacterLikenessSubjectClass;
   allowOutfitEdits: boolean;
+  allowVideoDepiction: boolean;
   allowScriptedSpeech: boolean;
   grantedAt: Date;
   /** @nullable */

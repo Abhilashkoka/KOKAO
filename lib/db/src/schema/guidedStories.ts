@@ -7,6 +7,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import type { AssetProvenanceAncestry } from "./assetProvenance";
+import type { LikenessSubjectClass } from "./characterLikenessConsent";
 
 export type GuidedStoryGenre =
   | "action_adventure"
@@ -95,18 +96,7 @@ export interface GuidedStoryProvenanceEvidence {
   parentSha256?: string | null;
 }
 
-/**
- * Server-frozen authorization for the exceptionally narrow case where a
- * consented uploaded adult likeness is rendered by Atlas Wan reference-to-video.
- * This is intentionally a cast property: it cannot be supplied by a client or
- * inferred from a display/source label at dispatch time.
- */
-export interface PersonalLikenessVideoSnapshot {
-  version: 1;
-  provider: "atlascloud";
-  model:
-    | "alibaba/wan-3.0/reference-to-video"
-    | "alibaba/wan-3.0-prime/reference-to-video";
+interface PersonalLikenessVideoSnapshotCommon {
   consent: {
     consentId: number;
     sourcePath: string;
@@ -133,6 +123,47 @@ export interface PersonalLikenessVideoSnapshot {
   /** True only when the frozen script required this grant scope. */
   scriptedSpeech: boolean;
 }
+
+/**
+ * Version 1: the original Atlas-Wan-only authorization. Retained verbatim so
+ * that job rows frozen before the universal attestation shipped stay readable
+ * and keep rendering under exactly the authorization they were funded against.
+ * No new snapshot is written at this version.
+ */
+export interface PersonalLikenessVideoSnapshotV1
+  extends PersonalLikenessVideoSnapshotCommon {
+  version: 1;
+  provider: "atlascloud";
+  model:
+    | "alibaba/wan-3.0/reference-to-video"
+    | "alibaba/wan-3.0-prime/reference-to-video";
+}
+
+/**
+ * Version 2: provider-independent. The recipient is whatever the reviewed
+ * per-provider declaration allows, and the acknowledged disclosure row is
+ * frozen alongside the grant so a job stays bound to the exact recipient the
+ * user was shown — not merely to a provider name that could later be
+ * re-pointed at a different model.
+ */
+export interface PersonalLikenessVideoSnapshotV2
+  extends PersonalLikenessVideoSnapshotCommon {
+  version: 2;
+  provider: string;
+  model: string;
+  subjectClass: LikenessSubjectClass;
+  /** null for generated cast covered by the tenant standing declaration. */
+  recipientDisclosureId: number | null;
+}
+
+/**
+ * Server-frozen authorization for rendering an attested human likeness. This is
+ * intentionally a cast property: it cannot be supplied by a client or inferred
+ * from a display/source label at dispatch time.
+ */
+export type PersonalLikenessVideoSnapshot =
+  | PersonalLikenessVideoSnapshotV1
+  | PersonalLikenessVideoSnapshotV2;
 
 export interface GuidedStoryCastSnapshot {
   roleId: string;

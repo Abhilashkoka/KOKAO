@@ -15,4 +15,5 @@ export const CharacterLikenessConsentResponseStatus = {
   active: 'active',
   revoked: 'revoked',
   stale: 'stale',
+  needs_recipient_acknowledgement: 'needs_recipient_acknowledgement',
 } as const;

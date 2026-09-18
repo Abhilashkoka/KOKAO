@@ -3691,6 +3691,18 @@ describe("Video Studio", () => {
         description: "Founder",
         photoPath: "/objects/1/uploads/maya.png",
         photoName: "maya.png",
+        // The attestation is ticked before the verification redirect and must
+        // come back with the draft rather than being asked for twice.
+        likenessAttestation: {
+          subject: "self",
+          imageRightsConfirmed: true,
+          adultConfirmed: true,
+          likenessConfirmed: true,
+          writtenPermissionConfirmed: false,
+          allowOutfitEdits: true,
+          allowVideoDepiction: true,
+          allowScriptedSpeech: false,
+        },
       }),
     );
     window.history.replaceState(
@@ -3711,6 +3723,11 @@ describe("Video Studio", () => {
       description: "Founder",
       sourceImagePath: "/objects/1/uploads/maya.png",
       identityId: 71,
+      likenessAttestation: expect.objectContaining({
+        subject: "self",
+        imageRightsConfirmed: true,
+        allowVideoDepiction: true,
+      }),
     });
     expect(window.location.search).toBe("");
   });

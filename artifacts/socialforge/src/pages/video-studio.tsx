@@ -123,6 +123,13 @@ import {
 } from "@/components/character-provenance";
 import { CharacterLikenessConsent } from "@/components/character-likeness-consent";
 import {
+  CharacterCreationAttestation,
+  creationAttestationComplete,
+  creationAttestationPayload,
+  emptyCreationAttestation,
+  type CreationAttestationDraft,
+} from "@/components/character-creation-attestation";
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -11011,6 +11018,8 @@ function CharacterManagerDialog({
   const [description, setDescription] = useState("");
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState("");
+  const [creationAttestation, setCreationAttestation] =
+    useState<CreationAttestationDraft>(emptyCreationAttestation);
   const [selectedIdentityId, setSelectedIdentityId] = useState<number | null>(null);
   const [verificationCharacterId, setVerificationCharacterId] = useState<number | null>(
     null,
@@ -11064,11 +11073,13 @@ function CharacterManagerDialog({
           photoName?: string;
           identityId?: number;
           existingCharacterId?: number;
+          likenessAttestation?: CreationAttestationDraft;
         };
         setName(draft.name ?? "");
         setDescription(draft.description ?? "");
         setPhotoPath(draft.photoPath ?? null);
         setPhotoName(draft.photoName ?? "");
+        setCreationAttestation(draft.likenessAttestation ?? emptyCreationAttestation);
         if (Number.isInteger(draft.identityId) && Number(draft.identityId) > 0) {
           setSelectedIdentityId(Number(draft.identityId));
         }
@@ -11185,6 +11196,9 @@ function CharacterManagerDialog({
           description: description.trim() || null,
           sourceImagePath: photoPath,
           identityId: selectedIdentity?.status === "verified" ? selectedIdentity.id : null,
+          likenessAttestation: photoPath
+            ? creationAttestationPayload(creationAttestation)
+            : null,
         },
       },
       {
@@ -11193,6 +11207,7 @@ function CharacterManagerDialog({
           setDescription("");
           setPhotoPath(null);
           setPhotoName("");
+          setCreationAttestation(emptyCreationAttestation);
           setSelectedIdentityId(null);
           setVerificationCharacterId(null);
           sessionStorage.removeItem("kokao-character-verification-draft");
@@ -11223,6 +11238,7 @@ function CharacterManagerDialog({
               photoPath,
               photoName,
               identityId: identity.id,
+              likenessAttestation: creationAttestation,
             }),
           );
           window.location.assign(identity.verificationUrl);
@@ -11575,6 +11591,9 @@ function CharacterManagerDialog({
   const canCreate =
     name.trim().length >= 1 &&
     (description.trim().length >= 3 || photoPath !== null) &&
+    // An uploaded photo cannot be submitted without its attestation; the server
+    // enforces this too, but disabling here avoids a pointless round trip.
+    (photoPath === null || creationAttestationComplete(creationAttestation)) &&
     !createCharacter.isPending &&
     !uploading;
   const selectedIdentity =
@@ -11650,6 +11669,12 @@ function CharacterManagerDialog({
                 />
               </div>
             </div>
+            {photoPath && (
+              <CharacterCreationAttestation
+                value={creationAttestation}
+                onChange={setCreationAttestation}
+              />
+            )}
             {photoPath && (
               <div
                 className="space-y-2 rounded-md border border-border bg-muted/30 p-3"

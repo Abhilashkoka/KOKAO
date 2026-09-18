@@ -29,10 +29,49 @@ import {
   selectAtlasGenerationReferenceId,
 } from "./atlascloud/assetId";
 import { VIDEO_PROCESS_INSTANCE_ID } from "./videoGen/processInstance";
+import { evaluateLikenessSubmission, latestGrant } from "./likenessConsent";
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 
 const storage = new ObjectStorageService();
+
+/**
+ * Asset-library registration is a likeness submission like any other: the bytes
+ * leave the process and are retained by the provider under an id. It used to be
+ * the one lane with no KOKAO-side rights record, decided purely on whether a
+ * BytePlus identity row said "verified" — which is the provider's check, not
+ * ours, and leaves nothing behind if the provider ever asks.
+ *
+ * Returns an error string in the same shape as the sync source guards, so call
+ * sites keep their existing fail() paths.
+ */
+export const ASSET_LIBRARY_RECIPIENT_MODEL = "asset-library";
+
+async function assetRegistrationLikenessError(args: {
+  tenantId: number;
+  character: Character;
+  /** Asset libraries are declared on the video surface in both registries. */
+  provider: "atlascloud" | "byteplus";
+  /** True once the provider's own identity verification has been confirmed. */
+  verifiedIdentitySatisfied: boolean;
+  sourceSha256: string;
+}): Promise<string | null> {
+  const policyVersion =
+    (await latestGrant(args.tenantId, args.character.id))?.policyVersion ?? "";
+  const decision = await evaluateLikenessSubmission({
+    tenantId: args.tenantId,
+    character: args.character,
+    surface: "video",
+    provider: args.provider,
+    model: ASSET_LIBRARY_RECIPIENT_MODEL,
+    operation: "asset_registration",
+    sourceSha256: args.sourceSha256,
+    policyVersion,
+    needs: {},
+    verifiedIdentitySatisfied: args.verifiedIdentitySatisfied,
+  });
+  return decision.status === "blocked" ? decision.reason : null;
+}
 
 function newAtlasAssetLeaseOwner(): string {
   return `${VIDEO_PROCESS_INSTANCE_ID}:${randomUUID()}`;
@@ -110,6 +149,20 @@ export async function registerOutfitAsset(args: {
     if (identity?.status !== "verified" || !identity.assetGroupId) {
       return fail("The linked real person has not completed BytePlus verification.");
     }
+    // Provider verification and KOKAO's own rights record are separate claims.
+    // Having the first has never implied the second; now it cannot stand in
+    // for it either.
+    const likenessError = await assetRegistrationLikenessError({
+      tenantId: args.tenantId,
+      character: args.character,
+      provider: "byteplus",
+      verifiedIdentitySatisfied: true,
+      sourceSha256: await atlasSourceSha256(
+        args.character.referenceImagePath,
+        args.tenantId,
+      ).catch(() => ""),
+    });
+    if (likenessError) return fail(likenessError);
     groupId = identity.assetGroupId;
   } else {
     groupId = args.character.bytePlusAssetGroupId;

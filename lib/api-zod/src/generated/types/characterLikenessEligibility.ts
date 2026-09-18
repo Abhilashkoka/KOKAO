@@ -5,12 +5,15 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { CharacterLikenessEligibilityModelFamily } from './characterLikenessEligibilityModelFamily';
 import type { CharacterLikenessEligibilityStatus } from './characterLikenessEligibilityStatus';
+import type { CharacterLikenessEligibilitySurface } from './characterLikenessEligibilitySurface';
 
 export interface CharacterLikenessEligibility {
-  provider: 'atlascloud';
-  modelFamily: CharacterLikenessEligibilityModelFamily;
+  surface: CharacterLikenessEligibilitySurface;
+  provider: string;
+  modelFamily: string;
+  /** A provider-side identity check the attestation records but never replaces. */
+  requiresVerifiedIdentity: boolean;
   status: CharacterLikenessEligibilityStatus;
   reason: string;
 }

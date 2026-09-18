@@ -9,17 +9,38 @@ const state = vi.hoisted(() => ({
     sourceSha256: "a".repeat(64),
     policyVersion: "likeness-2026-01",
     statement: "Atlas Cloud receives this source image for Wan reference-to-video processing.",
+    subjectClass: "uploaded_self" as const,
     consent: null as {
       id: number;
       subject: "self" | "authorized_person";
-      providers: string[];
+      subjectClass: string;
       allowOutfitEdits: boolean;
+      allowVideoDepiction: boolean;
       allowScriptedSpeech: boolean;
     } | null,
+    recipients: [] as Array<{
+      id: number;
+      provider: string;
+      model: string;
+      operation: string;
+      scopeLabel: string;
+      acknowledgedAt: string;
+      revokedAt: string | null;
+    }>,
+    pendingRecipients: [] as Array<{
+      operation: string;
+      provider: string;
+      model: string;
+      scopeLabel: string;
+      providerAccepts: boolean;
+      reason: string | null;
+    }>,
     eligibility: [
       {
+        surface: "video",
         provider: "atlascloud",
         modelFamily: "Wan 3.0 / Prime reference-to-video",
+        requiresVerifiedIdentity: false,
         status: "consent_required",
         reason: "Grant authorization first.",
       },
@@ -27,6 +48,8 @@ const state = vi.hoisted(() => ({
   },
   grant: vi.fn(),
   revoke: vi.fn(),
+  acknowledgeRecipient: vi.fn(),
+  revokeRecipient: vi.fn(),
 }));
 
 vi.mock("@expo/vector-icons", () => ({
@@ -53,6 +76,20 @@ vi.mock("@workspace/api-client-react", () => ({
       callbacks.onSuccess?.();
     },
   }),
+  useAcknowledgeCharacterLikenessRecipient: () => ({
+    isPending: false,
+    mutate: (variables: unknown, callbacks: { onSuccess?: () => void }) => {
+      state.acknowledgeRecipient?.(variables);
+      callbacks.onSuccess?.();
+    },
+  }),
+  useRevokeCharacterLikenessRecipient: () => ({
+    isPending: false,
+    mutate: (variables: unknown, callbacks: { onSuccess?: () => void }) => {
+      state.revokeRecipient?.(variables);
+      callbacks.onSuccess?.();
+    },
+  }),
 }));
 
 import { CharacterLikenessConsent } from "../components/CharacterLikenessConsent";
@@ -74,11 +111,16 @@ describe("mobile personal likeness authorization", () => {
       sourceSha256: "a".repeat(64),
       policyVersion: "likeness-2026-01",
       statement: "Atlas Cloud receives this source image for Wan reference-to-video processing.",
+      subjectClass: "uploaded_self",
       consent: null,
+      recipients: [],
+      pendingRecipients: [],
       eligibility: [
         {
+          surface: "video",
           provider: "atlascloud",
           modelFamily: "Wan 3.0 / Prime reference-to-video",
+          requiresVerifiedIdentity: false,
           status: "consent_required",
           reason: "Grant authorization first.",
         },
@@ -109,7 +151,7 @@ describe("mobile personal likeness authorization", () => {
         writtenPermissionConfirmed: false,
         allowOutfitEdits: false,
         allowScriptedSpeech: false,
-        providers: ["atlascloud"],
+        allowVideoDepiction: false,
       },
     }));
   });
@@ -140,17 +182,106 @@ describe("mobile personal likeness authorization", () => {
       consent: {
         id: 31,
         subject: "self",
-        providers: ["atlascloud"],
+        subjectClass: "uploaded_self",
         allowOutfitEdits: true,
+        allowVideoDepiction: true,
         allowScriptedSpeech: false,
       },
+      recipients: [
+        {
+          id: 501,
+          provider: "atlascloud",
+          model: "alibaba/wan-3.0/reference-to-video",
+          operation: "video",
+          scopeLabel: "video|Atlas Cloud / alibaba/wan-3.0/reference-to-video",
+          acknowledgedAt: "2026-09-18T00:00:00.000Z",
+          revokedAt: null,
+        },
+      ],
     };
     renderConsent();
     expect(screen.getByText("Consent active")).toBeTruthy();
-    expect(screen.getByText("Provider recipients: atlascloud")).toBeTruthy();
+    expect(
+      screen.getByText(/Providers receiving this likeness: video\|Atlas Cloud/),
+    ).toBeTruthy();
     expect(screen.getByText(/Withdrawing blocks future dispatch only/)).toBeTruthy();
     fireEvent.click(screen.getByTestId("revoke-likeness-consent-7"));
     await waitFor(() => expect(state.revoke).toHaveBeenCalledWith({ characterId: 7 }));
+  });
+
+  it("withdraws one recipient without revoking the attestation", async () => {
+    state.response = {
+      ...state.response,
+      status: "active",
+      consent: {
+        id: 31,
+        subject: "self",
+        subjectClass: "uploaded_self",
+        allowOutfitEdits: true,
+        allowVideoDepiction: true,
+        allowScriptedSpeech: false,
+      },
+      recipients: [
+        {
+          id: 501,
+          provider: "atlascloud",
+          model: "alibaba/wan-3.0/reference-to-video",
+          operation: "video",
+          scopeLabel: "video|Atlas Cloud / alibaba/wan-3.0/reference-to-video",
+          acknowledgedAt: "2026-09-18T00:00:00.000Z",
+          revokedAt: null,
+        },
+      ],
+    };
+    renderConsent();
+    fireEvent.click(screen.getByTestId("likeness-withdraw-501"));
+    await waitFor(() =>
+      expect(state.revokeRecipient).toHaveBeenCalledWith({
+        characterId: 7,
+        disclosureId: 501,
+      }),
+    );
+    expect(state.revoke).not.toHaveBeenCalled();
+  });
+
+  it("confirms a newly routed provider without re-attesting", async () => {
+    state.response = {
+      ...state.response,
+      status: "needs_recipient_acknowledgement",
+      consent: {
+        id: 31,
+        subject: "self",
+        subjectClass: "uploaded_self",
+        allowOutfitEdits: true,
+        allowVideoDepiction: true,
+        allowScriptedSpeech: false,
+      },
+      pendingRecipients: [
+        {
+          operation: "outfit",
+          provider: "openai",
+          model: "gpt-image-1",
+          scopeLabel: "outfit|OpenAI / gpt-image-1",
+          providerAccepts: true,
+          reason: null,
+        },
+      ],
+    };
+    renderConsent();
+    fireEvent.click(screen.getByTestId("likeness-confirm-openai-outfit-7"));
+    await waitFor(() =>
+      expect(state.acknowledgeRecipient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          characterId: 7,
+          data: expect.objectContaining({
+            provider: "openai",
+            model: "gpt-image-1",
+            operation: "outfit",
+          }),
+        }),
+      ),
+    );
+    expect(state.grant).not.toHaveBeenCalled();
   });
 
   it("shows a source change as stale instead of silently reusing consent", () => {

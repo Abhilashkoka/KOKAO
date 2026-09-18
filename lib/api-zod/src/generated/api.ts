@@ -3695,13 +3695,26 @@ export const createCharacterBodyNameMax = 80;
 
 export const createCharacterBodyDescriptionMax = 1000;
 
+export const createCharacterBodyLikenessAttestationOnePolicyVersionMax = 160;
+
 
 
 export const CreateCharacterBody = zod.object({
   "name": zod.string().min(1).max(createCharacterBodyNameMax),
   "description": zod.string().max(createCharacterBodyDescriptionMax).nullish().describe('Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).'),
   "sourceImagePath": zod.string().nullish().describe('Optional uploaded reference photo (\/objects\/... path). Used as the character\'s canonical reference. The separate multi-view sheet is still generated as a billed, reference-required image.'),
-  "identityId": zod.number().nullish().describe('A liveness-verified BytePlus identity. Requires sourceImagePath; generated portraits cannot be filed as a verified real person.')
+  "identityId": zod.number().nullish().describe('A liveness-verified BytePlus identity. Requires sourceImagePath; generated portraits cannot be filed as a verified real person.'),
+  "likenessAttestation": zod.union([zod.object({
+  "policyVersion": zod.string().min(1).max(createCharacterBodyLikenessAttestationOnePolicyVersionMax).nullish().describe('Optional. Send it only when the exact server statement was displayed verbatim, to assert the user saw that version. Omitted at creation, where the form shows a summary and the server stamps its own current version into the stored grant alongside the authoritative statement text. Creation therefore never depends on an extra round trip.'),
+  "subject": zod.enum(['self', 'authorized_person']),
+  "imageRightsConfirmed": zod.boolean(),
+  "adultConfirmed": zod.boolean(),
+  "likenessConfirmed": zod.boolean(),
+  "writtenPermissionConfirmed": zod.boolean(),
+  "allowOutfitEdits": zod.boolean(),
+  "allowVideoDepiction": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean()
+}),zod.null()]).optional().describe('Required when sourceImagePath is given. Recorded in the SAME transaction as the character, so an uploaded likeness can never exist without its rights attestation and the user cannot spend reference-sheet or wardrobe credits before the gate is satisfied.')
 })
 
 export const createCharacterResponseProtectedRegionOneXMin = 0;
@@ -4303,29 +4316,48 @@ export const GetCharacterLikenessConsentParams = zod.object({
 })
 
 export const getCharacterLikenessConsentResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
-export const getCharacterLikenessConsentResponseDataConsentOneProvidersMax = 1;
-
 
 
 export const GetCharacterLikenessConsentResponse = zod.object({
   "data": zod.object({
-  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale']),
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale', 'needs_recipient_acknowledgement']),
   "sourceSha256": zod.string().regex(getCharacterLikenessConsentResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
-  "policyVersion": zod.string().describe('Version including the disclosed image-recipient scope fingerprint.'),
+  "policyVersion": zod.string().describe('Version of the attestation TEXT only. Deliberately independent of provider routing, so changing a provider never marks a truthful statement about the depicted person stale.'),
   "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']).optional(),
   "consent": zod.union([zod.object({
   "id": zod.number(),
   "subject": zod.enum(['self', 'authorized_person']),
-  "providers": zod.array(zod.literal("atlascloud")).min(1).max(getCharacterLikenessConsentResponseDataConsentOneProvidersMax),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']),
   "allowOutfitEdits": zod.boolean(),
+  "allowVideoDepiction": zod.boolean(),
   "allowScriptedSpeech": zod.boolean(),
   "grantedAt": zod.coerce.date(),
   "revokedAt": zod.coerce.date().nullable()
 }),zod.null()]),
+  "recipients": zod.array(zod.object({
+  "id": zod.number(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "scopeLabel": zod.string(),
+  "acknowledgedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+})).optional().describe('Every provider disclosed under this attestation, with any withdrawal.'),
+  "pendingRecipients": zod.array(zod.object({
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "scopeLabel": zod.string(),
+  "providerAccepts": zod.boolean().describe('False when the reviewed provider policy refuses this likeness class.'),
+  "reason": zod.string().nullable()
+})).optional().describe('Recipients the current routing needs that have not been acknowledged. A one-click gap, never a reason to re-sign the attestation.'),
   "eligibility": zod.array(zod.object({
-  "provider": zod.literal("atlascloud"),
-  "modelFamily": zod.enum(['alibaba/wan-3.0/reference-to-video', 'alibaba/wan-3.0-prime/reference-to-video']),
-  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported']),
+  "surface": zod.enum(['image', 'video']),
+  "provider": zod.string(),
+  "modelFamily": zod.string(),
+  "requiresVerifiedIdentity": zod.boolean().describe('A provider-side identity check the attestation records but never replaces.'),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported', 'provider_refused']),
   "reason": zod.string()
 }))
 })
@@ -4345,8 +4377,6 @@ export const GrantCharacterLikenessConsentParams = zod.object({
 export const grantCharacterLikenessConsentBodySourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const grantCharacterLikenessConsentBodyPolicyVersionMax = 160;
 
-export const grantCharacterLikenessConsentBodyProvidersMax = 1;
-
 
 
 export const GrantCharacterLikenessConsentBody = zod.object({
@@ -4358,34 +4388,53 @@ export const GrantCharacterLikenessConsentBody = zod.object({
   "likenessConfirmed": zod.boolean(),
   "writtenPermissionConfirmed": zod.boolean(),
   "allowOutfitEdits": zod.boolean(),
-  "allowScriptedSpeech": zod.boolean(),
-  "providers": zod.array(zod.literal("atlascloud")).min(1).max(grantCharacterLikenessConsentBodyProvidersMax)
+  "allowVideoDepiction": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean()
 })
 
 export const grantCharacterLikenessConsentResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
-export const grantCharacterLikenessConsentResponseDataConsentOneProvidersMax = 1;
-
 
 
 export const GrantCharacterLikenessConsentResponse = zod.object({
   "data": zod.object({
-  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale']),
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale', 'needs_recipient_acknowledgement']),
   "sourceSha256": zod.string().regex(grantCharacterLikenessConsentResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
-  "policyVersion": zod.string().describe('Version including the disclosed image-recipient scope fingerprint.'),
+  "policyVersion": zod.string().describe('Version of the attestation TEXT only. Deliberately independent of provider routing, so changing a provider never marks a truthful statement about the depicted person stale.'),
   "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']).optional(),
   "consent": zod.union([zod.object({
   "id": zod.number(),
   "subject": zod.enum(['self', 'authorized_person']),
-  "providers": zod.array(zod.literal("atlascloud")).min(1).max(grantCharacterLikenessConsentResponseDataConsentOneProvidersMax),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']),
   "allowOutfitEdits": zod.boolean(),
+  "allowVideoDepiction": zod.boolean(),
   "allowScriptedSpeech": zod.boolean(),
   "grantedAt": zod.coerce.date(),
   "revokedAt": zod.coerce.date().nullable()
 }),zod.null()]),
+  "recipients": zod.array(zod.object({
+  "id": zod.number(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "scopeLabel": zod.string(),
+  "acknowledgedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+})).optional().describe('Every provider disclosed under this attestation, with any withdrawal.'),
+  "pendingRecipients": zod.array(zod.object({
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "scopeLabel": zod.string(),
+  "providerAccepts": zod.boolean().describe('False when the reviewed provider policy refuses this likeness class.'),
+  "reason": zod.string().nullable()
+})).optional().describe('Recipients the current routing needs that have not been acknowledged. A one-click gap, never a reason to re-sign the attestation.'),
   "eligibility": zod.array(zod.object({
-  "provider": zod.literal("atlascloud"),
-  "modelFamily": zod.enum(['alibaba/wan-3.0/reference-to-video', 'alibaba/wan-3.0-prime/reference-to-video']),
-  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported']),
+  "surface": zod.enum(['image', 'video']),
+  "provider": zod.string(),
+  "modelFamily": zod.string(),
+  "requiresVerifiedIdentity": zod.boolean().describe('A provider-side identity check the attestation records but never replaces.'),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported', 'provider_refused']),
   "reason": zod.string()
 }))
 })
@@ -4410,31 +4459,232 @@ export const RevokeCharacterLikenessConsentBody = zod.object({
 })
 
 export const revokeCharacterLikenessConsentResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
-export const revokeCharacterLikenessConsentResponseDataConsentOneProvidersMax = 1;
-
 
 
 export const RevokeCharacterLikenessConsentResponse = zod.object({
   "data": zod.object({
-  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale']),
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale', 'needs_recipient_acknowledgement']),
   "sourceSha256": zod.string().regex(revokeCharacterLikenessConsentResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
-  "policyVersion": zod.string().describe('Version including the disclosed image-recipient scope fingerprint.'),
+  "policyVersion": zod.string().describe('Version of the attestation TEXT only. Deliberately independent of provider routing, so changing a provider never marks a truthful statement about the depicted person stale.'),
   "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']).optional(),
   "consent": zod.union([zod.object({
   "id": zod.number(),
   "subject": zod.enum(['self', 'authorized_person']),
-  "providers": zod.array(zod.literal("atlascloud")).min(1).max(revokeCharacterLikenessConsentResponseDataConsentOneProvidersMax),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']),
   "allowOutfitEdits": zod.boolean(),
+  "allowVideoDepiction": zod.boolean(),
   "allowScriptedSpeech": zod.boolean(),
   "grantedAt": zod.coerce.date(),
   "revokedAt": zod.coerce.date().nullable()
 }),zod.null()]),
+  "recipients": zod.array(zod.object({
+  "id": zod.number(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "scopeLabel": zod.string(),
+  "acknowledgedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+})).optional().describe('Every provider disclosed under this attestation, with any withdrawal.'),
+  "pendingRecipients": zod.array(zod.object({
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "scopeLabel": zod.string(),
+  "providerAccepts": zod.boolean().describe('False when the reviewed provider policy refuses this likeness class.'),
+  "reason": zod.string().nullable()
+})).optional().describe('Recipients the current routing needs that have not been acknowledged. A one-click gap, never a reason to re-sign the attestation.'),
   "eligibility": zod.array(zod.object({
-  "provider": zod.literal("atlascloud"),
-  "modelFamily": zod.enum(['alibaba/wan-3.0/reference-to-video', 'alibaba/wan-3.0-prime/reference-to-video']),
-  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported']),
+  "surface": zod.enum(['image', 'video']),
+  "provider": zod.string(),
+  "modelFamily": zod.string(),
+  "requiresVerifiedIdentity": zod.boolean().describe('A provider-side identity check the attestation records but never replaces.'),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported', 'provider_refused']),
   "reason": zod.string()
 }))
+})
+})
+
+
+/**
+ * Adding a provider costs one acknowledgement rather than a re-signature, because the attestation covers the depicted person and does not change when the routing does. A recipient the reviewed provider policy refuses cannot be acknowledged.
+ * @summary Acknowledge one disclosed recipient under the current attestation
+ */
+
+
+
+export const AcknowledgeCharacterLikenessRecipientParams = zod.object({
+  "characterId": zod.coerce.number().min(1)
+})
+
+
+export const acknowledgeCharacterLikenessRecipientBodyProviderMax = 120;
+
+export const acknowledgeCharacterLikenessRecipientBodyModelMax = 240;
+
+
+
+export const AcknowledgeCharacterLikenessRecipientBody = zod.object({
+  "consentId": zod.number().min(1).optional(),
+  "provider": zod.string().min(1).max(acknowledgeCharacterLikenessRecipientBodyProviderMax),
+  "model": zod.string().min(1).max(acknowledgeCharacterLikenessRecipientBodyModelMax),
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration'])
+})
+
+export const acknowledgeCharacterLikenessRecipientResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const AcknowledgeCharacterLikenessRecipientResponse = zod.object({
+  "data": zod.object({
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale', 'needs_recipient_acknowledgement']),
+  "sourceSha256": zod.string().regex(acknowledgeCharacterLikenessRecipientResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
+  "policyVersion": zod.string().describe('Version of the attestation TEXT only. Deliberately independent of provider routing, so changing a provider never marks a truthful statement about the depicted person stale.'),
+  "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']).optional(),
+  "consent": zod.union([zod.object({
+  "id": zod.number(),
+  "subject": zod.enum(['self', 'authorized_person']),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']),
+  "allowOutfitEdits": zod.boolean(),
+  "allowVideoDepiction": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean(),
+  "grantedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+}),zod.null()]),
+  "recipients": zod.array(zod.object({
+  "id": zod.number(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "scopeLabel": zod.string(),
+  "acknowledgedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+})).optional().describe('Every provider disclosed under this attestation, with any withdrawal.'),
+  "pendingRecipients": zod.array(zod.object({
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "scopeLabel": zod.string(),
+  "providerAccepts": zod.boolean().describe('False when the reviewed provider policy refuses this likeness class.'),
+  "reason": zod.string().nullable()
+})).optional().describe('Recipients the current routing needs that have not been acknowledged. A one-click gap, never a reason to re-sign the attestation.'),
+  "eligibility": zod.array(zod.object({
+  "surface": zod.enum(['image', 'video']),
+  "provider": zod.string(),
+  "modelFamily": zod.string(),
+  "requiresVerifiedIdentity": zod.boolean().describe('A provider-side identity check the attestation records but never replaces.'),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported', 'provider_refused']),
+  "reason": zod.string()
+}))
+})
+})
+
+
+/**
+ * @summary Withdraw one recipient without revoking the attestation
+ */
+
+
+
+
+export const RevokeCharacterLikenessRecipientParams = zod.object({
+  "characterId": zod.coerce.number().min(1),
+  "disclosureId": zod.coerce.number().min(1)
+})
+
+export const revokeCharacterLikenessRecipientResponseDataSourceSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const RevokeCharacterLikenessRecipientResponse = zod.object({
+  "data": zod.object({
+  "status": zod.enum(['not_required', 'missing', 'active', 'revoked', 'stale', 'needs_recipient_acknowledgement']),
+  "sourceSha256": zod.string().regex(revokeCharacterLikenessRecipientResponseDataSourceSha256RegExp).nullable().describe('Current server-read canonical source digest; never client-authored.'),
+  "policyVersion": zod.string().describe('Version of the attestation TEXT only. Deliberately independent of provider routing, so changing a provider never marks a truthful statement about the depicted person stale.'),
+  "statement": zod.string().describe('Exact current statement. Stored grants retain their own versioned text.'),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']).optional(),
+  "consent": zod.union([zod.object({
+  "id": zod.number(),
+  "subject": zod.enum(['self', 'authorized_person']),
+  "subjectClass": zod.enum(['uploaded_self', 'uploaded_authorized_person', 'generated_fictional']),
+  "allowOutfitEdits": zod.boolean(),
+  "allowVideoDepiction": zod.boolean(),
+  "allowScriptedSpeech": zod.boolean(),
+  "grantedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+}),zod.null()]),
+  "recipients": zod.array(zod.object({
+  "id": zod.number(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "scopeLabel": zod.string(),
+  "acknowledgedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable()
+})).optional().describe('Every provider disclosed under this attestation, with any withdrawal.'),
+  "pendingRecipients": zod.array(zod.object({
+  "operation": zod.enum(['reference_sheet', 'outfit', 'video', 'asset_registration']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "scopeLabel": zod.string(),
+  "providerAccepts": zod.boolean().describe('False when the reviewed provider policy refuses this likeness class.'),
+  "reason": zod.string().nullable()
+})).optional().describe('Recipients the current routing needs that have not been acknowledged. A one-click gap, never a reason to re-sign the attestation.'),
+  "eligibility": zod.array(zod.object({
+  "surface": zod.enum(['image', 'video']),
+  "provider": zod.string(),
+  "modelFamily": zod.string(),
+  "requiresVerifiedIdentity": zod.boolean().describe('A provider-side identity check the attestation records but never replaces.'),
+  "status": zod.enum(['eligible', 'consent_required', 'verification_required', 'unsupported', 'provider_refused']),
+  "reason": zod.string()
+}))
+})
+})
+
+
+/**
+ * @summary Read the workspace declaration covering generated fictional cast
+ */
+export const GetTenantLikenessDeclarationResponse = zod.object({
+  "data": zod.object({
+  "statement": zod.string(),
+  "policyVersion": zod.string(),
+  "enforced": zod.boolean().describe('Whether a missing declaration blocks generated work or is only recorded and surfaced.'),
+  "status": zod.enum(['missing', 'stale', 'active']),
+  "declaration": zod.union([zod.object({
+  "id": zod.number(),
+  "policyVersion": zod.string(),
+  "grantedAt": zod.coerce.date()
+}),zod.null()])
+})
+})
+
+
+/**
+ * @summary Record the workspace declaration for generated fictional cast
+ */
+export const grantTenantLikenessDeclarationBodyPolicyVersionMax = 160;
+
+
+
+export const GrantTenantLikenessDeclarationBody = zod.object({
+  "policyVersion": zod.string().min(1).max(grantTenantLikenessDeclarationBodyPolicyVersionMax),
+  "fictionalOnlyConfirmed": zod.boolean(),
+  "adultConfirmed": zod.boolean(),
+  "noRealPersonConfirmed": zod.boolean()
+})
+
+export const GrantTenantLikenessDeclarationResponse = zod.object({
+  "data": zod.object({
+  "statement": zod.string(),
+  "policyVersion": zod.string(),
+  "enforced": zod.boolean().describe('Whether a missing declaration blocks generated work or is only recorded and surfaced.'),
+  "status": zod.enum(['missing', 'stale', 'active']),
+  "declaration": zod.union([zod.object({
+  "id": zod.number(),
+  "policyVersion": zod.string(),
+  "grantedAt": zod.coerce.date()
+}),zod.null()])
 })
 })
 

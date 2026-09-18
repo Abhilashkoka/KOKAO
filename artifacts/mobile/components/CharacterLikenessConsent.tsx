@@ -5,6 +5,8 @@ import {
   useGetCharacterLikenessConsent,
   useGrantCharacterLikenessConsent,
   useRevokeCharacterLikenessConsent,
+  useAcknowledgeCharacterLikenessRecipient,
+  useRevokeCharacterLikenessRecipient,
   type CharacterLikenessConsentResponse,
   type CharacterLikenessConsentSubject,
 } from "@workspace/api-client-react";
@@ -80,9 +82,12 @@ export function CharacterLikenessConsent({ characterId }: { characterId: number 
   const [likenessConfirmed, setLikenessConfirmed] = useState(false);
   const [writtenPermissionConfirmed, setWrittenPermissionConfirmed] = useState(false);
   const [allowOutfitEdits, setAllowOutfitEdits] = useState(false);
+  const [allowVideoDepiction, setAllowVideoDepiction] = useState(false);
   const [allowScriptedSpeech, setAllowScriptedSpeech] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageIsError, setMessageIsError] = useState(false);
+  const acknowledgeRecipient = useAcknowledgeCharacterLikenessRecipient();
+  const revokeRecipient = useRevokeCharacterLikenessRecipient();
 
   const canGrant =
     Boolean(response?.sourceSha256) &&
@@ -96,6 +101,14 @@ export function CharacterLikenessConsent({ characterId }: { characterId: number 
   const eligibility = useMemo(
     () => response?.eligibility ?? [],
     [response?.eligibility],
+  );
+  const recipients = useMemo(
+    () => response?.recipients ?? [],
+    [response?.recipients],
+  );
+  const pendingRecipients = useMemo(
+    () => response?.pendingRecipients ?? [],
+    [response?.pendingRecipients],
   );
 
   const refreshAffectedSurfaces = async () => {
@@ -122,8 +135,8 @@ export function CharacterLikenessConsent({ characterId }: { characterId: number 
           writtenPermissionConfirmed:
             subject === "authorized_person" && writtenPermissionConfirmed,
           allowOutfitEdits,
+          allowVideoDepiction,
           allowScriptedSpeech,
-          providers: ["atlascloud"],
         },
       },
       {
@@ -215,7 +228,93 @@ export function CharacterLikenessConsent({ characterId }: { characterId: number 
       <Text style={styles.statement} testID={`likeness-statement-${characterId}`}>
         {response.statement}
       </Text>
-      <Text style={styles.providerHeading}>Server-disclosed model eligibility</Text>
+      {pendingRecipients.length > 0 ? (
+        <View style={styles.activeDetails} testID={`likeness-pending-${characterId}`}>
+          <Text style={styles.formLabel}>Providers awaiting your confirmation</Text>
+          {pendingRecipients.map((entry, index) => (
+            <View style={styles.eligibilityRow} key={`${entry.provider}-${entry.operation}-${index}`}>
+              <View style={styles.eligibilityText}>
+                <Text style={styles.detail}>{entry.scopeLabel}</Text>
+                {entry.providerAccepts ? null : (
+                  <Text style={styles.muted}>{entry.reason}</Text>
+                )}
+              </View>
+              {entry.providerAccepts && response.consent ? (
+                <Button
+                  title="Confirm"
+                  onPress={() => {
+                    setMessage(null);
+                    setMessageIsError(false);
+                    acknowledgeRecipient.mutate(
+                      {
+                        characterId,
+                        data: {
+                          consentId: response.consent?.id,
+                          provider: entry.provider,
+                          model: entry.model,
+                          operation: entry.operation,
+                        },
+                      },
+                      {
+                        onSuccess: async () => {
+                          await refreshAffectedSurfaces();
+                          setMessage("Provider confirmed.");
+                        },
+                        onError: (error) => {
+                          setMessage(apiErrorMessage(error, "Could not confirm this provider."));
+                          setMessageIsError(true);
+                        },
+                      },
+                    );
+                  }}
+                  loading={acknowledgeRecipient.isPending}
+                  testID={`likeness-confirm-${entry.provider}-${entry.operation}-${characterId}`}
+                />
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {recipients.length > 0 ? (
+        <View style={styles.activeDetails} testID={`likeness-recipients-${characterId}`}>
+          <Text style={styles.formLabel}>Providers that receive this likeness</Text>
+          {recipients.map((entry) => (
+            <View style={styles.eligibilityRow} key={entry.id}>
+              <View style={styles.eligibilityText}>
+                <Text style={styles.detail}>{entry.scopeLabel}</Text>
+              </View>
+              {entry.revokedAt ? (
+                <Badge label="withdrawn" tone="muted" />
+              ) : (
+                <Button
+                  title="Withdraw"
+                  variant="outline"
+                  onPress={() => {
+                    setMessage(null);
+                    setMessageIsError(false);
+                    revokeRecipient.mutate(
+                      { characterId, disclosureId: entry.id },
+                      {
+                        onSuccess: async () => {
+                          await refreshAffectedSurfaces();
+                          setMessage("Provider withdrawn. Your authorization is unchanged.");
+                        },
+                        onError: (error) => {
+                          setMessage(apiErrorMessage(error, "Could not withdraw this provider."));
+                          setMessageIsError(true);
+                        },
+                      },
+                    );
+                  }}
+                  loading={revokeRecipient.isPending}
+                  testID={`likeness-withdraw-${entry.id}`}
+                />
+              )}
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <Text style={styles.providerHeading}>Provider eligibility for this likeness</Text>
       {eligibility.length > 0 ? (
         eligibility.map((item, index) => (
           <View style={styles.eligibilityRow} key={`${item.provider ?? "provider"}-${item.modelFamily ?? index}`}>
@@ -238,10 +337,15 @@ export function CharacterLikenessConsent({ characterId }: { characterId: number 
       {status === "active" && response.consent ? (
         <View style={styles.activeDetails} testID={`likeness-active-${characterId}`}>
           <Text style={styles.detail}>
-            Provider recipients: {response.consent.providers?.join(", ") || "None disclosed"}
+            Providers receiving this likeness:{" "}
+            {(response.recipients ?? [])
+              .filter((entry) => !entry.revokedAt)
+              .map((entry) => entry.scopeLabel)
+              .join(", ") || "None disclosed yet"}
           </Text>
           <Text style={styles.detail}>
-            Outfit edits: {response.consent.allowOutfitEdits ? "Allowed" : "Not allowed"} · Scripted speech:{" "}
+            Outfit edits: {response.consent.allowOutfitEdits ? "Allowed" : "Not allowed"} · Video depiction:{" "}
+            {response.consent.allowVideoDepiction ? "Allowed" : "Not allowed"} · Scripted speech:{" "}
             {response.consent.allowScriptedSpeech ? "Allowed" : "Not allowed"}
           </Text>
           <Text style={styles.withdrawalHint}>
@@ -318,6 +422,12 @@ export function CharacterLikenessConsent({ characterId }: { characterId: number 
             onPress={() => setAllowOutfitEdits((value) => !value)}
             label="Allow AI outfit edits."
             testID={`likeness-outfit-edits-${characterId}`}
+          />
+          <Checkbox
+            checked={allowVideoDepiction}
+            onPress={() => setAllowVideoDepiction((value) => !value)}
+            label="Allow being depicted in generated video."
+            testID={`likeness-video-depiction-${characterId}`}
           />
           <Checkbox
             checked={allowScriptedSpeech}

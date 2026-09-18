@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateCharacterLikenessAttestation } from './createCharacterLikenessAttestation';
 
 export interface CreateCharacterRequest {
   /**
@@ -28,4 +29,6 @@ export interface CreateCharacterRequest {
      * @nullable
      */
   identityId?: number | null;
+  /** Required when sourceImagePath is given. Recorded in the SAME transaction as the character, so an uploaded likeness can never exist without its rights attestation and the user cannot spend reference-sheet or wardrobe credits before the gate is satisfied. */
+  likenessAttestation?: CreateCharacterLikenessAttestation | null;
 }

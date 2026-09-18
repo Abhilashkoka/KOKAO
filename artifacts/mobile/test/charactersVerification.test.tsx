@@ -153,6 +153,13 @@ describe("mobile character liveness return", () => {
     });
     fireEvent.click(screen.getByTestId("start-character-verification"));
     await waitFor(() => expect(state.start).toHaveBeenCalled());
+    // An uploaded photo now carries its likeness-rights attestation, collected
+    // at creation rather than in a panel found afterwards.
+    fireEvent.click(screen.getByTestId("attestation-rights"));
+    fireEvent.click(screen.getByTestId("attestation-adult"));
+    fireEvent.click(screen.getByTestId("attestation-likeness"));
+    fireEvent.click(screen.getByTestId("attestation-outfit"));
+    fireEvent.click(screen.getByTestId("attestation-video"));
     fireEvent.click(await screen.findByTestId("save-verified-character"));
     await waitFor(() => {
       expect(state.update).not.toHaveBeenCalled();
@@ -162,6 +169,16 @@ describe("mobile character liveness return", () => {
           description: null,
           sourceImagePath: "/objects/new-person.jpg",
           identityId: 41,
+          likenessAttestation: {
+            subject: "self",
+            imageRightsConfirmed: true,
+            adultConfirmed: true,
+            likenessConfirmed: true,
+            writtenPermissionConfirmed: false,
+            allowOutfitEdits: true,
+            allowVideoDepiction: true,
+            allowScriptedSpeech: false,
+          },
         },
       });
     });

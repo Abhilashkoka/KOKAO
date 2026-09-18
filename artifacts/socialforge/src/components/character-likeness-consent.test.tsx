@@ -55,7 +55,12 @@ describe("CharacterLikenessConsent", () => {
           sourceSha256: "abc",
           policyVersion: "1.0",
           statement: "Test statement.",
-          eligibility: [{ provider: "atlascloud", modelFamily: "wan3", status: "consent_required" }]
+          recipients: [],
+          pendingRecipients: [],
+          eligibility: [{
+            surface: "video", provider: "atlascloud", modelFamily: "wan3",
+            requiresVerifiedIdentity: false, status: "consent_required", reason: "needs consent",
+          }]
         }
       },
       isLoading: false,
@@ -91,7 +96,7 @@ describe("CharacterLikenessConsent", () => {
       imageRightsConfirmed: true,
       adultConfirmed: true,
       likenessConfirmed: true,
-      providers: ["atlascloud"],
+      allowVideoDepiction: false,
     });
   });
 
@@ -103,6 +108,8 @@ describe("CharacterLikenessConsent", () => {
           sourceSha256: "abc",
           policyVersion: "1.0",
           statement: "Test statement.",
+          recipients: [],
+          pendingRecipients: [],
           eligibility: []
         }
       },
@@ -134,6 +141,8 @@ describe("CharacterLikenessConsent", () => {
           sourceSha256: "def",
           policyVersion: "1.0",
           statement: "Test statement.",
+          recipients: [],
+          pendingRecipients: [],
           eligibility: []
         }
       },
@@ -158,7 +167,12 @@ describe("CharacterLikenessConsent", () => {
           policyVersion: "1.0",
           statement: "Test statement.",
           consent: { subject: "self" },
-          eligibility: [{ provider: "atlascloud", modelFamily: "wan3", status: "eligible" }]
+          recipients: [],
+          pendingRecipients: [],
+          eligibility: [{
+            surface: "video", provider: "atlascloud", modelFamily: "wan3",
+            requiresVerifiedIdentity: false, status: "eligible", reason: "ok",
+          }]
         }
       },
       isLoading: false,
@@ -191,6 +205,8 @@ describe("CharacterLikenessConsent", () => {
           sourceSha256: "abc",
           policyVersion: "1.0",
           statement: "Test statement.",
+          recipients: [],
+          pendingRecipients: [],
           eligibility: []
         }
       },

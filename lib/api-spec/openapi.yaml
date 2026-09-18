@@ -2849,6 +2849,76 @@ paths:
         "400": { description: Invalid revocation request }
         "404": { description: Character not found }
         "409": { description: Expected consent is not current }
+  /characters/{characterId}/likeness-recipients:
+    parameters:
+      - { name: characterId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    post:
+      operationId: acknowledgeCharacterLikenessRecipient
+      tags: [characters]
+      summary: Acknowledge one disclosed recipient under the current attestation
+      description: >-
+        Adding a provider costs one acknowledgement rather than a re-signature,
+        because the attestation covers the depicted person and does not change
+        when the routing does. A recipient the reviewed provider policy refuses
+        cannot be acknowledged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AcknowledgeCharacterLikenessRecipientRequest" }
+      responses:
+        "201":
+          description: Recipient acknowledged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CharacterLikenessConsentEnvelope" }
+        "400": { description: Invalid recipient acknowledgement }
+        "404": { description: Character not found }
+        "409": { description: "Provider refuses this likeness class, or the attestation changed" }
+  /characters/{characterId}/likeness-recipients/{disclosureId}:
+    parameters:
+      - { name: characterId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: disclosureId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    delete:
+      operationId: revokeCharacterLikenessRecipient
+      tags: [characters]
+      summary: Withdraw one recipient without revoking the attestation
+      responses:
+        "200":
+          description: Updated consent descriptor
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CharacterLikenessConsentEnvelope" }
+        "400": { description: Invalid recipient id }
+        "404": { description: "Character or recipient not found" }
+  /characters/likeness-declaration:
+    get:
+      operationId: getTenantLikenessDeclaration
+      tags: [characters]
+      summary: Read the workspace declaration covering generated fictional cast
+      responses:
+        "200":
+          description: Current declaration descriptor
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TenantLikenessDeclarationEnvelope" }
+    post:
+      operationId: grantTenantLikenessDeclaration
+      tags: [characters]
+      summary: Record the workspace declaration for generated fictional cast
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GrantTenantLikenessDeclarationRequest" }
+      responses:
+        "201":
+          description: Declaration recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TenantLikenessDeclarationEnvelope" }
+        "400": { description: Invalid or incomplete declaration }
+        "409": { description: Declaration text changed }
   /preset-characters/{presetId}/outfit-derivatives:
     parameters:
       - { name: presetId, in: path, required: true, schema: { type: string } }
@@ -21689,54 +21759,125 @@ components:
       properties:
         status:
           type: string
-          enum: [not_required, missing, active, revoked, stale]
+          enum:
+            - not_required
+            - missing
+            - active
+            - revoked
+            - stale
+            - needs_recipient_acknowledgement
         sourceSha256:
           type: ["string", "null"]
           pattern: "^[a-f0-9]{64}$"
           description: Current server-read canonical source digest; never client-authored.
         policyVersion:
           type: string
-          description: Version including the disclosed image-recipient scope fingerprint.
+          description: >-
+            Version of the attestation TEXT only. Deliberately independent of
+            provider routing, so changing a provider never marks a truthful
+            statement about the depicted person stale.
         statement:
           type: string
           description: Exact current statement. Stored grants retain their own versioned text.
+        subjectClass:
+          $ref: "#/components/schemas/CharacterLikenessSubjectClass"
         consent:
           anyOf:
             - $ref: "#/components/schemas/CharacterLikenessConsent"
             - type: "null"
+        recipients:
+          type: array
+          description: Every provider disclosed under this attestation, with any withdrawal.
+          items: { $ref: "#/components/schemas/CharacterLikenessRecipient" }
+        pendingRecipients:
+          type: array
+          description: >-
+            Recipients the current routing needs that have not been acknowledged.
+            A one-click gap, never a reason to re-sign the attestation.
+          items: { $ref: "#/components/schemas/CharacterLikenessPendingRecipient" }
         eligibility:
           type: array
           items: { $ref: "#/components/schemas/CharacterLikenessEligibility" }
     CharacterLikenessConsent:
       type: object
       additionalProperties: false
-      required: [id, subject, providers, allowOutfitEdits, allowScriptedSpeech, grantedAt, revokedAt]
+      required:
+        - id
+        - subject
+        - subjectClass
+        - allowOutfitEdits
+        - allowVideoDepiction
+        - allowScriptedSpeech
+        - grantedAt
+        - revokedAt
       properties:
         id: { type: integer }
         subject: { type: string, enum: [self, authorized_person] }
-        providers:
-          type: array
-          minItems: 1
-          maxItems: 1
-          items: { type: string, const: atlascloud }
+        subjectClass:
+          $ref: "#/components/schemas/CharacterLikenessSubjectClass"
         allowOutfitEdits: { type: boolean }
+        allowVideoDepiction: { type: boolean }
         allowScriptedSpeech: { type: boolean }
         grantedAt: { type: string, format: date-time }
         revokedAt: { type: ["string", "null"], format: date-time }
+    CharacterLikenessSubjectClass:
+      type: string
+      enum: [uploaded_self, uploaded_authorized_person, generated_fictional]
+    CharacterLikenessRecipientOperation:
+      type: string
+      enum: [reference_sheet, outfit, video, asset_registration]
+    CharacterLikenessRecipient:
+      type: object
+      additionalProperties: false
+      required: [id, provider, model, operation, scopeLabel, acknowledgedAt, revokedAt]
+      properties:
+        id: { type: integer }
+        provider: { type: string }
+        model: { type: string }
+        operation:
+          $ref: "#/components/schemas/CharacterLikenessRecipientOperation"
+        scopeLabel: { type: string }
+        acknowledgedAt: { type: string, format: date-time }
+        revokedAt: { type: ["string", "null"], format: date-time }
+    CharacterLikenessPendingRecipient:
+      type: object
+      additionalProperties: false
+      required: [operation, provider, model, scopeLabel, providerAccepts, reason]
+      properties:
+        operation:
+          $ref: "#/components/schemas/CharacterLikenessRecipientOperation"
+        provider: { type: string }
+        model: { type: string }
+        scopeLabel: { type: string }
+        providerAccepts:
+          type: boolean
+          description: False when the reviewed provider policy refuses this likeness class.
+        reason: { type: ["string", "null"] }
     CharacterLikenessEligibility:
       type: object
       additionalProperties: false
-      required: [provider, modelFamily, status, reason]
+      required:
+        - surface
+        - provider
+        - modelFamily
+        - requiresVerifiedIdentity
+        - status
+        - reason
       properties:
-        provider: { type: string, const: atlascloud }
-        modelFamily:
-          type: string
-          enum:
-            - alibaba/wan-3.0/reference-to-video
-            - alibaba/wan-3.0-prime/reference-to-video
+        surface: { type: string, enum: [image, video] }
+        provider: { type: string }
+        modelFamily: { type: string }
+        requiresVerifiedIdentity:
+          type: boolean
+          description: A provider-side identity check the attestation records but never replaces.
         status:
           type: string
-          enum: [eligible, consent_required, verification_required, unsupported]
+          enum:
+            - eligible
+            - consent_required
+            - verification_required
+            - unsupported
+            - provider_refused
         reason: { type: string }
     GrantCharacterLikenessConsentRequest:
       type: object
@@ -21750,8 +21891,8 @@ components:
         - likenessConfirmed
         - writtenPermissionConfirmed
         - allowOutfitEdits
+        - allowVideoDepiction
         - allowScriptedSpeech
-        - providers
       properties:
         sourceSha256: { type: string, pattern: "^[a-f0-9]{64}$" }
         policyVersion: { type: string, minLength: 1, maxLength: 160 }
@@ -21761,18 +21902,67 @@ components:
         likenessConfirmed: { type: boolean }
         writtenPermissionConfirmed: { type: boolean }
         allowOutfitEdits: { type: boolean }
+        allowVideoDepiction: { type: boolean }
         allowScriptedSpeech: { type: boolean }
-        providers:
-          type: array
-          minItems: 1
-          maxItems: 1
-          uniqueItems: true
-          items: { type: string, const: atlascloud }
     RevokeCharacterLikenessConsentRequest:
       type: object
       additionalProperties: false
       properties:
         consentId: { type: integer, minimum: 1 }
+    AcknowledgeCharacterLikenessRecipientRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, model, operation]
+      properties:
+        consentId: { type: integer, minimum: 1 }
+        provider: { type: string, minLength: 1, maxLength: 120 }
+        model: { type: string, minLength: 1, maxLength: 240 }
+        operation:
+          $ref: "#/components/schemas/CharacterLikenessRecipientOperation"
+    GrantTenantLikenessDeclarationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - policyVersion
+        - fictionalOnlyConfirmed
+        - adultConfirmed
+        - noRealPersonConfirmed
+      properties:
+        policyVersion: { type: string, minLength: 1, maxLength: 160 }
+        fictionalOnlyConfirmed: { type: boolean }
+        adultConfirmed: { type: boolean }
+        noRealPersonConfirmed: { type: boolean }
+    TenantLikenessDeclarationEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/TenantLikenessDeclarationResponse" }
+    TenantLikenessDeclarationResponse:
+      type: object
+      additionalProperties: false
+      required: [statement, policyVersion, enforced, status, declaration]
+      properties:
+        statement: { type: string }
+        policyVersion: { type: string }
+        enforced:
+          type: boolean
+          description: >-
+            Whether a missing declaration blocks generated work or is only
+            recorded and surfaced.
+        status: { type: string, enum: [missing, stale, active] }
+        declaration:
+          anyOf:
+            - $ref: "#/components/schemas/TenantLikenessDeclaration"
+            - type: "null"
+    TenantLikenessDeclaration:
+      type: object
+      additionalProperties: false
+      required: [id, policyVersion, grantedAt]
+      properties:
+        id: { type: integer }
+        policyVersion: { type: string }
+        grantedAt: { type: string, format: date-time }
     PresetStockVoice:
       type: object
       required: [id, provider, model, speaker, label, license, languages]
@@ -21938,6 +22128,46 @@ components:
           description: >-
             A liveness-verified BytePlus identity. Requires sourceImagePath;
             generated portraits cannot be filed as a verified real person.
+        likenessAttestation:
+          description: >-
+            Required when sourceImagePath is given. Recorded in the SAME
+            transaction as the character, so an uploaded likeness can never
+            exist without its rights attestation and the user cannot spend
+            reference-sheet or wardrobe credits before the gate is satisfied.
+          anyOf:
+            - $ref: "#/components/schemas/CreateCharacterLikenessAttestation"
+            - type: "null"
+    CreateCharacterLikenessAttestation:
+      type: object
+      additionalProperties: false
+      required:
+        - subject
+        - imageRightsConfirmed
+        - adultConfirmed
+        - likenessConfirmed
+        - writtenPermissionConfirmed
+        - allowOutfitEdits
+        - allowVideoDepiction
+        - allowScriptedSpeech
+      properties:
+        policyVersion:
+          type: ["string", "null"]
+          minLength: 1
+          maxLength: 160
+          description: >-
+            Optional. Send it only when the exact server statement was displayed
+            verbatim, to assert the user saw that version. Omitted at creation,
+            where the form shows a summary and the server stamps its own current
+            version into the stored grant alongside the authoritative statement
+            text. Creation therefore never depends on an extra round trip.
+        subject: { type: string, enum: [self, authorized_person] }
+        imageRightsConfirmed: { type: boolean }
+        adultConfirmed: { type: boolean }
+        likenessConfirmed: { type: boolean }
+        writtenPermissionConfirmed: { type: boolean }
+        allowOutfitEdits: { type: boolean }
+        allowVideoDepiction: { type: boolean }
+        allowScriptedSpeech: { type: boolean }
     BytePlusIdentity:
       type: object
       required: [id, label, status, retryable, assetGroupId, error, verifiedAt]
