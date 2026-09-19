@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const accountGrantMutate = vi.fn();
 const correctionMutate = vi.fn();
+const toast = vi.fn();
 
 const tenant = {
   id: 42,
@@ -70,7 +71,7 @@ vi.mock("@workspace/api-client-react", async () => {
 });
 
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast }),
 }));
 
 vi.mock("@/lib/features", () => ({
@@ -90,6 +91,7 @@ function renderTab() {
 beforeEach(() => {
   accountGrantMutate.mockClear();
   correctionMutate.mockClear();
+  toast.mockClear();
   tenant.balance = { purchased: 12, granted: 3, total: 15, grantedExpiresAt: null };
   tenant.creditAccountExists = true;
 });
@@ -103,6 +105,22 @@ describe("TenantsTab credit-first workspace table", () => {
     fireEvent.change(screen.getByLabelText("Correction operation reference"), { target: { value: "video:13:rate-card-correction" } });
     fireEvent.change(screen.getByLabelText("Correction reason"), { target: { value: "Approved total 97.724 minus 5 already charged" } });
   }
+
+  it.each([
+    ["Purchased credits to deduct", "-92.724", /positive amount.*minus sign/i],
+    ["Purchased credits to deduct", "92.7241", /at most 3 decimal places/i],
+    ["Purchased credits to deduct", "1135.001", /exceeds the purchased balance of 1135.000/i],
+    ["Correction operation reference", "", /grey example is a placeholder/i],
+    ["Correction operation reference", "video 13", /Remove spaces/i],
+    ["Correction reason", "   ", /Enter the reason and authorization/i],
+  ])("identifies invalid %s input %s without submitting", (label, value, message) => {
+    openCorrection();
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "Review purchased debit" }));
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringMatching(message) }));
+    expect(screen.queryByRole("button", { name: "Debit purchased credits" })).toBeNull();
+    expect(correctionMutate).not.toHaveBeenCalled();
+  });
 
   it("requires confirmation of exact purchased before/after and prevents duplicate submission", () => {
     openCorrection();

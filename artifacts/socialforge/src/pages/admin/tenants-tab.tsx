@@ -844,13 +844,35 @@ export function TenantsTab() {
                 <p className="text-sm font-medium">Purchased-credit correction</p>
                 <p className="text-sm">Purchased balance: {((grantTarget.purchasedMilli ?? 0) / 1000).toFixed(3)}</p>
                 <p className="text-xs text-muted-foreground">Debit only the approved remaining amount, after subtracting prior charges. Reuse the same operation reference after a network error; never create a new reference to retry.</p>
-                <Input aria-label="Purchased credits to deduct" type="number" min="0.001" step="0.001" placeholder="Credits to deduct" value={correctionAmount} onChange={(e) => setCorrectionAmount(e.target.value)} />
-                <Input aria-label="Correction operation reference" placeholder="video:13:rate-card-correction" maxLength={160} value={correctionReference} onChange={(e) => setCorrectionReference(e.target.value)} />
-                <Input aria-label="Correction reason" placeholder="Reason and authorization" maxLength={1000} value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} />
+                <label htmlFor="correction-amount" className="block text-sm font-medium">Credits to deduct (required)</label>
+                <Input id="correction-amount" aria-label="Purchased credits to deduct" type="number" min="0.001" step="0.001" placeholder="Enter a positive amount" value={correctionAmount} onChange={(e) => setCorrectionAmount(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Enter the positive amount to subtract, not a negative adjustment.</p>
+                <label htmlFor="correction-reference" className="block text-sm font-medium">Operation reference (required)</label>
+                <Input id="correction-reference" aria-label="Correction operation reference" placeholder="Example only: video:13:rate-card-correction" maxLength={160} value={correctionReference} onChange={(e) => setCorrectionReference(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Type a unique reference using letters, numbers, colons, dots, underscores or hyphens. Spaces are not allowed.</p>
+                <label htmlFor="correction-reason" className="block text-sm font-medium">Reason and authorization (required)</label>
+                <Input id="correction-reason" aria-label="Correction reason" placeholder="Explain the approved correction and any prior charge" maxLength={1000} value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} />
                 <Button variant="destructive" disabled={correction.isPending} onClick={() => {
-                  const milli = Math.round(Number(correctionAmount) * 1000);
-                  if (!/^\d+(\.\d{1,3})?$/.test(correctionAmount) || milli <= 0 || milli > (grantTarget.purchasedMilli ?? 0) || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/.test(correctionReference.trim()) || !correctionReason.trim()) {
-                    toast({ variant: "destructive", title: "Check correction", description: "Enter an affordable positive amount with at most 3 decimal places, a valid operation reference, and a reason." });
+                  const amount = correctionAmount.trim();
+                  const milli = Math.round(Number(amount) * 1000);
+                  const reference = correctionReference.trim();
+                  const reason = correctionReason.trim();
+                  let error: string | null = null;
+                  if (!amount || Number(amount) <= 0) {
+                    error = "Enter a positive amount to deduct, such as 92.724. Do not enter a minus sign.";
+                  } else if (!/^\d+(\.\d{1,3})?$/.test(amount) || !Number.isSafeInteger(milli) || milli > 2147483647) {
+                    error = "Use a number with at most 3 decimal places, no commas, and no more than 2147483.647 credits.";
+                  } else if (milli > (grantTarget.purchasedMilli ?? 0)) {
+                    error = `The deduction exceeds the purchased balance of ${((grantTarget.purchasedMilli ?? 0) / 1000).toFixed(3)} credits. Granted credits cannot fund this correction.`;
+                  } else if (!reference) {
+                    error = "Enter an operation reference. The grey example is a placeholder, not a saved value.";
+                  } else if (reference.length > 160 || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/.test(reference)) {
+                    error = "The operation reference must start with a letter or number and contain only letters, numbers, colons, dots, underscores or hyphens (maximum 160 characters). Remove spaces.";
+                  } else if (!reason || reason.length > 1000) {
+                    error = "Enter the reason and authorization for this correction (maximum 1000 characters).";
+                  }
+                  if (error) {
+                    toast({ variant: "destructive", title: "Check correction", description: error });
                     return;
                   }
                   setConfirmCorrection(true);
