@@ -3,7 +3,10 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { getGetCreditsQueryKey } from "@workspace/api-client-react";
 import { CreditBalancePill } from "./credit-balance";
-import { refreshCreditBalance } from "@/lib/refresh-credit-balance";
+import {
+  refreshCreditBalance,
+  refreshCreditBalanceSafely,
+} from "@/lib/refresh-credit-balance";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); focusManager.setFocused(undefined); });
 
@@ -61,5 +64,24 @@ it("polls delayed payment updates quietly while the app is active", async () => 
   total = 1350;
   await act(async () => { await vi.advanceTimersByTimeAsync(30_100); });
   expect(screen.getByTestId("badge-credit-balance").textContent).toContain("1350");
+  client.clear();
+});
+
+it("keeps the mounted balance visible when a generation-triggered refresh fails", async () => {
+  let shouldFail = false;
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    if (shouldFail) throw new Error("network unavailable");
+    return new Response(JSON.stringify({
+      total: 500, purchased: 500, granted: 0, funded: false, mode: "shadow",
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><CreditBalancePill /></QueryClientProvider>);
+  await waitFor(() => expect(screen.getByTestId("badge-credit-balance").textContent).toContain("500"));
+
+  shouldFail = true;
+  act(() => refreshCreditBalanceSafely(client));
+  await waitFor(() => expect(client.getQueryState(getGetCreditsQueryKey())?.fetchStatus).toBe("idle"));
+  expect(screen.getByTestId("badge-credit-balance").textContent).toContain("500");
   client.clear();
 });

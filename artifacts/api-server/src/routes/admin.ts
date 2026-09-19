@@ -57,6 +57,7 @@ import {
   isNotNull,
 } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
+import { creditCorrectionInput, correctPurchasedCredits, CreditCorrectionError } from "../lib/creditAccountCorrections";
 import {
   syncActivatedModelPricing,
   syncModelPricingBestEffort,
@@ -5811,6 +5812,27 @@ router.post(
   },
 );
 
+router.post("/admin/tenants/:id/credit-account/purchased-correction", async (req: Request, res: Response) => {
+  const tenantId = Number(req.params.id);
+  const parsed = creditCorrectionInput.safeParse(req.body);
+  if (!Number.isSafeInteger(tenantId) || tenantId <= 0 || !parsed.success) {
+    res.status(400).json({ error: "Invalid tenant or correction input" });
+    return;
+  }
+  try {
+    const receipt = await correctPurchasedCredits(tenantId, parsed.data, {
+      tenantId: req.tenantId, email: req.tenantEmail,
+    });
+    res.json(receipt);
+  } catch (error) {
+    if (error instanceof CreditCorrectionError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+});
+
 /** GET /admin/tenants/:id/credit-account — balance and recent history. */
 router.get(
   "/admin/tenants/:id/credit-account",
@@ -5967,6 +5989,7 @@ router.post(
  * superadmin grants/revokes), most recent first. Read-only, superadmin-scoped.
  */
 const AUDIT_ACTIONS = new Set([
+  "credit_account_correction",
   "plan_change",
   "superadmin_grant",
   "superadmin_revoke",

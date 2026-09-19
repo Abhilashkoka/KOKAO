@@ -414,7 +414,8 @@ async function narrateWithBrandVoice(
   const speechConfig = clonedVoice.provider === "elevenlabs"
     ? resolveElevenLabsSpeechLanguage(modelId ?? "eleven_multilingual_v2", languageCode)
     : { modelId: modelId ?? "eleven_multilingual_v2", languageCode };
-  const walletFunded = billing ? await isWalletFunded(billing.tenantId) : false;
+  const walletFunded = billing && billing.funding?.rail !== "credits"
+    ? await isWalletFunded(billing.tenantId) : false;
   const rateSnapshot =
     billing && clonedVoice.provider === "elevenlabs"
       ? (await getAiCostConfig()).elevenLabsInrPerCredit

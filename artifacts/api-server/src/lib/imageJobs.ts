@@ -11,11 +11,13 @@ import { settleWallet, refundWallet, reservationFromRow } from "./wallet";
 import { logger } from "./logger";
 import type { MeterFundingSnapshot } from "./meterFunding";
 
-function legacyImageFunding(
+function imageJobFunding(
   tenantId: number,
-  rail: "quota" | "credit" | "wallet",
+  rail: "quota" | "credit" | "wallet" | "credits",
 ): MeterFundingSnapshot {
-  return Object.freeze({ tenantId, rail, mode: "shadow" });
+  // Only newly accepted enforced work persists "credits". Never re-resolve
+  // tenant/platform mode for an accepted job or migrate historical job rails.
+  return Object.freeze({ tenantId, rail, mode: rail === "credits" ? "enforce" : "shadow" });
 }
 
 /**
@@ -28,7 +30,7 @@ function legacyImageFunding(
  */
 export async function runImageGenerationJob(
   jobId: number,
-  funding: "quota" | "credit" | "wallet",
+  funding: "quota" | "credit" | "wallet" | "credits",
 ): Promise<void> {
   // Dev-only test hook: hold the runner back before its claim so a browser
   // e2e can observe (and cancel) a genuinely "queued" job. Ignored in
@@ -87,7 +89,7 @@ export async function runImageGenerationJob(
         tenantId: job.tenantId,
         refKind: "imageJob",
         refId: String(job.id),
-        funding: legacyImageFunding(job.tenantId, funding),
+        funding: imageJobFunding(job.tenantId, funding),
         operationKey: `imageJob:${job.id}:generate`,
       },
     });

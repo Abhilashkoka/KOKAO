@@ -13,6 +13,7 @@ import type { ResolvedCreativeBrief } from './resolvedCreativeBrief';
 import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobErrorHistoryItem } from './videoJobErrorHistoryItem';
 import type { VideoJobFreshRestart } from './videoJobFreshRestart';
+import type { VideoJobFunding } from './videoJobFunding';
 import type { VideoJobGuidedPreviewRender } from './videoJobGuidedPreviewRender';
 import type { VideoJobGuidedReferenceContext } from './videoJobGuidedReferenceContext';
 import type { VideoJobPrivacyRecoveryCapability } from './videoJobPrivacyRecoveryCapability';
@@ -25,6 +26,8 @@ import type { VideoStoryboard } from './videoStoryboard';
 
 export interface VideoJob {
   id: number;
+  /** Persisted funding rail; historical rows without a rail serialize as quota. */
+  funding: VideoJobFunding;
   engine: VideoJobEngine;
   /** awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way. */
   status: VideoJobStatus;

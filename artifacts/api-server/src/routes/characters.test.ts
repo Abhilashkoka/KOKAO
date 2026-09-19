@@ -140,6 +140,20 @@ vi.mock("../lib/atlascloud/assets", async (importOriginal) => {
 });
 const protectedRegion = { x: 0.2, y: 0.04, width: 0.6, height: 0.38 };
 
+// The creation contract now stores the uploaded subject's explicit grant in
+// the same transaction as the character. This is fixture input, not a bypass
+// of the production attestation or recipient-disclosure routes.
+const uploadedLikenessAttestation = {
+  subject: "self",
+  imageRightsConfirmed: true,
+  adultConfirmed: true,
+  likenessConfirmed: true,
+  writtenPermissionConfirmed: false,
+  allowOutfitEdits: true,
+  allowVideoDepiction: true,
+  allowScriptedSpeech: true,
+};
+
 async function persistReviewedRegion(characterId: number) {
   await db
     .update(charactersTable)
@@ -167,10 +181,10 @@ async function grantOutfitConsent(characterId: number) {
       likenessConfirmed: true,
       writtenPermissionConfirmed: false,
       allowOutfitEdits: true,
+      allowVideoDepiction: true,
       allowScriptedSpeech: true,
-      providers: ["atlascloud"],
     });
-  expect(consent.status).toBe(201);
+  expect(consent.status, JSON.stringify(consent.body)).toBe(201);
 }
 vi.mock("../lib/characters", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/characters")>();
@@ -469,6 +483,7 @@ describe("POST /api/characters", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Maya",
       sourceImagePath,
+      likenessAttestation: uploadedLikenessAttestation,
       identityId: verified!.id,
     });
 
@@ -483,6 +498,7 @@ describe("POST /api/characters", () => {
     const rejected = await request(app).post("/api/characters").send({
       name: "Impostor",
       sourceImagePath: `/objects/${otherTenant.tenantId}/uploads/impostor.png`,
+      likenessAttestation: uploadedLikenessAttestation,
       identityId: verified!.id,
     });
     expect(rejected.status).toBe(400);
@@ -576,12 +592,27 @@ describe("POST /api/characters", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects an uploaded photo without an explicit likeness-rights attestation", async () => {
+    const tenant = await newTenant();
+    const res = await request(app).post("/api/characters").send({
+      name: "Unattested photo",
+      sourceImagePath: `/objects/${tenant.tenantId}/uploads/no-attestation.png`,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/likeness-rights attestation is required/i);
+    expect(genState.referenceCalls).toHaveLength(0);
+    expect(genState.sheetCalls).toHaveLength(0);
+    const saved = await db.select().from(charactersTable)
+      .where(eq(charactersTable.tenantId, tenant.tenantId));
+    expect(saved).toHaveLength(0);
+  });
+
   it("creates a character from an uploaded photo with no AI cost", async () => {
     const tenant = await newTenant();
     const sourceImagePath = `/objects/${tenant.tenantId}/uploads/me.png`;
     const res = await request(app)
       .post("/api/characters")
-      .send({ name: "Maya", description: "cheerful founder", sourceImagePath });
+      .send({ name: "Maya", description: "cheerful founder", sourceImagePath, likenessAttestation: uploadedLikenessAttestation });
     expect(res.status).toBe(201);
     expect(res.body.referenceImagePath).toBe(sourceImagePath);
     expect(res.body.outfits).toHaveLength(1);
@@ -742,6 +773,7 @@ describe("PATCH /api/characters/:characterId identity attachment", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Maya",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const [identity] = await db
       .insert(bytePlusIdentitiesTable)
@@ -768,6 +800,7 @@ describe("PATCH /api/characters/:characterId identity attachment", () => {
     const uploaded = await request(app).post("/api/characters").send({
       name: "Uploaded",
       sourceImagePath: `/objects/${owner.tenantId}/uploads/uploaded.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const generated = await request(app)
       .post("/api/characters")
@@ -878,6 +911,7 @@ describe("DELETE /api/characters/identities/:identityId", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Maya",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+      likenessAttestation: uploadedLikenessAttestation,
       identityId: identity!.id,
     });
 
@@ -935,6 +969,7 @@ describe("outfits", () => {
     const created = await request(app).post("/api/characters").send({
       name: "No region",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/no-region.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const response = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
@@ -949,6 +984,7 @@ describe("outfits", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Reviewed",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/reviewed.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     await request(app).patch(`/api/characters/${created.body.id}`).send({ protectedRegion });
     const response = await request(app)
@@ -970,6 +1006,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     const res = await request(app)
@@ -995,6 +1032,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
 
     const protectedUpdate = await request(app)
@@ -1034,6 +1072,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     const generated = await request(app)
@@ -1073,6 +1112,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
@@ -1105,6 +1145,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
@@ -1136,6 +1177,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
@@ -1158,6 +1200,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
@@ -1181,6 +1224,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
@@ -1218,6 +1262,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     billingState.walletEnabled = true;
@@ -1240,6 +1285,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     await grantCredits({
@@ -1269,6 +1315,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     const defaultOutfit = created.body.outfits[0];
     const res = await request(app).delete(
@@ -1284,6 +1331,7 @@ describe("outfits", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await persistReviewedRegion(created.body.id);
     const withOutfit = await request(app)
@@ -1301,6 +1349,7 @@ describe("outfits", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Atlas outfit owner",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/owner.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     await persistReviewedRegion(created.body.id);
     const withOutfit = await request(app)
@@ -1347,6 +1396,7 @@ describe("list + delete", () => {
       .send({
         name: "Other",
         sourceImagePath: `/objects/${other.tenantId}/uploads/o.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     await db.update(characterOutfitsTable).set({
       atlasAssetId: "atlas-foreign-owned",
@@ -1359,6 +1409,7 @@ describe("list + delete", () => {
       .send({
         name: "Mine",
         sourceImagePath: `/objects/${mine.tenantId}/uploads/m.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
 
     const list = await request(app).get("/api/characters");
@@ -1380,6 +1431,7 @@ describe("list + delete", () => {
       .send({
         name: "Maya",
         sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+        likenessAttestation: uploadedLikenessAttestation,
       });
     let res = await request(app).delete(`/api/characters/${created.body.id}`);
     if (res.status === 409) {
@@ -1400,6 +1452,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Atlas fictional",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/atlas.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     await persistReviewedRegion(created.body.id);
     const withOutfit = await request(app)
@@ -1448,6 +1501,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: `Blocked ${_label}`,
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/blocked.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const outfit = created.body.outfits[0];
     const assetId = 2_100_000 + outfit.id;
@@ -1474,6 +1528,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Already removed remotely",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/removed.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const assetId = 2_200_000 + created.body.outfits[0].id;
     await db.update(characterOutfitsTable).set({
@@ -1507,6 +1562,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Compensated deletion",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/compensated.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const outfit = created.body.outfits[0];
     const recordId = 2_250_000 + outfit.id;
@@ -1534,6 +1590,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Compensated ambiguity deletion",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/compensated-ambiguous.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const outfit = created.body.outfits[0];
     const parentRecordId = 2_270_000 + created.body.id;
@@ -1574,6 +1631,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Fenced Atlas submission",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/fenced.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const outfit = created.body.outfits[0];
     await db.update(characterOutfitsTable).set({
@@ -1596,6 +1654,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Character fence race",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/race.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const outfit = created.body.outfits[0];
     const libraryRecordId = 2_300_000 + outfit.id;
@@ -1625,6 +1684,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Parent completion race",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/parent-race.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     const outfit = created.body.outfits[0];
     const outfitRecordId = 2_350_000 + outfit.id;
@@ -1661,6 +1721,7 @@ describe("list + delete", () => {
     const created = await request(app).post("/api/characters").send({
       name: "Outfit fence race",
       sourceImagePath: `/objects/${tenant.tenantId}/uploads/outfit-race.png`,
+      likenessAttestation: uploadedLikenessAttestation,
     });
     await persistReviewedRegion(created.body.id);
     const withOutfit = await request(app).post(`/api/characters/${created.body.id}/outfits`)

@@ -11,11 +11,13 @@ import { renderLayeredImage } from "./render";
 import { normalizeLayerPlan } from "./types";
 import type { MeterFundingSnapshot } from "../meterFunding";
 
-function legacyImageFunding(
+function imageJobFunding(
   tenantId: number,
-  rail: "quota" | "credit" | "wallet",
+  rail: "quota" | "credit" | "wallet" | "credits",
 ): MeterFundingSnapshot {
-  return Object.freeze({ tenantId, rail, mode: "shadow" });
+  // The persisted credits rail is authorization frozen at enqueue; old jobs
+  // retain their legacy rail regardless of subsequent billing-mode changes.
+  return Object.freeze({ tenantId, rail, mode: rail === "credits" ? "enforce" : "shadow" });
 }
 
 /**
@@ -30,7 +32,7 @@ function legacyImageFunding(
  */
 export async function runLayeredImageJob(
   jobId: number,
-  funding: "quota" | "credit" | "wallet",
+  funding: "quota" | "credit" | "wallet" | "credits",
 ): Promise<void> {
   const job = (
     await db
@@ -72,7 +74,7 @@ export async function runLayeredImageJob(
         tenantId: job.tenantId,
         refKind: "imageJob",
         refId: String(job.id),
-        funding: legacyImageFunding(job.tenantId, funding),
+        funding: imageJobFunding(job.tenantId, funding),
         operationKey: `imageJob:${job.id}:layered`,
       },
       onProgress: async (stage) => {

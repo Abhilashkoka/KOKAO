@@ -1,5 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import type { MeterFundingSnapshot } from "../lib/meterFunding";
+import { freezeMeterFunding, type MeterFundingSnapshot } from "../lib/meterFunding";
+import { InsufficientCreditsError } from "../lib/creditAccounts";
+import { isMeterDispatchReplayError } from "../lib/meterErrors";
 import {
   db,
   tenantsTable,
@@ -511,6 +513,8 @@ function activateVoiceEntry(
 }
 
 function voiceCloneErrorStatus(error: unknown): number {
+  if (error instanceof InsufficientCreditsError) return 402;
+  if (isMeterDispatchReplayError(error)) return 409;
   if (error instanceof VoiceCloneNotConfiguredError) return 503;
   if (error instanceof VoiceCloneError) {
     return error.status && error.status >= 400 && error.status < 500 ? 422 : 502;
@@ -865,10 +869,9 @@ router.post(
     }
 
     const selectedCloneProvider = await getSelectedVoiceCloneProviderId();
-    // Voice cloning is an independently funded brand-voice operation. It
-    // remains shadow-funded, but still carries the rail selected for this
-    // request so the provider boundary cannot consult live tenant settings.
-    const cloneFunding = legacyPreviewFunding(
+    // Independently freeze this new clone's rail, before provider dispatch.
+    const cloneSnapshot = await freezeMeterFunding(req.tenantId);
+    const cloneFunding = cloneSnapshot.rail === "credits" ? cloneSnapshot : legacyPreviewFunding(
       req.tenantId,
       (await isWalletFunded(req.tenantId)) ? "wallet" : "quota",
     );
@@ -893,7 +896,7 @@ router.post(
         refKind: "brandKit",
         refId: String(ctx.kitId),
         funding: cloneFunding,
-        operationKey: `brand-kit:${ctx.kitId}:voice-clone:${parsed.data.sampleAssetPath}`,
+        operationKey: `brand-kit:${ctx.kitId}:voice-clone:${parsed.data.sampleAssetPath}${cloneFunding.rail === "credits" ? `:${randomUUID()}` : ""}`,
       });
 
       const entry: BrandVoiceEntry = {
@@ -940,6 +943,7 @@ router.post(
       recordUsage(req.tenantId, "caption", {
         provider: cloned.provider,
         model: "voice-clone",
+        funding: cloneFunding.rail,
       }).catch(() => {});
 
       res.status(201).json(detail);
@@ -977,7 +981,7 @@ router.post(
       req.log.error({ err: error }, "Brand voice cloning failed");
       res.status(voiceCloneErrorStatus(error)).json({
         error:
-          error instanceof VoiceCloneError
+          error instanceof VoiceCloneError || error instanceof InsufficientCreditsError || isMeterDispatchReplayError(error)
             ? error.message
             : "Voice cloning failed. Please try again.",
       });
@@ -1007,10 +1011,11 @@ router.post(
     }
 
     const text = (parsed.data.text?.trim() || DEFAULT_PREVIEW_TEXT).slice(0, 300);
+    const fundingSnapshot = await freezeMeterFunding(req.tenantId);
     let reservation: WalletReservation | null = null;
     let reservationCeilingPaise: number | null = null;
     let elevenLabsRateSnapshot: string | null = null;
-    if (await isWalletFunded(req.tenantId)) {
+    if (fundingSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId)) {
       elevenLabsRateSnapshot =
         bv.provider === "elevenlabs"
           ? (await getAiCostConfig()).elevenLabsInrPerCredit
@@ -1048,7 +1053,7 @@ router.post(
     let providerCredits: string | null = null;
     let providerRequestId: string | null = null;
     let providerCostPaise: number | null = null;
-    const ttsFunding = legacyPreviewFunding(
+    const ttsFunding = fundingSnapshot.rail === "credits" ? fundingSnapshot : legacyPreviewFunding(
       req.tenantId,
       reservation ? "wallet" : "quota",
     );
@@ -1056,7 +1061,7 @@ router.post(
       bv.provider_voice_id,
       "eleven_multilingual_v2",
       text,
-    );
+    ) + (ttsFunding.rail === "credits" ? `:${randomUUID()}` : "");
     try {
       const speech = reservation
         ? (
@@ -1159,7 +1164,7 @@ router.post(
         providerRequestId: providerRequestId ?? undefined,
         costPaise: providerCostPaise ?? undefined,
         displayPaiseOverride: settled?.chargedPaise ?? (reservation ? null : undefined),
-        funding: reservation ? "wallet" : undefined,
+        funding: ttsFunding.rail,
       }).catch(() => {});
       res.json({ audioPath });
     } catch (error) {
@@ -1184,7 +1189,7 @@ router.post(
       req.log.error({ err: error }, "Brand voice preview failed");
       res.status(voiceCloneErrorStatus(error)).json({
         error:
-          error instanceof VoiceCloneError
+          error instanceof VoiceCloneError || error instanceof InsufficientCreditsError || isMeterDispatchReplayError(error)
             ? error.message
             : "The voice preview failed. Please try again.",
       });
@@ -1209,8 +1214,9 @@ router.post(
     const ctx = await requireActivePayload(req, res);
     if (!ctx) return;
 
+    const fundingSnapshot = await freezeMeterFunding(req.tenantId);
     let reservation: WalletReservation | null = null;
-    if (await isWalletFunded(req.tenantId)) {
+    if (fundingSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId)) {
       reservation = await reserveWallet(req.tenantId, "caption");
       if (!reservation) {
         res.status(402).json({ error: "Insufficient wallet balance. Please recharge." });
@@ -1228,11 +1234,11 @@ router.post(
             tenantId: req.tenantId,
             refKind: "brandKit",
             refId: String(ctx.kitId),
-            funding: legacyPreviewFunding(
+            funding: fundingSnapshot.rail === "credits" ? fundingSnapshot : legacyPreviewFunding(
               req.tenantId,
               reservation ? "wallet" : "quota",
             ),
-            operationKey: `brand-kit:${ctx.kitId}:stock-voice-preview:${voice}`,
+            operationKey: `brand-kit:${ctx.kitId}:stock-voice-preview:${voice}${fundingSnapshot.rail === "credits" ? `:${randomUUID()}` : ""}`,
           },
         },
       );
@@ -1259,7 +1265,7 @@ router.post(
       recordUsage(req.tenantId, "caption", {
         provider: "stock-tts",
         model: voice,
-        funding: reservation ? "wallet" : undefined,
+        funding: fundingSnapshot.rail === "credits" ? "credits" : reservation ? "wallet" : undefined,
       }).catch(() => {});
       res.json({ audioPath });
     } catch (error) {
@@ -1271,9 +1277,9 @@ router.post(
         ).catch(() => {});
       }
       req.log.error({ err: error }, "Stock voice preview failed");
-      res.status(503).json({
+      res.status(error instanceof InsufficientCreditsError ? 402 : isMeterDispatchReplayError(error) ? 409 : 503).json({
         error:
-          error instanceof VideoGenProviderError
+          error instanceof VideoGenProviderError || error instanceof InsufficientCreditsError || isMeterDispatchReplayError(error)
             ? error.message
             : "The stock voice preview failed. Please try again.",
       });
@@ -1309,10 +1315,11 @@ router.post(
       return;
     }
 
+    const fundingSnapshot = await freezeMeterFunding(req.tenantId);
     let reservation: WalletReservation | null = null;
     let reservationCeilingPaise: number | null = null;
     let elevenLabsRateSnapshot: string | null = null;
-    if (await isWalletFunded(req.tenantId)) {
+    if (fundingSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId)) {
       elevenLabsRateSnapshot =
         bv.provider === "elevenlabs"
           ? (await getAiCostConfig()).elevenLabsInrPerCredit
@@ -1350,7 +1357,7 @@ router.post(
     let providerCredits: string | null = null;
     let providerRequestId: string | null = null;
     let providerCostPaise: number | null = null;
-    const ttsFunding = legacyPreviewFunding(
+    const ttsFunding = fundingSnapshot.rail === "credits" ? fundingSnapshot : legacyPreviewFunding(
       req.tenantId,
       reservation ? "wallet" : "quota",
     );
@@ -1358,7 +1365,7 @@ router.post(
       bv.provider_voice_id,
       "eleven_multilingual_v2",
       text,
-    );
+    ) + (ttsFunding.rail === "credits" ? `:${randomUUID()}` : "");
     try {
       const operation = reservation
         ? await executeWalletProviderOperation(
@@ -1459,7 +1466,7 @@ router.post(
         providerRequestId: providerRequestId ?? undefined,
         costPaise: providerCostPaise ?? undefined,
         displayPaiseOverride: settled?.chargedPaise ?? (reservation ? null : undefined),
-        funding: reservation ? "wallet" : undefined,
+        funding: ttsFunding.rail,
       }).catch(() => {});
       res.json({ audioPath });
     } catch (error) {
@@ -1484,7 +1491,7 @@ router.post(
       req.log.error({ err: error }, "Brand voice audio generation failed");
       res.status(voiceCloneErrorStatus(error)).json({
         error:
-          error instanceof VoiceCloneError
+          error instanceof VoiceCloneError || error instanceof InsufficientCreditsError || isMeterDispatchReplayError(error)
             ? error.message
             : "Generating the audio failed. Please try again.",
       });

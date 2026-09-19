@@ -10,6 +10,7 @@ import type { GuidedStoryCastSnapshot } from './guidedStoryCastSnapshot';
 import type { GuidedStoryDraftCastStrategy } from './guidedStoryDraftCastStrategy';
 import type { GuidedStoryDraftEstimates } from './guidedStoryDraftEstimates';
 import type { GuidedStoryDraftGeneratedCastOperations } from './guidedStoryDraftGeneratedCastOperations';
+import type { GuidedStoryDraftSceneInsertionGeneration } from './guidedStoryDraftSceneInsertionGeneration';
 import type { GuidedStoryDraftScriptGeneration } from './guidedStoryDraftScriptGeneration';
 import type { GuidedStoryImageModelSnapshot } from './guidedStoryImageModelSnapshot';
 import type { GuidedStoryReferenceOperation } from './guidedStoryReferenceOperation';
@@ -39,6 +40,8 @@ export interface GuidedStoryDraft {
      */
   scriptGeneration: GuidedStoryDraftScriptGeneration;
   generatedCastOperations: GuidedStoryDraftGeneratedCastOperations;
+  /** @nullable */
+  sceneInsertionGeneration?: GuidedStoryDraftSceneInsertionGeneration;
   referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
   /** @nullable */

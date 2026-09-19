@@ -164,7 +164,9 @@ export async function renderLayeredImage(input: {
           tenantId: input.tenantId,
           refKind: "imageJob",
           ...(input.meterContext ?? {}),
-          operationKey: `layered-image:${i}:${planned.id}`,
+          operationKey: input.meterContext?.funding?.rail === "credits"
+            ? `${input.meterContext.operationKey}:layer:${i}:${planned.id}`
+            : `layered-image:${i}:${planned.id}`,
         },
       },
     );

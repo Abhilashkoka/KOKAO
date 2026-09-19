@@ -37,6 +37,7 @@ import {
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { track } from "@/lib/analytics";
+import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -362,6 +363,25 @@ export function GuidedStoryWorkflow({
   };
   const requestUploadUrl = useRequestUploadUrl();
   const draft = draftId === null ? undefined : draftQuery.data;
+  const refreshedGeneratedCastSettlements = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const [roleId, operation] of Object.entries(
+      draft?.generatedCastOperations ?? {},
+    )) {
+      const status = operation.sheetStatus;
+      if (
+        status !== "settled" &&
+        status !== "failed" &&
+        status !== "outcome_unknown"
+      ) {
+        continue;
+      }
+      const settlementKey = `${draft?.id}:${roleId}:${status}`;
+      if (refreshedGeneratedCastSettlements.current.has(settlementKey)) continue;
+      refreshedGeneratedCastSettlements.current.add(settlementKey);
+      refreshCreditBalanceSafely(queryClient);
+    }
+  }, [draft?.generatedCastOperations, draft?.id, queryClient]);
   const linkedStoryboardJobId =
     draft?.storyboardJobId != null && draft.storyboardJobId > 0
       ? draft.storyboardJobId
@@ -563,11 +583,13 @@ export function GuidedStoryWorkflow({
       { draftId: sourceDraft.id, data: { revision: sourceDraft.revision } },
       {
         onSuccess: (next) => {
+          refreshCreditBalanceSafely(queryClient);
           setScriptRegenerationReason(null);
           setAuthoritativeDraft(next);
           onSettled?.();
         },
         onError: (error) => {
+          refreshCreditBalanceSafely(queryClient);
           const message = apiErrorMessage(
             error,
             "Could not generate this script. Please try again.",
@@ -812,9 +834,11 @@ export function GuidedStoryWorkflow({
       onSuccess: (next) => {
         setCastBusyRole(null);
         setCastRetryAttempt(0);
+        refreshCreditBalanceSafely(queryClient);
         setAuthoritativeDraft(next);
       },
       onError: (error) => {
+        refreshCreditBalanceSafely(queryClient);
         const message = apiErrorMessage(error, "Could not save this cast. Please try again.");
         const busy = message.match(/^Cast generation is already in progress for role (.+)\.$/);
         if (busy?.[1]) {
@@ -1028,6 +1052,7 @@ function castApprovalInstruction(roles: Array<{ name: string }>) {
 }
 
 function StoryFlow(props: any) {
+  const queryClient = useQueryClient();
   const { draft, characters, voices } = props;
   const [, setRoleChoicePrompt] = useState(false);
   const [, setReadyToGenerateCast] = useState(false);
@@ -1046,6 +1071,8 @@ function StoryFlow(props: any) {
       setSheetRetryError(
         apiErrorMessage(cause, "Could not retry this reference sheet."),
       );
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
     }
   };
   const step = draftStep(draft);
@@ -1220,6 +1247,8 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
       if (/draft changed|changed while|out of date|conflict/i.test(message)) {
         void refreshAfterConflict();
       }
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
     }
   };
   const unsaved = !!file || prompt.trim() !== (shown?.prompt?.trim() ?? "");
@@ -1362,6 +1391,8 @@ function LegacyBackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
       setFile(null);
     } catch (cause) {
       setError(apiErrorMessage(cause, "Could not prepare this backdrop."));
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
     }
   };
   return <Card data-testid="card-guided-backdrop-review">
@@ -1534,6 +1565,7 @@ function CastApprovalStep(props: any) {
         apiErrorMessage(cause, "Could not retry this reference sheet."),
       );
     } finally {
+      refreshCreditBalanceSafely(queryClient);
       setSheetRefreshRoleId(null);
     }
   };
@@ -1556,6 +1588,8 @@ function CastApprovalStep(props: any) {
       setCustomizeRoleId(null);
     } catch (cause) {
       setCustomizationError(apiErrorMessage(cause, "Could not start character regeneration."));
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
     }
   };
   useEffect(() => {
@@ -1630,6 +1664,8 @@ function CastApprovalStep(props: any) {
       setOutfitCandidate(operation);
     } catch (cause) {
       setOutfitError(apiErrorMessage(cause, "Could not prepare this outfit for review."));
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
     }
   };
   const confirmOutfitCandidate = async () => {
@@ -1994,6 +2030,7 @@ function ScriptSummary({ script }: { script: GuidedStoryScript }) {
 }
 
 function ScriptReview(props: any) {
+  const queryClient = useQueryClient();
   const { script } = props.draft as { script: GuidedStoryScript };
   const [editedScript, setEditedScript] = useState<GuidedStoryScript>(script);
   const [jsonText, setJsonText] = useState(() => JSON.stringify(script, null, 2));
@@ -2167,6 +2204,7 @@ function ScriptReview(props: any) {
       },
       {
         onSuccess: (result) => {
+          refreshCreditBalanceSafely(queryClient);
           if (
             insertionRequestRef.current !== requestToken ||
             result.revision !== requestedRevision ||
@@ -2188,6 +2226,7 @@ function ScriptReview(props: any) {
           setInsertionError(null);
         },
         onError: (error) => {
+          refreshCreditBalanceSafely(queryClient);
           setInsertionError(apiErrorMessage(error, "Could not create this scene. Your script was not changed."));
         },
       },

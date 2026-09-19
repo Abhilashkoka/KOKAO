@@ -105,6 +105,7 @@ import {
   type GuidedStoryDialogueReplayPreview,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import {
   trackProjectEvent,
   trackPresetCastEvent,
@@ -1759,6 +1760,7 @@ export function VideoStudioPage() {
     if (!activeJob || announcedRef.current === activeJob.id) return;
     if (activeJob.status === "succeeded") {
       announcedRef.current = activeJob.id;
+      refreshCreditBalanceSafely(queryClient);
       void queryClient.invalidateQueries({
         queryKey: getListVideoJobsQueryKey(),
       });
@@ -1768,6 +1770,7 @@ export function VideoStudioPage() {
       });
     } else if (activeJob.status === "failed") {
       announcedRef.current = activeJob.id;
+      refreshCreditBalanceSafely(queryClient);
       void queryClient.invalidateQueries({
         queryKey: getListVideoJobsQueryKey(),
       });
@@ -3001,6 +3004,7 @@ export function VideoStudioPage() {
           });
         },
         onError: (error: any) => {
+          refreshCreditBalanceSafely(queryClient);
           if (error?.status === 402) {
             const canRequestUpgrade = !isOwner && flags.upgradeRequests;
             // Members can't upgrade the plan or buy credits, so never show
@@ -11119,6 +11123,7 @@ function CharacterManagerDialog({
     void queryClient.invalidateQueries({
       queryKey: getListCharactersQueryKey(),
     });
+  const refreshCredits = () => refreshCreditBalanceSafely(queryClient);
 
   const onApiError = (error: any, fallbackTitle: string) => {
     if (error?.status === 402) {
@@ -11203,6 +11208,7 @@ function CharacterManagerDialog({
       },
       {
         onSuccess: () => {
+          refreshCredits();
           setName("");
           setDescription("");
           setPhotoPath(null);
@@ -11218,8 +11224,10 @@ function CharacterManagerDialog({
               "Review and approve the new multi-view reference sheet before using this character in a video.",
           });
         },
-        onError: (error: any) =>
-          onApiError(error, "Could not create the character"),
+        onError: (error: any) => {
+          refreshCredits();
+          onApiError(error, "Could not create the character");
+        },
       },
     );
   };
@@ -11394,7 +11402,9 @@ function CharacterManagerDialog({
           setOutfitName("");
           setOutfitDescription("");
           invalidate();
+          refreshCredits();
         } catch (error) {
+          refreshCredits();
           onApiError(error, "Could not generate the outfit preview");
         }
       })();
@@ -11424,6 +11434,7 @@ function CharacterManagerDialog({
           },
           {
         onSuccess: (character) => {
+          refreshCredits();
           const generatedOutfit = [...character.outfits]
             .reverse()
             .find(
@@ -11459,8 +11470,10 @@ function CharacterManagerDialog({
               "Review the generated look below before locking it into a video.",
           });
         },
-            onError: (error: any) =>
-              onApiError(error, "Could not add the outfit"),
+            onError: (error: any) => {
+              refreshCredits();
+              onApiError(error, "Could not add the outfit");
+            },
           },
         );
       })
@@ -12135,6 +12148,7 @@ function CharacterManagerDialog({
                                   { characterId: Number(c.id) },
                                   {
                                     onSuccess: () => {
+                                      refreshCredits();
                                       invalidate();
                                       toast({
                                         title: "Reference sheet generated",
@@ -12143,6 +12157,7 @@ function CharacterManagerDialog({
                                       });
                                     },
                                     onError: (error: any) => {
+                                      refreshCredits();
                                       invalidate();
                                       onApiError(
                                         error,

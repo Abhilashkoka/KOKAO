@@ -27,6 +27,7 @@ import {
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { refreshCreditBalanceSafely } from "@/lib/creditBalance";
 
 const c = colors.light;
 const DRAFT_KEY = "kokao-mobile-character-verification-draft";
@@ -254,6 +255,8 @@ export default function CharactersScreen() {
       await queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
     } catch (cause) {
       setError(apiErrorMessage(cause, "Could not attach the verified identity."));
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
     }
   };
 
@@ -303,6 +306,8 @@ export default function CharactersScreen() {
       await queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
     } catch (cause) {
       setError(apiErrorMessage(cause, "Could not create the uploaded character."));
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
     }
   };
 

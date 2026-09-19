@@ -85,7 +85,8 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
     ]);
   });
 
-  it("persists accepted task diagnostics and returns them without output URLs", async () => {
+  it.each(["720p", "1080p", undefined])("persists accepted diagnostics with HD billing for resolution %s", async (resolution) => {
+    const funding = Object.freeze({ tenantId: 1, rail: "credits" as const, mode: "enforce" as const });
     const onProviderTaskAccepted = vi.fn(async () => {});
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/api/v3/contents/generations/tasks")) {
@@ -103,7 +104,8 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
     const result = await generateWithBytePlusModelArk(
       {
         ...input,
-        meterContext: { tenantId: 1, operationKey: "byteplus:clip" },
+        resolution,
+        meterContext: { tenantId: 1, operationKey: "byteplus:clip", funding },
         onProviderTaskAccepted,
       },
       "ark-secret",
@@ -111,6 +113,7 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
     expect(meterMock.mock.calls[0]?.slice(0, 3)).toEqual([
       {
         tenantId: 1,
+        funding,
         operationFamilyKey: "byteplus:clip",
         operationKey: "byteplus:clip:submit:0",
         provider: "byteplus",
@@ -119,6 +122,7 @@ describe("BytePlus ModelArk Seedance 2.5", () => {
       "video_hd",
       8,
     ]);
+    expect((meterMock.mock.calls[0]?.[0] as { funding: unknown }).funding).toBe(funding);
 
     expect(result).toMatchObject({
       provider: "byteplus",

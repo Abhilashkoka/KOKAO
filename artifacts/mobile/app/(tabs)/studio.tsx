@@ -46,7 +46,10 @@ import {
   useWalletBilling,
 } from "@/components/QuotaInfoSheet";
 import { track, trackFeatureUse } from "@/lib/analytics";
-import { useCreditBalance } from "@/lib/creditBalance";
+import {
+  refreshCreditBalanceSafely,
+  useCreditBalance,
+} from "@/lib/creditBalance";
 import { ContentImage } from "@/components/ContentImage";
 import { VoiceNoteButton } from "@/components/VoiceNoteButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -228,6 +231,7 @@ export default function StudioScreen() {
     if (isQuota) {
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     }
+    refreshCreditBalanceSafely(queryClient);
   };
 
   const handleSuggest = () => {
@@ -260,6 +264,7 @@ export default function StudioScreen() {
           setCaption(res.caption);
           setHashtags(res.hashtags);
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          refreshCreditBalanceSafely(queryClient);
           queryClient.invalidateQueries({
             queryKey: getGetFirstPostProgressQueryKey(),
           });
@@ -289,6 +294,7 @@ export default function StudioScreen() {
           setImageB64(res.b64Json);
           setImagePath(res.imagePath);
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          refreshCreditBalanceSafely(queryClient);
           queryClient.invalidateQueries({
             queryKey: getGetFirstPostProgressQueryKey(),
           });

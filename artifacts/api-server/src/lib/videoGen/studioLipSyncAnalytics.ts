@@ -1,7 +1,7 @@
 import type { VideoGeneration } from "@workspace/db";
 import { recordServerEvent } from "../analytics";
 
-type FundingRail = "quota" | "credit" | "wallet";
+type FundingRail = "quota" | "credit" | "wallet" | "credits";
 
 export type StudioLipSyncOutcome =
   | "enabled"

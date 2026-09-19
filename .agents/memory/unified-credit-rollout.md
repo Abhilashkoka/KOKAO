@@ -66,6 +66,12 @@ Reward conversion must preserve the terms of existing earned value. Previously i
 
 Provider credit enforcement is authorized by the server's frozen funding decision, not by a fresh global-mode or tenant-mode lookup. Legacy-funded pipelines remain on their original quota/wallet rail; adding metering does not migrate them to credits.
 
+For new eligible credit-funded work, use saved-rate operation accounting rather than legacy quota units. Preserve fractional credits and charge generated clip seconds at the effective output resolution, not the trimmed final video's duration. Pictures and billable ASR are separate operations; internal visual QA is not.
+
+**Why:** The user explicitly confirmed this calculation model and requested immediate completion accounting across generation operations. A shorter edited output does not undo generated clips, while a displayed INR spend estimate is not a credit debit.
+
+**How to apply:** Reserve safely before paid dispatch, settle actual quantity on success, and refresh canonical balances at completion. Historical corrections require explicit approval, subtract prior debits, and leave old job funding untouched; never turn rollout into an automatic historical charge.
+
 Wallet conversion must exchange value atomically, never grant credits while leaving spendable wallet money. Broad legacy migration must exclude wallet value, and historical wallet-source migration receipts require manual review before any further conversion.
 
 **Why:** The former broad migration could grant wallet-derived credits without retiring the source. A second conversion would double-credit that money even with a new request's own idempotency protection.

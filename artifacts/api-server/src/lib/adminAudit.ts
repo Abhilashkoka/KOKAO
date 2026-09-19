@@ -36,6 +36,7 @@ export type AdminAuditAction =
   | "credit_pack_change"
   | "credit_rates_change"
   | "credit_account_grant"
+  | "credit_account_correction"
   | "credit_grant"
   | "promo_code_change"
   | "ai_spend_settings_change"

@@ -8,6 +8,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AssetProvenanceAncestry } from "./assetProvenance";
 import type { LikenessSubjectClass } from "./characterLikenessConsent";
+import type { VideoJobOptions } from "./videoGenerations";
 
 export type GuidedStoryGenre =
   | "action_adventure"
@@ -409,7 +410,7 @@ export interface GuidedStoryDraftState {
     walletOperationKey?: string;
     requestKey: string;
     phase: "generating" | "finalizing";
-    fundingMode?: "wallet" | "unmetered";
+    fundingMode?: "wallet" | "unmetered" | "credits";
     claimedAt: string;
     expiresAt: string;
     finalizedAt?: string;
@@ -439,7 +440,8 @@ export interface GuidedStoryDraftState {
       | "uploaded";
     claimedAt: string;
     updatedAt: string;
-    funding?: "quota" | "credit" | "wallet";
+    funding?: "quota" | "credit" | "wallet" | "credits";
+    meterFunding?: VideoJobOptions["meterFunding"];
     walletReservation?: {
       id: number;
       amountPaise: number;
@@ -487,7 +489,8 @@ export interface GuidedStoryDraftState {
         | "failed"
         | "outcome_unknown";
       updatedAt: string;
-      funding?: "quota" | "credit" | "wallet";
+      funding?: "quota" | "credit" | "wallet" | "credits";
+      meterFunding?: VideoJobOptions["meterFunding"];
       walletReservation?: {
         id: number;
         amountPaise: number;
@@ -585,7 +588,8 @@ export interface GuidedStoryReferenceOperation {
   checkpoint?: "funded" | "provider_running" | "provider_succeeded" | "upload_succeeded" | "uploaded";
   candidate: GuidedStoryCastSnapshot | null;
   description: string | null;
-  funding?: "quota" | "credit" | "wallet";
+  funding?: "quota" | "credit" | "wallet" | "credits";
+  meterFunding?: VideoJobOptions["meterFunding"];
   walletReservation?: {
     id: number;
     amountPaise: number;

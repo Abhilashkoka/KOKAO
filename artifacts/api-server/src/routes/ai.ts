@@ -27,7 +27,9 @@ import {
   ImageEditModerationError,
 } from "../lib/imageEdit";
 import { meter, type MeterContext } from "../lib/meter";
-import type { MeterFundingSnapshot } from "../lib/meterFunding";
+import { freezeMeterFunding, type MeterFundingSnapshot } from "../lib/meterFunding";
+import { InsufficientCreditsError } from "../lib/creditAccounts";
+import { isMeterDispatchReplayError } from "../lib/meterErrors";
 import {
   runImageOp,
   ImageOpError,
@@ -4021,6 +4023,7 @@ router.post(
     }
     try {
       const actionId = serverActionId();
+      const transcriptionFunding = await freezeMeterFunding(req.tenantId);
       const result = await transcribeAudio({
         buffer: file.buffer,
         mimeType,
@@ -4029,8 +4032,9 @@ router.post(
         tenantId: req.tenantId,
         refKind: "content",
         refId: `transcribe:${actionId}`,
-        // Voice-note transcription remains an included, non-credit-billed action.
-        funding: Object.freeze({
+        // New enforced-credit transcription reserves at the ASR meter;
+        // existing included legacy transcription remains unchanged.
+        funding: transcriptionFunding.rail === "credits" ? transcriptionFunding : Object.freeze({
           tenantId: req.tenantId,
           rail: "quota",
           mode: "shadow",
@@ -4039,6 +4043,10 @@ router.post(
       });
       res.json(result);
     } catch (error) {
+      if (error instanceof InsufficientCreditsError || isMeterDispatchReplayError(error)) {
+        res.status(error instanceof InsufficientCreditsError ? 402 : 409).json({ error: error.message });
+        return;
+      }
       if (error instanceof AsrNotConfiguredError) {
         res.status(502).json({ error: error.message });
         return;

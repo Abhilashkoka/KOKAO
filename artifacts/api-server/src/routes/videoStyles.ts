@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import { db, tenantsTable, videoStyleProfilesTable } from "@workspace/db";
 import type { VideoStyleProfile } from "@workspace/db";
 import { and, asc, eq, or } from "drizzle-orm";
@@ -28,7 +29,9 @@ import {
   ReferenceProviderIndeterminateError,
 } from "../lib/videoGen/referenceAnalyzer";
 import { TextGenNotConfiguredError } from "../lib/textGen";
-import type { MeterFundingSnapshot } from "../lib/meterFunding";
+import { freezeMeterFunding, type MeterFundingSnapshot } from "../lib/meterFunding";
+import { InsufficientCreditsError } from "../lib/creditAccounts";
+import { isMeterDispatchReplayError } from "../lib/meterErrors";
 
 const router: IRouter = Router();
 
@@ -75,7 +78,7 @@ function serializeProfile(profile: VideoStyleProfile) {
 }
 
 interface Funding {
-  source: "quota" | "credit" | "wallet";
+  source: "quota" | "credit" | "wallet" | "credits";
   funding: MeterFundingSnapshot;
   reservation?: WalletReservation;
 }
@@ -89,6 +92,8 @@ function legacyStyleFunding(
 
 /** Reserve caption funding on whichever rail this workspace is on. */
 async function reserveCaptionFunding(tenantId: number, plan: string): Promise<Funding | null> {
+  const snapshot = await freezeMeterFunding(tenantId);
+  if (snapshot.rail === "credits") return { source: "credits", funding: snapshot };
   if (await isWalletFunded(tenantId)) {
     const reservation = await reserveWallet(tenantId, "caption");
     return reservation
@@ -240,6 +245,7 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
   }
 
   const startedAt = Date.now();
+  const operationKey = `video-style-analysis:${sourceVideoPath}${funding.source === "credits" ? `:${randomUUID()}` : ""}`;
   let payload;
   let providerOperationId: number | null = null;
   try {
@@ -249,7 +255,7 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
           tenantId: req.tenantId,
           reservation: funding.reservation,
           operationKind: "video_style_analysis",
-          operationKey: `video-style-analysis:${sourceVideoPath}`,
+          operationKey,
           settlement: {
             kind: "caption",
             costPaise: null,
@@ -268,7 +274,7 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
               refKind: "video_style_profile",
               refId: sourceVideoPath,
                funding: funding.funding,
-              operationKey: `video-style-analysis:${sourceVideoPath}`,
+              operationKey,
             },
             onProviderSuccess: confirmSuccess,
           }),
@@ -291,13 +297,17 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
           refKind: "video_style_profile",
           refId: sourceVideoPath,
            funding: funding.funding,
-          operationKey: `video-style-analysis:${sourceVideoPath}`,
+          operationKey,
         },
       });
     }
   } catch (err) {
     const originalError =
       err instanceof WalletProviderPostSuccessError ? err.originalError : err;
+    if (originalError instanceof InsufficientCreditsError || isMeterDispatchReplayError(originalError)) {
+      res.status(originalError instanceof InsufficientCreditsError ? 402 : 409).json({ error: originalError.message });
+      return;
+    }
     if (err instanceof WalletProviderPostSuccessError) {
       // The model already returned and its durable receipt exists. Parsing or
       // another local step failed afterward, so charge once and never refund.

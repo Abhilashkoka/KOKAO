@@ -205,6 +205,12 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Server-selected funding, persisted at acceptance; never recomputed by workers. */
+  meterFunding?: Readonly<{
+    tenantId: number;
+    rail: "quota" | "credit" | "wallet" | "credits";
+    mode: "off" | "shadow" | "enforce";
+  }>;
   /** v2 immutable delivery billing contract; marker-absent rows are legacy. */
   billingPolicyVersion?: 2;
   acceptedInputs?: Array<GuidedStoryBillingReceipt & {
@@ -1249,7 +1255,8 @@ export interface VideoStoryboardScene {
         inputFingerprint: string;
         originalPreviewPath: string;
         replacementPath: string | null;
-        funding: "quota" | "credit" | "wallet";
+        funding: "quota" | "credit" | "wallet" | "credits";
+        meterFunding?: VideoJobOptions["meterFunding"];
         walletReservation?: {
           id: number;
           amountPaise: number;
@@ -1567,7 +1574,7 @@ export const videoGenerationsTable = pgTable("video_generations", {
   durationMs: integer("duration_ms"),
   /** How the route paid for this job, so a sweep that settles an abandoned
    * one knows whether there are credits to give back. */
-  funding: text("funding").$type<"quota" | "credit" | "wallet">(),
+  funding: text("funding").$type<"quota" | "credit" | "wallet" | "credits">(),
   /**
    * Wallet-funded jobs: the first wallet_ledger reserve row plus the TOTAL
    * paise and units reserved for this job, so the runner can settle it to the

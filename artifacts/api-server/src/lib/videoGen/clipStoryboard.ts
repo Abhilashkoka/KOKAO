@@ -11,6 +11,7 @@ import { characterDetailFromSnapshot, getCharacterDetail, resolveOutfit, loadRef
 import { getTextGenClient } from "../textGen";
 import type { MeterContext } from "../meter";
 import type { MeterFundingSnapshot } from "../meterFunding";
+import { isMeterDispatchReplayError } from "../meterErrors";
 import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../promptKit";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
@@ -139,6 +140,7 @@ function videoStoryboardMeterContext(
 export async function decideShotCountFromBrief(
   tenantId: number,
   brief: string,
+  meterContext?: MeterContext | null,
 ): Promise<number> {
   const tenant = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
@@ -147,7 +149,7 @@ export async function decideShotCountFromBrief(
   try {
     const textGen = await getTextGenClient(
       tenant.aiModel,
-      plannerMeterContext(tenantId, null, "shot-count"),
+      plannerMeterContext(tenantId, meterContext, "shot-count"),
     );
     const completion = await textGen.client.chat.completions.create({
       model: textGen.model,
@@ -179,6 +181,7 @@ export async function decideShotCountFromBrief(
     if (!Number.isFinite(n) || n < 1) return AUTO_SHOT_FALLBACK;
     return Math.min(MAX_CLIP_SHOTS, n);
   } catch (err) {
+    if (isMeterDispatchReplayError(err)) throw err;
     logger.warn({ err, tenantId }, "Auto shot count failed; using the fallback count");
     return AUTO_SHOT_FALLBACK;
   }

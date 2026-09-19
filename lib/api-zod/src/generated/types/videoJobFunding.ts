@@ -6,10 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type GuidedSceneCorrectionAttemptFunding = typeof GuidedSceneCorrectionAttemptFunding[keyof typeof GuidedSceneCorrectionAttemptFunding];
+/**
+ * Persisted funding rail; historical rows without a rail serialize as quota.
+ */
+export type VideoJobFunding = typeof VideoJobFunding[keyof typeof VideoJobFunding];
 
 
-export const GuidedSceneCorrectionAttemptFunding = {
+export const VideoJobFunding = {
   quota: 'quota',
   credit: 'credit',
   wallet: 'wallet',

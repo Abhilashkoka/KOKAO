@@ -84,3 +84,8 @@ export async function refreshCreditBalance(client: QueryClient) {
     staleTime: 0,
   });
 }
+
+/** Best-effort refresh for generation callbacks; never disrupts their UI flow. */
+export function refreshCreditBalanceSafely(client: QueryClient): void {
+  void refreshCreditBalance(client).catch(() => undefined);
+}

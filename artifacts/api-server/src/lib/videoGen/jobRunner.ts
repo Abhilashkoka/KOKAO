@@ -226,6 +226,7 @@ import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
 import { meter, type MeterContext } from "../meter";
 import type { MeterFundingSnapshot } from "../meterFunding";
+import { videoFundingSnapshot } from "./funding";
 import {
   assessNativeAudioTranscript,
   guidedSpokenPhoneticText,
@@ -269,7 +270,7 @@ const ALLOWED_SOURCE_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "vid
 
 /** Stable billing identity for a paid lip-sync dispatch in a durable video job. */
 function lipSyncMeterContext(
-  job: Pick<VideoGeneration, "id" | "tenantId" | "funding">,
+  job: Pick<VideoGeneration, "id" | "tenantId" | "funding" | "options">,
   operation: string,
 ): MeterContext {
   return {
@@ -278,17 +279,13 @@ function lipSyncMeterContext(
     refId: String(job.id),
     // Video jobs are legacy-funded (quota, wallet, or the old credit rail).
     // Older rows predate the persisted rail; quota is the historical default.
-    funding: Object.freeze({
-      tenantId: job.tenantId,
-      rail: job.funding ?? "quota",
-      mode: "shadow",
-    } satisfies MeterFundingSnapshot),
+    funding: videoFundingSnapshot(job),
     operationKey: `videoJob:${job.id}:${operation}`,
   };
 }
 
 function videoMeterContext(
-  job: Pick<VideoGeneration, "id" | "tenantId" | "funding">,
+  job: Pick<VideoGeneration, "id" | "tenantId" | "funding" | "options">,
   operation: string,
 ): MeterContext {
   return {
@@ -297,11 +294,7 @@ function videoMeterContext(
     refId: String(job.id),
     // Video jobs are legacy-funded (quota, wallet, or the old credit rail).
     // Older rows predate the persisted rail; quota is the historical default.
-    funding: Object.freeze({
-      tenantId: job.tenantId,
-      rail: job.funding ?? "quota",
-      mode: "shadow",
-    } satisfies MeterFundingSnapshot),
+    funding: videoFundingSnapshot(job),
     operationKey: `videoJob:${job.id}:${operation}`,
   };
 }
@@ -658,6 +651,11 @@ export async function fundPlannedTemplateVisualWork(
   job: VideoGeneration,
   storyboard: VideoStoryboard,
 ): Promise<{ funded: boolean; job: VideoGeneration; error: string | null }> {
+  // The provider meter reserves each actual call; no quota/wallet top-up.
+  if (job.funding === "credits") {
+    videoFundingSnapshot(job);
+    return { funded: true, job, error: null };
+  }
   if (!hasDeferredTemplateFunding(job)) return { funded: true, job, error: null };
   const options = job.options!;
   // Guided Story's complete preview + animation workload was reserved from its
@@ -2011,7 +2009,7 @@ async function speakLocalizedBrandVoiceCue(args: {
   const elevenLabsLanguage = args.voice.provider === "elevenlabs"
     ? resolveElevenLabsSpeechLanguage(modelId, args.languageCode)
     : { modelId, languageCode: args.languageCode };
-  const walletFunded = await isWalletFunded(args.tenantId);
+  const walletFunded = args.funding?.rail !== "credits" && await isWalletFunded(args.tenantId);
   const rateSnapshot =
     args.voice.provider === "elevenlabs"
       ? (await getAiCostConfig()).elevenLabsInrPerCredit
@@ -6082,7 +6080,7 @@ function isStockSourceChoice(value: string | undefined): value is StockSourceCho
  */
 export async function runVideoGenerationJob(
   jobId: number,
-  funding: "quota" | "credit" | "wallet",
+  funding: "quota" | "credit" | "wallet" | "credits",
 ): Promise<void> {
   // Atomic claim: only one runner can move a job out of queued, so a retry or
   // a restart cannot double-spend a reservation.
@@ -6094,15 +6092,16 @@ export async function runVideoGenerationJob(
         stage: "Getting started",
         funding: sql`case
           when ${videoGenerationsTable.options}->'recovery'->'verificationOnly'->>'reason' = 'indic_cross_script_asr_recheck'
+            and coalesce(${videoGenerationsTable.funding}, 'quota') <> 'credits'
           then null
-          else ${funding}
+          else coalesce(${videoGenerationsTable.funding}, ${funding})
         end`,
       })
       .where(and(eq(videoGenerationsTable.id, jobId), eq(videoGenerationsTable.status, "queued")))
       .returning()
   )[0];
   if (!claimed) return;
-  await executeVideoJob(claimed, funding);
+  await executeVideoJob(claimed, claimed.funding ?? funding);
 }
 
 /**
@@ -6236,7 +6235,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
     const funding = claimed.options?.storyboardFunding;
     if (
       !claimed.funding ||
-      (funding != null && (
+      (claimed.funding !== "credits" && funding != null && (
         funding.requiredUnits == null ||
         funding.fundedUnits < funding.requiredUnits
       )) ||
@@ -6525,7 +6524,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
     const funding = claimed.options?.storyboardFunding;
     if (
       !claimed.funding ||
-      (funding != null && (
+      (claimed.funding !== "credits" && funding != null && (
         funding.requiredUnits == null ||
         funding.fundedUnits < funding.requiredUnits
       )) ||
@@ -6902,7 +6901,14 @@ export async function runGuidedSceneCorrectionJob(
       storyboard: claimedStoryboard,
       scene: correctedScene,
       aspectRatio: claimedJob.options?.aspectRatio ?? "9:16",
-      meterCtx: videoMeterContext(claimedJob, `storyboard-preview:${scene.id}`),
+      meterCtx: {
+        ...videoMeterContext(claimedJob, `storyboard-correction:${scene.id}:${attempt.id}`),
+        funding: videoFundingSnapshot({
+          tenantId: claimedJob.tenantId,
+          funding: attempt.funding,
+          options: { meterFunding: attempt.meterFunding },
+        }),
+      },
       upload: (bytes, contentType) => uploadToStorage(claimedJob.tenantId, bytes, contentType),
       priorImages,
       imageSelectionPolicy: claimedJob.options?.guidedStory?.imageModelSnapshot,
@@ -7335,7 +7341,7 @@ export async function refreshStoryboardScenePreview(
     storyboard,
     scene,
     aspectRatio: job.options?.aspectRatio ?? "9:16",
-    meterCtx: videoMeterContext(job, `storyboard-preview:${scene.id}`),
+    meterCtx: videoMeterContext(job, `storyboard-preview:${scene.id}:regeneration:${storyboard.regenerations}`),
     characterId: job.options?.characterId ?? null,
     selectedOutfitId: job.options?.outfitId ?? null,
     characterSnapshot: job.options?.characterSnapshot,
@@ -8205,7 +8211,7 @@ async function finishWithStudioLipSync(
 
 async function executeVideoJob(
   job: VideoGeneration,
-  funding: "quota" | "credit" | "wallet",
+  funding: "quota" | "credit" | "wallet" | "credits",
 ): Promise<void> {
   const jobId = job.id;
   const startedAt = Date.now();

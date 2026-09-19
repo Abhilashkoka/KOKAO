@@ -4,7 +4,6 @@ import { boundedProviderFetch } from "../../aiProviderFetch";
 import {
   errorDetail,
   providerAspect,
-  isHdVideoResolution,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
@@ -82,7 +81,8 @@ export async function generateWithNvidiaNimVideo(
           operationKey: `${input.meterContext.operationKey ?? "video"}:submit:0`,
         }
       : null,
-    isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+    // This NIM contract always requests 480p, even when the caller asks for HD.
+    "video",
     seconds,
     async () => {
       const response = await boundedProviderFetch(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useAdminListTenants,
@@ -7,6 +7,7 @@ import {
   useAdminUpdateTenantDesignSkill,
   useAdminGrantCredits,
   useAdminGrantCreditAccount,
+  useAdminCorrectPurchasedCredits,
   useAdminUpdateTenantBillingMode,
   useAdminAdjustTenantWallet,
   useAdminListSeatRequests,
@@ -292,11 +293,18 @@ export function TenantsTab() {
   const updatePlan = useAdminUpdateTenantPlan();
   const grantCredits = useAdminGrantCredits();
   const grantCreditAccount = useAdminGrantCreditAccount();
+  const correction = useAdminCorrectPurchasedCredits();
+  const correctionInFlight = useRef(false);
+  const [correctionAmount, setCorrectionAmount] = useState("");
+  const [correctionReference, setCorrectionReference] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [confirmCorrection, setConfirmCorrection] = useState(false);
   const [tenantsOpen, setTenantsOpen] = useState(true);
   const [grantTarget, setGrantTarget] = useState<{
     id: number;
     name: string;
     canonical: boolean;
+    purchasedMilli?: number;
   } | null>(null);
   const [detailsTarget, setDetailsTarget] = useState<AdminTenant | null>(null);
   const [conversionTarget, setConversionTarget] = useState<{ id: number; name: string } | null>(null);
@@ -667,6 +675,7 @@ export function TenantsTab() {
                                 id: t.id,
                                 name: t.name,
                                 canonical: t.creditAccountExists === true,
+                                purchasedMilli: Math.round((t.balance?.purchased ?? 0) * 1000),
                               })
                             }
                           >
@@ -817,7 +826,7 @@ export function TenantsTab() {
             </DialogTitle>
             <DialogDescription>
               {grantTarget?.canonical
-                ? "Adjusts the canonical unified credit account for this workspace. Use a negative number to deduct; the balance never goes below zero."
+                ? "Standard adjustments affect granted credits only. Purchased-credit historical corrections use the separate reviewed action below."
                 : "This workspace has no canonical credit account yet. These are legacy unit-credit controls, kept separate from unified credits; use negative numbers to deduct."}
             </DialogDescription>
           </DialogHeader>
@@ -831,6 +840,48 @@ export function TenantsTab() {
                 onChange={(e) => setGrantUnified(e.target.value)}
                 data-testid="input-grant-unified"
               />
+              <section className="space-y-2 border-t pt-3">
+                <p className="text-sm font-medium">Purchased-credit correction</p>
+                <p className="text-sm">Purchased balance: {((grantTarget.purchasedMilli ?? 0) / 1000).toFixed(3)}</p>
+                <p className="text-xs text-muted-foreground">Debit only the approved remaining amount, after subtracting prior charges. Reuse the same operation reference after a network error; never create a new reference to retry.</p>
+                <Input aria-label="Purchased credits to deduct" type="number" min="0.001" step="0.001" placeholder="Credits to deduct" value={correctionAmount} onChange={(e) => setCorrectionAmount(e.target.value)} />
+                <Input aria-label="Correction operation reference" placeholder="video:13:rate-card-correction" maxLength={160} value={correctionReference} onChange={(e) => setCorrectionReference(e.target.value)} />
+                <Input aria-label="Correction reason" placeholder="Reason and authorization" maxLength={1000} value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} />
+                <Button variant="destructive" disabled={correction.isPending} onClick={() => {
+                  const milli = Math.round(Number(correctionAmount) * 1000);
+                  if (!/^\d+(\.\d{1,3})?$/.test(correctionAmount) || milli <= 0 || milli > (grantTarget.purchasedMilli ?? 0) || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/.test(correctionReference.trim()) || !correctionReason.trim()) {
+                    toast({ variant: "destructive", title: "Check correction", description: "Enter an affordable positive amount with at most 3 decimal places, a valid operation reference, and a reason." });
+                    return;
+                  }
+                  setConfirmCorrection(true);
+                }}>Review purchased debit</Button>
+                <ConfirmDialog open={confirmCorrection} onOpenChange={setConfirmCorrection} destructive title="Confirm exact purchased-credit debit"
+                  description={`${grantTarget.name}: purchased ${((grantTarget.purchasedMilli ?? 0) / 1000).toFixed(3)} → ${(((grantTarget.purchasedMilli ?? 0) - Math.round(Number(correctionAmount) * 1000)) / 1000).toFixed(3)} credits. Debit ${Number(correctionAmount).toFixed(3)}. Reference: ${correctionReference.trim()}. Reason: ${correctionReason.trim()}. Granted credits are unchanged.`}
+                  confirmLabel="Debit purchased credits"
+                  onConfirm={() => {
+                    if (correctionInFlight.current) return;
+                    correctionInFlight.current = true;
+                    correction.mutate({ id: grantTarget.id, data: {
+                    amountMilli: Math.round(Number(correctionAmount) * 1000),
+                    expectedPurchasedMilli: grantTarget.purchasedMilli ?? 0,
+                    reference: correctionReference.trim(), reason: correctionReason.trim(),
+                  } }, {
+                    onSuccess: (receipt) => {
+                      correctionInFlight.current = false;
+                      // Includes tenant list, account/history, current-user credit
+                      // balance and audit queries rather than a local-only update.
+                      queryClient.invalidateQueries();
+                      toast({ title: "Purchased correction recorded", description: `${(receipt.beforePurchasedMilli / 1000).toFixed(3)} → ${(receipt.afterPurchasedMilli / 1000).toFixed(3)} purchased credits. Reference: ${receipt.reference}` });
+                      setGrantTarget(null);
+                      setCorrectionAmount(""); setCorrectionReference(""); setCorrectionReason("");
+                    },
+                    onError: (err: unknown) => {
+                      correctionInFlight.current = false;
+                      queryClient.invalidateQueries({ queryKey: getAdminListTenantsQueryKey() });
+                      toast({ variant: "destructive", title: "Correction not confirmed", description: apiErrorMessage(err, "Retry with the same reference and amount. Refresh the balance if it changed.") });
+                    },
+                  }); }} />
+              </section>
             </div>
           ) : (
             <>

@@ -48,7 +48,8 @@ beforeEach(() => {
 });
 
 describe("NVIDIA Visual GenAI NIM video adapter", () => {
-  it("sends the official synchronous T2V contract and decodes MP4", async () => {
+  it.each([undefined, "720p", "1080p"])("bills the actual 480p T2V contract at standard rate when requested resolution is %s", async (resolution) => {
+    const funding = Object.freeze({ tenantId: 1, rail: "credits" as const, mode: "enforce" as const });
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
       Response.json({ data: { b64_json: mp4.toString("base64") } }),
     );
@@ -56,11 +57,13 @@ describe("NVIDIA Visual GenAI NIM video adapter", () => {
 
     const result = await generateWithNvidiaNimVideo({
       ...baseInput,
-      meterContext: { tenantId: 1, operationKey: "nvidia:clip" },
+      resolution,
+      meterContext: { tenantId: 1, operationKey: "nvidia:clip", funding },
     }, null);
     expect(meterMock.mock.calls[0]?.slice(0, 3)).toEqual([
       {
         tenantId: 1,
+        funding,
         operationFamilyKey: "nvidia:clip",
         operationKey: "nvidia:clip:submit:0",
         provider: "nvidia",
@@ -69,6 +72,7 @@ describe("NVIDIA Visual GenAI NIM video adapter", () => {
       "video",
       12,
     ]);
+    expect((meterMock.mock.calls[0]?.[0] as { funding: unknown }).funding).toBe(funding);
     expect(result.buffer).toEqual(mp4);
     expect(result).toMatchObject({ provider: "nvidia", model: "wan-ai/wan2.2" });
     expect(fetchMock).toHaveBeenCalledWith(
@@ -99,6 +103,7 @@ describe("NVIDIA Visual GenAI NIM video adapter", () => {
       {
         ...baseInput,
         aspectRatio: "9:16",
+        resolution: "1080p",
         durationSec: 1,
         image: { buffer: Buffer.from("image"), mimeType: "image/png" },
       },
@@ -109,6 +114,7 @@ describe("NVIDIA Visual GenAI NIM video adapter", () => {
       seconds: 1,
       input_reference: "data:image/png;base64,aW1hZ2U=",
     });
+    expect(meterMock.mock.calls[0]?.slice(0, 3)).toEqual([null, "video", 1]);
   });
 
   it("rejects decoded data that is not MP4", async () => {

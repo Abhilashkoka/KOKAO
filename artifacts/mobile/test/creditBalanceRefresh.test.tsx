@@ -10,6 +10,7 @@ import { getGetCreditsQueryKey } from "@workspace/api-client-react";
 
 import {
   refreshCreditBalance,
+  refreshCreditBalanceSafely,
   useCreditBalance,
 } from "@/lib/creditBalance";
 
@@ -144,6 +145,19 @@ describe("mobile unified credit balance refresh", () => {
       expect(screen.getByTestId("credit-total").textContent).toBe("750"),
     );
     expect(client.getQueryData(getGetCreditsQueryKey())).toMatchObject({ total: 750 });
+    client.clear();
+  });
+
+  it("keeps the visible total when a generation-triggered refresh fails", async () => {
+    const { client } = renderProbe();
+    await waitFor(() => expect(screen.getByTestId("credit-total").textContent).toBe("500"));
+
+    shouldFail = true;
+    act(() => refreshCreditBalanceSafely(client));
+    await waitFor(() =>
+      expect(client.getQueryState(getGetCreditsQueryKey())?.fetchStatus).toBe("idle"),
+    );
+    expect(screen.getByTestId("credit-total").textContent).toBe("500");
     client.clear();
   });
 });

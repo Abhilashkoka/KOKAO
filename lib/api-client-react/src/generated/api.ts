@@ -31,6 +31,7 @@ import type {
   AdminAdsSettingsInput,
   AdminAiFallbackReportView,
   AdminAuditLogPage,
+  AdminCorrectPurchasedCredits200,
   AdminDiscoverNvidiaModelsParams,
   AdminExportAuditLogsParams,
   AdminFeatureFlag,
@@ -345,6 +346,7 @@ import type {
   PublishLinkedInResult,
   PublishThreadsResult,
   PublishTwitterResult,
+  PurchasedCreditCorrectionRequest,
   PushTokenInput,
   PushTokenResult,
   PushTokenUnregisterInput,
@@ -34702,6 +34704,78 @@ export const useAdminGrantCreditAccount = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminGrantCreditAccountMutationOptions(options));
+    }
+
+export const getAdminCorrectPurchasedCreditsUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/credit-account/purchased-correction`
+}
+
+/**
+ * Same tenant/reference and amount returns the original receipt even with a stale expected balance. Reference reuse with another amount, stale balance, and insufficient purchased funds return 409. Debit, ledger and privileged audit are atomic. Does not change granted credits.
+ * @summary Exact purchased-credit historical debit (superadmin only)
+ */
+export const adminCorrectPurchasedCredits = async (id: number,
+    purchasedCreditCorrectionRequest: PurchasedCreditCorrectionRequest, options?: RequestInit): Promise<AdminCorrectPurchasedCredits200> => {
+
+  return customFetch<AdminCorrectPurchasedCredits200>(getAdminCorrectPurchasedCreditsUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(purchasedCreditCorrectionRequest)
+  }
+);}
+
+
+
+
+export const getAdminCorrectPurchasedCreditsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCorrectPurchasedCredits>>, TError,{id: number;data: BodyType<PurchasedCreditCorrectionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminCorrectPurchasedCredits>>, TError,{id: number;data: BodyType<PurchasedCreditCorrectionRequest>}, TContext> => {
+
+const mutationKey = ['adminCorrectPurchasedCredits'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminCorrectPurchasedCredits>>, {id: number;data: BodyType<PurchasedCreditCorrectionRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminCorrectPurchasedCredits(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminCorrectPurchasedCreditsMutationResult = NonNullable<Awaited<ReturnType<typeof adminCorrectPurchasedCredits>>>
+    export type AdminCorrectPurchasedCreditsMutationBody = BodyType<PurchasedCreditCorrectionRequest>
+    export type AdminCorrectPurchasedCreditsMutationError = ErrorType<void>
+
+    /**
+ * @summary Exact purchased-credit historical debit (superadmin only)
+ */
+export const useAdminCorrectPurchasedCredits = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCorrectPurchasedCredits>>, TError,{id: number;data: BodyType<PurchasedCreditCorrectionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminCorrectPurchasedCredits>>,
+        TError,
+        {id: number;data: BodyType<PurchasedCreditCorrectionRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminCorrectPurchasedCreditsMutationOptions(options));
     }
 
 export const getAdminPlanCreditMigrationUrl = () => {

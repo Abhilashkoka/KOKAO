@@ -19,6 +19,7 @@ import { enqueueBackgroundJob } from "../lib/backgroundJobs";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { runImageGenerationJob } from "../lib/imageJobs";
 import type { ImageSize } from "../lib/imageGen";
+import { freezeMeterFunding } from "../lib/meterFunding";
 
 const router: IRouter = Router();
 
@@ -114,9 +115,14 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
   const usage = await getUsage(req.tenantId);
   // The reservation is persisted on the job row: the runner settles it to the
   // real provider cost minutes later, long after this request is gone.
-  let funding: "quota" | "credit" | "wallet";
+  const meterFunding = await freezeMeterFunding(req.tenantId);
+  let funding: "quota" | "credit" | "wallet" | "credits";
   let reservation: WalletReservation | null = null;
-  if (await isWalletFunded(req.tenantId)) {
+  if (meterFunding.rail === "credits") {
+    // Persist the authorization, not a balance reservation. Each innermost
+    // provider dispatch atomically reserves its saved rate before paid work.
+    funding = "credits";
+  } else if (await isWalletFunded(req.tenantId)) {
     reservation = await reserveWallet(req.tenantId, "image", {}, units);
     if (!reservation) {
       res.status(402).json({

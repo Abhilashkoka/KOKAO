@@ -8308,7 +8308,7 @@ export const adminListAuditLogsQueryTargetMax = 200;
 export const AdminListAuditLogsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(adminListAuditLogsQueryLimitMax).default(adminListAuditLogsQueryLimitDefault).describe('Page size (max 200).'),
   "offset": zod.coerce.number().min(adminListAuditLogsQueryOffsetMin).default(adminListAuditLogsQueryOffsetDefault).describe('Number of records to skip (most recent first).'),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import', 'seedance_rate_refresh']).optional().describe('Only return records of this action type.'),
+  "action": zod.enum(['plan_change', 'credit_account_correction', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import', 'seedance_rate_refresh']).optional().describe('Only return records of this action type.'),
   "actor": zod.coerce.string().max(adminListAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
   "target": zod.coerce.string().max(adminListAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
   "from": zod.date().optional().describe('Only return records created at or after this time.'),
@@ -8318,7 +8318,7 @@ export const AdminListAuditLogsQueryParams = zod.object({
 export const AdminListAuditLogsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.number(),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).describe('The privileged action that was recorded.'),
+  "action": zod.enum(['plan_change', 'credit_account_correction', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).describe('The privileged action that was recorded.'),
   "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
   "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
   "targetTenantId": zod.number().nullable().describe('Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.'),
@@ -8343,7 +8343,7 @@ export const adminExportAuditLogsQueryTargetMax = 200;
 
 
 export const AdminExportAuditLogsQueryParams = zod.object({
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).optional().describe('Only export records of this action type.'),
+  "action": zod.enum(['plan_change', 'credit_account_correction', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).optional().describe('Only export records of this action type.'),
   "actor": zod.coerce.string().max(adminExportAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
   "target": zod.coerce.string().max(adminExportAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
   "from": zod.date().optional().describe('Only export records created at or after this time.'),
@@ -14247,6 +14247,7 @@ export const generateVideoResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 export const GenerateVideoResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -14534,7 +14535,7 @@ export const GenerateVideoResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -14759,6 +14760,16 @@ export const createGuidedStoryDraftResponseScriptOneScenesMax = 40;
 
 export const createGuidedStoryDraftResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const createGuidedStoryDraftResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const createGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -14908,6 +14919,49 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -14916,6 +14970,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -15048,6 +15103,16 @@ export const getGuidedStoryDraftResponseScriptOneScenesMax = 40;
 
 export const getGuidedStoryDraftResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const getGuidedStoryDraftResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const getGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -15197,6 +15262,49 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -15205,6 +15313,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -15465,6 +15574,16 @@ export const updateGuidedStoryDraftResponseScriptOneScenesMax = 40;
 
 export const updateGuidedStoryDraftResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const updateGuidedStoryDraftResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const updateGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -15614,6 +15733,49 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -15622,6 +15784,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -15761,6 +15924,16 @@ export const generateGuidedStoryDraftScriptResponseScriptOneScenesMax = 40;
 
 export const generateGuidedStoryDraftScriptResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const generateGuidedStoryDraftScriptResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const generateGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -15910,6 +16083,49 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -15918,6 +16134,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -16067,6 +16284,16 @@ export const refreshGuidedStoryLineTranslationResponseScriptOneScenesMax = 40;
 
 export const refreshGuidedStoryLineTranslationResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const refreshGuidedStoryLineTranslationResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const refreshGuidedStoryLineTranslationResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const refreshGuidedStoryLineTranslationResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -16216,6 +16443,49 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -16224,6 +16494,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -16472,6 +16743,16 @@ export const approveGuidedStoryDraftScriptResponseScriptOneScenesMax = 40;
 
 export const approveGuidedStoryDraftScriptResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const approveGuidedStoryDraftScriptResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const approveGuidedStoryDraftScriptResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -16621,6 +16902,49 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -16629,6 +16953,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -16784,6 +17109,16 @@ export const castGuidedStoryDraftResponseScriptOneScenesMax = 40;
 
 export const castGuidedStoryDraftResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const castGuidedStoryDraftResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const castGuidedStoryDraftResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -16933,6 +17268,49 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -16941,6 +17319,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -17082,6 +17461,16 @@ export const approveGuidedStoryCastRoleResponseScriptOneScenesMax = 40;
 
 export const approveGuidedStoryCastRoleResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const approveGuidedStoryCastRoleResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const approveGuidedStoryCastRoleResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const approveGuidedStoryCastRoleResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -17231,6 +17620,49 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -17239,6 +17671,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -17395,6 +17828,16 @@ export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesMax = 4
 
 export const customizeGuidedStoryGeneratedCastRoleResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const customizeGuidedStoryGeneratedCastRoleResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const customizeGuidedStoryGeneratedCastRoleResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const customizeGuidedStoryGeneratedCastRoleResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -17544,6 +17987,49 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -17552,6 +18038,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -17693,6 +18180,16 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesM
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -17842,6 +18339,49 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -17850,6 +18390,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -17990,6 +18531,7 @@ export const CreateGuidedStoryReferenceResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -18082,6 +18624,16 @@ export const prepareGuidedStoryBackdropResponseScriptOneScenesMax = 40;
 
 export const prepareGuidedStoryBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const prepareGuidedStoryBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const prepareGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -18231,6 +18783,49 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -18239,6 +18834,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -18386,6 +18982,16 @@ export const approveGuidedStoryBackdropResponseScriptOneScenesMax = 40;
 
 export const approveGuidedStoryBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const approveGuidedStoryBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const approveGuidedStoryBackdropResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -18535,6 +19141,49 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -18543,6 +19192,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -18683,6 +19333,16 @@ export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesMax = 40;
 
 export const inheritGuidedStoryDefaultBackdropResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const inheritGuidedStoryDefaultBackdropResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -18832,6 +19492,49 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -18840,6 +19543,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -18980,6 +19684,16 @@ export const finalizeGuidedStoryReferenceResponseScriptOneScenesMax = 40;
 
 export const finalizeGuidedStoryReferenceResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const finalizeGuidedStoryReferenceResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const finalizeGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -19129,6 +19843,49 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -19137,6 +19894,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -19277,6 +20035,16 @@ export const rejectGuidedStoryReferenceResponseScriptOneScenesMax = 40;
 
 export const rejectGuidedStoryReferenceResponseCastApprovalsOneRolesCharacterSha256RegExp = new RegExp('^[a-f0-9]{64}$');
 export const rejectGuidedStoryReferenceResponseCastApprovalsOneRolesOutfitSha256RegExp = new RegExp('^[a-f0-9]{64}$');
+export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptRolesMax = 20;
+
+export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
+
+
+export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesMax = 40;
+
 export const rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMin = 2;
 export const rejectGuidedStoryReferenceResponseVisualChoicesOneLogoSceneIdsItemMax = 64;
 
@@ -19426,6 +20194,49 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "sheetStatus": zod.union([zod.literal('claimed'),zod.literal('funded'),zod.literal('provider_running'),zod.literal('provider_succeeded'),zod.literal('uploaded'),zod.literal('settled'),zod.literal('failed'),zod.literal('outcome_unknown'),zod.literal(null)]).nullable(),
   "sheetError": zod.string().nullable()
 })),
+  "sceneInsertionGeneration": zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "walletOperationKey": zod.string().optional(),
+  "requestKey": zod.string(),
+  "phase": zod.enum(['generating', 'finalizing']),
+  "fundingMode": zod.enum(['wallet', 'unmetered', 'credits']).optional(),
+  "claimedAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "finalizedAt": zod.coerce.date().optional(),
+  "result": zod.object({
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(1).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "romanizedPronunciation": zod.string().nullish().describe('Display-only Latin-letter pronunciation of the exact source text; never sent to speech, timing, rendering, or lip-sync providers.'),
+  "englishTranslation": zod.string().nullish().describe('Display-only English meaning of the exact source text; never sent to speech or lip-sync providers.'),
+  "startMs": zod.number().min(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+}).optional()
+}).nullish(),
   "referenceOperations": zod.array(zod.object({
   "id": zod.string(),
   "revision": zod.number(),
@@ -19434,6 +20245,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "source": zod.enum(['current', 'saved', 'upload', 'generated']),
   "status": zod.enum(['queued', 'generating', 'ready_to_review', 'finalized', 'failed', 'outcome_unknown']),
   "requestKey": zod.string(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).optional().describe('Frozen funding rail when this operation has been funded.'),
   "candidate": zod.union([zod.object({
   "roleId": zod.string(),
   "source": zod.enum(['saved', 'generated']),
@@ -19648,6 +20460,7 @@ export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneTopicMax = 1
 
 export const EnqueueGuidedStoryDraftResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -19935,7 +20748,7 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -20226,6 +21039,7 @@ export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneTopi
 
 export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -20513,7 +21327,7 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -20769,6 +21583,7 @@ export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneT
 
 export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -21056,7 +21871,7 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -21323,6 +22138,7 @@ export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefO
 
 export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -21610,7 +22426,7 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -21962,6 +22778,7 @@ export const confirmGuidedStoryDialogueReplayResponseOperationCompletedLinesMin 
 export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "job": zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -22249,7 +23066,7 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -22871,6 +23688,7 @@ export const listVideoJobsResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 export const ListVideoJobsResponseItem = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -23158,7 +23976,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -23406,6 +24224,7 @@ export const getVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 export const GetVideoJobResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -23693,7 +24512,7 @@ export const GetVideoJobResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -23941,6 +24760,7 @@ export const cancelVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 export const CancelVideoJobResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -24228,7 +25048,7 @@ export const CancelVideoJobResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -24476,6 +25296,7 @@ export const retryVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 export const RetryVideoJobResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -24763,7 +25584,7 @@ export const RetryVideoJobResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -25011,6 +25832,7 @@ export const restartVideoJobFreshResponseResolvedCreativeBriefOneTopicMax = 1000
 
 export const RestartVideoJobFreshResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -25298,7 +26120,7 @@ export const RestartVideoJobFreshResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -25550,6 +26372,7 @@ export const repairVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 export const RepairVideoJobResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -25837,7 +26660,7 @@ export const RepairVideoJobResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -26112,6 +26935,7 @@ export const updateVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 100
 
 export const UpdateVideoStoryboardResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -26399,7 +27223,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -26659,6 +27483,7 @@ export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneTopicMax 
 
 export const InsertVideoStoryboardSceneResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -26946,7 +27771,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -27195,6 +28020,7 @@ export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneTop
 
 export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -27482,7 +28308,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -27743,6 +28569,7 @@ export const correctGuidedStorySceneResponseResolvedCreativeBriefOneTopicMax = 1
 
 export const CorrectGuidedStorySceneResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -28030,7 +28857,7 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -28278,6 +29105,7 @@ export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneTop
 
 export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -28565,7 +29393,7 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -28813,6 +29641,7 @@ export const cancelGuidedStoryPreviewRenderResponseResolvedCreativeBriefOneTopic
 
 export const CancelGuidedStoryPreviewRenderResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -29100,7 +29929,7 @@ export const CancelGuidedStoryPreviewRenderResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -29348,6 +30177,7 @@ export const approveVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 10
 
 export const ApproveVideoStoryboardResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -29635,7 +30465,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -29882,6 +30712,7 @@ export const discardVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 10
 
 export const DiscardVideoStoryboardResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -30169,7 +31000,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -30416,6 +31247,7 @@ export const dismissUnrecoverableVideoStoryboardResponseResolvedCreativeBriefOne
 
 export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -30703,7 +31535,7 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -31054,6 +31886,7 @@ export const setVideoCoverResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 export const SetVideoCoverResponse = zod.object({
   "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
@@ -31341,7 +32174,7 @@ export const SetVideoCoverResponse = zod.object({
   "inputFingerprint": zod.string(),
   "originalPreviewPath": zod.string(),
   "replacementPath": zod.string().nullable(),
-  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
   "walletReservation": zod.object({
   "id": zod.number(),
   "amountPaise": zod.number(),
@@ -35485,6 +36318,44 @@ export const AdminGrantCreditAccountResponse = zod.object({
   "granted": zod.number().describe('Allowance and bonus credits, which do expire.'),
   "total": zod.number(),
   "grantedExpiresAt": zod.string().nullish()
+})
+
+
+/**
+ * Same tenant/reference and amount returns the original receipt even with a stale expected balance. Reference reuse with another amount, stale balance, and insufficient purchased funds return 409. Debit, ledger and privileged audit are atomic. Does not change granted credits.
+ * @summary Exact purchased-credit historical debit (superadmin only)
+ */
+export const AdminCorrectPurchasedCreditsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminCorrectPurchasedCreditsBodyAmountMilliMax = 2147483647;
+
+export const adminCorrectPurchasedCreditsBodyExpectedPurchasedMilliMin = 0;
+export const adminCorrectPurchasedCreditsBodyExpectedPurchasedMilliMax = 2147483647;
+
+export const adminCorrectPurchasedCreditsBodyReferenceMax = 160;
+
+
+export const adminCorrectPurchasedCreditsBodyReferenceRegExp = new RegExp('^[a-zA-Z0-9][a-zA-Z0-9:._-]*$');
+export const adminCorrectPurchasedCreditsBodyReasonMax = 1000;
+
+
+
+export const AdminCorrectPurchasedCreditsBody = zod.object({
+  "amountMilli": zod.number().min(1).max(adminCorrectPurchasedCreditsBodyAmountMilliMax),
+  "expectedPurchasedMilli": zod.number().min(adminCorrectPurchasedCreditsBodyExpectedPurchasedMilliMin).max(adminCorrectPurchasedCreditsBodyExpectedPurchasedMilliMax),
+  "reference": zod.string().min(1).max(adminCorrectPurchasedCreditsBodyReferenceMax).regex(adminCorrectPurchasedCreditsBodyReferenceRegExp),
+  "reason": zod.string().min(1).max(adminCorrectPurchasedCreditsBodyReasonMax)
+})
+
+export const AdminCorrectPurchasedCreditsResponse = zod.object({
+  "tenantId": zod.number(),
+  "reference": zod.string(),
+  "amountMilli": zod.number(),
+  "beforePurchasedMilli": zod.number(),
+  "afterPurchasedMilli": zod.number(),
+  "reason": zod.string()
 })
 
 

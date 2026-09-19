@@ -204,7 +204,8 @@ describe("Atlas Cloud Seedance 2.5", () => {
     },
   );
 
-  it("checkpoints an accepted prediction and downloads only completed output", async () => {
+  it.each(["720p", "1080p", undefined])("checkpoints an accepted prediction with HD billing for resolution %s", async (resolution) => {
+    const funding = Object.freeze({ tenantId: 1, rail: "credits" as const, mode: "enforce" as const });
     const accepted = vi.fn(async () => {});
     const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
       if (url.endsWith("/generateVideo")) {
@@ -218,13 +219,15 @@ describe("Atlas Cloud Seedance 2.5", () => {
     vi.stubGlobal("fetch", fetch);
     await expect(generateWithAtlasCloud({
       ...input,
-      meterContext: { tenantId: 1, operationKey: "atlas:clip" },
+      resolution,
+      meterContext: { tenantId: 1, operationKey: "atlas:clip", funding },
       onProviderTaskAccepted: accepted,
     }, "secret"))
       .resolves.toMatchObject({ provider: "atlascloud", providerTaskId: "prediction-1" });
     expect(meterMock.mock.calls[0]?.slice(0, 3)).toEqual([
       {
         tenantId: 1,
+        funding,
         operationFamilyKey: "atlas:clip",
         operationKey: "atlas:clip:submit:0",
         provider: "atlascloud",
@@ -233,6 +236,7 @@ describe("Atlas Cloud Seedance 2.5", () => {
       "video_hd",
       8,
     ]);
+    expect((meterMock.mock.calls[0]?.[0] as { funding: unknown }).funding).toBe(funding);
     expect(accepted).toHaveBeenCalledWith({ taskId: "prediction-1", requestId: null });
     expect(fetch.mock.calls[0]?.[0]).toBe("https://api.atlascloud.ai/api/v1/model/generateVideo");
     expect(fetch.mock.calls[0]?.[1]).toMatchObject({

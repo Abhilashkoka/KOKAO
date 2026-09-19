@@ -17,3 +17,12 @@ Give it a distinct name (e.g. `NotificationSettingsInput`) and `$ref` it from th
 path. Note admin-prefixed operationIds (e.g. `adminUpdate...` → `AdminUpdate...Body`)
 usually won't collide with an unprefixed schema name, so only the matching one breaks.
 The zod validator you import in the route is still the operationId-derived name.
+
+Inline object request bodies can cause the same collision: Orval invents a
+`<PascalOperationId>Body` type even without an explicitly named component.
+
+**Why:** Both generators independently derive the same exported name from an
+inline request body, so avoiding that literal name in the YAML alone is insufficient.
+
+**How to apply:** Prefer a distinctly named `Input` or `Request` component and a
+`$ref` for new object request bodies, then check the shared-library build.

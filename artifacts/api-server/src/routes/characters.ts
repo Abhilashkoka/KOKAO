@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   db,
   tenantsTable,
@@ -91,7 +91,9 @@ import {
   listBytePlusIdentities,
   startBytePlusIdentityVerification,
 } from "../lib/bytePlusIdentity";
-import { freezeMeterMode, type MeterFundingSnapshot } from "../lib/meterFunding";
+import { freezeMeterFunding, type MeterFundingSnapshot } from "../lib/meterFunding";
+import { InsufficientCreditsError } from "../lib/creditAccounts";
+import { isMeterDispatchReplayError } from "../lib/meterErrors";
 import {
   captureAssetProvenance,
   sha256Hex,
@@ -381,16 +383,28 @@ function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
   };
 }
 
-interface Funding {
-  source: "quota" | "credit" | "wallet";
+export interface ImageFunding {
+  source: "quota" | "credit" | "wallet" | "credits";
   reservation?: WalletReservation;
+  /** New synchronous actions must not reuse an earlier successful receipt. */
+  operationId?: string;
   /** Frozen rail/mode carried into the provider-bound image meter. */
   meterFunding: MeterFundingSnapshot;
 }
 
+type Funding = ImageFunding;
+
+function characterImageOperationKey(funding: Funding, key: string): string {
+  return funding.source === "credits" && funding.operationId
+    ? `${key}:${funding.operationId}`
+    : key;
+}
+
 /**
  * Reserve image funding on whichever rail this workspace is on: the rupee
- * wallet, or the original quota-then-credit path. Null → caller 402s.
+ * wallet, unified credits, or the original quota-then-credit path.
+ * Unified credits reserve and settle at the innermost provider meter.
+ * Null → caller 402s.
  */
 export async function reserveImageFunding(
   req: Request,
@@ -400,11 +414,17 @@ export async function reserveImageFunding(
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
   )[0];
   if (!tenant) return null;
-  // Freeze the route's mode before moving any funding. Character generation
-  // still uses the legacy quota/credit reservation, so even an enforce-mode
-  // snapshot must remain a legacy rail and must not debit credit accounts in
-  // the provider meter.
-  const mode = await freezeMeterMode();
+  // Select once before touching a legacy balance. The provider meter reserves
+  // the saved rate before dispatch, and owns settlement/refunds for credits.
+  const snapshot = await freezeMeterFunding(req.tenantId);
+  const mode = snapshot.mode;
+  if (snapshot.rail === "credits") {
+    return {
+      source: "credits",
+      meterFunding: snapshot,
+      operationId: randomUUID(),
+    };
+  }
   const funded = (
     source: Funding["source"],
     reservation?: WalletReservation,
@@ -472,6 +492,8 @@ export async function releaseImageFunding(req: Request, funding: Funding): Promi
 }
 
 function imageErrorStatus(err: unknown): { status: number; error: string } {
+  if (err instanceof InsufficientCreditsError) return { status: 402, error: err.message };
+  if (isMeterDispatchReplayError(err)) return { status: 409, error: err.message };
   if (err instanceof CharacterInputError) return { status: 400, error: err.message };
   if (err instanceof PersonalLikenessConsentError) return { status: 409, error: err.message };
   const visualQaError = characterVisualQaErrorMessage(err);
@@ -572,7 +594,7 @@ async function generateAndPersistReferenceSheet(
               tenantId: req.tenantId,
               refKind: "character",
               refId: String(character.id),
-              operationKey: `character-reference-sheet:${character.id}`,
+              operationKey: characterImageOperationKey(reservedFunding, `character-reference-sheet:${character.id}`),
               funding: reservedFunding.meterFunding,
             }, likenessGate.selectionPolicy, likenessGate.beforeProviderDispatch),
             (result) => ({ provider: result.provider, model: result.model }),
@@ -585,7 +607,7 @@ async function generateAndPersistReferenceSheet(
         tenantId: req.tenantId,
         refKind: "character",
         refId: String(character.id),
-        operationKey: `character-reference-sheet:${character.id}`,
+        operationKey: characterImageOperationKey(reservedFunding, `character-reference-sheet:${character.id}`),
         funding: reservedFunding.meterFunding,
       }, likenessGate.selectionPolicy, likenessGate.beforeProviderDispatch));
     successfulAiWork = true;
@@ -894,7 +916,7 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
                   tenantId: req.tenantId,
                   refKind: "presetCharacter",
                   refId: resolved.preset.stableId,
-                  operationKey: `preset-outfit:${resolved.preset.stableId}`,
+                  operationKey: characterImageOperationKey(reservedFunding, `preset-outfit:${resolved.preset.stableId}`),
                   funding: reservedFunding.meterFunding,
                 },
                 exactMaskedEdit,
@@ -914,7 +936,7 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
           tenantId: req.tenantId,
           refKind: "presetCharacter",
           refId: resolved.preset.stableId,
-          operationKey: `preset-outfit:${resolved.preset.stableId}`,
+          operationKey: characterImageOperationKey(reservedFunding, `preset-outfit:${resolved.preset.stableId}`),
           funding: reservedFunding.meterFunding,
         },
         exactMaskedEdit,
@@ -1375,7 +1397,7 @@ router.post("/characters", async (req: Request, res: Response) => {
                 tenantId: req.tenantId,
                 reservation: funding.reservation,
                 operationKind: "character_reference",
-                operationKey: `character-reference:${req.tenantId}:${name}`,
+                operationKey: characterImageOperationKey(reservedFunding, `character-reference:${req.tenantId}:${name}`),
                 settlement: {
                   kind: "image",
                   costPaise: null,
@@ -1387,7 +1409,7 @@ router.post("/characters", async (req: Request, res: Response) => {
                 tenantId: req.tenantId,
                 refKind: "character",
                 refId: name,
-                operationKey: `character-reference:${req.tenantId}:${name}`,
+                operationKey: characterImageOperationKey(reservedFunding, `character-reference:${req.tenantId}:${name}`),
                 funding: reservedFunding.meterFunding,
               }),
               (result) => ({ provider: result.provider, model: result.model }),
@@ -1398,7 +1420,7 @@ router.post("/characters", async (req: Request, res: Response) => {
         tenantId: req.tenantId,
         refKind: "character",
         refId: name,
-        operationKey: `character-reference:${req.tenantId}:${name}`,
+        operationKey: characterImageOperationKey(reservedFunding, `character-reference:${req.tenantId}:${name}`),
         funding: reservedFunding.meterFunding,
       }));
       referenceProvider = result.provider;
@@ -3165,7 +3187,7 @@ router.post(
                 tenantId: req.tenantId,
                 reservation: funding.reservation,
                 operationKind: "character_outfit",
-                operationKey: `character-outfit:${character.id}:${name}`,
+                operationKey: characterImageOperationKey(reservedFunding, `character-outfit:${character.id}:${name}`),
                 settlement: {
                   kind: "image",
                   costPaise: null,
@@ -3182,7 +3204,7 @@ router.post(
                     tenantId: req.tenantId,
                     refKind: "character",
                     refId: String(character.id),
-                    operationKey: `character-outfit:${character.id}:${name}`,
+                    operationKey: characterImageOperationKey(reservedFunding, `character-outfit:${character.id}:${name}`),
                     funding: reservedFunding.meterFunding,
                   },
                   exactMaskedEdit,
@@ -3204,7 +3226,7 @@ router.post(
             tenantId: req.tenantId,
             refKind: "character",
             refId: String(character.id),
-            operationKey: `character-outfit:${character.id}:${name}`,
+            operationKey: characterImageOperationKey(reservedFunding, `character-outfit:${character.id}:${name}`),
             funding: reservedFunding.meterFunding,
           },
           exactMaskedEdit,

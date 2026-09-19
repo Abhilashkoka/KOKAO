@@ -4527,6 +4527,7 @@ paths:
             enum:
               [
                 plan_change,
+                credit_account_correction,
                 superadmin_grant,
                 superadmin_revoke,
                 plan_edit,
@@ -4610,6 +4611,7 @@ paths:
             enum:
               [
                 plan_change,
+                credit_account_correction,
                 superadmin_grant,
                 superadmin_revoke,
                 plan_edit,
@@ -12816,6 +12818,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tenants/{id}/credit-account/purchased-correction:
+    post:
+      operationId: adminCorrectPurchasedCredits
+      tags: [admin]
+      summary: Exact purchased-credit historical debit (superadmin only)
+      description: Same tenant/reference and amount returns the original receipt even with a stale expected balance. Reference reuse with another amount, stale balance, and insufficient purchased funds return 409. Debit, ledger and privileged audit are atomic. Does not change granted credits.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchasedCreditCorrectionRequest"
+      responses:
+        "200":
+          description: Original immutable correction receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenantId, reference, amountMilli, beforePurchasedMilli, afterPurchasedMilli, reason]
+                properties:
+                  tenantId:
+                    type: integer
+                  reference:
+                    type: string
+                  amountMilli:
+                    type: integer
+                  beforePurchasedMilli:
+                    type: integer
+                  afterPurchasedMilli:
+                    type: integer
+                  reason:
+                    type: string
+        "400":
+          description: Invalid input
+        "403":
+          description: Superadmin required
+        "404":
+          description: Tenant or canonical account missing
+        "409":
+          description: Reference mismatch, stale balance or insufficient purchased funds
   /admin/credit-migration:
     get:
       operationId: adminPlanCreditMigration
@@ -14957,6 +15006,28 @@ components:
         note:
           type: ["string", "null"]
           maxLength: 500
+    PurchasedCreditCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required: [amountMilli, expectedPurchasedMilli, reference, reason]
+      properties:
+        amountMilli:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        expectedPurchasedMilli:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 160
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9:._-]*$'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
     CreditQuoteLine:
       type: object
       required: [rateKey, quantity, credits]
@@ -16320,6 +16391,7 @@ components:
           enum:
             [
               plan_change,
+              credit_account_correction,
               superadmin_grant,
               superadmin_revoke,
               plan_edit,
@@ -19003,6 +19075,10 @@ components:
           type: string
           enum: [queued, generating, ready_to_review, finalized, failed, outcome_unknown]
         requestKey: { type: string }
+        funding:
+          type: string
+          enum: [quota, credit, wallet, credits]
+          description: Frozen funding rail when this operation has been funded.
         candidate:
           oneOf:
             - $ref: "#/components/schemas/GuidedStoryCastSnapshot"
@@ -19329,6 +19405,26 @@ components:
                 type: ["string", "null"]
                 enum: [claimed, funded, provider_running, provider_succeeded, uploaded, settled, failed, outcome_unknown, null]
               sheetError: { type: ["string", "null"] }
+        sceneInsertionGeneration:
+          type: ["object", "null"]
+          required: [revision, operationKey, requestKey, phase, claimedAt, expiresAt]
+          properties:
+            revision: { type: integer }
+            operationKey: { type: string }
+            walletOperationKey: { type: string }
+            requestKey: { type: string }
+            phase: { type: string, enum: [generating, finalizing] }
+            fundingMode: { type: string, enum: [wallet, unmetered, credits] }
+            claimedAt: { type: string, format: date-time }
+            expiresAt: { type: string, format: date-time }
+            finalizedAt: { type: string, format: date-time }
+            result:
+              type: object
+              required: [insertedSceneId, script]
+              properties:
+                insertedSceneId: { type: string }
+                script:
+                  $ref: "#/components/schemas/GuidedStoryScript"
         referenceOperations:
           type: array
           items:
@@ -20326,7 +20422,7 @@ components:
         inputFingerprint: { type: string }
         originalPreviewPath: { type: string }
         replacementPath: { type: ["string", "null"] }
-        funding: { type: string, enum: [quota, credit, wallet] }
+        funding: { type: string, enum: [quota, credit, wallet, credits] }
         walletReservation:
           type: ["object", "null"]
           required: [id, amountPaise, units]
@@ -20370,6 +20466,7 @@ components:
           id,
           engine,
           status,
+          funding,
           sourceImagePaths,
           aspectRatio,
           modelId,
@@ -20395,6 +20492,10 @@ components:
       properties:
         id:
           type: integer
+        funding:
+          type: string
+          enum: [quota, credit, wallet, credits]
+          description: Persisted funding rail; historical rows without a rail serialize as quota.
         engine:
           type: string
           enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync, dialogue_lip_sync, localized_dub]

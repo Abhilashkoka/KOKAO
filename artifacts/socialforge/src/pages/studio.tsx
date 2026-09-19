@@ -57,6 +57,7 @@ import {
 } from "@workspace/api-client-react";
 import { streamCaptionRequest } from "@/lib/captionStream";
 import { streamCampaignRequest } from "@/lib/campaignStream";
+import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -993,7 +994,8 @@ function ImageStudio() {
   };
 
   const refreshQuota = () => {
-    queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    refreshCreditBalanceSafely(queryClient);
   };
 
   const buildDraftData = (

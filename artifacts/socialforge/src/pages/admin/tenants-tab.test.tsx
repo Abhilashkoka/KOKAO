@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const accountGrantMutate = vi.fn();
+const correctionMutate = vi.fn();
 
 const tenant = {
   id: 42,
@@ -61,6 +62,10 @@ vi.mock("@workspace/api-client-react", async () => {
       mutate: accountGrantMutate,
       isPending: false,
     }),
+    useAdminCorrectPurchasedCredits: () => ({
+      mutate: correctionMutate,
+      isPending: false,
+    }),
   });
 });
 
@@ -84,10 +89,62 @@ function renderTab() {
 
 beforeEach(() => {
   accountGrantMutate.mockClear();
+  correctionMutate.mockClear();
+  tenant.balance = { purchased: 12, granted: 3, total: 15, grantedExpiresAt: null };
   tenant.creditAccountExists = true;
 });
 
 describe("TenantsTab credit-first workspace table", () => {
+  function openCorrection() {
+    tenant.balance = { purchased: 1135, granted: 3, total: 1138, grantedExpiresAt: null };
+    renderTab();
+    fireEvent.click(screen.getByRole("button", { name: "Manual adjustment" }));
+    fireEvent.change(screen.getByLabelText("Purchased credits to deduct"), { target: { value: "92.724" } });
+    fireEvent.change(screen.getByLabelText("Correction operation reference"), { target: { value: "video:13:rate-card-correction" } });
+    fireEvent.change(screen.getByLabelText("Correction reason"), { target: { value: "Approved total 97.724 minus 5 already charged" } });
+  }
+
+  it("requires confirmation of exact purchased before/after and prevents duplicate submission", () => {
+    openCorrection();
+    expect(screen.getByText("Purchased balance: 1135.000")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review purchased debit" }));
+    expect(correctionMutate).not.toHaveBeenCalled();
+    expect(screen.getByText(/purchased 1135.000 → 1042.276 credits/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(correctionMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Review purchased debit" }));
+    const confirm = screen.getByRole("button", { name: "Debit purchased credits" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    // Even if the hook's pending state has not yet rendered, another review
+    // cannot submit a duplicate request while the first one is unresolved.
+    fireEvent.click(screen.getByRole("button", { name: "Review purchased debit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Debit purchased credits" }));
+    expect(correctionMutate).toHaveBeenCalledTimes(1);
+    expect(correctionMutate.mock.calls[0][0]).toEqual({
+      id: 42, data: {
+        amountMilli: 92724, expectedPurchasedMilli: 1135000,
+        reference: "video:13:rate-card-correction",
+        reason: "Approved total 97.724 minus 5 already charged",
+      },
+    });
+    expect(accountGrantMutate).not.toHaveBeenCalled();
+  });
+
+  it("retains amount and reference after network error and retries the identical operation", () => {
+    openCorrection();
+    fireEvent.click(screen.getByRole("button", { name: "Review purchased debit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Debit purchased credits" }));
+    const [original, callbacks] = correctionMutate.mock.calls[0];
+    act(() => callbacks.onError(new Error("Network unavailable")));
+    expect((screen.getByLabelText("Purchased credits to deduct") as HTMLInputElement).value).toBe("92.724");
+    expect((screen.getByLabelText("Correction operation reference") as HTMLInputElement).value).toBe("video:13:rate-card-correction");
+    fireEvent.click(screen.getByRole("button", { name: "Review purchased debit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Debit purchased credits" }));
+    expect(correctionMutate).toHaveBeenCalledTimes(2);
+    expect(correctionMutate.mock.calls[1][0]).toEqual(original);
+  });
+
   it("puts unified credits in the primary table and keeps legacy details explicit", async () => {
     renderTab();
 

@@ -14,6 +14,7 @@ export type AdminAuditLogAction = typeof AdminAuditLogAction[keyof typeof AdminA
 
 export const AdminAuditLogAction = {
   plan_change: 'plan_change',
+  credit_account_correction: 'credit_account_correction',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
   plan_edit: 'plan_edit',

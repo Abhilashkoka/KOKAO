@@ -602,7 +602,7 @@ export async function generateWithAtlasCloud(
             operationKey: `${input.meterContext.operationKey ?? "video"}:submit:0`,
           }
         : null,
-      isHdVideoResolution(input.resolution) ? "video_hd" : "video",
+      isHdVideoResolution(input.resolution ?? "1080p") ? "video_hd" : "video",
       input.durationSec,
       async () => {
         let response: Response;

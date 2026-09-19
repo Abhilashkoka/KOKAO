@@ -79,7 +79,8 @@ import {
 } from "../lib/videoGen/studioLipSyncAnalytics";
 import { spendCredit, refundCredits } from "../lib/credits";
 import type { MeterContext } from "../lib/meter";
-import type { MeterFundingSnapshot } from "../lib/meterFunding";
+import { freezeMeterFunding, type MeterFundingSnapshot } from "../lib/meterFunding";
+import { videoFundingSnapshot } from "../lib/videoGen/funding";
 import { getAiSpendConfig, getAiSpendRates, withFee } from "../lib/aiSpend";
 import {
   actualChargePaise,
@@ -734,12 +735,6 @@ function guidedStorySourceStoryboardReferenceError(
   }
 }
 
-function legacyVideoFunding(
-  tenantId: number,
-  rail: "quota" | "credit" | "wallet",
-): MeterFundingSnapshot {
-  return Object.freeze({ tenantId, rail, mode: "shadow" });
-}
 const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
 const MAX_PRESENTER_VIDEO_BYTES = 100 * 1024 * 1024;
 const PRESENTER_VIDEO_TYPES = new Set([
@@ -1022,24 +1017,26 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
    */
   settleProviderSuccessBeforePersistence?: boolean;
   operationKey?: string;
-  onFundingReady?: (funding: "wallet" | "unmetered") => Promise<boolean>;
+  onFundingReady?: (funding: "wallet" | "unmetered" | "credits") => Promise<boolean>;
 }): Promise<{
   result: T;
-  funding: "wallet" | "unmetered";
+  funding: "wallet" | "unmetered" | "credits";
   chargedPaise: number | null;
   operationId: number | null;
   reservationId: number | null;
 } | null> {
-  if (!(await isWalletFunded(args.req.tenantId))) {
-    if (args.onFundingReady && !(await args.onFundingReady("unmetered"))) {
+  const frozenFunding = await freezeMeterFunding(args.req.tenantId);
+  if (frozenFunding.rail === "credits" || !(await isWalletFunded(args.req.tenantId))) {
+    const funding = frozenFunding.rail === "credits" ? "credits" : "unmetered";
+    if (args.onFundingReady && !(await args.onFundingReady(funding))) {
       throw new StaleBillableScriptOperationError();
     }
     const result = await args.perform({
       tenantId: args.req.tenantId,
       refKind: "videoScript",
-      refId: `${args.operationKind}:quota-shadow`,
-      funding: legacyVideoFunding(args.req.tenantId, "quota"),
-      operationKey: args.operationKey ?? `${args.operationKind}:quota-shadow`,
+      refId: `${args.operationKind}:${funding}`,
+      funding: frozenFunding,
+      operationKey: args.operationKey ?? `${args.operationKind}:${randomUUID()}`,
     });
     if (args.beforeSettlement && !(await args.beforeSettlement(result, {
       operationId: null,
@@ -1052,7 +1049,7 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     }
     return {
       result,
-      funding: "unmetered",
+      funding,
       chargedPaise: null,
       operationId: null,
       reservationId: null,
@@ -1063,7 +1060,7 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     tenantId: args.req.tenantId,
     refKind: "videoScript",
     operationKey: args.operationKey ?? null,
-    funding: legacyVideoFunding(args.req.tenantId, "wallet"),
+    funding: Object.freeze({ ...frozenFunding, rail: "wallet" }),
   };
   const selectedTextGen = await getTextGenClient(args.tenantModel, pricingMeterContext);
   // Reserve against the model's full synchronous context/output envelope, not
@@ -1670,6 +1667,7 @@ function serializeVideoJob(
     id: job.id,
     engine: job.engine,
     status: job.status,
+    funding: job.funding ?? "quota",
     prompt: job.prompt ?? null,
     // Transparency: the exact prompt the video model receives. Storyboard
     // engines show their per-scene prompts in the storyboard instead. When an
@@ -2978,7 +2976,7 @@ async function finalizeGuidedSceneInsertionClaim(
 async function setGuidedSceneInsertionFunding(
   row: GuidedStoryDraft,
   operationKey: string,
-  fundingMode: "wallet" | "unmetered",
+  fundingMode: "wallet" | "unmetered" | "credits",
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
     const fresh = (
@@ -3564,7 +3562,7 @@ async function releaseGuidedFailedSheetFunding(params: {
     return { row: saved, status: saved ? status : "not_owner" as const };
   };
 
-  if (!sheet.funding || sheet.funding === "quota") {
+  if (!sheet.funding || sheet.funding === "quota" || sheet.funding === "credits") {
     return checkpointRelease(sheet, "released");
   }
   if (sheet.funding === "credit") {
@@ -5207,7 +5205,7 @@ router.post(
     let persistedScriptRow: GuidedStoryDraft | null = null;
     let billed: {
       result: Awaited<ReturnType<typeof generateGuidedStoryScript>>;
-      funding: "wallet" | "unmetered";
+      funding: "wallet" | "unmetered" | "credits";
       chargedPaise: number | null;
     } | null;
     try {
@@ -6362,13 +6360,13 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         };
         try {
           let funding: {
-          source: "quota" | "credit" | "wallet";
+          source: "quota" | "credit" | "wallet" | "credits";
           reservation?: WalletReservation;
           meterFunding: MeterFundingSnapshot;
         } | null = operation.funding
           ? {
               source: operation.funding,
-              meterFunding: legacyVideoFunding(req.tenantId, operation.funding),
+              meterFunding: videoFundingSnapshot({ tenantId: req.tenantId, funding: operation.funding, options: { meterFunding: operation.meterFunding } }),
               ...(operation.walletReservation
                 ? { reservation: operation.walletReservation }
                 : {}),
@@ -6395,6 +6393,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
             update: {
               status: "funded",
               funding: funding.source,
+              meterFunding: funding.meterFunding,
               walletReservation: funding.reservation ?? null,
             },
             executionClaimToken,
@@ -6856,16 +6855,13 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           let sheetOperation =
             row.state.castOperations[role.id]?.sheetOperation;
           let sheetFunding: {
-            source: "quota" | "credit" | "wallet";
+            source: "quota" | "credit" | "wallet" | "credits";
             reservation?: WalletReservation;
             meterFunding: MeterFundingSnapshot;
           } | null = sheetOperation?.funding
             ? {
                 source: sheetOperation.funding,
-                meterFunding: legacyVideoFunding(
-                  req.tenantId,
-                  sheetOperation.funding,
-                ),
+                meterFunding: videoFundingSnapshot({ tenantId: req.tenantId, funding: sheetOperation.funding, options: { meterFunding: sheetOperation.meterFunding } }),
                 ...(sheetOperation.walletReservation
                   ? { reservation: sheetOperation.walletReservation }
                   : {}),
@@ -6922,6 +6918,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                 ...sheetOperation!,
                 status: "funded",
                 funding: sheetFunding.source,
+                meterFunding: sheetFunding.meterFunding,
                 walletReservation: sheetFunding.reservation ?? null,
                 updatedAt: new Date().toISOString(),
               });
@@ -7472,10 +7469,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               tenantId: req.tenantId,
               refKind: "videoJob",
               refId: String(linkedJob.id),
-              funding: legacyVideoFunding(
-                req.tenantId,
-                linkedJob.funding ?? "quota",
-              ),
+              funding: videoFundingSnapshot(linkedJob),
               operationKey: `videoJob:${linkedJob.id}:guided-narration`,
             },
             cast,
@@ -8858,7 +8852,7 @@ router.post(
       const funding = checkpoint?.funding
         ? {
             source: checkpoint.funding,
-            meterFunding: legacyVideoFunding(req.tenantId, checkpoint.funding),
+            meterFunding: videoFundingSnapshot({ tenantId: req.tenantId, funding: checkpoint.funding, options: { meterFunding: checkpoint.meterFunding } }),
             ...(checkpoint.walletReservation
               ? { reservation: checkpoint.walletReservation }
               : {}),
@@ -8877,6 +8871,7 @@ router.post(
             status: "generating",
             checkpoint: "funded",
             funding: funding.source,
+            meterFunding: funding.meterFunding,
             walletReservation: funding.reservation ?? null,
           });
       if (!generating) {
@@ -10213,6 +10208,9 @@ async function generateVideoHandler(
     return;
   }
   let body = parsed.data;
+  // One authorization decision for enqueue-time paid planning and the worker.
+  const creditSnapshot = await freezeMeterFunding(req.tenantId);
+  const enqueueOperationKey = `video-enqueue:${req.tenantId}:${randomUUID()}`;
 
   // Quote the WHOLE job before anything is spent. The meter refuses individual
   // calls it cannot pay for, but discovering that at scene three leaves a
@@ -11419,7 +11417,7 @@ async function generateVideoHandler(
       }
       const durationMs = await probePresenterDurationMs(presenterVideo);
       const presenterAudio = await extractVoiceSampleFromVideo(presenterVideo);
-      const presenterFunding = legacyVideoFunding(req.tenantId, "quota");
+      const presenterFunding = creditSnapshot;
       const presenterAsrContext: MeterContext = {
         tenantId: req.tenantId,
         refKind: "content",
@@ -11823,6 +11821,7 @@ async function generateVideoHandler(
           ? await decideShotCountFromBrief(
               req.tenantId,
               body.prompt?.trim() ?? "",
+              { tenantId: req.tenantId, funding: creditSnapshot, operationKey: enqueueOperationKey },
             )
           : clipShotCount(body.shotCount)
         : 1,
@@ -12512,7 +12511,7 @@ async function generateVideoHandler(
   let units = videoJobUnits(body.engine, options);
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  const walletFunded = await isWalletFunded(req.tenantId);
+  const walletFunded = creditSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId);
   // Legacy native templates retain their ceiling-funded quota behavior.
   // Hybrid must remain deferred on every rail: only the voiced narration tells
   // us whether its unit belongs to this video hold or was independently settled
@@ -12520,7 +12519,7 @@ async function generateVideoHandler(
   // planning reservation, and fundPlannedTemplateVisualWork keeps the rail
   // all-quota or all-credit after the exact board exists.
   if (
-    !walletFunded &&
+    creditSnapshot.rail !== "credits" && !walletFunded &&
     options.storyboardFunding &&
     !options.hybridStory &&
     (limits.videos === -1 ||
@@ -12537,11 +12536,14 @@ async function generateVideoHandler(
   // Wallet workspaces reserve one estimate per unit in a single
   // all-or-nothing debit, persisted on the job row so the runner can settle
   // it to the real cost minutes later.
-  const funding: "quota" | "credit" | "wallet" = walletFunded
+  const funding: "quota" | "credit" | "wallet" | "credits" = creditSnapshot.rail === "credits"
+    ? "credits"
+    : walletFunded
     ? "wallet"
     : limits.videos === -1 || usage.videos + units <= limits.videos
       ? "quota"
       : "credit";
+  options.meterFunding = Object.freeze({ ...creditSnapshot, rail: funding });
   const exactReservation = funding === "wallet"
     ? await directVideoReservationPrice(body.engine, options, units).catch(() => null)
     : null;
@@ -13200,9 +13202,7 @@ router.post(
                 tenantId: req.tenantId,
                 refKind: "videoJobCover",
                 refId: String(job.id),
-                ...(job.funding
-                  ? { funding: legacyVideoFunding(req.tenantId, job.funding) }
-                  : {}),
+                funding: await freezeMeterFunding(req.tenantId),
                 operationKey: `videoJob:${job.id}:cover:${intensity}`,
               },
             },
@@ -13347,7 +13347,7 @@ function guidedReplayReview(source: VideoGeneration) {
 
 function guidedReplayAnalyticsParams(
   replay: NonNullable<VideoJobOptions["guidedStoryDialogueReplay"]>,
-  funding: "quota" | "credit" | "wallet",
+  funding: "quota" | "credit" | "wallet" | "credits",
 ) {
   return {
     line_count: replay.estimates.lineCount,
@@ -13515,11 +13515,12 @@ router.post(
       lines: [],
     };
     const units = review.estimates.units;
-    let funding: "quota" | "credit" | "wallet" = "quota";
+    const creditSnapshot = await freezeMeterFunding(req.tenantId);
+    let funding: "quota" | "credit" | "wallet" | "credits" = creditSnapshot.rail === "credits" ? "credits" : "quota";
     let reservation: WalletReservation | null = null;
-    const walletFunded = units > 0 && await isWalletFunded(req.tenantId);
+    const walletFunded = creditSnapshot.rail !== "credits" && units > 0 && await isWalletFunded(req.tenantId);
     let quotaAvailable = true;
-    if (units > 0 && !walletFunded) {
+    if (creditSnapshot.rail !== "credits" && units > 0 && !walletFunded) {
       const [limits, usage] = await Promise.all([getPlanLimits(tenant.plan), getUsage(req.tenantId)]);
       quotaAvailable = limits.videos === -1 || usage.videos + units <= limits.videos;
     }
@@ -13567,6 +13568,7 @@ router.post(
         }
         funding = "credit";
       }
+      options.meterFunding = Object.freeze({ ...creditSnapshot, rail: funding });
       child = (
         await tx.insert(videoGenerationsTable).values({
           tenantId: req.tenantId, engine: "dialogue_lip_sync", status: "queued",
@@ -15220,11 +15222,14 @@ router.post(
     const originalRail = historicalPrivacyRecovery
       ? (source as VideoGeneration).funding
       : null;
-    const walletRetry = units > 0 &&
+    const creditSnapshot = historicalPrivacyRecovery
+      ? videoFundingSnapshot(source as VideoGeneration)
+      : await freezeMeterFunding(req.tenantId);
+    const walletRetry = creditSnapshot.rail !== "credits" && units > 0 &&
       (originalRail === "wallet" ||
         (originalRail == null && (await isWalletFunded(req.tenantId))));
-    let funding: "quota" | "credit" | "wallet" = walletRetry ? "wallet" : "quota";
-    if (units > 0 && !walletRetry) {
+    let funding: "quota" | "credit" | "wallet" | "credits" = creditSnapshot.rail === "credits" ? "credits" : walletRetry ? "wallet" : "quota";
+    if (creditSnapshot.rail !== "credits" && units > 0 && !walletRetry) {
       const [limits, usage] = await Promise.all([
         getPlanLimits(tenant.plan),
         getUsage(req.tenantId),
@@ -15237,6 +15242,7 @@ router.post(
       else funding = "credit";
     }
     const childOptions = structuredClone(options);
+    childOptions.meterFunding = Object.freeze({ ...creditSnapshot, rail: funding });
     childOptions.recovery!.state = "queued";
     if (childOptions.characterDialogue?.retry) {
       childOptions.characterDialogue.retry.state = "queued";
@@ -15381,7 +15387,7 @@ router.post(
         isNativeAudioVerificationOnlyRecovery(childOptions);
       const [fundedChild] = await tx.update(videoGenerationsTable).set({
         options: childOptions,
-        funding: verificationOnly ? null : funding,
+        funding: verificationOnly && funding !== "credits" ? null : funding,
         status: "queued",
         walletReservationId: reservation?.id ?? null,
         walletReservedPaise: reservation?.amountPaise ?? null,
@@ -15757,9 +15763,10 @@ router.post(
     if (!tenant) {
       res.status(401).json({ error: "Unauthorized" }); return;
     }
-    const walletFunded = await isWalletFunded(req.tenantId);
-    let funding: "quota" | "credit" | "wallet" = walletFunded ? "wallet" : "quota";
-    if (!walletFunded) {
+    const creditSnapshot = await freezeMeterFunding(req.tenantId);
+    const walletFunded = creditSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId);
+    let funding: "quota" | "credit" | "wallet" | "credits" = creditSnapshot.rail === "credits" ? "credits" : walletFunded ? "wallet" : "quota";
+    if (creditSnapshot.rail !== "credits" && !walletFunded) {
       const [limits, usage] = await Promise.all([
         getPlanLimits(tenant.plan),
         getUsage(req.tenantId),
@@ -15771,6 +15778,7 @@ router.post(
     const exactReservation = walletFunded
       ? await directVideoReservationPrice(initial.engine, options, units).catch(() => null)
       : null;
+    options.meterFunding = Object.freeze({ ...creditSnapshot, rail: funding });
     let reservation: WalletReservation | null = null;
     let funded: VideoGeneration | null = null;
     let rejection: "exists" | "insufficient" | "transition" | null = null;
@@ -16665,7 +16673,7 @@ router.post(
     } else {
       let quotaLimit = -1;
       let quotaUsage = 0;
-      if (job.funding !== "credit") {
+      if (job.funding !== "credit" && job.funding !== "credits") {
         const tenant = (
           await db
             .select()
@@ -16703,7 +16711,7 @@ router.post(
         }
         const freshOptions = fresh.options ?? options;
         if (
-          fresh.funding !== "credit" &&
+          fresh.funding !== "credit" && fresh.funding !== "credits" &&
           quotaLimit !== -1 &&
           quotaUsage +
             videoJobUnits(fresh.engine, {
@@ -17405,6 +17413,7 @@ router.post(
           originalPreviewPath: scene.previewPath!,
           replacementPath: null,
           funding: funding.source,
+          meterFunding: funding.meterFunding,
           walletReservation: funding.reservation ?? null,
           walletOperationId: null,
           provider: null,

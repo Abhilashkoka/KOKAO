@@ -1493,6 +1493,30 @@ export interface CreditAccountGrantInput {
   note?: string | null;
 }
 
+export interface PurchasedCreditCorrectionRequest {
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+  amountMilli: number;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  expectedPurchasedMilli: number;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @pattern ^[a-zA-Z0-9][a-zA-Z0-9:._-]*$
+     */
+  reference: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason: string;
+}
+
 export interface CreditQuoteLine {
   rateKey: string;
   quantity: number;
@@ -2684,6 +2708,7 @@ export type AdminAuditLogAction = typeof AdminAuditLogAction[keyof typeof AdminA
 
 export const AdminAuditLogAction = {
   plan_change: 'plan_change',
+  credit_account_correction: 'credit_account_correction',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
   plan_edit: 'plan_edit',
@@ -5420,6 +5445,19 @@ export const GuidedStoryReferenceOperationStatus = {
   outcome_unknown: 'outcome_unknown',
 } as const;
 
+/**
+ * Frozen funding rail when this operation has been funded.
+ */
+export type GuidedStoryReferenceOperationFunding = typeof GuidedStoryReferenceOperationFunding[keyof typeof GuidedStoryReferenceOperationFunding];
+
+
+export const GuidedStoryReferenceOperationFunding = {
+  quota: 'quota',
+  credit: 'credit',
+  wallet: 'wallet',
+  credits: 'credits',
+} as const;
+
 export type GuidedStoryCastSnapshotSource = typeof GuidedStoryCastSnapshotSource[keyof typeof GuidedStoryCastSnapshotSource];
 
 
@@ -5492,6 +5530,8 @@ export interface GuidedStoryReferenceOperation {
   source: GuidedStoryReferenceOperationSource;
   status: GuidedStoryReferenceOperationStatus;
   requestKey: string;
+  /** Frozen funding rail when this operation has been funded. */
+  funding?: GuidedStoryReferenceOperationFunding;
   candidate: GuidedStoryCastSnapshot | null;
   /** @nullable */
   description: string | null;
@@ -5662,6 +5702,19 @@ export interface GuidedStoryDialogueReplayOperation {
 export type GuidedStoryDialogueReplayCheckpoint = GuidedStoryDialogueReplayOperation & {
   lines: GuidedStoryDialogueReplayLineCheckpoint[];
 };
+
+/**
+ * Persisted funding rail; historical rows without a rail serialize as quota.
+ */
+export type VideoJobFunding = typeof VideoJobFunding[keyof typeof VideoJobFunding];
+
+
+export const VideoJobFunding = {
+  quota: 'quota',
+  credit: 'credit',
+  wallet: 'wallet',
+  credits: 'credits',
+} as const;
 
 export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
 
@@ -5918,6 +5971,7 @@ export const GuidedSceneCorrectionAttemptFunding = {
   quota: 'quota',
   credit: 'credit',
   wallet: 'wallet',
+  credits: 'credits',
 } as const;
 
 /**
@@ -6723,6 +6777,8 @@ export type VideoJobGuidedPreviewRender = {
 
 export interface VideoJob {
   id: number;
+  /** Persisted funding rail; historical rows without a rail serialize as quota. */
+  funding: VideoJobFunding;
   engine: VideoJobEngine;
   /** awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way. */
   status: VideoJobStatus;
@@ -6969,6 +7025,44 @@ export type GuidedStoryDraftGeneratedCastOperations = {[key: string]: {
   sheetError: string | null;
 }};
 
+export type GuidedStoryDraftSceneInsertionGenerationPhase = typeof GuidedStoryDraftSceneInsertionGenerationPhase[keyof typeof GuidedStoryDraftSceneInsertionGenerationPhase];
+
+
+export const GuidedStoryDraftSceneInsertionGenerationPhase = {
+  generating: 'generating',
+  finalizing: 'finalizing',
+} as const;
+
+export type GuidedStoryDraftSceneInsertionGenerationFundingMode = typeof GuidedStoryDraftSceneInsertionGenerationFundingMode[keyof typeof GuidedStoryDraftSceneInsertionGenerationFundingMode];
+
+
+export const GuidedStoryDraftSceneInsertionGenerationFundingMode = {
+  wallet: 'wallet',
+  unmetered: 'unmetered',
+  credits: 'credits',
+} as const;
+
+export type GuidedStoryDraftSceneInsertionGenerationResult = {
+  insertedSceneId: string;
+  script: GuidedStoryScript;
+};
+
+/**
+ * @nullable
+ */
+export type GuidedStoryDraftSceneInsertionGeneration = {
+  revision: number;
+  operationKey: string;
+  walletOperationKey?: string;
+  requestKey: string;
+  phase: GuidedStoryDraftSceneInsertionGenerationPhase;
+  fundingMode?: GuidedStoryDraftSceneInsertionGenerationFundingMode;
+  claimedAt: string;
+  expiresAt: string;
+  finalizedAt?: string;
+  result?: GuidedStoryDraftSceneInsertionGenerationResult;
+} | null;
+
 /**
  * Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.
  */
@@ -7026,6 +7120,8 @@ export interface GuidedStoryDraft {
      */
   scriptGeneration: GuidedStoryDraftScriptGeneration;
   generatedCastOperations: GuidedStoryDraftGeneratedCastOperations;
+  /** @nullable */
+  sceneInsertionGeneration?: GuidedStoryDraftSceneInsertionGeneration;
   referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
   /** @nullable */
@@ -13236,6 +13332,7 @@ export type AdminListAuditLogsAction = typeof AdminListAuditLogsAction[keyof typ
 
 export const AdminListAuditLogsAction = {
   plan_change: 'plan_change',
+  credit_account_correction: 'credit_account_correction',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
   plan_edit: 'plan_edit',
@@ -13287,6 +13384,7 @@ export type AdminExportAuditLogsAction = typeof AdminExportAuditLogsAction[keyof
 
 export const AdminExportAuditLogsAction = {
   plan_change: 'plan_change',
+  credit_account_correction: 'credit_account_correction',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
   plan_edit: 'plan_edit',
@@ -13675,6 +13773,15 @@ export type AdminGetCreditMeterReportParams = {
  * @maximum 365
  */
 days?: number;
+};
+
+export type AdminCorrectPurchasedCredits200 = {
+  tenantId: number;
+  reference: string;
+  amountMilli: number;
+  beforePurchasedMilli: number;
+  afterPurchasedMilli: number;
+  reason: string;
 };
 
 export type WalletVerifyRecharge200 = {

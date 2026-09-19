@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GuidedStoryCastSnapshot } from './guidedStoryCastSnapshot';
+import type { GuidedStoryReferenceOperationFunding } from './guidedStoryReferenceOperationFunding';
 import type { GuidedStoryReferenceOperationKind } from './guidedStoryReferenceOperationKind';
 import type { GuidedStoryReferenceOperationSource } from './guidedStoryReferenceOperationSource';
 import type { GuidedStoryReferenceOperationStatus } from './guidedStoryReferenceOperationStatus';
@@ -18,6 +19,8 @@ export interface GuidedStoryReferenceOperation {
   source: GuidedStoryReferenceOperationSource;
   status: GuidedStoryReferenceOperationStatus;
   requestKey: string;
+  /** Frozen funding rail when this operation has been funded. */
+  funding?: GuidedStoryReferenceOperationFunding;
   candidate: GuidedStoryCastSnapshot | null;
   /** @nullable */
   description: string | null;

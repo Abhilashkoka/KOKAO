@@ -65,7 +65,7 @@ async function refundRow(
     id: number;
     tenantId: number;
     engine: string;
-    funding: "quota" | "credit" | "wallet" | null;
+    funding: "quota" | "credit" | "wallet" | "credits" | null;
     walletReservationId: number | null;
     walletReservedPaise: number | null;
     walletReservedUnits: number | null;
@@ -204,7 +204,7 @@ export async function resumeQueuedFreshRestartJobs(): Promise<number> {
     if (row.options?.freshRestart?.sourceJobId == null || !row.funding) continue;
     if (
       enqueueBackgroundJob(() =>
-        runVideoGenerationJob(row.id, row.funding as "quota" | "credit" | "wallet"),
+        runVideoGenerationJob(row.id, row.funding ?? "quota"),
       )
     ) {
       accepted += 1;
