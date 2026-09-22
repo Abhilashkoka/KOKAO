@@ -41,6 +41,13 @@ it("does not show a failed balance request as zero credits", () => {
   expect(screen.queryByText("0.0")).toBeNull();
 });
 
+it("shows an unavailable message in the sidebar when the balance request fails", () => {
+  state.result = { isError: true, isLoading: false };
+  render(<CreditBalancePill />);
+  expect(screen.getByRole("status").textContent).toContain("Credit balance unavailable");
+  expect(screen.queryByTestId("badge-credit-balance")).toBeNull();
+});
+
 it("keeps the last known balance visible while background refresh retries", () => {
   state.result.isError = true;
   render(<CreditUsageCard />);

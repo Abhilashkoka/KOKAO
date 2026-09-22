@@ -22,7 +22,8 @@ import {
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 
 const router: IRouter = Router();
-router.use(requireSuperadmin);
+// This router is mounted at the API root; do not gate unrelated tenant routes.
+router.use("/admin/video-templates", requireSuperadmin);
 
 function unsupportedRawDefaultKeys(body: unknown): string[] {
   if (!body || typeof body !== "object") return [];

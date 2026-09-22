@@ -193,8 +193,17 @@ export function CreditUsageCard() {
  * a currency the platform is not yet using.
  */
 export function CreditBalancePill() {
-  const { credits: data, isLoading } = useCreditFunding();
+  const { credits: data, isLoading, isError } = useCreditFunding();
 
+  if (!data && isError) {
+    return (
+      <Link href="/billing">
+        <span className="text-xs text-muted-foreground" role="status">
+          Credit balance unavailable
+        </span>
+      </Link>
+    );
+  }
   if (isLoading || !data || (data.mode === "off" && data.total <= 0)) return null;
 
   const total = data.total ?? 0;
