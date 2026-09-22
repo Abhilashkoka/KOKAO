@@ -91,6 +91,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetGuidedStoryDraft: (id: number, options: any) => {
       state.requestedDraftIds.push(id);
       return useQuery({
+        ...options?.query,
         queryKey: ["guided", id],
         queryFn: async () => {
           state.draftRefetches += 1;
@@ -312,6 +313,7 @@ import {
   GUIDED_BACKDROP_PROMPT_MAX,
   GuidedStoryWorkflow,
   fitGuidedBackdropPrompt,
+  guidedStoryHasActiveCastWork,
 } from "./guided-story-workflow";
 
 const kit = { id: 3, name: "Studio", activeVersion: { payload: { brand_voice: { mode: "cloned", provider_voice_id: "voice-a", cloned_label: "A voice", preset_voice: "nova", voices: [{ id: "voice-a", label: "A voice" }] } } } };
@@ -1131,6 +1133,32 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.cast).toBeNull();
   });
 
+  it("ends automatic cast polling when the refreshed server draft has its full cast", async () => {
+    vi.useFakeTimers();
+    state.draft = draft();
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect(screen.getByTestId("status-guided-automatic-cast")).toBeTruthy();
+    state.draft = draft({
+      revision: 7,
+      castStrategy: "generated",
+      cast: generatedCast(),
+      generatedCastOperations: {},
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_100);
+    });
+
+    expect(screen.queryByTestId("status-guided-automatic-cast")).toBeNull();
+    expect(screen.getByTestId("status-guided-cast-complete")).toBeTruthy();
+    const settledRefetches = state.draftRefetches;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(state.draftRefetches).toBe(settledRefetches);
+  });
+
   it("prefills and submits generated character customization", async () => {
     const cast = generatedCast();
     state.draft = draft({ castStrategy: "generated", cast });
@@ -1484,6 +1512,14 @@ describe("GuidedStoryWorkflow", () => {
     expect(progress.textContent).toContain("Preparing every script-defined character");
     expect(progress.querySelector(".animate-spin")).not.toBeNull();
     expect(state.cast).toBeNull();
+  });
+
+  it("does not classify a complete cast with cleared operations as active work", () => {
+    expect(guidedStoryHasActiveCastWork(draft({
+      castStrategy: "generated",
+      cast: generatedCast(),
+      generatedCastOperations: {},
+    }) as any)).toBe(false);
   });
 
   it("stops indefinite progress and keeps completed assets when a sheet fails", async () => {

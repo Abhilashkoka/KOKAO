@@ -64,3 +64,9 @@ Customizing a generated Guided role is copy-on-write: clone and rebind a role-ow
 **Why:** The original generated character may already be reused by another draft; in-place edits would silently change that story's approved identity and sheet.
 
 **How to apply:** Lock the draft and exact tenant binding, create/reuse one idempotent clone for the customization operation, invalidate only the edited role's approval/downstream previews, then generate portrait and sheet against the clone.
+
+Progress observation must recover from rate limiting rather than treating every query error as terminal.
+
+**Why:** A manually scheduled polling effect cancelled itself when a rate-limited request set the query error state. Production could finish its cast while the browser retained the old preparing message.
+
+**How to apply:** Keep polling lifecycle-managed, back off for rate limits, and test the transition from pending work to a complete cast with cleared temporary operations. Polling must never submit paid generation.

@@ -229,6 +229,32 @@ function draftStep(draft: GuidedStoryDraft | undefined) {
   return "ready";
 }
 
+const GUIDED_CAST_POLL_INTERVAL_MS = 10_000;
+const GUIDED_CAST_RATE_LIMIT_INTERVAL_MS = 60_000;
+
+export function guidedStoryHasActiveCastWork(
+  draft: GuidedStoryDraft | undefined,
+): boolean {
+  if (!draft?.scriptApprovedAt || !draft.script) return false;
+  if (draft.cast.length >= draft.script.roles.length) return false;
+
+  return draft.script.roles.some((role) => {
+    const operation = draft.generatedCastOperations?.[role.id];
+    if (!operation) return true;
+    if (
+      operation.status === "provider_outcome_unknown" ||
+      operation.sheetStatus === "failed" ||
+      operation.sheetStatus === "outcome_unknown"
+    ) {
+      return false;
+    }
+    return !(
+      operation.status === "uploaded" &&
+      operation.sheetStatus === "settled"
+    );
+  });
+}
+
 export function GuidedStoryWorkflow({
   tenantId,
   characters,
@@ -308,6 +334,18 @@ export function GuidedStoryWorkflow({
     query: {
       enabled: draftId !== null,
       queryKey: getGetGuidedStoryDraftQueryKey(draftId ?? 0),
+      refetchInterval: (query) => {
+        const error = query.state.error as { status?: number } | null;
+        if (error && error.status !== 429) return false;
+        return guidedStoryHasActiveCastWork(
+          query.state.data as GuidedStoryDraft | undefined,
+        )
+          ? error?.status === 429
+            ? GUIDED_CAST_RATE_LIMIT_INTERVAL_MS
+            : GUIDED_CAST_POLL_INTERVAL_MS
+          : false;
+      },
+      refetchIntervalInBackground: false,
       retry: (failureCount, error) =>
         (error as { status?: number } | null)?.status !== 429 &&
         failureCount < 2,
@@ -853,38 +891,6 @@ export function GuidedStoryWorkflow({
     });
   };
   useEffect(() => {
-    if (
-      !draft?.scriptApprovedAt ||
-      !draft.script ||
-      draftQuery.isError ||
-      draft.cast.length === draft.script.roles.length
-    ) return;
-    // Approval has already committed and dispatched the durable server worker.
-    // The browser is observation-only: refresh state, never submit a second
-    // cast mutation or cross a provider boundary.
-    let cancelled = false;
-    let timer: number;
-    const poll = async () => {
-      const result = await draftQuery.refetch();
-      if (cancelled) return;
-      const rateLimited =
-        (result.error as { status?: number } | null)?.status === 429;
-      timer = window.setTimeout(poll, rateLimited ? 60_000 : 10_000);
-    };
-    timer = window.setTimeout(poll, 10_000);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [
-    draft?.id,
-    draft?.revision,
-    draft?.scriptApprovedAt,
-    draft?.cast.length,
-    draft?.script?.roles.length,
-    draftQuery.isError,
-  ]);
-  useEffect(() => {
     if (!castBusyRole) return;
     const timer = window.setTimeout(submitCast, 4_000);
     return () => window.clearTimeout(timer);
@@ -1123,27 +1129,7 @@ function StoryFlow(props: any) {
   );
   const generatedCastHasActiveWork =
     props.strategy === "generated" &&
-    (
-      (draft.script?.roles.some((role: { id: string }) => {
-        const operation = draft.generatedCastOperations?.[role.id];
-        if (!operation) return true;
-        if (
-          operation.status === "provider_outcome_unknown" ||
-          operation.sheetStatus === "failed" ||
-          operation.sheetStatus === "outcome_unknown"
-        ) {
-          return false;
-        }
-        return !(
-          operation.status === "uploaded" &&
-          operation.sheetStatus === "settled"
-        );
-      }) ?? false) ||
-      (
-        generatedCastNeedsAttention.length === 0 &&
-        draft.cast.length < (draft.script?.roles.length ?? 0)
-      )
-    );
+    guidedStoryHasActiveCastWork(draft);
   if (step === "script") return <>{estimate}{props.scriptGenerationError && <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert" data-testid="error-guided-script-generation">{props.scriptGenerationError}</p>}<div className="flex flex-wrap items-center gap-3"><Button type="button" onClick={props.onGenerate} disabled={props.pending} aria-busy={props.pending} data-testid="button-guided-generate-script">{props.pending ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />{props.scriptRegenerationReason ? "Regenerating script…" : "Generating script…"}</> : props.scriptGenerationError ? "Retry script generation" : "Generate script"}</Button>{props.pending && <span className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-script-generation">{props.scriptRegenerationReason ?? "Creating your scenes and dialogue. This can take a moment."}</span>}</div></>;
   if (step === "review" || props.scriptEditorOpen) return <>{estimate}{voiceLanguageNote}<ScriptReview {...props} /></>;
   if (step === "ready") return <>
