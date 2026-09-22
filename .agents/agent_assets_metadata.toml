@@ -444,3 +444,18 @@ uri = "file://exports/job-13-full-18-seconds.mp4"
 type = "video"
 title = "Job #13 — Full 18-second video"
 description = "All three original clips stitched in order (5 + 5 + 8 seconds), with original audio. Vertical 1080 × 1920 MP4. Existing production video unchanged."
+logical_id = "fc064e9c-2212-4750-b080-187e6f9d62fb"
+
+[[outputs]]
+id = "hZX27jB53w1z4FX73guOQ"
+uri = "file://exports/job-11/job-11-full-untrimmed.mp4"
+type = "video"
+title = "Job #11 — Full untrimmed video"
+description = "All three original AI clips joined in scene order, preserving original video and audio without re-encoding, trimming, or added effects. 1080 × 1920; approximately 18.13 seconds including original audio padding."
+logical_id = "f4e5d05c-560d-416d-bfba-9f1fbf7a8bcb"
+content_hash = "sha256:c0ad72e9331e80bc5a0407ab5fc2328271466d513920223b216072636bb89d87"
+size = 46329648
+mtime_ms = 1790082160024
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/f4e5d05c-560d-416d-bfba-9f1fbf7a8bcb/3fa573cf-3b0a-4d02-a55b-0026ceb37612"
+storage_version_token = "1790082170623226"
+content_type = "video/mp4"
