@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../renderTimeline", () => ({
+  actualClipDuration: vi.fn(async () => 5),
+}));
 
 const renderState = vi.hoisted(() => ({
   animate: [] as Array<Record<string, unknown>>,

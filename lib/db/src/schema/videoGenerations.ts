@@ -205,6 +205,11 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Measured export timing, separate from immutable approvals and funding. */
+  renderedTimeline?: { version: 1; scenes: Array<{ sceneId: string; startSec: number; endSec: number }> };
+  /** Original generated plate for tail restoration without new provider work. */
+  generatedLipSyncBasePath?: string;
+  generatedLipSyncAudioPath?: string;
   /** Server-selected funding, persisted at acceptance; never recomputed by workers. */
   meterFunding?: Readonly<{
     tenantId: number;

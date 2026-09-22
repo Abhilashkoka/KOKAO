@@ -7,6 +7,7 @@ import { concatClips, mixMusicIntoVideo } from "./postprocess";
 import { encodeBudgetMs, runFfmpeg } from "./slideshow";
 import { probeDurationSec } from "./slideshow";
 import { VideoGenProviderError } from "./types";
+import { actualClipDuration } from "./renderTimeline";
 
 const execFileAsync = promisify(execFile);
 const familyKey = (value: string) => value.split(",")[0]!.trim().toLowerCase();
@@ -80,7 +81,8 @@ export async function composeCharacterDialogue(input: {
     throw new VideoGenProviderError("Character dialogue scene clips are incomplete.");
   }
   const joined = await concatClips(input.clips);
-  const durationSec = input.scenes.reduce((sum, scene) => sum + scene.narrationDurationSec, 0);
+  const clipDurations = await Promise.all(input.clips.map(actualClipDuration));
+  const durationSec = clipDurations.reduce((sum, duration) => sum + duration, 0);
   if (!input.subtitles) {
     return {
       buffer: input.music ? await mixMusicIntoVideo(joined, input.music) : joined,
@@ -93,11 +95,11 @@ export async function composeCharacterDialogue(input: {
     await writeFile(join(dir, "in.mp4"), joined);
     let start = 0;
     const srt = input.scenes.map((scene, index) => {
-      const end = start + scene.narrationDurationSec;
+      const end = start + Math.min(scene.narrationDurationSec, clipDurations[index]!);
       // libass shapes complex scripts and applies bidi. textfile/SRT also avoids shell escaping.
       const alignment = input.direction === "rtl" ? "{\\an2}" : "{\\an2}";
       const item = `${index + 1}\n${timestamp(start)} --> ${timestamp(end)}\n${alignment}${scene.text}\n`;
-      start = end;
+      start += clipDurations[index]!;
       return item;
     }).join("\n");
     await writeFile(join(dir, "captions.srt"), srt);
@@ -143,6 +145,11 @@ export async function trimCharacterDialogueClipStrict(
   const dir = await mkdtemp(join(tmpdir(), "kokao-character-dialogue-trim-"));
   try {
     await writeFile(join(dir, "in.mp4"), video);
+    const actualSec = await probeDurationSec("in.mp4", dir);
+    if (!actualSec) throw new VideoGenProviderError("Cannot measure dialogue footage; refusing an estimated cut.");
+    // Historical name retained for callers. Planned narration is now a floor,
+    // never an export cut: preserve all generated frames and pad audio silence.
+    targetSec = Math.max(targetSec, actualSec);
     if (narration) await writeFile(join(dir, "narration.wav"), narration);
     const videoFilter = `tpad=stop_mode=clone:stop_duration=${targetSec.toFixed(3)}`;
     const args = [
@@ -156,6 +163,7 @@ export async function trimCharacterDialogueClipStrict(
       args.push("-map", "0:v:0", "-map", "0:a?");
     }
     args.push(
+      "-af", "apad",
       "-t", targetSec.toFixed(3),
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
       "-c:a", "aac", "-movflags", "+faststart", "trimmed.mp4",

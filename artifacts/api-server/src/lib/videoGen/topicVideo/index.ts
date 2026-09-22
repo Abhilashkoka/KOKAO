@@ -32,6 +32,7 @@ import {
   type StockClip,
 } from "./stockSources";
 import { composeTopicVideo, sceneDurations } from "./compose";
+import { actualClipDuration } from "../renderTimeline";
 import { gateRenderPlan } from "../planGate";
 import { isFeatureEnabled } from "../../featureFlags";
 import {
@@ -183,6 +184,7 @@ export interface TopicVideoParams {
 }
 
 export interface TopicVideoResult {
+  renderedSceneDurations?: number[];
   buffer: Buffer;
   /** The stock source that supplied the footage. */
   provider: string;
@@ -795,6 +797,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   // 4) Compose.
   params.onStage?.("Composing the video");
   const buffer = await composeTopicVideo({
+    preserveGeneratedClips: characterMode || (aiMode && animatedBroll),
     clips,
     narrationWav: narration.wav,
     cues: narration.cues,
@@ -806,9 +809,9 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     accentColor: params.accentColor ?? null,
     watermark: params.watermark ?? null,
     music: params.music ?? null,
-    sceneMap: gate ? gate.scenes : (sceneMap ?? null),
+    sceneMap: characterMode || (aiMode && animatedBroll) ? sceneMap : gate ? gate.scenes : (sceneMap ?? null),
   });
-  return { buffer, provider, model, durationSec: narration.totalDurationSec };
+  return { buffer, provider, model, durationSec: await actualClipDuration(buffer) };
 }
 
 /** Resolve the character and the costume plan for a set of narration scenes.
@@ -2041,7 +2044,7 @@ export async function renderTopicStoryboard(params: {
   }
 
   params.onStage?.("Composing the video");
-  const composedSceneMap = gate ? gate.scenes : sceneMap;
+  const composedSceneMap = characterMode || animatedBroll ? sceneMap : gate ? gate.scenes : sceneMap;
   const composedDurationSec = nativeAudio
     ? composedSceneMap.reduce(
         (total: number, scene: { durationSec: number }) =>
@@ -2050,6 +2053,7 @@ export async function renderTopicStoryboard(params: {
       )
     : totalDurationSec;
   const buffer = await composeTopicVideo({
+    preserveGeneratedClips: characterMode || animatedBroll,
     clips,
     narrationWav,
     cues,
@@ -2064,7 +2068,10 @@ export async function renderTopicStoryboard(params: {
     nativeAudio,
     sceneMap: composedSceneMap,
   });
-  return { buffer, provider, model: board.model ?? "", durationSec: composedDurationSec };
+  return {
+    buffer, provider, model: board.model ?? "", durationSec: await actualClipDuration(buffer),
+    ...(characterMode || animatedBroll ? { renderedSceneDurations: await Promise.all(clips.map(actualClipDuration)) } : {}),
+  };
 }
 
 /** Regenerate one scene's preview still from an edited prompt. Returns the new

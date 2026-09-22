@@ -4,6 +4,8 @@ KOKAO (internal codename SocialForge; code packages keep the `@workspace/socialf
 
 ## Run & Operate
 
+- Generated-video duration policy: preserve complete provider-generated clips in exports by default. Do not automatically shorten footage to storyboard or narration estimates; the user reported that this harms video quality. Rebase audio/caption timing to actual clip lengths. Only an explicit user-requested edit may trim footage.
+
 - `pnpm --filter @workspace/api-server run dev` — API server
 - `pnpm --filter @workspace/socialforge run dev` — web frontend
 - `pnpm run typecheck` — full typecheck; `pnpm run build` — typecheck + build

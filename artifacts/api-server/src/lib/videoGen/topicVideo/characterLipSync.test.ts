@@ -6,6 +6,9 @@ import { MeterDispatchReplayError } from "../../meterErrors";
 const generateVideo = vi.fn();
 const lipSyncClip = vi.fn();
 const trimClipToStart = vi.fn();
+vi.mock("../renderTimeline", () => ({
+  preserveLipSyncTail: vi.fn(async (synced: Buffer) => synced),
+}));
 
 vi.mock("../index", () => ({
   generateVideo: (...args: unknown[]) => generateVideo(...args),

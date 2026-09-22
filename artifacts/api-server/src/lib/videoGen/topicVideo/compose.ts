@@ -8,6 +8,7 @@ import type { NarrationCue } from "./narration";
 import { buildCaptionChunks } from "./wordTimings";
 import { localePolicy, toSrt, type TargetLocale } from "@workspace/localization";
 import { resolveExactFont } from "../characterDialogueCompose";
+import { renderedTimeline, rebaseRenderedCues } from "../renderTimeline";
 
 /**
  * Final assembly for the Topic to Video engine, on the same system ffmpeg the
@@ -45,6 +46,8 @@ export interface SceneSegment {
 }
 
 export interface ComposeInput {
+  /** Generated provider clips own their timeline; never use planned cuts. */
+  preserveGeneratedClips?: boolean;
   /** Source clips. Cycled per sentence, unless `sceneMap` dictates scenes. */
   clips: Buffer[];
   /** Complete narration track (WAV). */
@@ -186,7 +189,8 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       throw new VideoGenProviderError("Scene map references a missing clip.");
     }
   }
-  const scenes = diversifySceneClips(rawScenes, input.clips.length);
+  const preserve = input.preserveGeneratedClips || input.nativeAudio;
+  const scenes = preserve ? rawScenes.map((scene) => ({ ...scene })) : diversifySceneClips(rawScenes, input.clips.length);
 
   const dir = await mkdtemp(join(tmpdir(), "kokao-topic-video-"));
   try {
@@ -218,6 +222,27 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       }
     }
 
+    if (preserve) {
+      const timeline = renderedTimeline(scenes.map((scene) => scene.durationSec), scenes.map((scene) => {
+        const duration = clipDurations.get(scene.clipIndex);
+        if (!duration) throw new VideoGenProviderError("Cannot measure generated footage; refusing to cut it to planned timing.");
+        return duration;
+      }));
+      // Shift complete narration slices, never time-stretch them. Provider
+      // surplus becomes silence between scenes, not missing video frames.
+      const rebasedCues = rebaseRenderedCues(input.cues, timeline);
+      const total = timeline[timeline.length - 1]!.endSec;
+      if (!input.nativeAudio) {
+        const filters = timeline.map((scene, index) =>
+          `[0:a]atrim=start=${scene.plannedStart}:end=${scene.plannedEnd},asetpts=PTS-STARTPTS,apad,atrim=duration=${scene.durationSec}[a${index}]`);
+        filters.push(`${timeline.map((_, index) => `[a${index}]`).join("")}concat=n=${timeline.length}:v=0:a=1[a]`);
+        await runFfmpeg(["-y", "-i", "narration.wav", "-filter_complex", filters.join(";"), "-map", "[a]", "-c:a", "pcm_s16le", "rebased.wav"], dir);
+        await writeFile(join(dir, "narration.wav"), await readFile(join(dir, "rebased.wav")));
+      }
+      scenes.forEach((scene, index) => { scene.durationSec = timeline[index]!.durationSec; });
+      input = { ...input, cues: rebasedCues, totalDurationSec: total };
+    }
+
     // 1) One identically-encoded segment per scene. Long sources are seeked
     // into (golden-ratio spread per scene, deterministic); short sources
     // loop as before. Cuts get a subtle dip-to-black so scene changes read
@@ -235,12 +260,12 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       // lengths, so a 3s scene almost always has spare time, and the
       // golden-ratio offset below would land mid-word on every such shot with
       // nothing raising an error.
-      const timelineLocked = scene.lipSynced || input.nativeAudio;
+      const timelineLocked = preserve || scene.lipSynced || input.nativeAudio;
       const canSeek = !timelineLocked && clipDur !== null && spare > 0.5;
       const seekSec = canSeek ? ((i * 0.618034) % 1) * (spare - 0.25) : 0;
 
       const fades: string[] = [];
-      if (scene.durationSec > SCENE_FADE_SEC * 4) {
+      if (!preserve && scene.durationSec > SCENE_FADE_SEC * 4) {
         if (i > 0) fades.push(`fade=t=in:st=0:d=${SCENE_FADE_SEC}`);
         if (i < scenes.length - 1) {
           fades.push(
@@ -307,12 +332,13 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
 
     // One drawtext per caption entry: whole sentences (classic) or timed
     // 2-3 word groups (dynamic).
-    const captionEntries: { text: string; startSec: number }[] = dynamicCaptions
+    const captionEntries: { text: string; startSec: number; endSec: number }[] = dynamicCaptions
       ? buildCaptionChunks(input.cues).map((chunk) => ({
           text: chunk.text,
           startSec: chunk.startSec,
+          endSec: chunk.endSec,
         }))
-      : input.cues.map((cue) => ({ text: cue.text, startSec: cue.startSec }));
+      : input.cues.map((cue) => ({ text: cue.text, startSec: cue.startSec, endSec: cue.endSec }));
 
     const localizedFont =
       input.subtitles && input.subtitleLocale
@@ -329,7 +355,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
             index: index + 1,
             startMs: Math.round(entry.startSec * 1000),
             endMs: Math.round(
-              (captionEntries[index + 1]?.startSec ?? input.totalDurationSec) * 1000,
+              (preserve ? entry.endSec : captionEntries[index + 1]?.startSec ?? input.totalDurationSec) * 1000,
             ),
             text: wrapSubtitleText(entry.text, maxCharsPerLine),
           })),
@@ -358,7 +384,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         // Hold each caption until the next one appears so text never
         // flickers off during pauses.
         const end = (
-          i + 1 < captionEntries.length
+          preserve ? entry.endSec : i + 1 < captionEntries.length
             ? captionEntries[i + 1]!.startSec
             : input.totalDurationSec
         ).toFixed(3);

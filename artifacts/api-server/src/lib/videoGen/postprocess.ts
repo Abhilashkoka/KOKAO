@@ -185,10 +185,9 @@ export async function normalizeVideo(
 }
 
 /**
- * Hold a provider clip to the length the storyboard promised. Models only offer
- * discrete lengths (5s, 10s), so a shot planned at 7s comes back at 5 or 10 —
- * without this pass the storyboard's stated timings are fiction and the shots
- * of a multi-shot video drift out of the rhythm the user set.
+ * Explicit editorial duration fitting only. Never call this for generated
+ * export footage to satisfy a storyboard/narration estimate: those exports
+ * must use measured full clip durations and rebase their rendered timelines.
  *
  * Too long is trimmed. Too short holds the final frame (tpad), which is the
  * only honest option: looping would replay motion the user did not ask for, and
@@ -211,8 +210,9 @@ export async function normalizeVideo(
  *  - No seeking, ever. The clip and its audio slice both begin at zero.
  *
  * Providers return discrete lengths (5s, 8s, 10s), so a 3.2s shot arrives as a
- * 5s clip; the surplus is dropped from the end rather than sampled from the
- * middle. NOT fail-soft: handing the model a mismatched clip produces a
+ * 5s clip. This helper prepares ONLY the funded lip-sync submission slice;
+ * callers must retain the original and restore its tail with
+ * preserveLipSyncTail before exporting. NOT fail-soft: handing the model a mismatched clip produces a
  * confidently desynced result, which is worse than a failed job.
  *
  * `minHeight` upscales the shot in the SAME encode when the provider returned

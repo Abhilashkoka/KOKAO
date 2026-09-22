@@ -561,6 +561,14 @@ vi.mock("./postprocess", async (importOriginal) => ({
   }),
 }));
 
+vi.mock("./renderTimeline", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./renderTimeline")>()),
+  // Provider and storage fixtures in this orchestration suite are opaque text
+  // buffers. Real probing, tail frames and A/V alignment live in renderTimeline.test.
+  actualClipDuration: vi.fn(async () => 8),
+  preserveLipSyncTail: vi.fn(async (synced: Buffer) => synced),
+}));
+
 vi.mock("./characterDialogueCompose", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./characterDialogueCompose")>()),
   probeNarrationWavDurationSec: vi.fn(async () => state.dialogueNarrationDurations.shift() ?? 4),
@@ -828,6 +836,7 @@ vi.mock("../localization/dub", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../localization/dub")>();
   return {
     ...actual,
+    replaceAudio: vi.fn(async (video: Buffer) => video),
     orchestrateLocalizedDub: vi.fn(async () => {
       if (state.dubError) throw state.dubError;
       return Buffer.from("dubbed-mp4");

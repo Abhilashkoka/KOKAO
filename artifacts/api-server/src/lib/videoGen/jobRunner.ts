@@ -121,6 +121,7 @@ import {
 import { composeApprovedStillAudioClip, composeCharacterDialogue, probeNarrationWavDurationSec, trimCharacterDialogueClipStrict } from "./characterDialogueCompose";
 import { planAudioFit } from "../localization/dub";
 import { probeDurationSec, runFfmpeg } from "./slideshow";
+import { actualClipDuration, preserveLipSyncTail, measuredSceneTimeline } from "./renderTimeline";
 import {
   characterDialogueStoryboard,
   lipSyncSourcePlatePrompt,
@@ -2320,6 +2321,7 @@ type ProduceResult =
       /** Only populated for localized_dub jobs; null otherwise. */
       localizedResult?: LocalizedDubResult | null;
       providerEvents?: VideoProviderEvent[];
+      renderedTimeline?: NonNullable<VideoGeneration["options"]>["renderedTimeline"];
     };
 
 /** Render a non-topic plan: resolve its music bed against the length the plan
@@ -2418,6 +2420,7 @@ async function renderApprovedClipStoryboard(
   }
   return {
     buffer: result.buffer,
+    ...(result.renderedSceneDurations ? { renderedTimeline: measuredSceneTimeline(storyboard.scenes.map((scene) => scene.id), result.renderedSceneDurations) } : {}),
     provider: result.provider,
     model: result.model,
     qa:
@@ -2602,9 +2605,15 @@ async function produceVideo(
     const music = directLipSync
       ? null
       : await resolveMusic(job, options, options.durationSec ?? 5, onStage);
-    const normalized = directLipSync
-      ? source
+    let normalized = directLipSync
+      ? options.generatedLipSyncBasePath
+        ? await preserveLipSyncTail(source, (await loadTenantObject(options.generatedLipSyncBasePath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved complete generated plate")).buffer)
+        : source
       : await normalizeVideo(source, aspectRatio, model.resolution);
+    if (directLipSync && options.generatedLipSyncAudioPath) {
+      const { replaceAudio } = await import("../localization/dub");
+      normalized = await replaceAudio(normalized, (await loadTenantObject(options.generatedLipSyncAudioPath, job.tenantId, MAX_LIP_SYNC_AUDIO_BYTES, "Saved sync narration")).buffer);
+    }
     return {
       buffer: music ? await mixMusicIntoVideo(normalized, music) : normalized,
       provider: raw.provider,
@@ -2862,7 +2871,15 @@ async function produceVideo(
           let receipt = saved.get(line.lineId);
           if (receipt?.lipSyncPath || receipt?.clipPath) {
             const path = receipt.lipSyncPath ?? receipt.clipPath!;
-            clips.push((await loadTenantObject(path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved Guided Story line")).buffer);
+            let savedClip = (await loadTenantObject(path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved Guided Story line")).buffer;
+            if (receipt.platePath && receipt.audioPath) {
+              savedClip = await trimCharacterDialogueClipStrict(
+                await preserveLipSyncTail(savedClip, (await loadTenantObject(receipt.platePath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved complete Guided plate")).buffer),
+                frozenDurationSec,
+                (await loadTenantObject(receipt.audioPath, job.tenantId, MAX_NARRATION_BYTES, "Saved Guided narration")).buffer,
+              );
+            }
+            clips.push(savedClip);
             for (const event of [receipt.animationEvent, receipt.lipSyncEvent]) if (event && !event.accounted) events.push(event);
             continue;
           }
@@ -3030,7 +3047,7 @@ async function produceVideo(
           };
           // The lip-sync receipt follows the same fail-closed ordering.
           await save("composing", line.lineId);
-          const clip = await trimCharacterDialogueClipStrict(await normalizeVideo(synced.buffer, aspectRatio), frozenDurationSec, narration);
+          const clip = await trimCharacterDialogueClipStrict(await normalizeVideo(await preserveLipSyncTail(synced.buffer, plate), aspectRatio), frozenDurationSec, narration);
           receipt.lipSyncPath = await uploadToStorage(job.tenantId, clip, "video/mp4");
           clips.push(clip);
           events.push(animationEvent, receipt.lipSyncEvent);
@@ -3041,7 +3058,8 @@ async function produceVideo(
         const buffer = music ? await mixMusicIntoVideo(joined, music) : joined;
         await save("succeeded", null);
         return { buffer, provider: null, model: null, providerEvents: events,
-          qa: { expectedDurationSec: targetDurationSec, expectAudio: true, label: "Guided Story dialogue replay" } };
+          renderedTimeline: measuredSceneTimeline(dialogueReplay.lines.map((line) => line.lineId), await Promise.all(clips.map(actualClipDuration))),
+          qa: { expectedDurationSec: await actualClipDuration(buffer), expectAudio: true, label: "Guided Story dialogue replay" } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await save(
@@ -3132,7 +3150,15 @@ async function produceVideo(
         try {
         const checkpoint = scene.checkpoint;
         if (checkpoint?.lipSyncPath) {
-          clips.push((await loadTenantObject(checkpoint.lipSyncPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved scene")).buffer);
+          let savedClip = (await loadTenantObject(checkpoint.lipSyncPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved scene")).buffer;
+          if (checkpoint.platePath && checkpoint.narrationPath && checkpoint.narrationDurationSec) {
+            savedClip = await trimCharacterDialogueClipStrict(
+              await preserveLipSyncTail(savedClip, (await loadTenantObject(checkpoint.platePath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved complete plate")).buffer),
+              checkpoint.narrationDurationSec,
+              (await loadTenantObject(checkpoint.narrationPath, job.tenantId, MAX_NARRATION_BYTES, "Saved narration")).buffer,
+            );
+          }
+          clips.push(savedClip);
           if (!checkpoint.narrationDurationSec || !checkpoint.lipSyncEvent) {
             throw new VideoJobInputError(`Saved dialogue scene ${scene.id} has an incomplete checkpoint.`);
           }
@@ -3316,7 +3342,7 @@ async function produceVideo(
           scene.checkpoint = { ...scene.checkpoint, lipSyncEvent };
           await checkpointJob();
           sceneOperation = "scene_normalization";
-          const normalized = await normalizeVideo(synced.buffer, aspectRatio);
+          const normalized = await normalizeVideo(await preserveLipSyncTail(synced.buffer, plate), aspectRatio);
           sceneOperation = "scene_composition";
           const trimmed = await trimCharacterDialogueClipStrict(
             normalized,
@@ -3428,16 +3454,17 @@ async function produceVideo(
         });
         let finalBuffer = composed.buffer;
         if (options.presenterBroll && job.storyboard?.mode === "character_dialogue") {
+          const renderedDurations = await Promise.all(clips.map(actualClipDuration));
           let cursorMs = 0;
           let snapshot = {
             ...options.presenterBroll,
             lines: composedScenes.map((scene, index) => {
               const startMs = cursorMs;
-              cursorMs += Math.round(scene.narrationDurationSec * 1000);
+              cursorMs += Math.round(renderedDurations[index]! * 1000);
               return {
                 index: index + 1,
                 startMs,
-                endMs: cursorMs,
+                endMs: startMs + Math.round(scene.narrationDurationSec * 1000),
                 text: scene.text,
               };
             }),
@@ -3513,6 +3540,7 @@ async function produceVideo(
             frozenPlan.lipSyncModel ??
             lipSyncModelForQuality(options.lipSyncQuality).model,
           providerEvents: events.concat(presenterEvents),
+          renderedTimeline: measuredSceneTimeline(frozenPlan.scenes.map((scene) => scene.id), await Promise.all(clips.map(actualClipDuration))),
           qa: { expectedDurationSec: composed.durationSec, minDurationSec: composed.durationSec, expectAudio: true, label: "saved-character dialogue video" },
         };
       } catch (error) {
@@ -3610,6 +3638,9 @@ async function produceVideo(
         videoTokens: visual.videoTokens,
       }).catch(() => null);
       const extendedVisual = await loopVideoPlateToDuration(visual.buffer, plateDurationSec);
+      options.generatedLipSyncBasePath = await uploadToStorage(job.tenantId, visual.buffer, "video/mp4");
+      options.generatedLipSyncAudioPath = await uploadToStorage(job.tenantId, narration.wav, "audio/wav");
+      await setJob(job.id, { options });
       const replicateDef = getVideoGenProviderDef("replicate");
       const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
       onStage("Syncing the lips");
@@ -3669,8 +3700,10 @@ async function produceVideo(
     }).catch(() => null);
     lipSyncEvent.durationSec = rawLipSyncDurationSec;
     lipSyncEvent.costPaise = lipSyncCostPaise;
+    const { replaceAudio: replaceDialogueAudio } = await import("../localization/dub");
+    const completeDialogue = await replaceDialogueAudio(await preserveLipSyncTail(result.buffer, visual.buffer), narration.wav);
     return {
-      buffer: result.buffer,
+      buffer: completeDialogue,
       provider: result.provider,
       model: result.model,
       providerEvents: [
@@ -3681,7 +3714,7 @@ async function produceVideo(
       // the delivered video against the real synthesized track as well, so a
       // provider-truncated plate can never be delivered with dialogue cut off.
       qa: {
-        expectedDurationSec: narration.totalDurationSec,
+        expectedDurationSec: await actualClipDuration(completeDialogue),
         minDurationSec: narration.totalDurationSec,
         expectAudio: true,
         label: "dialogue lip-sync video",
@@ -3832,6 +3865,13 @@ async function produceVideo(
         : await resolveLipSyncModelRef();
     const effectiveLipSyncModel =
       modelOverride?.split(":")[0] || lipSyncDef.model;
+    if (sourcePath) {
+      // The selected file is the user's source segment. Keep that complete
+      // file, not the narration-length derivative submitted for funded sync.
+      options.generatedLipSyncBasePath = sourcePath;
+      options.generatedLipSyncAudioPath = options.audioPath ?? await uploadToStorage(job.tenantId, audio.buffer, audio.mimeType);
+      await setJob(job.id, { options });
+    }
     onStage("Syncing the lips");
     await requirePricedVideoCall(
       "replicate",
@@ -3856,21 +3896,25 @@ async function produceVideo(
       "lip_sync",
       options.durationSec ?? 5,
     );
+    const { replaceAudio: replaceSyncAudio } = await import("../localization/dub");
+    const completeSync = sourcePath
+      ? await replaceSyncAudio(await preserveLipSyncTail(result.buffer, source.buffer), audio.buffer)
+      : result.buffer;
     return {
       // The output keeps the source's own framing, so no aspect
       // normalization: padding someone's footage would only shrink them.
-      buffer: result.buffer,
+      buffer: completeSync,
       provider: result.provider,
       model: result.model,
       providerEvents: [event],
       qa: {
-        minDurationSec: 0.5,
+        minDurationSec: Math.max(0.5, audioDurationSec),
         expectAudio: true,
         // The synced video must be as long as the voice it was synced to. A
         // model that truncates leaves the end of the script unspoken — which
         // is the failure the matched lengths above exist to prevent, so it is
         // asserted rather than assumed.
-        expectedDurationSec: audioDurationSec,
+        expectedDurationSec: await actualClipDuration(completeSync),
         label: "lip-sync video",
       },
     };
@@ -4614,7 +4658,7 @@ async function produceVideo(
               return def ? resolveVideoGenApiKey(def) : null;
             })()));
             sceneOperation = "scene_normalization";
-            const normalized = await normalizeVideo(synced.buffer, aspectRatio);
+            const normalized = await normalizeVideo(await preserveLipSyncTail(synced.buffer, plate.buffer), aspectRatio);
             sceneOperation = "scene_composition";
             const trimmed = await trimCharacterDialogueClipStrict(
               normalized,
@@ -4659,6 +4703,7 @@ async function produceVideo(
           }
         }
         const final = await composeTopicVideo({
+          preserveGeneratedClips: true,
           clips, narrationWav, cues: board.narration.cues, totalDurationSec: board.narration.totalDurationSec,
           aspectRatio, subtitles: options.subtitles ?? false,
           captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
@@ -4672,7 +4717,8 @@ async function produceVideo(
           }),
         });
         return { buffer: final, provider: "hybrid", model: "mixed", providerEvents: events,
-          qa: { expectedDurationSec: board.narration.totalDurationSec, expectAudio: true, label: "hybrid character story" } };
+          renderedTimeline: measuredSceneTimeline(board.scenes.map((scene) => scene.id), await Promise.all(clips.map(actualClipDuration))),
+          qa: { expectedDurationSec: await actualClipDuration(final), expectAudio: true, label: "hybrid character story" } };
       }
       // Deferred template previews are paid provider work. Mint and durably
       // record each destination before its provider call so a crash can never
@@ -5439,7 +5485,7 @@ async function produceVideo(
           ...options.presenterBroll,
           lines: board.scenes.map((scene, index) => {
             const startMs = cursorMs;
-            cursorMs += Math.round(scene.durationSec * 1000);
+            cursorMs += Math.round((result.renderedSceneDurations?.[index] ?? scene.durationSec) * 1000);
             return { index: index + 1, startMs, endMs: cursorMs, text: scene.text };
           }),
         };
@@ -5504,6 +5550,7 @@ async function produceVideo(
       }
       return {
         buffer: finalBuffer,
+        ...(result.renderedSceneDurations ? { renderedTimeline: measuredSceneTimeline(board.scenes.map((scene) => scene.id), result.renderedSceneDurations) } : {}),
         provider: result.provider,
         model: result.model,
         providerEvents: [...topicSceneEvents, ...presenterEvents],
@@ -5805,9 +5852,12 @@ async function produceVideo(
         replicateApiKey,
       );
       onStage("Burning subtitles");
-      const { burnSubtitles } = await import("../localization/dub");
+      const { burnSubtitles, replaceAudio } = await import("../localization/dub");
+      const complete = await preserveLipSyncTail(ls.buffer, video.buffer);
       return burnSubtitles({
-        video: ls.buffer,
+        // Keep the complete source picture but never leak the old-language
+        // soundtrack into a restored tail. The submitted dub silence-pads it.
+        video: await replaceAudio(complete, audioBuffer),
         cues: burnCues.map((c) => ({
           index: c.index,
           startMs: c.startMs,
@@ -7219,7 +7269,7 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       ...board.narration.cues.map((cue) => cue.endSec),
     );
     const { durationSec } = await verifyRepairedVideo(result.buffer, {
-      expectedDurationSec: board.narration.totalDurationSec,
+      expectedDurationSec: result.durationSec,
       finalNarrationEndSec: finalCueEnd,
     });
     const videoPath = await uploadToStorage(claimed.tenantId, result.buffer, "video/mp4");
@@ -7691,16 +7741,21 @@ async function finishGuidedStoryIntrinsicDialogue(
 
   const clips: Buffer[] = [];
   const events: VideoProviderEvent[] = [];
+  const finishedSceneDurations = new Map<string, number>();
   let cursor = 0;
   const model = resolveModelOptions(options, 5);
+  if (!options.renderedTimeline && Math.abs((await actualClipDuration(base)) - Math.max(...snapshot.scenes.map((scene) => scene.endMs / 1000))) > 0.15) {
+    throw new VideoJobInputError("This saved Guided render has no measured scene timeline. Its full footage was retained; finishing cannot safely reuse planned scene boundaries.");
+  }
   const replicateDef = getVideoGenProviderDef("replicate");
   const replicateKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
 
   for (const planned of snapshot.scenes) {
     const scene = board.scenes.find((candidate) => candidate.id === planned.sceneId);
-    const startSec = planned.startMs / 1000;
+    const rendered = job.options?.renderedTimeline?.scenes.find((entry) => entry.sceneId === planned.sceneId);
+    const startSec = rendered?.startSec ?? planned.startMs / 1000;
     const durationSec = (planned.endMs - planned.startMs) / 1000;
-    const endSec = startSec + durationSec;
+    const endSec = rendered?.endSec ?? startSec + durationSec;
     if (startSec > cursor) {
       clips.push(await extractStudioLipSyncSegment(base, cursor, startSec - cursor));
     }
@@ -7725,23 +7780,25 @@ async function finishGuidedStoryIntrinsicDialogue(
       scene.previewCheckpoint.targetPath !== scene.previewPath
     ) {
       await update({ state: "skipped", skipReason: "The approved one-face storyboard still is unavailable." });
-      clips.push(await extractStudioLipSyncSegment(base, startSec, durationSec));
+      clips.push(await extractStudioLipSyncSegment(base, startSec, endSec - startSec));
       cursor = endSec;
       continue;
     }
     const existing = checkpoint();
     if (existing.state === "complete" && existing.outputPath) {
-      clips.push((await loadTenantObject(
+      const savedClip = (await loadTenantObject(
         existing.outputPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES,
         "Saved automatic Guided Story dialogue scene",
-      )).buffer);
+      )).buffer;
+      clips.push(savedClip);
+      finishedSceneDurations.set(planned.sceneId, await actualClipDuration(savedClip));
       if (existing.animationEvent) events.push(existing.animationEvent);
       if (existing.lipSyncEvent) events.push(existing.lipSyncEvent);
       cursor = endSec;
       continue;
     }
     if (existing.state === "skipped") {
-      clips.push(await extractStudioLipSyncSegment(base, startSec, durationSec));
+      clips.push(await extractStudioLipSyncSegment(base, startSec, endSec - startSec));
       cursor = endSec;
       continue;
     }
@@ -7928,7 +7985,10 @@ async function finishGuidedStoryIntrinsicDialogue(
         label: "Guided Story intrinsic lip-sync",
       });
       const output = await trimCharacterDialogueClipStrict(
-        await normalizeVideo(synced.buffer, options.aspectRatio ?? "9:16"),
+        await normalizeVideo(
+          await preserveLipSyncTail(await preserveLipSyncTail(synced.buffer, plate), await extractStudioLipSyncSegment(base, startSec, endSec - startSec)),
+          options.aspectRatio ?? "9:16",
+        ),
         durationSec,
         narration,
       );
@@ -7938,6 +7998,7 @@ async function finishGuidedStoryIntrinsicDialogue(
       const outputPath = await uploadToStorage(job.tenantId, output, "video/mp4");
       await update({ state: "complete", outputPath, animationEvent, lipSyncEvent });
       clips.push(output);
+      finishedSceneDurations.set(planned.sceneId, await actualClipDuration(output));
       events.push(animationEvent!, lipSyncEvent);
     } catch (error) {
       const current = checkpoint();
@@ -7953,20 +8014,22 @@ async function finishGuidedStoryIntrinsicDialogue(
         state: "skipped",
         skipReason: error instanceof Error ? error.message.slice(0, 300) : "Dialogue finishing failed.",
       });
-      clips.push(await extractStudioLipSyncSegment(base, startSec, durationSec));
+      clips.push(await extractStudioLipSyncSegment(base, startSec, endSec - startSec));
     }
     cursor = endSec;
   }
-  const totalSec = Math.max(
-    cursor,
-    ...board.scenes.map((scene) => scene.guidedStory?.endMs
-      ? scene.guidedStory.endMs / 1000
-      : 0),
-  );
+  const totalSec = await actualClipDuration(base);
   if (cursor < totalSec) {
     clips.push(await extractStudioLipSyncSegment(base, cursor, totalSec - cursor));
   }
   const output = clips.length === 1 ? clips[0]! : await concatClips(clips);
+  if (options.renderedTimeline) {
+    options.renderedTimeline = measuredSceneTimeline(
+      options.renderedTimeline.scenes.map((scene) => scene.sceneId),
+      options.renderedTimeline.scenes.map((scene) => finishedSceneDurations.get(scene.sceneId) ?? scene.endSec - scene.startSec),
+    );
+    job.options = { ...job.options!, renderedTimeline: options.renderedTimeline };
+  }
   const outputPath = await uploadToStorage(job.tenantId, output, "video/mp4");
   options.guidedStoryIntrinsicLipSync!.checkpoint = {
     ...options.guidedStoryIntrinsicLipSync!.checkpoint!,
@@ -8048,18 +8111,28 @@ async function finishWithStudioLipSync(
   };
   await setJob(job.id, { options: preparedOptions });
 
+  if (job.storyboard && !preparedOptions.renderedTimeline &&
+      Math.abs((await actualClipDuration(base)) - job.storyboard.scenes.reduce((sum, scene) => sum + scene.durationSec, 0)) > 0.15) {
+    throw new VideoJobInputError("This saved render has no measured scene timeline. Full footage is retained, but optional lip-sync cannot safely use old planned boundaries.");
+  }
+
   const clips: Buffer[] = [];
   let cursor = 0;
   let latestOptions = preparedOptions;
+  const finishedSceneDurations = new Map<string, number>();
   for (const scene of snapshot.plan) {
     const existing = latestOptions.studioLipSync?.checkpoint?.scenes?.find(
       (item) => item.sceneId === scene.sceneId,
     );
-    const startSec = scene.startSec ?? cursor;
-    const endSec = scene.endSec ?? startSec + scene.durationSec;
+    const rendered = job.options?.renderedTimeline?.scenes.find((entry) => entry.sceneId === scene.sceneId);
+    const startSec = rendered?.startSec ?? scene.startSec ?? cursor;
+    const endSec = rendered?.endSec ?? scene.endSec ?? startSec + scene.durationSec;
     if (startSec > cursor) clips.push(await extractStudioLipSyncSegment(base, cursor, startSec - cursor));
     if (existing?.state === "complete" && existing.outputPath) {
-      clips.push((await loadTenantObject(existing.outputPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved optional lip-sync scene")).buffer);
+      const savedScene = (await loadTenantObject(existing.outputPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved optional lip-sync scene")).buffer;
+      const completeScene = await preserveLipSyncTail(savedScene, await extractStudioLipSyncSegment(base, startSec, endSec - startSec));
+      clips.push(completeScene);
+      finishedSceneDurations.set(scene.sceneId, await actualClipDuration(completeScene));
     } else {
       if (existing?.state === "provider_succeeded") {
         throw new VideoGenProviderError(`Optional lip-sync scene ${scene.sceneId} succeeded but its output was not retained; it will not be charged twice.`);
@@ -8082,7 +8155,7 @@ async function finishWithStudioLipSync(
         source = await extractStudioLipSyncSegment(
           base,
           startSec,
-          endSec - startSec,
+          Math.min(scene.durationSec, endSec - startSec),
         );
         const audio = await extractNativeAudio(source);
         audioBytes = audio.byteLength;
@@ -8090,7 +8163,7 @@ async function finishWithStudioLipSync(
           source: { buffer: source, mimeType: "video/mp4" },
           audio: { buffer: audio, mimeType: "audio/wav" },
           def: LATENT_SYNC,
-          durationSec: endSec - startSec,
+          durationSec: scene.durationSec,
           meterCtx: lipSyncMeterContext(job, `studio_lip_sync:${scene.sceneId}`),
         }, apiKey);
       } catch (err) {
@@ -8156,7 +8229,7 @@ async function finishWithStudioLipSync(
         // advance normally. If it failed, leave the cursor in place so the next
         // gap fill (or trailing fill) copies the original span from the base.
         if (source) {
-          clips.push(source);
+          clips.push(await extractStudioLipSyncSegment(base, startSec, endSec - startSec));
           cursor = endSec;
         }
         continue;
@@ -8183,26 +8256,29 @@ async function finishWithStudioLipSync(
         // enqueue cannot change this acknowledged provider receipt.
         costPaise: scene.estimatedPricePaise,
       };
-      const outputPath = await uploadToStorage(job.tenantId, result.buffer, "video/mp4");
+      const fullScene = await preserveLipSyncTail(result.buffer, await extractStudioLipSyncSegment(base, startSec, endSec - startSec));
+      const outputPath = await uploadToStorage(job.tenantId, fullScene, "video/mp4");
       latestOptions.studioLipSync!.checkpoint!.scenes = providerScenes.map((item) => item.sceneId === scene.sceneId ? { ...item, state: "complete" as const, outputPath, event } : item);
       await setJob(job.id, { options: latestOptions });
-      clips.push(result.buffer);
+      clips.push(fullScene);
+      finishedSceneDurations.set(scene.sceneId, await actualClipDuration(fullScene));
     }
     cursor = endSec;
   }
   // Guided plans can intentionally skip ambiguous scenes; keep those base
   // intervals byte-for-byte out of the provider path.
-  const baseDurationSec = Math.max(
-    cursor,
-    job.options?.guidedStory?.platform.durationSeconds ?? 0,
-    (job.durationMs ?? 0) / 1000,
-    ...snapshot.plan.map((scene) => scene.endSec ?? 0),
-  );
+  const baseDurationSec = await actualClipDuration(base);
   if (cursor < baseDurationSec) {
     clips.push(await extractStudioLipSyncSegment(base, cursor, baseDurationSec - cursor));
   }
   const output = clips.length === 1 ? clips[0]! : await concatClips(clips);
   const events = latestOptions.studioLipSync!.checkpoint!.scenes!.flatMap((scene) => scene.event ? [scene.event] : []);
+  if (latestOptions.renderedTimeline) {
+    latestOptions.renderedTimeline = measuredSceneTimeline(
+      latestOptions.renderedTimeline.scenes.map((scene) => scene.sceneId),
+      latestOptions.renderedTimeline.scenes.map((scene) => finishedSceneDurations.get(scene.sceneId) ?? scene.endSec - scene.startSec),
+    );
+  }
   const outputPath = await uploadToStorage(job.tenantId, output, "video/mp4");
   latestOptions.studioLipSync = { ...snapshot, checkpoint: { state: "complete", outputPath, event: events[events.length - 1], scenes: latestOptions.studioLipSync!.checkpoint!.scenes } };
   await setJob(job.id, { options: latestOptions });
@@ -8371,6 +8447,11 @@ async function executeVideoJob(
       return;
     }
     let { buffer } = produced;
+    if (produced.renderedTimeline) {
+      const latest = (await db.select({ options: videoGenerationsTable.options }).from(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id)).limit(1))[0];
+      job.options = { aspectRatio: "9:16", ...(latest?.options ?? job.options), renderedTimeline: produced.renderedTimeline };
+      await setJob(job.id, { options: job.options });
+    }
     const { provider, model, qa, localizedResult } = produced;
 
     // Quality gate: never deliver (or charge for) a broken render. A failure
@@ -8429,6 +8510,7 @@ async function executeVideoJob(
       clipDurationSec = (
         await verifyRenderedVideo(buffer, {
           ...qa,
+          expectedDurationSec: await actualClipDuration(buffer),
           label: "automatic Guided Story dialogue output",
         })
       ).durationSec;
@@ -8448,6 +8530,7 @@ async function executeVideoJob(
       clipDurationSec = (
         await verifyRenderedVideo(buffer, {
           ...qa,
+          expectedDurationSec: await actualClipDuration(buffer),
           label: "optional Studio lip-sync output",
         })
       ).durationSec;

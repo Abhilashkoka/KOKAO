@@ -11,6 +11,7 @@ import { characterScenePrompt } from "./characterMotion";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
 import { trimClipToStart } from "../postprocess";
+import { preserveLipSyncTail } from "../renderTimeline";
 import { MIN_SYNC_HEIGHT } from "../lipSyncSource";
 import { lipSyncClip } from "../lipSyncClip";
 import type { MeterContext } from "../../meter";
@@ -667,14 +668,15 @@ export async function animateSceneKeyframes(params: {
             }
           : null,
       });
+      const complete = await preserveLipSyncTail(result.buffer, clip);
       synced[i] = true;
-      return result.buffer;
+      return complete;
     } catch (err) {
       // Fail-soft, and only here: the shot already exists and is already paid
       // for, so an unsynced shot beats failing the whole job. It ships without
       // the flag, so the compositor treats it as ordinary footage.
       logger.warn({ err, scene: i }, "scene lip sync failed; using the unsynced shot");
-      return trimmed;
+      return clip;
     }
   });
 

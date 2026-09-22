@@ -170,6 +170,10 @@ vi.mock("./postprocess", () => ({
   }),
 }));
 
+vi.mock("./renderTimeline", () => ({
+  actualClipDuration: vi.fn(async () => state.generateCalls.reduce((sum, call) => sum + call.durationSec, 0) || 5),
+}));
+
 vi.mock("./slideshow", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./slideshow")>();
   return {

@@ -731,12 +731,15 @@ export async function renderPresenterBroll(params: {
       });
     }
     params.onStage("Compositing presenter and B-roll");
+    await writeFile(join(dir, "presenter.mp4"), params.presenterVideo);
+    const actualDurationSec = await probeDurationSec("presenter.mp4", dir);
+    if (!actualDurationSec) throw new VideoGenProviderError("Cannot measure presenter footage for a complete export.");
     return await compositeBroll({
       baseVideo: params.presenterVideo,
       beats,
       width: dimensions.width,
       height: dimensions.height,
-      durationMs: params.snapshot.durationMs,
+      durationMs: Math.round(actualDurationSec * 1000),
       captions: params.subtitles ? params.snapshot.lines : [],
       captionStyle: params.captionStyle,
       accentColor: params.accentColor,

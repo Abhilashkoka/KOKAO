@@ -24,7 +24,8 @@ import {
   isAtlasReferenceModel,
   isAtlasWanReferenceModel,
 } from "./providers/atlascloud";
-import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+import { concatClips, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+import { actualClipDuration } from "./renderTimeline";
 import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
 import {
   renderSlideshow,
@@ -611,6 +612,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
   provider: string | null;
   model: string | null;
   totalSec: number;
+  renderedSceneDurations?: number[];
 }> {
   const { storyboard, aspectRatio } = params;
   const scenes = storyboard.scenes;
@@ -879,12 +881,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     }
     provider = result.provider;
     model = result.model;
-    clips.push(
-      await enforceClipDuration(
-        await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution),
-        durations[i]!,
-      ),
-    );
+    clips.push(await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution));
   }
 
   if (clips.length > 1) params.onStage?.("Joining your shots");
@@ -894,7 +891,8 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     buffer,
     provider,
     model,
-    totalSec: durations.reduce((sum, sec) => sum + sec, 0),
+    totalSec: await actualClipDuration(buffer),
+    renderedSceneDurations: await Promise.all(clips.map(actualClipDuration)),
   };
 }
 
