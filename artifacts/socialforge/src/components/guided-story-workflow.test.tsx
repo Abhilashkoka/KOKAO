@@ -1486,6 +1486,107 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.cast).toBeNull();
   });
 
+  it("stops indefinite progress and keeps completed assets when a sheet fails", async () => {
+    state.draft = draft({
+      generatedCastOperations: {
+        r1: {
+          status: "uploaded",
+          characterId: 101,
+          outfitId: 201,
+          sheetStatus: "failed",
+          sheetError: "Reference sheet visual QA failed.",
+        },
+        r2: {
+          status: "uploaded",
+          characterId: 102,
+          outfitId: 202,
+          sheetStatus: "settled",
+          sheetError: null,
+        },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    const attention = await screen.findByTestId(
+      "status-guided-generated-cast-needs-attention",
+    );
+    expect(attention.textContent).toContain("Some character assets need attention");
+    expect(attention.textContent).toContain("Completed portraits, outfits");
+    expect(screen.queryByTestId("status-guided-automatic-cast")).toBeNull();
+    expect(screen.getByTestId("status-guided-generated-operation-complete-r2").textContent)
+      .toContain("reference sheet are complete");
+
+    await userEvent.click(screen.getByTestId("button-guided-retry-sheet-r1"));
+    await waitFor(() => expect(state.retrySheetRequest).toEqual({
+      draftId: 7,
+      roleId: "r1",
+      data: { revision: 2 },
+    }));
+    expect(state.generatedScripts).toBe(0);
+  });
+
+  it("shows portrait reconciliation while remaining cast work stays active", async () => {
+    state.draft = draft({
+      generatedCastOperations: {
+        r1: {
+          status: "provider_outcome_unknown",
+          characterId: null,
+          outfitId: null,
+          sheetStatus: null,
+          sheetError: null,
+        },
+        r2: {
+          status: "provider_running",
+          characterId: null,
+          outfitId: null,
+          sheetStatus: null,
+          sheetError: null,
+        },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect((await screen.findByTestId("status-guided-portrait-reconciliation-r1")).textContent)
+      .toContain("portrait provider outcome is unknown");
+    const progress = screen.getByTestId("status-guided-automatic-cast");
+    expect(progress.textContent).toContain("Preparing remaining");
+    expect(progress.querySelector(".animate-spin")).not.toBeNull();
+
+    await userEvent.click(screen.getByTestId("button-guided-check-reconciliation-r1"));
+    await waitFor(() => expect(state.draftRefetches).toBeGreaterThan(0));
+  });
+
+  it("shows sheet reconciliation without offering an unsafe retry", async () => {
+    state.draft = draft({
+      generatedCastOperations: {
+        r1: {
+          status: "uploaded",
+          characterId: 101,
+          outfitId: 201,
+          sheetStatus: "outcome_unknown",
+          sheetError: null,
+        },
+        r2: {
+          status: "uploaded",
+          characterId: 102,
+          outfitId: 202,
+          sheetStatus: "settled",
+          sheetError: null,
+        },
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect((await screen.findByTestId("status-guided-sheet-reconciliation-r1")).textContent)
+      .toContain("Reconciliation is required");
+    expect(screen.queryByTestId("button-guided-retry-sheet-r1")).toBeNull();
+    expect(screen.getByTestId("button-guided-check-reconciliation-r1")).toBeTruthy();
+    expect(screen.queryByTestId("status-guided-automatic-cast")).toBeNull();
+  });
+
   it("returns from casting to the scene editor and adds a new editable scene", async () => {
     state.draft = draft({
       setup: { ...draft().setup, durationSeconds: 30 },

@@ -53,6 +53,12 @@ Script approval must persist and schedule generated-cast work server-side; brows
 
 **How to apply:** Use revision/role operation identities, post-commit immediate scheduling plus boot/interval recovery, a fixed recovery quota per sweep, and explicit retry only for confirmed sheet failures. Provider-running or unknown outcomes remain fail-closed.
 
+Recovery validators must recognize unified credits as distinct from legacy unit credits and validate the frozen tenant/rail/enforcement snapshot.
+
+**Why:** Successful paid portraits were stranded when billing supported unified credits but the resumable-checkpoint validator still allowed only legacy funding modes. The saved image was usable; generating another one was unnecessary.
+
+**How to apply:** Whenever a funding rail changes, cover recovery from already-successful provider checkpoints, not just fresh dispatch. Assert that recovery uploads saved bytes without another portrait provider call. Terminal sheet failures must not keep an otherwise idle draft eligible for automatic processing.
+
 Customizing a generated Guided role is copy-on-write: clone and rebind a role-owned character/outfit revision before regeneration rather than mutating a reusable library identity.
 
 **Why:** The original generated character may already be reused by another draft; in-place edits would silently change that story's approved identity and sheet.

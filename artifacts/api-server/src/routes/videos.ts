@@ -3219,6 +3219,7 @@ async function claimGuidedCastRoles(params: {
   revision: number;
   strategy: "generated" | "saved";
   roles: Array<{ roleId: string; voiceId: string; generated: boolean }>;
+  automaticWorker?: boolean;
 }): Promise<{
   row: GuidedStoryDraft | null;
   busyRoleId?: string;
@@ -3255,6 +3256,10 @@ async function claimGuidedCastRoles(params: {
     // Stale pre-provider and known-success leases remain recoverable below.
     for (const [roleId, operation] of Object.entries(operations)) {
       if (
+        !(
+          params.automaticWorker &&
+          guidedCastSheetCheckpointIsTerminal(operation)
+        ) &&
         operation.executionClaimToken &&
         !guidedCastExecutionClaimCanBeRecovered(operation, now.getTime())
       ) {
@@ -3347,6 +3352,14 @@ async function claimGuidedCastRoles(params: {
     for (const role of params.roles) {
       const current = operations[role.roleId];
       const operationKey = `guided-story-cast:${row.id}:${row.revision}:${role.roleId}`;
+      // A terminal sheet belongs to explicit retry/reconciliation. Automatic
+      // passes leave it byte-for-byte intact while claiming independent roles.
+      if (
+        params.automaticWorker &&
+        guidedCastSheetCheckpointIsTerminal(current)
+      ) {
+        continue;
+      }
       const resumable = current
         ? guidedCastOperationCanResume(current, {
             revision: row.revision,
@@ -6076,11 +6089,15 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
         ];
       }),
     );
+    const automaticWorker =
+      (req as Request & { guidedCastAutomaticWorker?: boolean })
+        .guidedCastAutomaticWorker === true;
     const castClaim = await claimGuidedCastRoles({
       tenantId: req.tenantId,
       draftId: row.id,
       revision: parsed.data.revision,
       strategy: parsed.data.strategy,
+      automaticWorker,
       roles: assignments.map((assignment) => ({
         roleId: assignment.roleId,
         voiceId: normalizedVoiceIds.get(assignment.roleId) ?? assignment.voiceId,
@@ -6277,6 +6294,18 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           continue;
         }
         let operation = row.state.castOperations[role.id];
+        if (
+          automaticWorker &&
+          guidedCastSheetCheckpointIsTerminal(operation)
+        ) {
+          roleErrors.push({
+            roleId: role.id,
+            error:
+              operation?.sheetOperation?.error ??
+              "Reference sheet generation requires explicit retry or reconciliation.",
+          });
+          continue;
+        }
         if (!operation) {
           res
             .status(409)
@@ -7573,6 +7602,48 @@ export function guidedCastOperationNeedsSweep(
   );
 }
 
+function guidedCastSheetCheckpointIsTerminal(
+  operation:
+    | GuidedStoryDraftState["castOperations"][string]
+    | undefined,
+): boolean {
+  const status = operation?.sheetOperation?.status;
+  return status === "failed" || status === "outcome_unknown";
+}
+
+/**
+ * A terminal sheet must not make its draft eligible forever. While such a
+ * checkpoint blocks final cast commit, genuinely unstarted or in-progress
+ * sibling roles may still advance. Once only completed siblings remain, the
+ * draft sleeps until the explicit sheet retry endpoint creates safe work.
+ */
+export function guidedCastDraftNeedsSweep(params: {
+  roleIds: string[];
+  operations: GuidedStoryDraftState["castOperations"];
+  cast: GuidedStoryDraftState["cast"];
+}): boolean {
+  const completedRoleIds = new Set(params.cast.map((member) => member.roleId));
+  const hasTerminalSheet = params.roleIds.some((roleId) =>
+    guidedCastSheetCheckpointIsTerminal(params.operations[roleId])
+  );
+  return params.roleIds.some((roleId) => {
+    if (completedRoleIds.has(roleId)) return false;
+    const operation = params.operations[roleId];
+    if (guidedCastSheetCheckpointIsTerminal(operation)) return false;
+    // Legacy/partially claimed automatic casts can have a missing sibling
+    // beside a terminal sheet. Do not make every approved draft with an empty
+    // operation map auto-startable; the normal approval handoff owns that case.
+    if (!operation) return hasTerminalSheet;
+    if (
+      hasTerminalSheet &&
+      operation.sheetOperation?.status === "settled"
+    ) {
+      return false;
+    }
+    return guidedCastOperationNeedsSweep(operation);
+  });
+}
+
 /**
  * Resume automatic generated casts without relying on a browser to submit the
  * cast form.  We intentionally only pick durable pre-provider claims.  A
@@ -7639,9 +7710,11 @@ export async function sweepPendingGuidedStoryCasts(): Promise<void> {
         !draft.state.scriptApprovedAt ||
         draft.state.castStrategy === "saved" ||
         !script.roles.length ||
-        !script.roles.some((role) =>
-          guidedCastOperationNeedsSweep(operations[role.id]),
-        )
+        !guidedCastDraftNeedsSweep({
+          roleIds: script.roles.map((role) => role.id),
+          operations,
+          cast: draft.state.cast,
+        })
       ) continue;
 
       // The normal cast pipeline only needs tenantId and log from Request.
@@ -7649,6 +7722,7 @@ export async function sweepPendingGuidedStoryCasts(): Promise<void> {
       // durable checkpoints, while callers may independently poll draft state.
       const internalReq = {
         tenantId: draft.tenantId,
+        guidedCastAutomaticWorker: true,
         params: { draftId: String(draft.id) },
         body: {
           revision: draft.revision,

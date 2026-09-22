@@ -499,6 +499,7 @@ import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter, {
   directVideoReservationPrice,
   guidedCastExecutionClaimCanBeRecovered,
+  guidedCastDraftNeedsSweep,
   guidedCastSweepAllocation,
   guidedCastOperationNeedsSweep,
   sweepPendingGuidedStoryCasts,
@@ -1101,6 +1102,79 @@ describe("guided cast sweep allocation", () => {
         updatedAt: "2026-09-09T17:25:25.522Z",
       }),
     ).toBe(true);
+  });
+
+  it("does not revisit terminal sheet checkpoints once independent roles are done", () => {
+    const terminalHero = {
+      operationKey: "guided-story-cast:1:2:hero",
+      revision: 2,
+      voiceId: "alloy",
+      status: "uploaded" as const,
+      claimedAt: "2026-09-09T17:24:54.382Z",
+      updatedAt: "2026-09-09T17:25:25.522Z",
+      sheetOperation: {
+        operationKey: "guided-story-sheet:1:2:hero",
+        status: "failed" as const,
+        error: "Reference sheet QA failed.",
+        updatedAt: "2026-09-09T17:25:25.522Z",
+      },
+    };
+    const settledFriend = {
+      operationKey: "guided-story-cast:1:2:friend",
+      revision: 2,
+      voiceId: "alloy",
+      status: "uploaded" as const,
+      claimedAt: "2026-09-09T17:24:54.382Z",
+      updatedAt: "2026-09-09T17:25:25.522Z",
+      sheetOperation: {
+        operationKey: "guided-story-sheet:1:2:friend",
+        status: "settled" as const,
+        path: "/objects/1/friend-sheet.png",
+        updatedAt: "2026-09-09T17:25:25.522Z",
+      },
+    };
+
+    expect(guidedCastDraftNeedsSweep({
+      roleIds: ["hero", "friend"],
+      operations: { hero: terminalHero, friend: settledFriend },
+      cast: [],
+    })).toBe(false);
+    expect(guidedCastDraftNeedsSweep({
+      roleIds: ["hero", "friend"],
+      operations: {
+        hero: {
+          ...terminalHero,
+          sheetOperation: {
+            ...terminalHero.sheetOperation,
+            status: "outcome_unknown",
+          },
+        },
+        friend: settledFriend,
+      },
+      cast: [],
+    })).toBe(false);
+  });
+
+  it("keeps independent unstarted roles eligible beside a terminal sheet", () => {
+    const terminalHero = {
+      operationKey: "guided-story-cast:1:2:hero",
+      revision: 2,
+      voiceId: "alloy",
+      status: "uploaded" as const,
+      claimedAt: "2026-09-09T17:24:54.382Z",
+      updatedAt: "2026-09-09T17:25:25.522Z",
+      sheetOperation: {
+        operationKey: "guided-story-sheet:1:2:hero",
+        status: "failed" as const,
+        updatedAt: "2026-09-09T17:25:25.522Z",
+      },
+    };
+
+    expect(guidedCastDraftNeedsSweep({
+      roleIds: ["hero", "friend"],
+      operations: { hero: terminalHero },
+      cast: [],
+    })).toBe(true);
   });
 
   it("recovers only stale safe executor leases and never a provider boundary", () => {
@@ -5966,6 +6040,7 @@ describe("guided story route fail-closed regressions", () => {
   it.each([
     ["quota", "provider_succeeded"],
     ["credit", "provider_succeeded"],
+    ["credits", "provider_succeeded"],
     ["wallet", "provider_succeeded"],
     ["quota", "uploaded"],
     ["credit", "uploaded"],
@@ -6070,6 +6145,15 @@ describe("guided story route fail-closed regressions", () => {
         operationId: realWallet?.operationId ?? null,
         ...(funding === "wallet"
           ? { walletReservation: realWallet!.reservation }
+          : {}),
+        ...(funding === "credits"
+          ? {
+              meterFunding: {
+                tenantId: tenant.tenantId,
+                rail: "credits" as const,
+                mode: "enforce" as const,
+              },
+            }
           : {}),
         ...(status === "provider_succeeded"
           ? {

@@ -934,6 +934,114 @@ describe("guided cast provider uncertainty", () => {
     ).toEqual({ valid: true });
   });
 
+  it("accepts a durable credit-account checkpoint with its frozen funding snapshot", () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0xff, 0xd9]);
+    const operation = {
+      revision: 4,
+      operationKey: "guided-story-cast:7:4:ravi",
+      voiceId: "alloy",
+      status: "provider_succeeded" as const,
+      claimedAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:01.000Z",
+      funding: "credits" as const,
+      meterFunding: {
+        rail: "credits" as const,
+        mode: "enforce" as const,
+        tenantId: 10,
+      },
+      provider: "replicate",
+      model: "google/nano-banana-pro",
+      imageBase64: jpeg.toString("base64"),
+      imageByteLength: jpeg.length,
+    };
+
+    expect(
+      validateGuidedResumableCastOperation({
+        operation,
+        tenantId: 10,
+        draftId: 7,
+        revision: 4,
+        roleId: "ravi",
+        voiceId: "alloy",
+      }),
+    ).toEqual({ valid: true });
+  });
+
+  it.each([
+    ["missing", undefined],
+    [
+      "wrong tenant",
+      { rail: "credits" as const, mode: "enforce" as const, tenantId: 11 },
+    ],
+    [
+      "wrong rail",
+      { rail: "quota" as const, mode: "enforce" as const, tenantId: 10 },
+    ],
+    [
+      "non-enforcing",
+      { rail: "credits" as const, mode: "shadow" as const, tenantId: 10 },
+    ],
+  ])("rejects a credit-account checkpoint with a %s funding snapshot", (_label, meterFunding) => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0xff, 0xd9]);
+    expect(
+      validateGuidedResumableCastOperation({
+        operation: {
+          revision: 4,
+          operationKey: "guided-story-cast:7:4:ravi",
+          voiceId: "alloy",
+          status: "provider_succeeded",
+          claimedAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:01.000Z",
+          funding: "credits",
+          meterFunding,
+          provider: "replicate",
+          model: "google/nano-banana-pro",
+          imageBase64: jpeg.toString("base64"),
+          imageByteLength: jpeg.length,
+        },
+        tenantId: 10,
+        draftId: 7,
+        revision: 4,
+        roleId: "ravi",
+        voiceId: "alloy",
+      }),
+    ).toEqual({
+      valid: false,
+      reason: "credit-account funding snapshot does not match the tenant and rail",
+    });
+  });
+
+  it("does not make an unknown provider outcome resumable on the credits rail", () => {
+    expect(
+      validateGuidedResumableCastOperation({
+        operation: {
+          revision: 4,
+          operationKey: "guided-story-cast:7:4:ravi",
+          voiceId: "alloy",
+          status: "provider_outcome_unknown",
+          claimedAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:01.000Z",
+          funding: "credits",
+          meterFunding: {
+            rail: "credits",
+            mode: "enforce",
+            tenantId: 10,
+          },
+          provider: "replicate",
+          model: "google/nano-banana-pro",
+        },
+        tenantId: 10,
+        draftId: 7,
+        revision: 4,
+        roleId: "ravi",
+        voiceId: "alloy",
+      }),
+    ).toEqual({
+      valid: false,
+      reason: "operation is not a resumable completed state",
+    });
+  });
+
   it("retains ambiguous generated-cast funding as provider_outcome_unknown", () => {
     expect(guidedCastFailureDisposition(false)).toEqual({
       releaseFunding: false,

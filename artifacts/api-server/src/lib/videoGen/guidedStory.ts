@@ -563,8 +563,24 @@ export function validateGuidedResumableCastOperation(params: {
   if (!operation.provider?.trim() || !operation.model?.trim()) {
     return { valid: false, reason: "provider receipt metadata is missing" };
   }
-  if (!operation.funding || !["quota", "credit", "wallet"].includes(operation.funding)) {
+  if (
+    !operation.funding ||
+    !["quota", "credit", "wallet", "credits"].includes(operation.funding)
+  ) {
     return { valid: false, reason: "funding metadata is missing" };
+  }
+  if (
+    operation.funding === "credits" &&
+    (
+      operation.meterFunding?.rail !== "credits" ||
+      operation.meterFunding.mode !== "enforce" ||
+      operation.meterFunding.tenantId !== params.tenantId
+    )
+  ) {
+    return {
+      valid: false,
+      reason: "credit-account funding snapshot does not match the tenant and rail",
+    };
   }
   if (operation.funding === "wallet") {
     const reservation = operation.walletReservation;

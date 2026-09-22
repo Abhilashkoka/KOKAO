@@ -53,7 +53,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowDown, ArrowUp, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -1014,7 +1014,7 @@ export function GuidedStoryWorkflow({
             </div>
           )}
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending || generateScript.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save & regenerate script" : "Generate script"}</Button>
-        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptRegenerationReason={scriptRegenerationReason} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before final generation."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before final generation."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start final governed prompt/Higgsfield generation. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} /></>}
+        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptRegenerationReason={scriptRegenerationReason} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onRefreshDraft={() => draftQuery.refetch()} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before final generation."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before final generation."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start final governed prompt/Higgsfield generation. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} /></>}
       </CardContent>
     </Card>
   </div>;
@@ -1107,6 +1107,43 @@ function StoryFlow(props: any) {
     (voice: GuidedStoryVoiceCatalogItem) =>
       voice.provider === "elevenlabs" && voice.brandKitId === null,
   ).length;
+  const generatedCastOperations = Object.entries(
+    draft.generatedCastOperations ?? {},
+  ) as Array<
+    [
+      string,
+      GuidedStoryDraft["generatedCastOperations"][string],
+    ]
+  >;
+  const generatedCastNeedsAttention = generatedCastOperations.filter(
+    ([, operation]) =>
+      operation.status === "provider_outcome_unknown" ||
+      operation.sheetStatus === "failed" ||
+      operation.sheetStatus === "outcome_unknown",
+  );
+  const generatedCastHasActiveWork =
+    props.strategy === "generated" &&
+    (
+      (draft.script?.roles.some((role: { id: string }) => {
+        const operation = draft.generatedCastOperations?.[role.id];
+        if (!operation) return true;
+        if (
+          operation.status === "provider_outcome_unknown" ||
+          operation.sheetStatus === "failed" ||
+          operation.sheetStatus === "outcome_unknown"
+        ) {
+          return false;
+        }
+        return !(
+          operation.status === "uploaded" &&
+          operation.sheetStatus === "settled"
+        );
+      }) ?? false) ||
+      (
+        generatedCastNeedsAttention.length === 0 &&
+        draft.cast.length < (draft.script?.roles.length ?? 0)
+      )
+    );
   if (step === "script") return <>{estimate}{props.scriptGenerationError && <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert" data-testid="error-guided-script-generation">{props.scriptGenerationError}</p>}<div className="flex flex-wrap items-center gap-3"><Button type="button" onClick={props.onGenerate} disabled={props.pending} aria-busy={props.pending} data-testid="button-guided-generate-script">{props.pending ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />{props.scriptRegenerationReason ? "Regenerating script…" : "Generating script…"}</> : props.scriptGenerationError ? "Retry script generation" : "Generate script"}</Button>{props.pending && <span className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-script-generation">{props.scriptRegenerationReason ?? "Creating your scenes and dialogue. This can take a moment."}</span>}</div></>;
   if (step === "review" || props.scriptEditorOpen) return <>{estimate}{voiceLanguageNote}<ScriptReview {...props} /></>;
   if (step === "ready") return <>
@@ -1150,7 +1187,102 @@ function StoryFlow(props: any) {
       {props.failedBeforeStoryboard ? "Edit story and rebuild legacy storyboard" : props.existingJobId ? "Open existing video job" : props.enqueuePending ? "Compiling final prompt & starting Higgsfield…" : "Compile final prompt & send to Higgsfield"}
     </Button>
   </>;
-  return <>{estimate}<ScriptSummary script={draft.script} /><Button type="button" variant="outline" onClick={props.onBackToScript} data-testid="button-guided-back-to-script">Back to scene editor</Button>{props.strategy === "generated" && <div className="rounded-lg border border-primary/20 bg-primary/5 p-3" role="status" data-testid="status-guided-automatic-cast"><div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /><b>Preparing every script-defined character automatically</b></div><p className="text-sm text-muted-foreground">The server is creating reusable tenant characters, canonical portraits, and separate reference sheets. This page only checks progress and never starts duplicate generation.</p></div>}{Object.entries(draft.generatedCastOperations ?? {}).map(([roleId, rawOperation]) => { const operation = rawOperation as GuidedStoryDraft["generatedCastOperations"][string]; const role = draft.script?.roles.find((item: any) => item.id === roleId); const pendingCharacter = characters.find((item: Character) => item.id === operation.characterId); const pendingOutfit = pendingCharacter?.outfits.find((item: any) => item.id === operation.outfitId); return <div key={roleId} className="rounded-md border p-3 text-sm" data-testid={`status-guided-generated-operation-${roleId}`}><b>{role?.name ?? roleId}</b>{operation.sheetStatus === "failed" && <div className="mt-2 space-y-2"><p className="text-destructive">{operation.sheetError ?? "Reference sheet generation failed."}</p><Button type="button" variant="outline" disabled={retryGeneratedSheet.isPending} onClick={() => void retrySheet(roleId)} data-testid={`button-guided-retry-sheet-${roleId}`}>Retry reference sheet</Button></div>}{operation.sheetStatus === "outcome_unknown" && <p className="mt-2 text-amber-700 dark:text-amber-300" role="alert" data-testid={`status-guided-sheet-reconciliation-${roleId}`}>Provider outcome is unknown. Reconciliation is required before this sheet can continue.</p>}{pendingCharacter && pendingOutfit && <Button type="button" className="mt-2" variant="outline" onClick={() => props.onManageCharacters()} data-testid={`button-guided-customize-pending-${roleId}`}>Customize Character</Button>}</div>; })}{sheetRetryError && <p role="alert" className="text-sm text-destructive">{sheetRetryError}</p>}<div className="flex flex-wrap gap-2">{props.strategy !== "saved" && <Button type="button" variant="outline" onClick={() => { props.setStrategy("saved"); setRoleChoicePrompt(false); setReadyToGenerateCast(false); }} data-testid="button-guided-cast-saved">Replace with saved characters</Button>}{props.strategy === "saved" && <Button type="button" variant="outline" onClick={() => props.setStrategy("generated")} data-testid="button-guided-cast-generated">Use automatic generated cast</Button>}</div>{props.needsSaved.length > 0 && elevenLabsVoiceCount > 0 && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-elevenlabs-voices">{elevenLabsVoiceCount} ElevenLabs premade voices loaded — open any voice menu to choose one.</p>}{props.needsSaved.length > 0 && characters.length === 0 && <><p data-testid="status-guided-empty-characters">No saved characters are available for the selected roles.</p><Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid="button-guided-manage-characters">Manage characters</Button></>}{props.needsSaved.length > 0 && props.voiceCatalogWarning && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid="status-guided-voice-catalog-error">{props.voiceCatalogWarning}</p>}{props.needsSaved.map((role: any) => <CastFields key={role.id} role={role} {...props} />)}{props.strategy === "generated" && draft.script.roles.map((role: any) => <GeneratedCastRole key={role.id} role={role} />)}{props.needsSaved.length > 0 && <div className="flex items-center gap-2"><Checkbox checked={props.consent} onCheckedChange={(value) => props.setConsent(value === true)} data-testid="checkbox-guided-consent" /><Label>I have permission to use each saved person’s likeness and selected voice for this attempt.</Label></div>}{props.hasDuplicate && <div className="flex items-center gap-2"><Checkbox checked={props.duplicateConfirmed} onCheckedChange={(value) => props.setDuplicateConfirmed(value === true)} data-testid="checkbox-guided-duplicate-confirmation" /><Label>I confirm one performer may play multiple roles.</Label></div>}{props.castBusyRole && <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm" role="status" aria-live="polite" data-testid="status-guided-cast-progress"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" /><span><b>Generating {props.castBusyRole}’s cast…</b><br /><span className="text-muted-foreground">KOKAO is checking progress automatically. You can keep this page open.</span></span></div>}{props.castSaveError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-save-cast">{props.castSaveError}</p>}{props.strategy === "saved" && <div className="flex flex-wrap items-center gap-3"><Button type="button" disabled={!props.castComplete || (props.hasDuplicate && !props.duplicateConfirmed) || props.pending} onClick={props.onCast} data-testid="button-guided-save-cast">{props.castSaving ? "Saving cast…" : props.castSaveError ? "Retry saved cast" : "Use saved cast"}</Button></div>}</>;
+  return <>
+    {estimate}
+    <ScriptSummary script={draft.script} />
+    <Button type="button" variant="outline" onClick={props.onBackToScript} data-testid="button-guided-back-to-script">Back to scene editor</Button>
+    {props.strategy === "generated" && generatedCastNeedsAttention.length > 0 && (
+      <div
+        className="rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+        role="alert"
+        data-testid="status-guided-generated-cast-needs-attention"
+      >
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <b>Some character assets need attention</b>
+        </div>
+        <p className="mt-1 text-sm">
+          Review the affected roles below. Completed portraits, outfits, reference
+          sheets, and other characters are preserved.
+        </p>
+      </div>
+    )}
+    {generatedCastHasActiveWork && (
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-3" role="status" data-testid="status-guided-automatic-cast">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <b>
+            {generatedCastNeedsAttention.length > 0
+              ? "Preparing remaining script-defined characters automatically"
+              : "Preparing every script-defined character automatically"}
+          </b>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          The server is creating reusable tenant characters, canonical portraits,
+          and separate reference sheets. This page only checks progress and never
+          starts duplicate generation.
+        </p>
+      </div>
+    )}
+    {generatedCastOperations.map(([roleId, operation]) => {
+      const role = draft.script?.roles.find((item: any) => item.id === roleId);
+      const pendingCharacter = characters.find((item: Character) => item.id === operation.characterId);
+      const pendingOutfit = pendingCharacter?.outfits.find((item: any) => item.id === operation.outfitId);
+      const portraitOutcomeUnknown = operation.status === "provider_outcome_unknown";
+      const sheetNeedsReconciliation = operation.sheetStatus === "outcome_unknown";
+      const needsAttention =
+        portraitOutcomeUnknown ||
+        sheetNeedsReconciliation ||
+        operation.sheetStatus === "failed";
+      return (
+        <div
+          key={roleId}
+          className={`rounded-md border p-3 text-sm ${needsAttention ? "border-amber-500 bg-amber-50/60 dark:bg-amber-950/20" : ""}`}
+          data-testid={`status-guided-generated-operation-${roleId}`}
+        >
+          <b>{role?.name ?? roleId}</b>
+          {portraitOutcomeUnknown && (
+            <div className="mt-2 space-y-2 text-amber-800 dark:text-amber-200" role="alert" data-testid={`status-guided-portrait-reconciliation-${roleId}`}>
+              <p>The portrait provider outcome is unknown. Reconciliation is required before this role can continue.</p>
+              <Button type="button" variant="outline" onClick={() => void props.onRefreshDraft()} data-testid={`button-guided-check-reconciliation-${roleId}`}>Check reconciliation</Button>
+            </div>
+          )}
+          {operation.sheetStatus === "failed" && (
+            <div className="mt-2 space-y-2">
+              <p className="text-destructive">{operation.sheetError ?? "Reference sheet generation failed."}</p>
+              <p className="text-muted-foreground">Retrying replaces only this reference sheet; completed character assets stay unchanged.</p>
+              <Button type="button" variant="outline" disabled={retryGeneratedSheet.isPending} onClick={() => void retrySheet(roleId)} data-testid={`button-guided-retry-sheet-${roleId}`}>Retry reference sheet</Button>
+            </div>
+          )}
+          {sheetNeedsReconciliation && (
+            <div className="mt-2 space-y-2 text-amber-800 dark:text-amber-200" role="alert" data-testid={`status-guided-sheet-reconciliation-${roleId}`}>
+              <p>The reference-sheet provider outcome is unknown. Reconciliation is required before this sheet can continue.</p>
+              <Button type="button" variant="outline" onClick={() => void props.onRefreshDraft()} data-testid={`button-guided-check-reconciliation-${roleId}`}>Check reconciliation</Button>
+            </div>
+          )}
+          {operation.status === "uploaded" && operation.sheetStatus === "settled" && (
+            <p className="mt-2 text-muted-foreground" data-testid={`status-guided-generated-operation-complete-${roleId}`}>Portrait, outfit, and reference sheet are complete.</p>
+          )}
+          {pendingCharacter && pendingOutfit && <Button type="button" className="mt-2" variant="outline" onClick={() => props.onManageCharacters()} data-testid={`button-guided-customize-pending-${roleId}`}>Customize Character</Button>}
+        </div>
+      );
+    })}
+    {sheetRetryError && <p role="alert" className="text-sm text-destructive">{sheetRetryError}</p>}
+    <div className="flex flex-wrap gap-2">
+      {props.strategy !== "saved" && <Button type="button" variant="outline" onClick={() => { props.setStrategy("saved"); setRoleChoicePrompt(false); setReadyToGenerateCast(false); }} data-testid="button-guided-cast-saved">Replace with saved characters</Button>}
+      {props.strategy === "saved" && <Button type="button" variant="outline" onClick={() => props.setStrategy("generated")} data-testid="button-guided-cast-generated">Use automatic generated cast</Button>}
+    </div>
+    {props.needsSaved.length > 0 && elevenLabsVoiceCount > 0 && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-elevenlabs-voices">{elevenLabsVoiceCount} ElevenLabs premade voices loaded — open any voice menu to choose one.</p>}
+    {props.needsSaved.length > 0 && characters.length === 0 && <><p data-testid="status-guided-empty-characters">No saved characters are available for the selected roles.</p><Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid="button-guided-manage-characters">Manage characters</Button></>}
+    {props.needsSaved.length > 0 && props.voiceCatalogWarning && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid="status-guided-voice-catalog-error">{props.voiceCatalogWarning}</p>}
+    {props.needsSaved.map((role: any) => <CastFields key={role.id} role={role} {...props} />)}
+    {props.strategy === "generated" && draft.script.roles.map((role: any) => <GeneratedCastRole key={role.id} role={role} />)}
+    {props.needsSaved.length > 0 && <div className="flex items-center gap-2"><Checkbox checked={props.consent} onCheckedChange={(value) => props.setConsent(value === true)} data-testid="checkbox-guided-consent" /><Label>I have permission to use each saved person’s likeness and selected voice for this attempt.</Label></div>}
+    {props.hasDuplicate && <div className="flex items-center gap-2"><Checkbox checked={props.duplicateConfirmed} onCheckedChange={(value) => props.setDuplicateConfirmed(value === true)} data-testid="checkbox-guided-duplicate-confirmation" /><Label>I confirm one performer may play multiple roles.</Label></div>}
+    {props.castBusyRole && <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm" role="status" aria-live="polite" data-testid="status-guided-cast-progress"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" /><span><b>Generating {props.castBusyRole}’s cast…</b><br /><span className="text-muted-foreground">KOKAO is checking progress automatically. You can keep this page open.</span></span></div>}
+    {props.castSaveError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-save-cast">{props.castSaveError}</p>}
+    {props.strategy === "saved" && <div className="flex flex-wrap items-center gap-3"><Button type="button" disabled={!props.castComplete || (props.hasDuplicate && !props.duplicateConfirmed) || props.pending} onClick={props.onCast} data-testid="button-guided-save-cast">{props.castSaving ? "Saving cast…" : props.castSaveError ? "Retry saved cast" : "Use saved cast"}</Button></div>}
+  </>;
 }
 
 
