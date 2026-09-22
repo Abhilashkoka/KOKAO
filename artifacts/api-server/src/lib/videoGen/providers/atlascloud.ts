@@ -666,7 +666,12 @@ export async function generateWithAtlasCloud(
       failures = 0;
     } catch (error) {
       failures += 1;
-      if (!(error instanceof VideoGenProviderError) || !isTransientStatus(error.status) || failures >= 3) {
+      // Node fetch rejects with TypeError on transport failures, before an HTTP
+      // response exists. Only retry this safe GET, never the paid create call.
+      const retryable = error instanceof VideoGenProviderError
+        ? isTransientStatus(error.status)
+        : error instanceof TypeError && error.message === "fetch failed";
+      if (!retryable || failures >= 3) {
         throw new VideoGenProviderError(
           error instanceof Error ? error.message : "Atlas Cloud prediction polling failed.",
           error instanceof VideoGenProviderError ? error.status : undefined,

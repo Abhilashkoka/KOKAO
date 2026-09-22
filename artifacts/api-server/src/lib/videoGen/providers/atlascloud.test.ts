@@ -270,6 +270,49 @@ describe("Atlas Cloud Seedance 2.5", () => {
     expect(fetch.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
   });
 
+  it("retries a polling network failure without submitting another paid task", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: {
+        id: "prediction-existing", status: "completed",
+        outputs: ["https://media.example/resumed.mp4"],
+      } })));
+    vi.stubGlobal("fetch", fetch);
+    const generation = generateWithAtlasCloud({
+      ...input, providerTaskId: "prediction-existing",
+    }, "secret");
+    const result = expect(generation).resolves.toMatchObject({
+      providerTaskId: "prediction-existing",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await result;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetch.mock.calls) {
+      expect(url).toBe("https://api.atlascloud.ai/api/v1/model/prediction/prediction-existing");
+      expect(init.method).toBe("GET");
+    }
+  });
+
+  it("bounds repeated polling network failures and preserves the accepted task", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetch);
+    const generation = generateWithAtlasCloud({
+      ...input, providerTaskId: "prediction-existing",
+      providerRequestId: "request-existing",
+    }, "secret");
+    const result = expect(generation).rejects.toMatchObject({
+      providerTaskId: "prediction-existing",
+      requestId: "request-existing",
+      failureCategory: "polling",
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    await result;
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.every(([, init]) => init.method === "GET")).toBe(true);
+  });
+
   it("keeps polling an accepted prediction beyond the shared ten-minute budget", async () => {
     vi.useFakeTimers();
     let polls = 0;
