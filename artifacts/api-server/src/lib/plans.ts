@@ -257,6 +257,28 @@ export async function getPlanLimits(planId: string): Promise<PlanLimits> {
 }
 
 /**
+ * Resolve the plan fields that must be written when a personal workspace is
+ * first provisioned. Keep this at the INSERT boundary: writing billingMode in
+ * a later UPDATE would let the first request observe the schema's legacy quota
+ * default and could overwrite the winner of a concurrent provisioning race.
+ */
+export async function getNewTenantPlanDefaults(): Promise<{
+  plan: typeof FALLBACK_PLAN_ID;
+  billingMode: Plan["billingMode"];
+}> {
+  const configuredFree = (await listPlans()).find(
+    (plan) => plan.id === FALLBACK_PLAN_ID,
+  );
+  const builtInFree = DEFAULT_PLANS.find(
+    (plan) => plan.id === FALLBACK_PLAN_ID,
+  )!;
+  return {
+    plan: FALLBACK_PLAN_ID,
+    billingMode: configuredFree?.billingMode ?? builtInFree.billingMode,
+  };
+}
+
+/**
  * Apply a plan's default billing mode to a tenant that just landed on it.
  * Skips tenants whose billing mode was manually set by a superadmin
  * (billingModeOverriddenAt) — the manual choice wins until changed again.

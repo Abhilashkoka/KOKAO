@@ -701,7 +701,7 @@ export function TenantsTab() {
                             <SelectContent>
                               <SelectItem value="quota">Legacy quota</SelectItem>
                               <SelectItem value="wallet">Legacy wallet</SelectItem>
-                              <SelectItem value="credits" disabled>
+                              <SelectItem value="credits">
                                 Credits (meter-controlled)
                               </SelectItem>
                             </SelectContent>

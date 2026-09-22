@@ -1,4 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from "vitest";
+import express, { type Express } from "express";
+import request from "supertest";
 
 vi.mock("@clerk/express", async () => {
   const { authState } = await import("../test/authState");
@@ -28,6 +30,8 @@ import { pool, db, tenantsTable, planSettingsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { applyPlanBillingMode, invalidatePlanCache } from "./plans";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
+import { actAs, resetAuthState } from "../test/authState";
+import { requireTenant } from "../middlewares/requireTenant";
 
 const createdTenantIds: number[] = [];
 const savedPlanRows: (typeof planSettingsTable.$inferSelect)[] = [];
@@ -91,6 +95,45 @@ async function tenantBilling(id: number) {
   return row;
 }
 
+function createProvisioningTestApp(): Express {
+  const app = express();
+  app.use((req, _res, next) => {
+    (req as unknown as { log: Record<string, () => void> }).log = {
+      info() {},
+      error() {},
+      warn() {},
+      debug() {},
+    };
+    next();
+  });
+  app.get("/api/probe", requireTenant, (req, res) => {
+    res.json({ tenantId: req.tenantId });
+  });
+  return app;
+}
+
+const provisioningApp = createProvisioningTestApp();
+
+async function configureFreeBillingMode(
+  billingMode: "quota" | "wallet" | "credits",
+): Promise<void> {
+  await db
+    .update(planSettingsTable)
+    .set({ billingMode, updatedAt: new Date() })
+    .where(eq(planSettingsTable.id, "free"));
+  invalidatePlanCache();
+}
+
+async function findTenantForClerkUser(clerkUserId: string) {
+  return (
+    await db
+      .select()
+      .from(tenantsTable)
+      .where(eq(tenantsTable.clerkUserId, clerkUserId))
+      .limit(1)
+  )[0];
+}
+
 afterAll(async () => {
   for (const id of createdTenantIds) await deleteTenant(id);
   await db
@@ -116,7 +159,9 @@ beforeAll(async () => {
   invalidatePlanCache();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetAuthState();
+  await configureFreeBillingMode("quota");
   invalidatePlanCache();
 });
 
@@ -190,5 +235,68 @@ describe("applyPlanBillingMode", () => {
     // Must stay on payg's configured mode — an unknown id must not fall back
     // to a default plan.
     expect((await tenantBilling(tenantId)).billingMode).toBe("credits");
+  });
+});
+
+describe("new tenant plan billing mode", () => {
+  it.each(["credits", "wallet", "quota"] as const)(
+    "writes Free's configured %s mode in the provisioning INSERT",
+    async (billingMode) => {
+      await configureFreeBillingMode(billingMode);
+      const clerkUserId = `billing-mode-new-${billingMode}-${Date.now()}`;
+      actAs(clerkUserId, `${clerkUserId}@example.com`);
+
+      const response = await request(provisioningApp).get("/api/probe");
+      expect(response.status).toBe(200);
+
+      const tenant = await findTenantForClerkUser(clerkUserId);
+      expect(tenant).toMatchObject({
+        plan: "free",
+        billingMode,
+        billingModeOverriddenAt: null,
+      });
+      createdTenantIds.push(tenant!.id);
+    },
+  );
+
+  it("does not change an existing tenant's manual billing-mode override", async () => {
+    await configureFreeBillingMode("credits");
+    const existing = await createTenant({ email: "existing-override@example.com" });
+    createdTenantIds.push(existing.tenantId);
+    const overriddenAt = new Date();
+    await db
+      .update(tenantsTable)
+      .set({ billingMode: "wallet", billingModeOverriddenAt: overriddenAt })
+      .where(eq(tenantsTable.id, existing.tenantId));
+    actAs(existing.clerkUserId, existing.email);
+
+    expect((await request(provisioningApp).get("/api/probe")).status).toBe(200);
+
+    const tenant = await findTenantForClerkUser(existing.clerkUserId);
+    expect(tenant?.billingMode).toBe("wallet");
+    expect(tenant?.billingModeOverriddenAt?.getTime()).toBe(
+      overriddenAt.getTime(),
+    );
+  });
+
+  it("keeps the concurrent INSERT winner's configured mode", async () => {
+    await configureFreeBillingMode("credits");
+    const clerkUserId = `billing-mode-race-${Date.now()}`;
+    actAs(clerkUserId, `${clerkUserId}@example.com`);
+
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        request(provisioningApp).get("/api/probe"),
+      ),
+    );
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+
+    const rows = await db
+      .select()
+      .from(tenantsTable)
+      .where(eq(tenantsTable.clerkUserId, clerkUserId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.billingMode).toBe("credits");
+    createdTenantIds.push(rows[0]!.id);
   });
 });

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const accountGrantMutate = vi.fn();
 const correctionMutate = vi.fn();
+const billingModeMutate = vi.fn();
 const toast = vi.fn();
 
 const tenant = {
@@ -67,6 +68,10 @@ vi.mock("@workspace/api-client-react", async () => {
       mutate: correctionMutate,
       isPending: false,
     }),
+    useAdminUpdateTenantBillingMode: () => ({
+      mutate: billingModeMutate,
+      isPending: false,
+    }),
   });
 });
 
@@ -91,12 +96,28 @@ function renderTab() {
 beforeEach(() => {
   accountGrantMutate.mockClear();
   correctionMutate.mockClear();
+  billingModeMutate.mockClear();
   toast.mockClear();
   tenant.balance = { purchased: 12, granted: 3, total: 15, grantedExpiresAt: null };
   tenant.creditAccountExists = true;
 });
 
 describe("TenantsTab credit-first workspace table", () => {
+  it("lets an administrator select credits without changing balances", async () => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    renderTab();
+    fireEvent.keyDown(screen.getByTestId("select-billing-mode-42"), { key: "ArrowDown" });
+    const option = await screen.findByRole("option", { name: "Credits (meter-controlled)" });
+    expect(option.getAttribute("aria-disabled")).not.toBe("true");
+    fireEvent.keyDown(option, { key: "Enter" });
+    expect(billingModeMutate).toHaveBeenCalledWith(
+      { id: 42, data: { billingMode: "credits" } },
+      expect.any(Object),
+    );
+    expect(accountGrantMutate).not.toHaveBeenCalled();
+    expect(correctionMutate).not.toHaveBeenCalled();
+  });
+
   function openCorrection() {
     tenant.balance = { purchased: 1135, granted: 3, total: 1138, grantedExpiresAt: null };
     renderTab();

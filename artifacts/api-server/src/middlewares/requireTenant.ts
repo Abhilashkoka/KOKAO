@@ -12,6 +12,7 @@ import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { isSuperadminEmail } from "../lib/superadmins";
 import { notifyTeamMemberJoined } from "../lib/notifications";
 import { maybeGrantSignupCredits } from "../lib/signupCredits";
+import { getNewTenantPlanDefaults } from "../lib/plans";
 
 /**
  * Resolves the Clerk-authenticated user to a KOKAO tenant, auto-provisioning
@@ -251,10 +252,20 @@ export async function requireTenant(
       if (!tenant) {
         // Conflict-safe provisioning: concurrent first requests for the same
         // clerkUserId race here, so insert-on-conflict-do-nothing then reselect.
+        // Resolve and write the configured Free-plan billing mode as part of
+        // that INSERT. A follow-up sync would expose quota on the first request
+        // and could race with the request that actually won provisioning.
+        const planDefaults = await getNewTenantPlanDefaults();
         const inserted = (
           await db
             .insert(tenantsTable)
-            .values({ clerkUserId, email, name: "My Workspace" })
+            .values({
+              clerkUserId,
+              email,
+              name: "My Workspace",
+              plan: planDefaults.plan,
+              billingMode: planDefaults.billingMode,
+            })
             .onConflictDoNothing()
             .returning()
         )[0];
