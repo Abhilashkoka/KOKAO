@@ -18,7 +18,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   cancelVideoJob,
   useGenerateVideo,
-  useGetAiSpendRates,
   useGetMe,
   useListFeatureFlags,
   useListVideoJobs,
@@ -26,7 +25,6 @@ import {
   useWalletRecharge,
   useWalletVerifyRecharge,
   WalletRechargeOrderGateway,
-  getGetAiSpendRatesQueryKey,
   getListFeatureFlagsQueryKey,
   getListVideoJobsQueryKey,
   getWalletGetOverviewQueryKey,
@@ -54,7 +52,7 @@ import { Badge, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { haptic } from "@/lib/haptics";
-import { formatVideoAiSpend } from "@/lib/videoSpend";
+import { formatVideoCreditsUsed } from "@/lib/videoSpend";
 
 const c = colors.light;
 const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -246,7 +244,7 @@ function JobCard({
   job,
   expanded,
   onToggle,
-  aiSpend,
+  creditsUsed,
   cancelling,
   onCancel,
   onCopyPrompt,
@@ -255,7 +253,7 @@ function JobCard({
   job: VideoJob;
   expanded: boolean;
   onToggle: () => void;
-  aiSpend: string | null;
+  creditsUsed: string;
   cancelling: boolean;
   onCancel: () => void;
   onCopyPrompt: (text: string) => void;
@@ -350,11 +348,14 @@ function JobCard({
       {expanded && playable ? (
         <View style={{ marginTop: 12, gap: 8 }}>
           <JobVideoPlayer job={job} />
-          {aiSpend ? (
-            <Text style={styles.spendText} testID="text-video-ai-spent">
-              AI amount spent: {aiSpend}
+          <View>
+            <Text style={styles.spendText} testID="text-video-credits-used">
+              {creditsUsed}
             </Text>
-          ) : null}
+            <Text style={styles.spendText}>
+              Includes associated generated images, characters, and video.
+            </Text>
+          </View>
           {job.engine === "text_to_video" && job.storyboard ? (
             <FinalShotPrompts
               scenes={job.storyboard.scenes}
@@ -400,20 +401,9 @@ export default function VideosScreen() {
     },
   });
 
-  // "AI amount spent" (kill-switch gated): only fetch the rates when the
-  // aiSpend flag is on; a zero/absent rate renders nothing either way.
   const featureFlags = useListFeatureFlags({
     query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
   });
-  const aiSpendEnabled = featureFlags.data?.aiSpend ?? false;
-  const aiSpendRates = useGetAiSpendRates({
-    query: {
-      queryKey: getGetAiSpendRatesQueryKey(),
-      staleTime: 60_000,
-      enabled: aiSpendEnabled,
-    },
-  });
-  const videoRatePaise = aiSpendEnabled ? (aiSpendRates.data?.videoPaise ?? 0) : 0;
 
   // ---- Estimated wallet cost (wallet-billed workspaces only) ----
   // Mirror the web Video Studio: wallet overview carries the per-unit video
@@ -759,16 +749,7 @@ export default function VideosScreen() {
               onToggle={() =>
                 setExpandedId((prev) => (prev === item.id ? null : item.id))
               }
-              aiSpend={formatVideoAiSpend(
-                videoRatePaise,
-                item.units,
-                // Charge-time snapshot wins over the current rate, but the
-                // aiSpend kill switch still hides the line entirely.
-                aiSpendEnabled ? item.chargedRatePaise : 0,
-                // The job's real snapshotted TOTAL spend wins over any
-                // rate x units estimate; the kill switch still hides it.
-                aiSpendEnabled ? item.spendPaise : null,
-              )}
+              creditsUsed={formatVideoCreditsUsed(item.totalCreditsUsed)}
               cancelling={cancellingId === item.id}
               onCancel={() => void handleCancel(item.id)}
               onCopyPrompt={(text) => void handleCopyPrompt(text)}

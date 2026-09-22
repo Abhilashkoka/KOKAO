@@ -162,15 +162,20 @@ export interface VideoJob {
   /** Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child. */
   dialogueReplayOperation: null | GuidedStoryDialogueReplayOperation;
   /**
-     * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
+     * Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.
      * @nullable
      */
   chargedRatePaise?: number | null;
   /**
-     * The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto this job's usage events when it settled (all units summed) — the job's REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.
+     * Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.
      * @nullable
      */
   spendPaise?: number | null;
+  /**
+     * Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy/incomplete attribution, or while a refund is pending.
+     * @nullable
+     */
+  totalCreditsUsed?: number | null;
   /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
   storyboard?: VideoStoryboard | null;
   /**

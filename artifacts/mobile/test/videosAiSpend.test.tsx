@@ -2,10 +2,7 @@
  * Regression guard for the mobile Videos screen (app/videos.tsx):
  * - list rendering + status badges for each job state
  * - the polling gate only polls while a job is queued/processing
- * - the "AI amount spent" line (testID "text-video-ai-spent") shows
- *   rate × units only on an expanded succeeded job when the aiSpend flag is
- *   on and the rate is > 0 — never for failed/running jobs or when the flag
- *   or rate is off/zero.
+ * - the credits summary uses only the server's authoritative aggregate.
  */
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -15,13 +12,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mockState: {
   jobs: Array<Record<string, unknown>>;
   flags: Record<string, boolean> | undefined;
-  rates: { videoPaise: number } | undefined;
-} = { jobs: [], flags: undefined, rates: undefined };
+} = { jobs: [], flags: undefined };
 
-// Captured per render so we can assert the polling gate and the
-// flag-gated rates fetch without any network.
+// Captured per render so we can assert the polling gate without any network.
 let capturedJobsOptions: any = null;
-let capturedRatesOptions: any = null;
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("./apiClientMock");
@@ -37,10 +31,6 @@ vi.mock("@workspace/api-client-react", async () => {
       };
     },
     useListFeatureFlags: () => ({ data: mockState.flags, isLoading: false }),
-    useGetAiSpendRates: (opts?: any) => {
-      capturedRatesOptions = opts;
-      return { data: mockState.rates, isLoading: false };
-    },
   });
 });
 
@@ -118,9 +108,7 @@ beforeEach(() => {
   cleanup();
   mockState.jobs = [];
   mockState.flags = undefined;
-  mockState.rates = undefined;
   capturedJobsOptions = null;
-  capturedRatesOptions = null;
 });
 
 describe("Videos screen — list rendering and status badges", () => {
@@ -168,108 +156,36 @@ describe("Videos screen — polling gate", () => {
   });
 });
 
-describe("Videos screen — AI amount spent line", () => {
-  it("shows rate × units on an expanded succeeded job when the flag is on", () => {
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 2500 };
-    mockState.jobs = [makeJob({ id: 1, units: 3 })];
+describe("Videos screen — total credits used", () => {
+  it("shows the server aggregate with up to three decimals and no INR", () => {
+    mockState.jobs = [makeJob({ id: 1, totalCreditsUsed: 75.1254 })];
     renderScreen();
-    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull(); // collapsed
+    expect(screen.queryByTestId("text-video-credits-used")).toBeNull();
     expandJob(1);
-    const line = screen.getByTestId("text-video-ai-spent");
-    // 2500 paise × 3 units = ₹75.00
-    expect(line.textContent).toContain("AI amount spent: ₹75.00");
+    const line = screen.getByTestId("text-video-credits-used");
+    expect(line.textContent).toContain("Total credits used: 75.125");
+    expect(line.textContent).not.toMatch(/₹|INR|amount spent/i);
   });
 
-  it("shows the plain rate for a single-unit job", () => {
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 2500 };
-    mockState.jobs = [makeJob({ id: 1, units: 1 })];
+  it("shows unavailable when historical credits are null or missing", () => {
+    mockState.jobs = [makeJob({ id: 1, totalCreditsUsed: null })];
     renderScreen();
     expandJob(1);
-    expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("₹25.00");
+    const line = screen.getByTestId("text-video-credits-used");
+    expect(line.textContent).toBe("Credits used: unavailable");
+    expect(line.textContent).not.toMatch(/₹|INR/i);
   });
 
-  it("prefers the job's charge-time rate snapshot over the current rate", () => {
-    // Admin has since raised the rate to 9900; the job froze 2500 at charge
-    // time, so history keeps showing what was really charged.
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 9900 };
-    mockState.jobs = [makeJob({ id: 1, units: 4, chargedRatePaise: 2500 })];
+  it("shows an authoritative aggregate of zero", () => {
+    mockState.jobs = [makeJob({ id: 1, totalCreditsUsed: 0 })];
     renderScreen();
     expandJob(1);
-    expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("₹100.00");
+    expect(screen.getByTestId("text-video-credits-used").textContent).toBe(
+      "Total credits used: 0",
+    );
   });
 
-  it("prefers the job's snapshotted total spend over any rate x units estimate", () => {
-    // Cost_plus mode: the persisted spendPaise (real cost + margin) rarely
-    // equals rate x units — it must win outright over both the charge-time
-    // rate snapshot and the current rate.
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 9900 };
-    mockState.jobs = [makeJob({ id: 1, units: 4, chargedRatePaise: 2500, spendPaise: 1234 })];
-    renderScreen();
-    expandJob(1);
-    const line = screen.getByTestId("text-video-ai-spent");
-    expect(line.textContent).toContain("₹12.34");
-    expect(line.textContent).not.toContain("₹100.00");
-  });
-
-  it("hides the line when the snapshot says the job charged nothing", () => {
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 9900 };
-    mockState.jobs = [makeJob({ id: 1, units: 4, chargedRatePaise: 2500, spendPaise: 0 })];
-    renderScreen();
-    expandJob(1);
-    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
-  });
-
-  it("shows a snapshotted job's spend even when the current rate is zero", () => {
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 0 };
-    mockState.jobs = [makeJob({ id: 1, units: 1, chargedRatePaise: 2500 })];
-    renderScreen();
-    expandJob(1);
-    expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("₹25.00");
-  });
-
-  it("hides a snapshotted job's spend when the aiSpend flag is off", () => {
-    mockState.flags = { aiSpend: false };
-    mockState.rates = { videoPaise: 9900 };
-    mockState.jobs = [makeJob({ id: 1, units: 1, chargedRatePaise: 2500 })];
-    renderScreen();
-    expandJob(1);
-    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
-  });
-
-  it("never shows the line when the aiSpend flag is off, and disables the rates fetch", () => {
-    mockState.flags = { aiSpend: false };
-    mockState.rates = { videoPaise: 2500 }; // even if data were cached
-    mockState.jobs = [makeJob({ id: 1, units: 3 })];
-    renderScreen();
-    expandJob(1);
-    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
-    expect(capturedRatesOptions?.query?.enabled).toBe(false);
-  });
-
-  it("shows nothing when the rate is zero or absent", () => {
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 0 };
-    mockState.jobs = [makeJob({ id: 1 })];
-    renderScreen();
-    expandJob(1);
-    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
-
-    cleanup();
-    mockState.rates = undefined;
-    renderScreen();
-    expandJob(1);
-    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
-  });
-
-  it("never shows the line for failed or running jobs even with flag on and rate set", () => {
-    mockState.flags = { aiSpend: true };
-    mockState.rates = { videoPaise: 2500 };
+  it("never shows the summary for failed or running jobs", () => {
     mockState.jobs = [
       makeJob({ id: 1, status: "failed", error: "boom", videoPath: null }),
       makeJob({ id: 2, status: "processing", stage: "Composing the video", videoPath: null }),
@@ -280,6 +196,6 @@ describe("Videos screen — AI amount spent line", () => {
     expandJob(1);
     expandJob(2);
     expandJob(3);
-    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
+    expect(screen.queryByTestId("text-video-credits-used")).toBeNull();
   });
 });

@@ -81,6 +81,7 @@ import { spendCredit, refundCredits } from "../lib/credits";
 import type { MeterContext } from "../lib/meter";
 import { freezeMeterFunding, type MeterFundingSnapshot } from "../lib/meterFunding";
 import { videoFundingSnapshot } from "../lib/videoGen/funding";
+import { getVideoCreditTotals } from "../lib/videoCreditSpend";
 import { getAiSpendConfig, getAiSpendRates, withFee } from "../lib/aiSpend";
 import {
   actualChargePaise,
@@ -1655,6 +1656,7 @@ function serializeVideoJob(
     hasRepairChild?: boolean;
     savedContentItemId?: number | null;
   },
+  totalCreditsUsed: number | null = null,
 ) {
   const recovery = job.options?.recovery;
   const legacyRetry = job.options?.characterDialogue?.retry;
@@ -1682,7 +1684,14 @@ function serializeVideoJob(
       ? {
           draftId: job.options.guidedStory.draftId,
           revision: job.options.guidedStory.draftRevision,
-          operations: job.options.guidedReferenceOperations ?? {},
+          operations: Object.fromEntries(
+            Object.entries(job.options.guidedReferenceOperations ?? {}).map(
+              ([key, operation]) => [
+                key,
+                publicVideoReferenceOperation(operation),
+              ],
+            ),
+          ),
         }
       : null,
     modelId: job.options?.modelId ?? null,
@@ -1691,8 +1700,7 @@ function serializeVideoJob(
       ? {
           provider: job.options.studioLipSync.provider,
           model: job.options.studioLipSync.model,
-          estimatedAdditionalPaise:
-            job.options.studioLipSync.estimatedAdditionalPaise,
+          estimatedAdditionalPaise: null,
           sceneCount: job.options.studioLipSync.plan.length,
           skippedSceneCount: summariseStudioLipSyncScenes(
             job.options.studioLipSync.checkpoint?.scenes,
@@ -1801,13 +1809,11 @@ function serializeVideoJob(
           lines: undefined,
         }
       : null,
-    // Per-unit display rate frozen at charge time; null on legacy rows,
-    // which clients price at the current rate instead.
-    chargedRatePaise: job.chargedRatePaise ?? null,
-    // The REAL snapshotted tenant-facing spend for this job (all units
-    // summed), taken from its usage events at settle. Null until the job
-    // succeeds or on legacy rows; clients fall back to chargedRatePaise x units.
-    spendPaise: job.spendPaise ?? null,
+    // Kept nullable for wire compatibility. Rupee/provider-cost accounting is
+    // internal; the user-facing completed-video summary is credits only.
+    chargedRatePaise: null,
+    spendPaise: null,
+    totalCreditsUsed,
     savedContentItemId:
       lineage?.savedContentItemId ?? job.savedContentItemId ?? null,
     storyboard: job.storyboard ?? null,
@@ -2423,6 +2429,9 @@ function serializeGuidedReferenceOperation(
     executionClaimToken: _token,
     executionClaimedAt: _claimedAt,
     imageContentType: _imageContentType,
+    rawProviderCostPaise: _rawProviderCostPaise,
+    walletReservation: _walletReservation,
+    reservationId: _reservationId,
     ...publicOperation
   } = operation;
   if (!publicOperation.candidate) return publicOperation;
@@ -2435,6 +2444,22 @@ function serializeGuidedReferenceOperation(
     ...publicOperation,
     candidate: publicCandidate,
   };
+}
+
+function publicVideoReferenceOperation(
+  operation: NonNullable<VideoJobOptions["guidedReferenceOperations"]>[string],
+) {
+  const {
+    rawProviderCostPaise: _rawProviderCostPaise,
+    walletReservation: _walletReservation,
+    reservationId: _reservationId,
+    ...publicOperation
+  } = operation as typeof operation & {
+    rawProviderCostPaise?: unknown;
+    walletReservation?: unknown;
+    reservationId?: unknown;
+  };
+  return publicOperation;
 }
 
 function guidedAcceptedBillingInputs(
@@ -7408,9 +7433,11 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               ? `portrait:${asset.operationId}`
               : `portrait:${member.roleId}`, {
                 version: 2 as const,
-                operationIdentity: asset.operationId
-                  ? `guided-portrait:${asset.operationId}`
-                  : `guided-portrait:${member.roleId}`,
+                operationIdentity:
+                  row!.state.castOperations[member.roleId]?.operationKey ??
+                  (asset.operationId
+                    ? `guided-portrait:${asset.operationId}`
+                    : `guided-portrait:${member.roleId}`),
                 kind: "portrait" as const,
                 provider: asset.provider,
                 model: asset.model,
@@ -7425,9 +7452,12 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               ? `sheet:${asset.sheet.operationId}`
               : `sheet:${member.roleId}`, {
                 version: 2 as const,
-                operationIdentity: asset.sheet.operationId
-                  ? `guided-sheet:${asset.sheet.operationId}`
-                  : `guided-sheet:${member.roleId}`,
+                operationIdentity:
+                  row!.state.castOperations[member.roleId]?.sheetOperation
+                    ?.operationKey ??
+                  (asset.sheet.operationId
+                    ? `guided-sheet:${asset.sheet.operationId}`
+                    : `guided-sheet:${member.roleId}`),
                 kind: "reference_sheet" as const,
                 provider: asset.sheet.provider,
                 model: asset.sheet.model,
@@ -13107,8 +13137,10 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
       item.videoPath ? [[item.videoPath, item.id] as const] : [],
     ),
   );
+  const reconciledRows = await reconcileWalletVideoJobSpends(rows);
+  const creditTotals = await getVideoCreditTotals(req.tenantId, reconciledRows);
   res.json(
-    (await reconcileWalletVideoJobSpends(rows)).map((row) => {
+    reconciledRows.map((row) => {
       const currentVideoPath =
         repairChildren.get(row.id)?.status === "succeeded"
           ? repairChildren.get(row.id)!.videoPath
@@ -13129,6 +13161,7 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
               : undefined) ??
             null,
         },
+        creditTotals.get(row.id) ?? null,
       );
     }),
   );
@@ -13703,6 +13736,7 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
     return;
   }
   const [reconciled] = await reconcileWalletVideoJobSpends([job]);
+  const creditTotals = await getVideoCreditTotals(req.tenantId, [reconciled!]);
   const tenantJobs = await db
     .select({ options: videoGenerationsTable.options })
     .from(videoGenerationsTable)
@@ -13744,7 +13778,7 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
       currentVideoPath,
       savedContentItemId:
         reconciled!.savedContentItemId ?? legacySavedContent?.id ?? null,
-    }),
+    }, creditTotals.get(reconciled!.id) ?? null),
   );
 });
 

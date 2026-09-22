@@ -66,6 +66,12 @@ Reward conversion must preserve the terms of existing earned value. Previously i
 
 Provider credit enforcement is authorized by the server's frozen funding decision, not by a fresh global-mode or tenant-mode lookup. Legacy-funded pipelines remain on their original quota/wallet rail; adding metering does not migrate them to credits.
 
+Completed-video customer summaries show actual total credits, including attributable generated inputs, not INR provider spend or a conversion from current rates.
+
+**Why:** The user explicitly requested image, character, and video credit charges together while hiding the rupee spend. Meter telemetry includes hypothetical shadow costs; only signed account-ledger changes establish what was actually charged. Historical synthetic asset identities may not identify their original debits.
+
+**How to apply:** Use frozen delivered-input membership and stable credit-operation identities, net refunds, preserve fractional credits, and show unavailable when a complete total cannot be proven. Never invent historical charges to fill a reporting gap.
+
 For new eligible credit-funded work, use saved-rate operation accounting rather than legacy quota units. Preserve fractional credits and charge generated clip seconds at the effective output resolution, not the trimmed final video's duration. Pictures and billable ASR are separate operations; internal visual QA is not.
 
 **Why:** The user explicitly confirmed this calculation model and requested immediate completion accounting across generation operations. A shorter edited output does not undo generated clips, while a displayed INR spend estimate is not a credit debit.

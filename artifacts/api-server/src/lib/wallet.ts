@@ -3016,7 +3016,11 @@ export function buildVideoDeliveryBillingItems(
       operationIdentity: input.stableIdentity,
       providerReservationId: input.reservationId,
       inclusionReason: "accepted Guided input delivered by final job",
-      independentlySettled: Boolean(input.reservationId),
+      // Accepted inputs were produced and charged before this video job. Credit
+      // funding has no wallet reservation id, but is independently settled too.
+      independentlySettled:
+        input.reservationId != null ||
+        job.options?.meterFunding?.rail === "credits",
     });
   }
   const checkpointEvents: typeof providerEvents = [

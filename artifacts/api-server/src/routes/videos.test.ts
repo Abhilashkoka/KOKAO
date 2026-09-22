@@ -1995,7 +1995,8 @@ describe("POST /api/ai/generate-video", () => {
         slideDurationSec: 2,
       });
     expect(res.status).toBe(201);
-    expect(res.body.chargedRatePaise).toBe(videoPaise);
+    expect(res.body.chargedRatePaise).toBeNull();
+    expect(res.body.spendPaise).toBeNull();
     const row = (
       await db
         .select()
@@ -13059,7 +13060,7 @@ describe("self-service local video repair", () => {
     expect(first.status, JSON.stringify(first.body)).toBe(201);
     expect(first.body).toMatchObject({
       status: "queued",
-      spendPaise: 0,
+      spendPaise: null,
       repairable: false,
       repair: {
         chainId: source.id,

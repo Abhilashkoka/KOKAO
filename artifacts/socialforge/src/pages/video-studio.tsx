@@ -50,8 +50,6 @@ import {
   useGenerateSpokespersonScript,
   useLocalizeScript,
   useAnalyzeScriptIntake,
-  useGetAiSpendRates,
-  getGetAiSpendRatesQueryKey,
   useListBrandKits,
   useGetBrandKit,
   getGetBrandKitQueryKey,
@@ -1281,19 +1279,6 @@ export function VideoStudioPage() {
     const fallback = availableEngines[0];
     if (fallback) setEngine(fallback);
   }, [availableEngines, engine]);
-
-  // "AI amount spent" display (kill-switch gated): admin-set per-video amount
-  // with the platform fee already folded in, matching the caption/image line in
-  // the Studio. Nothing renders while the rate is zero or the switch is off.
-  const { data: aiSpendRates } = useGetAiSpendRates({
-    query: {
-      queryKey: getGetAiSpendRatesQueryKey(),
-      staleTime: 60_000,
-      enabled: flags.aiSpend,
-    },
-  });
-  const videoSpendPaise =
-    flags.aiSpend && aiSpendRates ? aiSpendRates.videoPaise : 0;
 
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
@@ -6892,30 +6877,22 @@ export function VideoStudioPage() {
                   }`}
                   data-testid="video-preview"
                 />
-                {(flags.aiSpend
-                  ? (activeJob.spendPaise ??
-                    (activeJob.chargedRatePaise ?? videoSpendPaise) *
-                      Math.max(1, activeJob.units ?? 1))
-                  : 0) > 0 && (
+                <div className="space-y-0.5">
                   <p
                     className="text-xs text-muted-foreground"
-                    data-testid="text-video-ai-spent"
+                    data-testid="text-video-credits-used"
                   >
-                    AI amount spent: {"\u20B9"}
-                    {/* Prefer the job's snapshotted TOTAL spend (real cost +
-                        margin in cost_plus mode). Jobs without a snapshot fall
-                        back to rate x units: the rate frozen at charge time,
-                        or the current admin rate on legacy jobs. */}
-                    {(
-                      (activeJob.spendPaise ??
-                        (activeJob.chargedRatePaise ?? videoSpendPaise) *
-                          Math.max(1, activeJob.units ?? 1)) / 100
-                    ).toLocaleString("en-IN", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                    {activeJob.totalCreditsUsed == null
+                      ? "Credits used: unavailable"
+                      : `Total credits used: ${activeJob.totalCreditsUsed.toLocaleString(
+                          "en-IN",
+                          { maximumFractionDigits: 3 },
+                        )}`}
                   </p>
-                )}
+                  <p className="text-xs text-muted-foreground">
+                    Includes associated generated images, characters, and video.
+                  </p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {activeJob.savedContentItemId ? (
                     <Badge

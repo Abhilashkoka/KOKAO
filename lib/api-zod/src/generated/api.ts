@@ -14439,8 +14439,9 @@ export const GenerateVideoResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -20652,8 +20653,9 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -21231,8 +21233,9 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -21775,8 +21778,9 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -22330,8 +22334,9 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -22970,8 +22975,9 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -23880,8 +23886,9 @@ export const ListVideoJobsResponseItem = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -24416,8 +24423,9 @@ export const GetVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -24952,8 +24960,9 @@ export const CancelVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -25488,8 +25497,9 @@ export const RetryVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -26024,8 +26034,9 @@ export const RestartVideoJobFreshResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -26564,8 +26575,9 @@ export const RepairVideoJobResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -27127,8 +27139,9 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -27675,8 +27688,9 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -28212,8 +28226,9 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -28761,8 +28776,9 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -29297,8 +29313,9 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -29833,8 +29850,9 @@ export const CancelGuidedStoryPreviewRenderResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -30369,8 +30387,9 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -30904,8 +30923,9 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -31439,8 +31459,9 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
@@ -32078,8 +32099,9 @@ export const SetVideoCoverResponse = zod.object({
   "startedAt": zod.coerce.date().nullable(),
   "finishedAt": zod.coerce.date().nullable()
 })]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
-  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
-  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
