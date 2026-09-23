@@ -116,11 +116,28 @@ const BUILT_IN_VOICES: GuidedStoryVoiceCatalogItem[] = [
 const VISUAL_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_VISUAL_IMAGE_BYTES = 10 * 1024 * 1024;
 export const GUIDED_BACKDROP_PROMPT_MAX = 1000;
+export const GUIDED_STORY_TOPIC_MIN = 3;
+export const GUIDED_STORY_TOPIC_MAX = 2000;
 
 export function fitGuidedBackdropPrompt(value: string): string {
   const prompt = value.trim();
   if (prompt.length <= GUIDED_BACKDROP_PROMPT_MAX) return prompt;
   return `${prompt.slice(0, GUIDED_BACKDROP_PROMPT_MAX - 3).trimEnd()}...`;
+}
+
+export function guidedStorySetupIsComplete(
+  contract: Pick<GuidedStoryPlatformContract, "durations"> | undefined,
+  duration: number | null,
+  locale: string,
+  topic: string,
+): boolean {
+  const topicLength = topic.trim().length;
+  return !!contract &&
+    duration !== null &&
+    contract.durations.includes(duration) &&
+    !!guidedStoryLocaleOption(locale) &&
+    topicLength >= GUIDED_STORY_TOPIC_MIN &&
+    topic.length <= GUIDED_STORY_TOPIC_MAX;
 }
 
 type VisualChoices = {
@@ -679,7 +696,14 @@ export function GuidedStoryWorkflow({
       },
     );
   };
-  const setupComplete = !!contract && duration !== null && !!selectedStoryLocale && topic.trim().length >= 3;
+  const topicTooShort = topic.trim().length < GUIDED_STORY_TOPIC_MIN;
+  const topicTooLong = topic.length > GUIDED_STORY_TOPIC_MAX;
+  const topicError = topicTooLong
+    ? `Story topic must be ${GUIDED_STORY_TOPIC_MAX.toLocaleString()} characters or fewer.`
+    : topic.length > 0 && topicTooShort
+      ? `Story topic must be at least ${GUIDED_STORY_TOPIC_MIN} characters.`
+      : null;
+  const setupComplete = guidedStorySetupIsComplete(contract, duration, locale, topic);
   const setupDraftChanged = /draft changed/i.test(setupSaveError ?? "");
   const reloadSetupDraft = async () => {
     setSetupSaveError(null);
@@ -995,7 +1019,36 @@ export function GuidedStoryWorkflow({
               <p className="text-xs text-destructive" role="alert">Choose English, Hindi, Telugu, or Tamil before continuing.</p>
             )}
           </div>
-          <div><Label>Story topic</Label><Textarea value={topic} onChange={(event) => setTopic(event.target.value)} data-testid="input-guided-topic" /></div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="guided-story-topic">Story topic</Label>
+              <span
+                className={`text-xs ${topicTooLong ? "text-destructive" : "text-muted-foreground"}`}
+                aria-live="polite"
+                data-testid="text-guided-topic-count"
+              >
+                {topic.length.toLocaleString()} / {GUIDED_STORY_TOPIC_MAX.toLocaleString()}
+              </span>
+            </div>
+            <Textarea
+              id="guided-story-topic"
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              aria-invalid={topicError ? true : undefined}
+              aria-describedby={topicError ? "guided-story-topic-error" : undefined}
+              data-testid="input-guided-topic"
+            />
+            {topicError && (
+              <p
+                id="guided-story-topic-error"
+                className="text-sm text-destructive"
+                aria-live="polite"
+                data-testid="error-guided-topic"
+              >
+                {topicError}
+              </p>
+            )}
+          </div>
           {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">No Brand Kit is available. You can still create the story and select voices separately.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
           {setupSaveError && (

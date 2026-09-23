@@ -2810,6 +2810,66 @@ describe("POST /api/ai/generate-video", () => {
 });
 
 describe("guided story route fail-closed regressions", () => {
+  it("returns field-specific setup validation errors without echoing user text", async () => {
+    const tenant = await newTenant("pro");
+    const base = {
+      genre: "drama",
+      platform: "tiktok",
+      durationSeconds: 30,
+      locale: "te",
+      topic: "A storm rescue",
+    };
+
+    const oversizedTopic = `private-${"x".repeat(2000)}`;
+    const oversized = await request(app)
+      .post("/api/ai/guided-story/drafts")
+      .send({ ...base, topic: oversizedTopic });
+    expect(oversized.status).toBe(400);
+    expect(oversized.body).toEqual({
+      error: "Topic must be between 3 and 2000 characters.",
+    });
+    expect(oversized.body.error).not.toContain(oversizedTopic);
+
+    const invalidPlatform = await request(app)
+      .post("/api/ai/guided-story/drafts")
+      .send({ ...base, platform: "private-platform" });
+    expect(invalidPlatform.status).toBe(400);
+    expect(invalidPlatform.body.error).toContain("Platform is not supported.");
+    expect(invalidPlatform.body.error).toContain("TikTok");
+
+    const invalidDuration = await request(app)
+      .post("/api/ai/guided-story/drafts")
+      .send({ ...base, durationSeconds: 20 });
+    expect(invalidDuration.status).toBe(400);
+    expect(invalidDuration.body.error).toContain(
+      "Duration is not supported for the selected platform.",
+    );
+    expect(invalidDuration.body.error).toContain("durations offered");
+
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const oversizedUpdate = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({
+        revision: draft.revision,
+        setup: { ...base, topic: oversizedTopic },
+      });
+    expect(oversizedUpdate.status).toBe(400);
+    expect(oversizedUpdate.body).toEqual({
+      error: "Topic must be between 3 and 2000 characters.",
+    });
+
+    const invalidDurationUpdate = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({
+        revision: draft.revision,
+        setup: { ...base, durationSeconds: 20 },
+      });
+    expect(invalidDurationUpdate.status).toBe(400);
+    expect(invalidDurationUpdate.body.error).toContain(
+      "Duration is not supported for the selected platform.",
+    );
+  });
+
   it("returns no fixed cast recommendations from platform contracts", async () => {
     await newTenant("pro");
 

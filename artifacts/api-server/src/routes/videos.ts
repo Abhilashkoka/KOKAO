@@ -2655,9 +2655,11 @@ function guidedSetup(
 ): NonNullable<GuidedStoryDraftState["setup"]> | null {
   const platform = guidedStoryPlatform(input.platform);
   const locale = normalizeGuidedStoryLocale(input.locale);
+  const topic = input.topic.trim();
   if (!platform || !locale || !GUIDED_STORY_GENRES.includes(input.genre as never))
     return null;
   if (!platform.durations.includes(input.durationSeconds)) return null;
+  if (topic.length < 3 || topic.length > 2000) return null;
   return {
     genre: input.genre as NonNullable<GuidedStoryDraftState["setup"]>["genre"],
     platform: input.platform as NonNullable<
@@ -2669,12 +2671,73 @@ function guidedSetup(
     safeArea: platform.safeArea,
     durationSeconds: input.durationSeconds,
     locale,
-    topic: input.topic.trim(),
+    topic,
     ...(Number.isSafeInteger(input.roleCount)
       ? { roleCount: input.roleCount }
       : {}),
     brandKitId: input.brandKitId ?? null,
   };
+}
+
+function guidedStorySetupValidationError(
+  input: unknown,
+  issuePath?: PropertyKey[],
+): string | null {
+  const field = issuePath?.find((part) =>
+    ["genre", "platform", "durationSeconds", "locale", "topic", "roleCount", "brandKitId"]
+      .includes(String(part)),
+  );
+  if (field === "topic") return "Topic must be between 3 and 2000 characters.";
+  if (field === "genre") {
+    return "Genre is not supported. Choose Action / Adventure, Comedy, Drama, Romance, Thriller / Mystery, Fantasy, or Science Fiction.";
+  }
+  if (field === "platform") {
+    return "Platform is not supported. Choose Instagram Reels, TikTok, YouTube Shorts, Instagram Feed, or YouTube.";
+  }
+  if (field === "durationSeconds") {
+    return "Duration is not supported for the selected platform. Choose one of the durations offered for that platform.";
+  }
+  if (field === "locale") {
+    return "Locale is not supported. Use English, Hindi, Telugu, or Tamil.";
+  }
+  if (field === "roleCount") return "Role count must be a number.";
+  if (field === "brandKitId") return "Brand Kit ID must be a number or null.";
+
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const setup = input as Record<string, unknown>;
+  if (
+    typeof setup.topic !== "string" ||
+    setup.topic.trim().length < 3 ||
+    setup.topic.length > 2000
+  ) {
+    return "Topic must be between 3 and 2000 characters.";
+  }
+  if (
+    typeof setup.genre !== "string" ||
+    !GUIDED_STORY_GENRES.includes(setup.genre as never)
+  ) {
+    return "Genre is not supported. Choose Action / Adventure, Comedy, Drama, Romance, Thriller / Mystery, Fantasy, or Science Fiction.";
+  }
+  if (
+    typeof setup.platform !== "string" ||
+    !guidedStoryPlatform(setup.platform)
+  ) {
+    return "Platform is not supported. Choose Instagram Reels, TikTok, YouTube Shorts, Instagram Feed, or YouTube.";
+  }
+  const platform = guidedStoryPlatform(setup.platform);
+  if (
+    typeof setup.durationSeconds !== "number" ||
+    !platform?.durations.includes(setup.durationSeconds)
+  ) {
+    return "Duration is not supported for the selected platform. Choose one of the durations offered for that platform.";
+  }
+  if (
+    typeof setup.locale !== "string" ||
+    !normalizeGuidedStoryLocale(setup.locale)
+  ) {
+    return "Locale is not supported. Use English, Hindi, Telugu, or Tamil.";
+  }
+  return null;
 }
 
 function canonicalGuidedVisualObjectPath(path: string, tenantId: number): boolean {
@@ -4530,12 +4593,13 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
   const parsed = CreateGuidedStoryDraftBody.safeParse(req.body);
   const setup = parsed.success ? guidedSetup(parsed.data) : null;
   if (!parsed.success || !setup) {
-    res
-      .status(400)
-      .json({
-        error:
-          "The platform, duration, role count, or locale is not supported. Use English, Hindi, Telugu, or Tamil.",
-      });
+    const error = guidedStorySetupValidationError(
+      parsed.success ? parsed.data : req.body,
+      parsed.success ? undefined : parsed.error.issues[0]?.path,
+    );
+    res.status(400).json({
+      error: error ?? "Invalid guided story setup.",
+    });
     return;
   }
   if (
@@ -4622,7 +4686,19 @@ router.patch(
       ? await loadGuidedDraft(req.tenantId, Number(req.params.draftId))
       : null;
     if (!parsed.success || !hasOnlyGuidedVisualFields(req.body)) {
-      res.status(400).json({ error: "Invalid guided story update." });
+      const setupInput =
+        req.body &&
+        typeof req.body === "object" &&
+        !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>).setup
+          : undefined;
+      const error = !parsed.success && parsed.error.issues[0]?.path[0] === "setup"
+        ? guidedStorySetupValidationError(
+            setupInput,
+            parsed.error.issues[0]?.path,
+          )
+        : null;
+      res.status(400).json({ error: error ?? "Invalid guided story update." });
       return;
     }
     if (!row) {
@@ -4656,12 +4732,11 @@ router.patch(
     if (parsed.data.setup) {
       setup = guidedSetup(parsed.data.setup);
       if (!setup) {
-        res
-          .status(400)
-          .json({
-            error:
-              "The platform, duration, or locale is not supported. Use English, Hindi, Telugu, or Tamil.",
-          });
+        res.status(400).json({
+          error:
+            guidedStorySetupValidationError(parsed.data.setup) ??
+            "Invalid guided story setup.",
+        });
         return;
       }
       if (

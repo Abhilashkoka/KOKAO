@@ -311,9 +311,11 @@ vi.mock("@workspace/api-client-react", async () => {
 
 import {
   GUIDED_BACKDROP_PROMPT_MAX,
+  GUIDED_STORY_TOPIC_MAX,
   GuidedStoryWorkflow,
   fitGuidedBackdropPrompt,
   guidedStoryHasActiveCastWork,
+  guidedStorySetupIsComplete,
 } from "./guided-story-workflow";
 
 const kit = { id: 3, name: "Studio", activeVersion: { payload: { brand_voice: { mode: "cloned", provider_voice_id: "voice-a", cloned_label: "A voice", preset_voice: "nova", voices: [{ id: "voice-a", label: "A voice" }] } } } };
@@ -378,6 +380,34 @@ function renderWorkflow(options: {
 beforeEach(() => { vi.useRealTimers(); state.draft = undefined; state.requestedDraftIds = []; state.draftRefetches = 0; state.created = null; state.generatedScripts = 0; state.generationError = null; state.generationErrors = []; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.customizationRequest = null; state.customizationError = null; state.referenceSheetReview = null; state.retrySheetRequest = null; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
+  it("requires a platform duration from the contract and accepts a supported locale", () => {
+    expect(guidedStorySetupIsComplete(contract, 20, "en", "A valid topic")).toBe(false);
+    expect(guidedStorySetupIsComplete(undefined, 15, "en", "A valid topic")).toBe(false);
+    expect(guidedStorySetupIsComplete(contract, 15, "te", "A valid topic")).toBe(true);
+  });
+
+  it("shows an oversized pasted topic without truncating it and prevents submission", async () => {
+    renderWorkflow();
+    await userEvent.click(screen.getByTestId("select-guided-platform"));
+    await userEvent.click(screen.getByText("instagram reels"));
+    const oversizedTopic = "x".repeat(GUIDED_STORY_TOPIC_MAX + 1);
+
+    fireEvent.change(screen.getByTestId("input-guided-topic"), {
+      target: { value: oversizedTopic },
+    });
+
+    expect((screen.getByTestId("input-guided-topic") as HTMLTextAreaElement).value)
+      .toBe(oversizedTopic);
+    expect(screen.getByTestId("text-guided-topic-count").textContent)
+      .toContain("2,001 / 2,000");
+    expect(screen.getByTestId("error-guided-topic").textContent)
+      .toContain("2,000 characters or fewer");
+    expect((screen.getByTestId("button-guided-create-draft") as HTMLButtonElement).disabled)
+      .toBe(true);
+    fireEvent.click(screen.getByTestId("button-guided-create-draft"));
+    expect(state.created).toBeNull();
+  });
+
   it("starts a new story without deleting the previously restored draft", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
@@ -536,7 +566,12 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByText("Studio"));
     await userEvent.type(screen.getByTestId("input-guided-topic"), "A story about sorting a desk");
     await userEvent.click(screen.getByTestId("button-guided-create-draft"));
-    expect(state.created).toMatchObject({ platform: "instagram_reels", durationSeconds: 30 });
+    expect(state.created).toMatchObject({
+      platform: "instagram_reels",
+      durationSeconds: 30,
+      locale: "en",
+      topic: "A story about sorting a desk",
+    });
     expect(state.created).not.toHaveProperty("roleCount");
     expect(state.generatedScripts).toBe(1);
     expect(await screen.findByTestId("guided-script-summary")).toBeTruthy();
