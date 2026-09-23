@@ -1023,6 +1023,8 @@ export * from './videoModelPricingVariant';
 export * from './videoModelPricingView';
 export * from './videoPriceCriteria';
 export * from './videoProviderEventReceipt';
+export * from './videoReferenceImage';
+export * from './videoReferenceImageMode';
 export * from './videoStoryboard';
 export * from './videoStoryboardAiPlan';
 export * from './videoStoryboardAiPlanFlow';

@@ -19466,10 +19466,30 @@ components:
         customBaseUrl: { type: ["string", "null"] }
         fallbackEnabled: { type: boolean }
         lockedAt: { type: string, format: date-time }
+    VideoReferenceImage:
+      type: object
+      required: [id, label, objectPath, instructions, mode]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 80 }
+        label: { type: string, minLength: 1, maxLength: 120 }
+        objectPath: { type: string, minLength: 1 }
+        instructions: { type: string, maxLength: 2000 }
+        mode: { type: string, enum: [visual_reference, exact_insert] }
+        sceneNumbers:
+          type: array
+          maxItems: 80
+          items: { type: integer, minimum: 1, maximum: 80 }
+          description: One-based scene assignments; omitted or empty assigns automatically.
     VideoGenerateRequest:
       type: object
       required: [engine]
       properties:
+        referenceImages:
+          type: array
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/VideoReferenceImage"
+          description: Tenant-owned PNG/JPEG/WebP uploads, at most 10 MB each. Separate from saved character references.
         presetCharacterId:
           type: ["string", "null"]
           description: Stable id of an active, free-to-select platform fictional preset.
@@ -20059,6 +20079,10 @@ components:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
       properties:
+        referenceImageIds:
+          type: array
+          items: { type: string }
+          description: Frozen uploaded reference assignments for this scene.
         guidedStory:
           type: ["object", "null"]
           description: Immutable role/cast mapping and scene reuse identity for Guided Story review.
@@ -20490,6 +20514,11 @@ components:
           updatedAt,
         ]
       properties:
+        referenceImages:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoReferenceImage"
+          description: Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.
         id:
           type: integer
         funding:

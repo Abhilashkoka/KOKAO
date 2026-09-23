@@ -19,8 +19,14 @@ import type { VideoGenerateRequestResolution } from './videoGenerateRequestResol
 import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
 import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
 import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
+import type { VideoReferenceImage } from './videoReferenceImage';
 
 export interface VideoGenerateRequest {
+  /**
+     * Tenant-owned PNG/JPEG/WebP uploads, at most 10 MB each. Separate from saved character references.
+     * @maxItems 6
+     */
+  referenceImages?: VideoReferenceImage[];
   /**
      * Stable id of an active, free-to-select platform fictional preset.
      * @nullable

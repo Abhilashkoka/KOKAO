@@ -11,6 +11,8 @@ import type { VideoStoryboardSceneGuidedStory } from './videoStoryboardSceneGuid
 import type { VideoStoryboardSceneHybridRole } from './videoStoryboardSceneHybridRole';
 
 export interface VideoStoryboardScene {
+  /** Frozen uploaded reference assignments for this scene. */
+  referenceImageIds?: string[];
   /**
      * Immutable role/cast mapping and scene reuse identity for Guided Story review.
      * @nullable

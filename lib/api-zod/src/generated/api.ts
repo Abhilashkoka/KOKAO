@@ -14021,6 +14021,19 @@ export const CancelImageJobResponse = zod.object({
  * Video generation is long-running, so this endpoint validates the request, reserves funding (monthly quota first, then a video credit), creates the job, and returns immediately. Poll GET /ai/video-jobs/{jobId} until status is succeeded or failed.
  * @summary Start a video generation job (AI or photo slideshow)
  */
+export const generateVideoBodyReferenceImagesItemIdMax = 80;
+
+export const generateVideoBodyReferenceImagesItemLabelMax = 120;
+
+
+export const generateVideoBodyReferenceImagesItemInstructionsMax = 2000;
+
+export const generateVideoBodyReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const generateVideoBodyReferenceImagesItemSceneNumbersMax = 80;
+
+export const generateVideoBodyReferenceImagesMax = 6;
+
 export const generateVideoBodyPromptMax = 2000;
 
 export const generateVideoBodyDialogueMax = 12000;
@@ -14078,6 +14091,14 @@ export const generateVideoBodyWardrobeNotesMax = 500;
 export const generateVideoBodyReviewStoryboardDefault = true;
 
 export const GenerateVideoBody = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(generateVideoBodyReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(generateVideoBodyReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(generateVideoBodyReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(generateVideoBodyReferenceImagesItemSceneNumbersItemMax)).max(generateVideoBodyReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).max(generateVideoBodyReferenceImagesMax).optional().describe('Tenant-owned PNG\/JPEG\/WebP uploads, at most 10 MB each. Separate from saved character references.'),
   "presetCharacterId": zod.string().nullish().describe('Stable id of an active, free-to-select platform fictional preset.'),
   "presetOutfitDerivativeId": zod.number().nullish().describe('An approved derivative owned by this workspace; omit for the signature outfit.'),
   "presetVoiceId": zod.string().nullish().describe('Licensed voice id advertised by the selected preset; omit for its first voice.'),
@@ -14153,6 +14174,17 @@ export const GenerateVideoBody = zod.object({
   "plan": zod.unknown().optional().describe('Optional edited plan JSON. B-roll shape: {\"style\": \"...\", \"prompts\": [\"...\", ...]}. Character shape: {\"scenes\": [{\"visual\": \"...\", \"outfitId\": 1}, ...]}.')
 }).nullish().describe('topic_to_video \"ai\"\/\"character\" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide \"plan\" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan\'s flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.')
 })
+
+export const generateVideoResponseReferenceImagesItemIdMax = 80;
+
+export const generateVideoResponseReferenceImagesItemLabelMax = 120;
+
+
+export const generateVideoResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const generateVideoResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const generateVideoResponseReferenceImagesItemSceneNumbersMax = 80;
 
 export const generateVideoResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
@@ -14246,6 +14278,14 @@ export const generateVideoResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const GenerateVideoResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(generateVideoResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(generateVideoResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(generateVideoResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(generateVideoResponseReferenceImagesItemSceneNumbersItemMax)).max(generateVideoResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -14491,6 +14531,7 @@ export const GenerateVideoResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -20368,6 +20409,17 @@ export const EnqueueGuidedStoryDraftBody = zod.object({
   "studioLipSyncConsent": zod.boolean().optional().describe('Fresh authorization for the visible likeness and approved voice.')
 })
 
+export const enqueueGuidedStoryDraftResponseReferenceImagesItemIdMax = 80;
+
+export const enqueueGuidedStoryDraftResponseReferenceImagesItemLabelMax = 120;
+
+
+export const enqueueGuidedStoryDraftResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const enqueueGuidedStoryDraftResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const enqueueGuidedStoryDraftResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const enqueueGuidedStoryDraftResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const enqueueGuidedStoryDraftResponseStudioLipSyncSceneCountMin = 0;
@@ -20460,6 +20512,14 @@ export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneTopicMax = 1
 
 
 export const EnqueueGuidedStoryDraftResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(enqueueGuidedStoryDraftResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(enqueueGuidedStoryDraftResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(enqueueGuidedStoryDraftResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(enqueueGuidedStoryDraftResponseReferenceImagesItemSceneNumbersItemMax)).max(enqueueGuidedStoryDraftResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -20705,6 +20765,7 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -20948,6 +21009,17 @@ export const FinalizeGuidedStoryJobReferenceBody = zod.object({
   "replaceCharacterConfirmed": zod.boolean().describe('Must be true when characterId differs from the finalized role. This prevents an uploaded identity from being silently replaced.')
 })
 
+export const finalizeGuidedStoryJobReferenceResponseReferenceImagesItemIdMax = 80;
+
+export const finalizeGuidedStoryJobReferenceResponseReferenceImagesItemLabelMax = 120;
+
+
+export const finalizeGuidedStoryJobReferenceResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const finalizeGuidedStoryJobReferenceResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const finalizeGuidedStoryJobReferenceResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const finalizeGuidedStoryJobReferenceResponseStudioLipSyncSceneCountMin = 0;
@@ -21040,6 +21112,14 @@ export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneTopi
 
 
 export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(finalizeGuidedStoryJobReferenceResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(finalizeGuidedStoryJobReferenceResponseReferenceImagesItemSceneNumbersItemMax)).max(finalizeGuidedStoryJobReferenceResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -21285,6 +21365,7 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -21493,6 +21574,17 @@ export const StartGuidedStoryReferenceOperationBody = zod.object({
   "kind": zod.enum(['character', 'outfit'])
 })
 
+export const startGuidedStoryReferenceOperationResponseReferenceImagesItemIdMax = 80;
+
+export const startGuidedStoryReferenceOperationResponseReferenceImagesItemLabelMax = 120;
+
+
+export const startGuidedStoryReferenceOperationResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const startGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const startGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const startGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const startGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
@@ -21585,6 +21677,14 @@ export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneT
 
 
 export const StartGuidedStoryReferenceOperationResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(startGuidedStoryReferenceOperationResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(startGuidedStoryReferenceOperationResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(startGuidedStoryReferenceOperationResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(startGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersItemMax)).max(startGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -21830,6 +21930,7 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -22049,6 +22150,17 @@ export const CompleteGuidedStoryReferenceOperationBody = zod.object({
   "error": zod.string().max(completeGuidedStoryReferenceOperationBodyErrorMax).nullish()
 })
 
+export const completeGuidedStoryReferenceOperationResponseReferenceImagesItemIdMax = 80;
+
+export const completeGuidedStoryReferenceOperationResponseReferenceImagesItemLabelMax = 120;
+
+
+export const completeGuidedStoryReferenceOperationResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const completeGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const completeGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const completeGuidedStoryReferenceOperationResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const completeGuidedStoryReferenceOperationResponseStudioLipSyncSceneCountMin = 0;
@@ -22141,6 +22253,14 @@ export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefO
 
 
 export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(completeGuidedStoryReferenceOperationResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(completeGuidedStoryReferenceOperationResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(completeGuidedStoryReferenceOperationResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(completeGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersItemMax)).max(completeGuidedStoryReferenceOperationResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -22386,6 +22506,7 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -22671,6 +22792,17 @@ export const ConfirmGuidedStoryDialogueReplayBody = zod.object({
   "idempotencyKey": zod.string().min(confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMin).max(confirmGuidedStoryDialogueReplayBodyIdempotencyKeyMax).describe('Stable client key preventing duplicate replay children.')
 })
 
+export const confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemIdMax = 80;
+
+export const confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemLabelMax = 120;
+
+
+export const confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemInstructionsMax = 2000;
+
+export const confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemSceneNumbersMax = 80;
+
 export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const confirmGuidedStoryDialogueReplayResponseJobStudioLipSyncSceneCountMin = 0;
@@ -22782,6 +22914,14 @@ export const confirmGuidedStoryDialogueReplayResponseOperationCompletedLinesMin 
 
 export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "job": zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemSceneNumbersItemMax)).max(confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -23027,6 +23167,7 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -23601,6 +23742,17 @@ export const ListVideoMotionPresetsResponse = zod.object({
 /**
  * @summary List this workspace's recent video generation jobs (newest first)
  */
+export const listVideoJobsResponseReferenceImagesItemIdMax = 80;
+
+export const listVideoJobsResponseReferenceImagesItemLabelMax = 120;
+
+
+export const listVideoJobsResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const listVideoJobsResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const listVideoJobsResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const listVideoJobsResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const listVideoJobsResponseStudioLipSyncSceneCountMin = 0;
@@ -23693,6 +23845,14 @@ export const listVideoJobsResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const ListVideoJobsResponseItem = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(listVideoJobsResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(listVideoJobsResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(listVideoJobsResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(listVideoJobsResponseReferenceImagesItemSceneNumbersItemMax)).max(listVideoJobsResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -23938,6 +24098,7 @@ export const ListVideoJobsResponseItem = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -24138,6 +24299,17 @@ export const GetVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const getVideoJobResponseReferenceImagesItemIdMax = 80;
+
+export const getVideoJobResponseReferenceImagesItemLabelMax = 120;
+
+
+export const getVideoJobResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const getVideoJobResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const getVideoJobResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const getVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const getVideoJobResponseStudioLipSyncSceneCountMin = 0;
@@ -24230,6 +24402,14 @@ export const getVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const GetVideoJobResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(getVideoJobResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(getVideoJobResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(getVideoJobResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(getVideoJobResponseReferenceImagesItemSceneNumbersItemMax)).max(getVideoJobResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -24475,6 +24655,7 @@ export const GetVideoJobResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -24675,6 +24856,17 @@ export const CancelVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const cancelVideoJobResponseReferenceImagesItemIdMax = 80;
+
+export const cancelVideoJobResponseReferenceImagesItemLabelMax = 120;
+
+
+export const cancelVideoJobResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const cancelVideoJobResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const cancelVideoJobResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const cancelVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const cancelVideoJobResponseStudioLipSyncSceneCountMin = 0;
@@ -24767,6 +24959,14 @@ export const cancelVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const CancelVideoJobResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(cancelVideoJobResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(cancelVideoJobResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(cancelVideoJobResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(cancelVideoJobResponseReferenceImagesItemSceneNumbersItemMax)).max(cancelVideoJobResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -25012,6 +25212,7 @@ export const CancelVideoJobResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -25212,6 +25413,17 @@ export const RetryVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const retryVideoJobResponseReferenceImagesItemIdMax = 80;
+
+export const retryVideoJobResponseReferenceImagesItemLabelMax = 120;
+
+
+export const retryVideoJobResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const retryVideoJobResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const retryVideoJobResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const retryVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const retryVideoJobResponseStudioLipSyncSceneCountMin = 0;
@@ -25304,6 +25516,14 @@ export const retryVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const RetryVideoJobResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(retryVideoJobResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(retryVideoJobResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(retryVideoJobResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(retryVideoJobResponseReferenceImagesItemSceneNumbersItemMax)).max(retryVideoJobResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -25549,6 +25769,7 @@ export const RetryVideoJobResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -25749,6 +25970,17 @@ export const RestartVideoJobFreshParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const restartVideoJobFreshResponseReferenceImagesItemIdMax = 80;
+
+export const restartVideoJobFreshResponseReferenceImagesItemLabelMax = 120;
+
+
+export const restartVideoJobFreshResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const restartVideoJobFreshResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const restartVideoJobFreshResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const restartVideoJobFreshResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const restartVideoJobFreshResponseStudioLipSyncSceneCountMin = 0;
@@ -25841,6 +26073,14 @@ export const restartVideoJobFreshResponseResolvedCreativeBriefOneTopicMax = 1000
 
 
 export const RestartVideoJobFreshResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(restartVideoJobFreshResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(restartVideoJobFreshResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(restartVideoJobFreshResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(restartVideoJobFreshResponseReferenceImagesItemSceneNumbersItemMax)).max(restartVideoJobFreshResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -26086,6 +26326,7 @@ export const RestartVideoJobFreshResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -26290,6 +26531,17 @@ export const RepairVideoJobBody = zod.object({
   "reason": zod.enum(['narration', 'music', 'captions', 'scene_timing', 'audio_visual'])
 })
 
+export const repairVideoJobResponseReferenceImagesItemIdMax = 80;
+
+export const repairVideoJobResponseReferenceImagesItemLabelMax = 120;
+
+
+export const repairVideoJobResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const repairVideoJobResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const repairVideoJobResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const repairVideoJobResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const repairVideoJobResponseStudioLipSyncSceneCountMin = 0;
@@ -26382,6 +26634,14 @@ export const repairVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const RepairVideoJobResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(repairVideoJobResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(repairVideoJobResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(repairVideoJobResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(repairVideoJobResponseReferenceImagesItemSceneNumbersItemMax)).max(repairVideoJobResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -26627,6 +26887,7 @@ export const RepairVideoJobResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -26854,6 +27115,17 @@ export const UpdateVideoStoryboardBody = zod.object({
 })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
 })
 
+export const updateVideoStoryboardResponseReferenceImagesItemIdMax = 80;
+
+export const updateVideoStoryboardResponseReferenceImagesItemLabelMax = 120;
+
+
+export const updateVideoStoryboardResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const updateVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const updateVideoStoryboardResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const updateVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const updateVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
@@ -26946,6 +27218,14 @@ export const updateVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 100
 
 
 export const UpdateVideoStoryboardResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(updateVideoStoryboardResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(updateVideoStoryboardResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(updateVideoStoryboardResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(updateVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax)).max(updateVideoStoryboardResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -27191,6 +27471,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -27403,6 +27684,17 @@ export const InsertVideoStoryboardSceneBody = zod.object({
   "visual": zod.string().max(insertVideoStoryboardSceneBodyVisualMax).optional().describe('What the scene shows (a generation prompt). Defaults to the narration text when omitted.')
 })
 
+export const insertVideoStoryboardSceneResponseReferenceImagesItemIdMax = 80;
+
+export const insertVideoStoryboardSceneResponseReferenceImagesItemLabelMax = 120;
+
+
+export const insertVideoStoryboardSceneResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const insertVideoStoryboardSceneResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const insertVideoStoryboardSceneResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const insertVideoStoryboardSceneResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const insertVideoStoryboardSceneResponseStudioLipSyncSceneCountMin = 0;
@@ -27495,6 +27787,14 @@ export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneTopicMax 
 
 
 export const InsertVideoStoryboardSceneResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(insertVideoStoryboardSceneResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(insertVideoStoryboardSceneResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(insertVideoStoryboardSceneResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(insertVideoStoryboardSceneResponseReferenceImagesItemSceneNumbersItemMax)).max(insertVideoStoryboardSceneResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -27740,6 +28040,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -27941,6 +28242,17 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
   "sceneId": zod.coerce.string()
 })
 
+export const regenerateStoryboardScenePreviewResponseReferenceImagesItemIdMax = 80;
+
+export const regenerateStoryboardScenePreviewResponseReferenceImagesItemLabelMax = 120;
+
+
+export const regenerateStoryboardScenePreviewResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const regenerateStoryboardScenePreviewResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const regenerateStoryboardScenePreviewResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const regenerateStoryboardScenePreviewResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const regenerateStoryboardScenePreviewResponseStudioLipSyncSceneCountMin = 0;
@@ -28033,6 +28345,14 @@ export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneTop
 
 
 export const RegenerateStoryboardScenePreviewResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(regenerateStoryboardScenePreviewResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(regenerateStoryboardScenePreviewResponseReferenceImagesItemSceneNumbersItemMax)).max(regenerateStoryboardScenePreviewResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -28278,6 +28598,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -28491,6 +28812,17 @@ export const CorrectGuidedStorySceneBody = zod.object({
   "backdropMode": zod.enum(['keep_locked_backdrop', 'scene_only_background', 'replace_shared_backdrop']).describe('Explicit backdrop behavior. replace_shared_backdrop is rejected here with instructions to use the shared backdrop review endpoint.')
 })
 
+export const correctGuidedStorySceneResponseReferenceImagesItemIdMax = 80;
+
+export const correctGuidedStorySceneResponseReferenceImagesItemLabelMax = 120;
+
+
+export const correctGuidedStorySceneResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const correctGuidedStorySceneResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const correctGuidedStorySceneResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const correctGuidedStorySceneResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const correctGuidedStorySceneResponseStudioLipSyncSceneCountMin = 0;
@@ -28583,6 +28915,14 @@ export const correctGuidedStorySceneResponseResolvedCreativeBriefOneTopicMax = 1
 
 
 export const CorrectGuidedStorySceneResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(correctGuidedStorySceneResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(correctGuidedStorySceneResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(correctGuidedStorySceneResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(correctGuidedStorySceneResponseReferenceImagesItemSceneNumbersItemMax)).max(correctGuidedStorySceneResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -28828,6 +29168,7 @@ export const CorrectGuidedStorySceneResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -29028,6 +29369,17 @@ export const RenderMissingGuidedStoryPreviewsParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const renderMissingGuidedStoryPreviewsResponseReferenceImagesItemIdMax = 80;
+
+export const renderMissingGuidedStoryPreviewsResponseReferenceImagesItemLabelMax = 120;
+
+
+export const renderMissingGuidedStoryPreviewsResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const renderMissingGuidedStoryPreviewsResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const renderMissingGuidedStoryPreviewsResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const renderMissingGuidedStoryPreviewsResponseStudioLipSyncSceneCountMin = 0;
@@ -29120,6 +29472,14 @@ export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneTop
 
 
 export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(renderMissingGuidedStoryPreviewsResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(renderMissingGuidedStoryPreviewsResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(renderMissingGuidedStoryPreviewsResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(renderMissingGuidedStoryPreviewsResponseReferenceImagesItemSceneNumbersItemMax)).max(renderMissingGuidedStoryPreviewsResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -29365,6 +29725,7 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -29565,6 +29926,17 @@ export const CancelGuidedStoryPreviewRenderParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const cancelGuidedStoryPreviewRenderResponseReferenceImagesItemIdMax = 80;
+
+export const cancelGuidedStoryPreviewRenderResponseReferenceImagesItemLabelMax = 120;
+
+
+export const cancelGuidedStoryPreviewRenderResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const cancelGuidedStoryPreviewRenderResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const cancelGuidedStoryPreviewRenderResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const cancelGuidedStoryPreviewRenderResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const cancelGuidedStoryPreviewRenderResponseStudioLipSyncSceneCountMin = 0;
@@ -29657,6 +30029,14 @@ export const cancelGuidedStoryPreviewRenderResponseResolvedCreativeBriefOneTopic
 
 
 export const CancelGuidedStoryPreviewRenderResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(cancelGuidedStoryPreviewRenderResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(cancelGuidedStoryPreviewRenderResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(cancelGuidedStoryPreviewRenderResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(cancelGuidedStoryPreviewRenderResponseReferenceImagesItemSceneNumbersItemMax)).max(cancelGuidedStoryPreviewRenderResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -29902,6 +30282,7 @@ export const CancelGuidedStoryPreviewRenderResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -30102,6 +30483,17 @@ export const ApproveVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const approveVideoStoryboardResponseReferenceImagesItemIdMax = 80;
+
+export const approveVideoStoryboardResponseReferenceImagesItemLabelMax = 120;
+
+
+export const approveVideoStoryboardResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const approveVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const approveVideoStoryboardResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const approveVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const approveVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
@@ -30194,6 +30586,14 @@ export const approveVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 10
 
 
 export const ApproveVideoStoryboardResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(approveVideoStoryboardResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(approveVideoStoryboardResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(approveVideoStoryboardResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(approveVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax)).max(approveVideoStoryboardResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -30439,6 +30839,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -30638,6 +31039,17 @@ export const DiscardVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const discardVideoStoryboardResponseReferenceImagesItemIdMax = 80;
+
+export const discardVideoStoryboardResponseReferenceImagesItemLabelMax = 120;
+
+
+export const discardVideoStoryboardResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const discardVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const discardVideoStoryboardResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const discardVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const discardVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
@@ -30730,6 +31142,14 @@ export const discardVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 10
 
 
 export const DiscardVideoStoryboardResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(discardVideoStoryboardResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(discardVideoStoryboardResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(discardVideoStoryboardResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(discardVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax)).max(discardVideoStoryboardResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -30975,6 +31395,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -31174,6 +31595,17 @@ export const DismissUnrecoverableVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemIdMax = 80;
+
+export const dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemLabelMax = 120;
+
+
+export const dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const dismissUnrecoverableVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const dismissUnrecoverableVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
@@ -31266,6 +31698,14 @@ export const dismissUnrecoverableVideoStoryboardResponseResolvedCreativeBriefOne
 
 
 export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax)).max(dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -31511,6 +31951,7 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),
@@ -31814,6 +32255,17 @@ export const SetVideoCoverBody = zod.object({
   "coverPath": zod.string().min(1).max(setVideoCoverBodyCoverPathMax).describe('Object path of the image to use as the cover.')
 })
 
+export const setVideoCoverResponseReferenceImagesItemIdMax = 80;
+
+export const setVideoCoverResponseReferenceImagesItemLabelMax = 120;
+
+
+export const setVideoCoverResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const setVideoCoverResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const setVideoCoverResponseReferenceImagesItemSceneNumbersMax = 80;
+
 export const setVideoCoverResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
 
 export const setVideoCoverResponseStudioLipSyncSceneCountMin = 0;
@@ -31906,6 +32358,14 @@ export const setVideoCoverResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const SetVideoCoverResponse = zod.object({
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(setVideoCoverResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(setVideoCoverResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(setVideoCoverResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(setVideoCoverResponseReferenceImagesItemSceneNumbersItemMax)).max(setVideoCoverResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
   "id": zod.number(),
   "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -32151,6 +32611,7 @@ export const SetVideoCoverResponse = zod.object({
 }))
 }))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
   "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
   "guidedStory": zod.object({
   "scriptSceneId": zod.string(),
   "startMs": zod.number(),

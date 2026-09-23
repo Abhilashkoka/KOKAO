@@ -41,6 +41,7 @@ vi.mock("../../featureFlags", () => ({
 }));
 
 import { renderTopicStoryboard } from "./index";
+import { referenceDigest } from "./referenceImages";
 
 function guidedSnapshot(promptFormat?: "guided-v1" | "seedance-2.5") {
   return {
@@ -162,6 +163,55 @@ const modelOptions = {
 beforeEach(() => {
   renderState.animate.length = 0;
   renderState.compose.length = 0;
+});
+
+describe("uploaded references in approved topic storyboards", () => {
+  const bytes = Buffer.from("unchanged-original-upload");
+  const reference = {
+    id: "screenshot", label: "Screenshot", instructions: "Show the interface",
+    mode: "exact_insert" as const, objectPath: "/objects/7/screenshot",
+    mimeType: "image/png", sha256: referenceDigest(bytes),
+  };
+  function referenceBoard() {
+    const board = storyboard();
+    return {
+      ...board, referenceImages: [reference],
+      scenes: board.scenes.map((scene) => ({ ...scene, referenceImageIds: ["screenshot"] })),
+    };
+  }
+  it("rejects unassigned references before loading or rendering anything", async () => {
+    const board = referenceBoard();
+    board.scenes[0]!.referenceImageIds = [];
+    const load = vi.fn(async () => bytes);
+    await expect(renderTopicStoryboard({
+      storyboard: board as never, aspectRatio: "9:16", subtitles: false, load,
+    })).rejects.toThrow("assignments are incomplete");
+    expect(load).not.toHaveBeenCalled();
+    expect(renderState.animate).toHaveLength(0);
+  });
+  it("refuses an exact preview whose bytes no longer match the frozen digest", async () => {
+    await expect(renderTopicStoryboard({
+      storyboard: referenceBoard() as never, aspectRatio: "9:16", subtitles: false,
+      load: async () => Buffer.from("changed"),
+    })).rejects.toThrow("no longer matches");
+    expect(renderState.animate).toHaveLength(0);
+  });
+  it("replays frozen inserts without changing their scene mapping or narration", async () => {
+    const board = referenceBoard();
+    for (let retry = 0; retry < 2; retry++) {
+      await renderTopicStoryboard({
+        storyboard: structuredClone(board) as never, aspectRatio: "9:16", subtitles: false,
+        load: async () => bytes,
+      });
+    }
+    expect(renderState.animate).toHaveLength(2);
+    for (const params of renderState.animate) {
+      expect(params.exactInserts).toEqual([true]);
+      expect(params.images).toEqual([bytes]);
+    }
+    expect(renderState.compose).toHaveLength(2);
+    expect(board.scenes[0]!.referenceImageIds).toEqual(["screenshot"]);
+  });
 });
 
 describe("renderTopicStoryboard Seedance contract", () => {

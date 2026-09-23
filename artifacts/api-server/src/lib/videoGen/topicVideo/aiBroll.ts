@@ -4,7 +4,7 @@ import { join } from "path";
 import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
-import { generateImage, type ImageSize } from "../../imageGen";
+import { generateImage, type ImageSize, type ImageGenSelectionPolicy } from "../../imageGen";
 import type { ImageGenResult } from "../../imageGen/types";
 import type { MeterContext } from "../../meter";
 import { logger } from "../../logger";
@@ -251,6 +251,7 @@ export function buildStillToClipArgs(
   durationSec: number,
   aspectRatio: VideoAspect,
   zoomIn: boolean,
+  preserveWholeImage = false,
 ): string[] {
   const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
   const superW = width * 2;
@@ -279,7 +280,9 @@ export function buildStillToClipArgs(
     "-i",
     "still.png",
     "-vf",
-    `scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
+    preserveWholeImage
+      ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=yuv420p`
+      : `scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
       `crop=${superW}:${superH},` +
       `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
       `d=1:s=${width}x${height}:fps=${FPS},` +
@@ -301,11 +304,13 @@ export async function stillToClip(
   durationSec: number,
   aspectRatio: VideoAspect,
   zoomIn: boolean,
+  preserveWholeImage = false,
 ): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "kokao-broll-"));
   try {
     await writeFile(join(dir, "still.png"), image);
-    await runFfmpeg(buildStillToClipArgs(durationSec, aspectRatio, zoomIn), dir);
+    const args = buildStillToClipArgs(durationSec, aspectRatio, zoomIn, preserveWholeImage);
+    await runFfmpeg(args, dir);
     return await readFile(join(dir, "clip.mp4"));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -336,8 +341,12 @@ async function mapWithConcurrency<T, R>(
  */
 export async function generateBrollStills(params: {
   prompts: string[];
+  referenceImages?: Array<import("../../imageGen/types").ReferenceImage | undefined>;
+  exactImages?: Array<Buffer | undefined>;
+  imageSelectionPolicy?: ImageGenSelectionPolicy;
   aspectRatio: VideoAspect;
   priorImages?: Buffer[];
+  onProviderStart?: (args: { sceneIndex: number; attemptIndex: number }) => Promise<void>;
   onProviderSuccess?: (args: { sceneIndex: number; attemptIndex: number; result: ImageGenResult }) => Promise<void>;
   onProviderFailure?: (args: { sceneIndex: number; attemptIndex: number; error: unknown }) => Promise<void>;
   meterContext?: MeterContext | null;
@@ -346,9 +355,14 @@ export async function generateBrollStills(params: {
   let provider = "ai";
   let model = "image";
   const initial = await mapWithConcurrency(params.prompts, params.onProviderSuccess || params.onProviderFailure ? 1 : IMAGE_CONCURRENCY, async (prompt, index) => {
+    const exact = params.exactImages?.[index];
+    if (exact) return { buffer: exact, provider: "uploaded", model: "exact_insert" };
     let image: ImageGenResult;
     try {
-      image = await generateImage(privacySafeGeneratedVisualPrompt(prompt), size, undefined, {
+      await params.onProviderStart?.({ sceneIndex: index, attemptIndex: 0 });
+      image = await generateImage(privacySafeGeneratedVisualPrompt(prompt), size, params.referenceImages?.[index], {
+        requireReferenceInput: Boolean(params.referenceImages?.[index]),
+        selectionPolicy: params.imageSelectionPolicy,
         meterContext: params.meterContext
           ? {
               ...params.meterContext,
@@ -373,15 +387,18 @@ export async function generateBrollStills(params: {
   for (const [index, prompt] of params.prompts.entries()) {
     let image = initial[index]!;
     let fingerprint = await imageFingerprint(image.buffer);
-    if (matchesPriorImage(fingerprint, fingerprints)) {
+    if (!params.exactImages?.[index] && matchesPriorImage(fingerprint, fingerprints)) {
       logger.warn({ scene: index }, "AI B-roll frame repeated an earlier shot; regenerating once");
       let replacement: ImageGenResult;
       try {
+        await params.onProviderStart?.({ sceneIndex: index, attemptIndex: 1 });
         replacement = await generateImage(
           `${privacySafeGeneratedVisualPrompt(prompt)}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
           size,
-          undefined,
+          params.referenceImages?.[index],
           {
+            requireReferenceInput: Boolean(params.referenceImages?.[index]),
+            selectionPolicy: params.imageSelectionPolicy,
             meterContext: params.meterContext
               ? {
                   ...params.meterContext,
@@ -416,13 +433,14 @@ export async function generateBrollStills(params: {
  * alternating in/out so consecutive scenes do not drift the same way. */
 export async function stillsToClips(params: {
   images: Buffer[];
+  exactInserts?: boolean[];
   scenes: ScriptScene[];
   aspectRatio: VideoAspect;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[] }> {
   const clips = await mapWithConcurrency(params.scenes, IMAGE_CONCURRENCY, async (scene, i) => {
     const image = params.images[i];
     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
-    return stillToClip(image, scene.durationSec, params.aspectRatio, i % 2 === 0);
+    return stillToClip(image, scene.durationSec, params.aspectRatio, i % 2 === 0, params.exactInserts?.[i]);
   });
   return {
     clips,
@@ -447,6 +465,7 @@ const ANIMATE_CONCURRENCY = 3;
  */
 export async function animateBrollStills(params: {
   images: Buffer[];
+  exactInserts?: boolean[];
   /** Per-scene visual descriptions (the storyboard's approved prompts). */
   visuals: string[];
   scenes: ScriptScene[];
@@ -494,6 +513,10 @@ export async function animateBrollStills(params: {
     if (params.savedClips?.[i]) return params.savedClips[i]!;
     let image = params.images[i];
     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
+    if (params.exactInserts?.[i]) {
+      effectiveDurationSecs[i] = scene.durationSec;
+      return stillToClip(image, scene.durationSec, params.aspectRatio, false, true);
+    }
     const visual = params.visuals[i]?.trim() || scene.text.slice(0, 240);
     const durationSec = clipDurationForScene(scene.durationSec);
     const operationFamilyKey =

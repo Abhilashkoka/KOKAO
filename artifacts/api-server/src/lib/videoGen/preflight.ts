@@ -183,6 +183,12 @@ export async function preflightVideoJob(
   options: VideoJobOptions | null,
 ): Promise<PreflightIssue | null> {
   const visualsSource = options?.visualsSource ?? "stock";
+  const refs = options?.referenceImages ?? [];
+  const exactSceneCoverage = new Set(refs.flatMap((ref) => ref.sceneNumbers ?? [])).size +
+    refs.filter((ref) => !ref.sceneNumbers?.length).length;
+  const allExactInserts = engine === "topic_to_video" && refs.length > 0 &&
+    refs.every((ref) => ref.mode === "exact_insert") &&
+    exactSceneCoverage >= 4 * Math.min(3, Math.max(1, options?.paragraphCount ?? 1));
   const isDirectGuidedStory =
     engine === "topic_to_video" &&
     options?.guidedStoryRenderFlow?.mode === "direct_video";
@@ -201,7 +207,7 @@ export async function preflightVideoJob(
     (engine === "topic_to_video" &&
       !isPresenterBroll &&
       (visualsSource === "character" || visualsSource === "ai_video"));
-  if (needsVideoGen) {
+  if (needsVideoGen && !allExactInserts) {
     const frozen = options?.resolvedVideoModel;
     if (
       isDirectGuidedStory &&
@@ -330,7 +336,7 @@ export async function preflightVideoJob(
     (engine === "topic_to_video" &&
       (visualsSource === "ai" || visualsSource === "ai_video" || visualsSource === "character")) ||
     (engine === "text_to_video" && options?.characterId != null);
-  if (needsImageGen) {
+  if (needsImageGen && !allExactInserts) {
     const issue = evaluate(
       await imageGenKeys(),
       "AI image generation is not configured: pick a provider and save its API key in the admin dashboard.",

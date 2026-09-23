@@ -205,6 +205,18 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  referenceImagesReviewPending?: boolean;
+  referenceImageSelection?: { provider: string; model: string | null; customBaseUrl: string | null; fallbackEnabled: boolean };
+  referenceImages?: Array<{
+    id: string;
+    label: string;
+    objectPath: string;
+    instructions: string;
+    mode: "visual_reference" | "exact_insert";
+    sceneNumbers?: number[];
+    sha256: string;
+    mimeType: string;
+  }>;
   /** Measured export timing, separate from immutable approvals and funding. */
   renderedTimeline?: { version: 1; scenes: Array<{ sceneId: string; startSec: number; endSec: number }> };
   /** Original generated plate for tail restoration without new provider work. */
@@ -1174,6 +1186,7 @@ export interface LocalizedDubResult {
 /** One reviewable beat of a video: the narration it covers, the prompt that
  * will generate it, and a preview still of what that prompt produced. */
 export interface VideoStoryboardScene {
+  referenceImageIds?: string[];
   /** Immutable guided-story assignment displayed during review and consumed by
    * the cast-aware renderer. The fingerprint is the reuse boundary: previews
    * and render receipts survive edits only when every relevant input matches. */
@@ -1469,6 +1482,8 @@ export function storyboardPreviewsAreGenerated(
 /** The plan a paused job is waiting on. Stored on the job row so approving is
  * a resume rather than a re-plan, and so a client only needs the job GET. */
 export interface VideoStoryboard {
+  referenceImages?: VideoJobOptions["referenceImages"];
+  referenceImageSelection?: VideoJobOptions["referenceImageSelection"];
   version: 1;
   /** Bounded workflow discriminator. Optional on legacy storyboards. */
   mode?:

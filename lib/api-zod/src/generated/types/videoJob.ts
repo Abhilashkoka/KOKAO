@@ -22,9 +22,12 @@ import type { VideoJobRepair } from './videoJobRepair';
 import type { VideoJobResolvedVideoModel } from './videoJobResolvedVideoModel';
 import type { VideoJobStatus } from './videoJobStatus';
 import type { VideoJobStudioLipSync } from './videoJobStudioLipSync';
+import type { VideoReferenceImage } from './videoReferenceImage';
 import type { VideoStoryboard } from './videoStoryboard';
 
 export interface VideoJob {
+  /** Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes. */
+  referenceImages?: VideoReferenceImage[];
   id: number;
   /** Persisted funding rail; historical rows without a rail serialize as quota. */
   funding: VideoJobFunding;

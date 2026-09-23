@@ -49,6 +49,7 @@ import {
 } from "./characterScenes";
 import { assignClipsToScenes } from "./visionRank";
 import type { SuppliedPlan } from "./suppliedPlan";
+import { assignReferenceImages, loadFrozenReference, referenceBrief, referenceDigest } from "./referenceImages";
 import {
   AI_BROLL_SCENES_PER_PARAGRAPH,
   animateBrollStills,
@@ -957,6 +958,8 @@ async function generateCharacterStoryClips(params: {
 const NARRATION_TIMELINE_LOCKED = true;
 
 export interface StoryboardPlanParams {
+  referenceImages?: VideoJobOptions["referenceImages"];
+  referenceImageSelection?: VideoJobOptions["referenceImageSelection"];
   tenantId: number;
   /** Frozen route/job funding receipt propagated to planning providers. */
   meterContext?: MeterContext | null;
@@ -1021,7 +1024,9 @@ export async function planTopicStoryboard(
     : AI_BROLL_TOTAL_DEADLINE_MS;
   // Both b-roll flavours share the plan half (script → narration → stills);
   // only the render half after approval differs.
-  const topic = params.topic.trim();
+  const references = params.referenceImages ?? [];
+  const frozenInputs = await Promise.all(references.map((ref) => loadFrozenReference(ref, params.tenantId)));
+  const topic = params.topic.trim() + referenceBrief(references);
   if (!topic) {
     throw new VideoGenProviderError("A topic is required.");
   }
@@ -1222,6 +1227,9 @@ export async function planTopicStoryboard(
   scenesWithinRuntimeBounds(scenes, params.templateRuntime);
 
   params.onStage?.("Sketching the storyboard");
+  const referenceMapping = assignReferenceImages(references, scenes);
+  const sceneReferences = referenceMapping.map((ids) => references.find((ref) => ids.includes(ref.id)));
+  const referenceInputs = sceneReferences.map((ref) => ref ? frozenInputs[references.indexOf(ref)] : undefined);
   let visuals: string[];
   let outfitIds: (number | null)[];
   let stills: Buffer[];
@@ -1240,6 +1248,10 @@ export async function planTopicStoryboard(
     visuals = prompts.map((prompt) =>
       appendCreativeFragment(prompt, params.creativeVisualGuidance ?? null),
     );
+    visuals = visuals.map((visual, i) => {
+      const ref = sceneReferences[i];
+      return ref ? `${visual}\nUploaded reference "${ref.label}": ${ref.instructions}. ${ref.mode === "exact_insert" ? "Display the original image uncropped." : "Use the supplied image as the visual reference; preserve the depicted product/prop details."}` : visual;
+    });
     if (rawPlan != null) {
       aiPlan = { flow: "broll", raw: rawPlan, capturedAt: new Date().toISOString() };
     }
@@ -1248,6 +1260,9 @@ export async function planTopicStoryboard(
     if (params.materializePreviews !== false) {
       const generated = await generateBrollStills({
         prompts: visuals,
+        referenceImages: referenceInputs.map((input, i) => sceneReferences[i]?.mode === "visual_reference" ? input : undefined),
+        exactImages: referenceInputs.map((input, i) => sceneReferences[i]?.mode === "exact_insert" ? input?.buffer : undefined),
+        imageSelectionPolicy: params.referenceImageSelection,
         aspectRatio: params.aspectRatio,
         meterContext: {
           tenantId: params.tenantId,
@@ -1290,13 +1305,13 @@ export async function planTopicStoryboard(
   params.onStage?.("Saving the storyboard");
   const audioPath = await params.upload(narration.wav, "audio/wav");
   const previewPaths = await Promise.all(
-    stills.map((still) =>
+    stills.map((still, i) =>
       still.length === 0
         ? Promise.resolve(null)
         :
       // A preview that fails to upload leaves the scene without a thumbnail
       // rather than sinking a plan the user could still have approved.
-      params.upload(still, "image/png").catch((err) => {
+      params.upload(still, sceneReferences[i]?.mode === "exact_insert" ? sceneReferences[i]!.mimeType : "image/png").catch((err) => {
         logger.warn({ err }, "storyboard preview upload failed");
         return null;
       }),
@@ -1306,6 +1321,7 @@ export async function planTopicStoryboard(
   return {
     version: 1,
     mode: "standard",
+    ...(references.length ? { referenceImages: references, referenceImageSelection: params.referenceImageSelection } : {}),
     visualsSource: params.visualsSource,
     timelineLocked: NARRATION_TIMELINE_LOCKED,
     model,
@@ -1327,6 +1343,7 @@ export async function planTopicStoryboard(
     verificationFindings,
     scenes: scenes.map((scene, i) => ({
       id: `s${i + 1}`,
+      ...(referenceMapping[i]?.length ? { referenceImageIds: referenceMapping[i] } : {}),
       text: scene.text,
       visual: visuals[i] ?? scene.text,
       durationSec: scene.durationSec,
@@ -1820,6 +1837,14 @@ export async function renderTopicStoryboard(params: {
   const board = params.storyboard;
   const characterMode = board.visualsSource === "character";
   const animatedBroll = board.visualsSource === "ai_video";
+  const references = board.referenceImages ?? [];
+  const allIds = board.scenes.flatMap((scene) => scene.referenceImageIds ?? []);
+  if (references.some((ref) => !allIds.includes(ref.id)) ||
+      allIds.some((id) => !references.some((ref) => ref.id === id))) {
+    throw new VideoGenProviderError("Storyboard reference assignments are incomplete. Start a new video; no reference will be silently omitted.");
+  }
+  const exactInserts = board.scenes.map((scene) => references.some((ref) =>
+    ref.mode === "exact_insert" && scene.referenceImageIds?.includes(ref.id)));
   const deadlineMs =
     characterMode || animatedBroll
       ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
@@ -1851,7 +1876,12 @@ export async function renderTopicStoryboard(params: {
   const stills = await Promise.all(
     board.scenes.map(async (scene) => {
       if (!scene.previewPath) return null;
-      return params.load(scene.previewPath).catch(() => null);
+      const bytes = await params.load(scene.previewPath).catch(() => null);
+      const exact = references.find((ref) => ref.mode === "exact_insert" && scene.referenceImageIds?.includes(ref.id));
+      if (bytes && exact && referenceDigest(bytes) !== exact.sha256) {
+        throw new VideoGenProviderError(`Exact insert "${exact.label}" no longer matches the approved original upload.`);
+      }
+      return bytes;
     }),
   );
   const savedClips = await Promise.all(
@@ -1953,7 +1983,7 @@ export async function renderTopicStoryboard(params: {
 
   let clips: Buffer[];
   let sceneMap;
-  let provider = board.provider ?? "ai";
+  let provider = exactInserts.length && exactInserts.every(Boolean) ? "uploaded" : board.provider ?? "ai";
   if (characterMode) {
     params.onStage?.("Filming your character");
     const animated = await animateSceneKeyframes({
@@ -1986,6 +2016,7 @@ export async function renderTopicStoryboard(params: {
     params.onStage?.("Animating your storyboard");
     const animated = await animateBrollStills({
       images: stills as Buffer[],
+      ...(references.length ? { exactInserts } : {}),
       visuals: seedancePrompts?.map((prompt, index) => prompt ?? board.scenes[index]!.visual) ??
         board.scenes.map((scene) => scene.visual),
       scenes,
@@ -2010,6 +2041,7 @@ export async function renderTopicStoryboard(params: {
     params.onStage?.("Animating your storyboard");
     const rendered = await stillsToClips({
       images: stills as Buffer[],
+      ...(references.length ? { exactInserts } : {}),
       scenes,
       aspectRatio: params.aspectRatio,
     });
@@ -2097,6 +2129,13 @@ export async function regenerateStoryboardPreview(params: {
   imageSelectionPolicy?: ImageGenSelectionPolicy;
   meterCtx?: MeterContext | null;
 }): Promise<string> {
+  const assigned = params.scene.referenceImageIds ?? [];
+  const reference = params.storyboard.referenceImages?.find((ref) => assigned.includes(ref.id));
+  if (assigned.length && !reference) throw new VideoGenProviderError("This scene's uploaded reference snapshot is missing; start a new video.");
+  if (reference?.mode === "exact_insert") {
+    throw new VideoGenProviderError("Exact inserts use the original upload and cannot be redrawn.");
+  }
+  const referenceInput = reference ? await loadFrozenReference(reference, params.tenantId) : undefined;
   if (params.scene.guidedStory) {
     // Old paused attempts predate visual metadata; preserve their exact
     // identity-only behavior instead of making a retry invent visual inputs.
@@ -2285,6 +2324,11 @@ export async function regenerateStoryboardPreview(params: {
   }
   const generated = await generateBrollStills({
     prompts: [params.scene.visual],
+    onProviderStart: params.onProviderStart
+      ? async ({ attemptIndex }) => params.onProviderStart!({ attemptIndex })
+      : undefined,
+    referenceImages: [referenceInput],
+    imageSelectionPolicy: params.storyboard.referenceImageSelection,
     aspectRatio: params.aspectRatio,
     priorImages: params.priorImages,
     meterContext: {

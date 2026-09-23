@@ -1908,6 +1908,62 @@ describe("the clip storyboard pause", () => {
     expect(state.usage.slice(1).map((u) => u.costPaise)).toEqual([0, 0]);
   });
 
+  it("freezes uploaded reference assignments before previews and reuses them after review", async () => {
+    const tenant = await newTenant();
+    state.topicPlanMode = "ai";
+    const references: NonNullable<VideoJobOptions["referenceImages"]> = [{
+      id: "product", label: "Product", instructions: "Show the package",
+      mode: "visual_reference", objectPath: `/objects/${tenant.tenantId}/uploads/product.png`,
+      sha256: "frozen-server-digest", mimeType: "image/png",
+    }];
+    state.guidedInitialBoard = {
+      version: 1, mode: "standard", visualsSource: "ai",
+      timelineLocked: true, model: "planner", provider: null, regenerations: 0,
+      referenceImages: references,
+      narration: {
+        audioPath: `/objects/${tenant.tenantId}/uploads/narration.wav`,
+        totalDurationSec: 4, cues: [{ text: "The product", startSec: 0, endSec: 4 }],
+      },
+      scenes: [{
+        id: "s1", text: "The product", visual: "Show package", durationSec: 4,
+        previewPath: null, outfitId: null, referenceImageIds: ["product"],
+      }],
+    };
+    state.guidedPreviewGenerationEnabled = true;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      options: { aspectRatio: "9:16", visualsSource: "ai", reviewStoryboard: true, referenceImages: references },
+    });
+    await runVideoGenerationJob(job.id, "quota");
+    const paused = await readJob(job.id);
+    expect(paused.status, paused.error ?? "").toBe("awaiting_review");
+    expect(paused.storyboard?.scenes[0]?.referenceImageIds).toEqual(["product"]);
+    expect(paused.storyboard?.referenceImages).toEqual(references);
+    expect(paused.storyboard?.scenes[0]?.previewCheckpoint?.status).toBe("complete");
+    expect(paused.options?.referenceImagesReviewPending).toBe(false);
+    expect(state.guidedPreviewProviderCalls).toBe(1);
+    expect(state.topicPlans).toBe(1);
+    await db.update(videoGenerationsTable).set({ status: "processing" }).where(eq(videoGenerationsTable.id, job.id));
+    await resumeVideoGenerationJob(await readJob(job.id));
+    expect((await readJob(job.id)).status).toBe("succeeded");
+    expect(state.guidedPreviewProviderCalls).toBe(1);
+    expect(state.topicPlans).toBe(1);
+    expect((await readJob(job.id)).storyboard?.scenes[0]?.referenceImageIds).toEqual(["product"]);
+    const uncertainBoard = structuredClone(paused.storyboard!);
+    uncertainBoard.scenes[0]!.previewPath = null;
+    uncertainBoard.scenes[0]!.previewCheckpoint = {
+      targetPath: `/objects/${tenant.tenantId}/uploads/uncertain.png`,
+      status: "provider_started",
+    };
+    const uncertainRetry = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video", options: paused.options, storyboard: uncertainBoard,
+    });
+    await runVideoGenerationJob(uncertainRetry.id, "quota");
+    expect((await readJob(uncertainRetry.id)).status).toBe("failed");
+    expect(state.guidedPreviewProviderCalls).toBe(1);
+    expect(state.topicPlans).toBe(1);
+  });
+
   it("refunds every funded shot when the render fails", async () => {
     const tenant = await newTenant();
     const job = await seedJob(tenant.tenantId, {

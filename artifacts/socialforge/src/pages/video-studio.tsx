@@ -122,6 +122,11 @@ import {
 } from "@/components/character-provenance";
 import { CharacterLikenessConsent } from "@/components/character-likeness-consent";
 import {
+  StoryboardReferenceAssignments,
+  VideoReferenceImages,
+  type VideoReferenceImage,
+} from "@/components/video-reference-images";
+import {
   CharacterCreationAttestation,
   creationAttestationComplete,
   creationAttestationPayload,
@@ -865,6 +870,8 @@ export function VideoStudioPage() {
     }
   }, []);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const [referenceImages, setReferenceImages] = useState<VideoReferenceImage[]>([]);
+  const [referenceImagesBlocked, setReferenceImagesBlocked] = useState(false);
   const [music, setMusic] = useState<{
     objectPath: string;
     name: string;
@@ -2091,9 +2098,18 @@ export function VideoStudioPage() {
       ((engine === "text_to_video" || engine === "image_to_video") &&
         generateAudio &&
         hasSelectedCast));
+  const referenceImagesModeSupported =
+    referenceImages.length === 0 ||
+    ((visuals === "ai" || visuals === "ai_video") &&
+      selectedTemplate == null);
 
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
+    if (
+      engine === "topic_to_video" &&
+      (referenceImagesBlocked || !referenceImagesModeSupported)
+    )
+      return false;
     if (studioLipSyncEligible && studioLipSync && !studioLipSyncConsent) return false;
     if (engine === "topic_to_video") {
       if (isHybridCharacterStory && !lipSyncConsent) return false;
@@ -2146,6 +2162,8 @@ export function VideoStudioPage() {
     photos,
     generateVideo.isPending,
     uploading,
+    referenceImagesBlocked,
+    referenceImagesModeSupported,
     visuals,
     characterId,
     presetCharacterId,
@@ -2196,6 +2214,14 @@ export function VideoStudioPage() {
       return "Confirm consent for lip-sync before generating the video.";
     }
     if (engine === "dialogue_lip_sync") return dialogueGenerateBlockReason;
+    if (engine === "topic_to_video" && referenceImagesBlocked) {
+      return "Finish or remove invalid reference image uploads before generating.";
+    }
+    if (engine === "topic_to_video" && !referenceImagesModeSupported) {
+      return selectedTemplate
+        ? "Reference images cannot be combined with a curated template yet. Clear the template or remove the references."
+        : "Reference images currently require AI imagery or Animated AI. Stock footage and character-render paths cannot use them.";
+    }
     if (engine === "lip_sync") {
       if (approvedSpokespersonScript === null) {
         return "Approve the spokesperson script before generating the video.";
@@ -2701,6 +2727,17 @@ export function VideoStudioPage() {
       ? visuals === "character"
       : visuals === "ai" || visuals === "ai_video");
 
+  const loadJobReferenceImages = (job: VideoJob) => {
+    setReferenceImages(
+      (((job as VideoJob & { referenceImages?: VideoReferenceImage[] }).referenceImages) ?? []).map(
+        (reference) => ({
+          ...reference,
+          previewUrl: storageUrl(reference.objectPath),
+        }),
+      ),
+    );
+  };
+
   /** Load a job's saved plan into the form, ready to generate with. */
   const startPlanReuse = (job: VideoJob) => {
     const aiPlan = job.storyboard?.aiPlan;
@@ -2708,6 +2745,7 @@ export function VideoStudioPage() {
     setEngine("topic_to_video");
     setVisuals(aiPlan.flow === "character" ? "character" : "ai");
     if (job.prompt) setPrompt(job.prompt);
+    loadJobReferenceImages(job);
     setReusePlan({
       jobId: job.id,
       flow: aiPlan.flow,
@@ -2965,6 +3003,12 @@ export function VideoStudioPage() {
           // Carried for every engine so the render half writes with the same
           // rules the draft was written under.
           scriptVariant: scriptVariant ?? null,
+          referenceImages:
+            engine === "topic_to_video"
+              ? referenceImages.map(
+                  ({ previewUrl: _previewUrl, ...reference }) => reference,
+                )
+              : undefined,
         } as VideoGenerateWithPreset,
       },
       {
@@ -3025,9 +3069,14 @@ export function VideoStudioPage() {
                 : {}),
             });
           } else {
+            const message = apiErrorMessage(error, "Please try again.");
             toast({
-              title: "Could not start the video",
-              description: error?.message || "Please try again.",
+              title:
+                referenceImages.length > 0 &&
+                /reference|exact.insert|visual.reference|model|mode/i.test(message)
+                  ? "This model cannot use those references"
+                  : "Could not start the video",
+              description: message,
               variant: "destructive",
             });
           }
@@ -4273,6 +4322,47 @@ export function VideoStudioPage() {
 
             {engine === "topic_to_video" && (
               <div className="space-y-3">
+                <VideoReferenceImages
+                  value={referenceImages}
+                  onChange={setReferenceImages}
+                  uploadFile={uploadFile}
+                  onBlockedChange={setReferenceImagesBlocked}
+                />
+                {referenceImages.length > 0 && !referenceImagesModeSupported && (
+                  <div
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2"
+                    data-testid="reference-images-mode-warning"
+                  >
+                    <p className="text-sm font-medium">Choose a compatible video path</p>
+                    <p className="text-xs text-muted-foreground">
+                      This version supports references only with AI imagery or Animated AI,
+                      without a curated template or character-render mode. Exact inserts become
+                      fitted, uncropped full-frame scenes while narration continues.
+                    </p>
+                    {!selectedTemplate && (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setVisuals("ai")}
+                          data-testid="button-switch-reference-ai"
+                        >
+                          Use AI imagery
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setVisuals("ai_video")}
+                          data-testid="button-switch-reference-ai-video"
+                        >
+                          Use Animated AI
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {flags.referenceStyles && (
                   <section
                     className="rounded-xl border border-border bg-muted/20 p-4 space-y-4"
@@ -6827,6 +6917,14 @@ export function VideoStudioPage() {
                         Your storyboard
                       </DialogTitle>
                     </DialogHeader>
+                    <StoryboardReferenceAssignments
+                      references={
+                        (activeJob as VideoJob & {
+                          referenceImages?: VideoReferenceImage[];
+                        }).referenceImages ?? []
+                      }
+                      scenes={activeJob.storyboard.scenes}
+                    />
                     <StoryboardReview
                       job={activeJob}
                       storyboard={activeJob.storyboard}
@@ -6983,6 +7081,20 @@ export function VideoStudioPage() {
                       }}
                     />
                   )}
+                {activeJob.engine === "topic_to_video" && activeJob.storyboard && (
+                  <StoryboardReferenceAssignments
+                    references={
+                      (activeJob as VideoJob & {
+                        referenceImages?: VideoReferenceImage[];
+                      }).referenceImages ?? []
+                    }
+                    scenes={
+                      activeJob.storyboard.scenes as Array<
+                        VideoStoryboardScene & { referenceImageIds?: string[] }
+                      >
+                    }
+                  />
+                )}
               </div>
             )}
             {canReplayGuidedStoryDialogue && (
@@ -7438,6 +7550,7 @@ export function VideoStudioPage() {
                             setEngine(activeJob.engine as Engine);
                           }
                           setPrompt(activeJob.prompt ?? "");
+                          loadJobReferenceImages(activeJob);
                           setAspect(
                             (activeJob.aspectRatio as Aspect) ?? "9:16",
                           );
@@ -7487,6 +7600,7 @@ export function VideoStudioPage() {
                           setEngine(activeJob.engine as Engine);
                         }
                         setPrompt(activeJob.prompt ?? "");
+                        loadJobReferenceImages(activeJob);
                         setAspect((activeJob.aspectRatio as Aspect) ?? "9:16");
                         setActiveJobId(null);
                         window.scrollTo({ top: 0, behavior: "smooth" });

@@ -13,6 +13,7 @@ import { videoJobUnits } from "../units";
 import { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 import { VideoGenProviderError } from "../types";
 import { MeterDispatchReplayError } from "../../meterErrors";
+import { generateImage } from "../../imageGen";
 
 const animateState = vi.hoisted(() => ({
   calls: [] as {
@@ -183,6 +184,13 @@ function isMp4(buffer: Buffer): boolean {
 }
 
 describe("buildStillToClipArgs", () => {
+  it("fits exact inserts uncropped without zooming", () => {
+    const args = buildStillToClipArgs(2, "9:16", false, true);
+    const filter = args[args.indexOf("-vf") + 1]!;
+    expect(filter).toContain("force_original_aspect_ratio=decrease");
+    expect(filter).toContain("pad=");
+    expect(filter).not.toMatch(/crop|zoompan/);
+  });
   it("pins the still input to the pipeline frame rate", () => {
     // The image demuxer defaults to 25fps while the zoompan retimes to 30, so
     // without -framerate the clip landed ~17% short — short enough that the
@@ -211,6 +219,54 @@ describe("generateBrollStills duplicate protection", () => {
       .png()
       .toBuffer();
   }
+
+  it("uses exact uploaded bytes without dispatching or charging an image model", async () => {
+    const original = await solid("red");
+    const onProviderSuccess = vi.fn();
+    const generated = await generateBrollStills({
+      prompts: ["show screenshot", "show screenshot again"], aspectRatio: "9:16",
+      exactImages: [original, original], onProviderSuccess,
+    });
+    expect(generated.images).toEqual([original, original]);
+    expect(imageGenState.prompts).toEqual([]);
+    expect(onProviderSuccess).not.toHaveBeenCalled();
+  });
+
+  it("renders an exact AI-video scene locally instead of sending it to a video model", async () => {
+    const original = await solid("red");
+    const result = await animateBrollStills({
+      images: [original], exactInserts: [true], visuals: ["Product label"],
+      scenes: [{ text: "Narration is retained", firstCue: 0, lastCue: 0, durationSec: 0.5 }],
+      aspectRatio: "9:16",
+    });
+    expect(animateState.calls).toEqual([]);
+    expect(isMp4(result.clips[0]!)).toBe(true);
+    expect(result.sceneMap[0]?.durationSec).toBe(0.5);
+  });
+
+  it.each(["jpeg", "webp"] as const)("renders original %s bytes as a fitted exact insert", async (format) => {
+    const original = await sharp(await solid("red")).toFormat(format).toBuffer();
+    expect(isMp4(await stillToClip(original, 0.5, "16:9", false, true))).toBe(true);
+  });
+
+  it("forwards the same reference bytes and frozen selection on a duplicate retry", async () => {
+    const original = await solid("red");
+    const replacement = await solid("white");
+    imageGenState.results.push(original, replacement);
+    const reference = { buffer: original, mimeType: "image/png" };
+    const selection = { provider: "test", model: "pinned", customBaseUrl: null, fallbackEnabled: false };
+    const start = vi.mocked(generateImage).mock.calls.length;
+    await generateBrollStills({
+      prompts: ["use this product"], aspectRatio: "9:16",
+      priorImages: [original], referenceImages: [reference], imageSelectionPolicy: selection,
+    });
+    const calls = vi.mocked(generateImage).mock.calls.slice(start);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call[2]).toBe(reference);
+      expect(call[3]).toMatchObject({ requireReferenceInput: true, selectionPolicy: selection });
+    }
+  });
 
   it("regenerates a repeated provider image with a forced fresh-shot prompt", async () => {
     const first = await solid("#cc4433");

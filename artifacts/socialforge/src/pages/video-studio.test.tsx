@@ -1044,6 +1044,62 @@ beforeEach(() => {
 });
 
 describe("Video Studio", () => {
+  it("submits topic reference images with edits and blocks invalid or unsupported modes", async () => {
+    mockState.featureFlags = {
+      videoGen: true,
+      videoTopicToVideo: true,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    renderPage();
+    fireEvent.click(screen.getByTestId("tab-topic-to-video"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "Launch our new reusable water bottle" },
+    });
+
+    await userEvent.upload(
+      screen.getByTestId("input-reference-images"),
+      new File(["image"], "bottle.png", { type: "image/png" }),
+    );
+    await waitFor(() => expect(screen.getByTestId("reference-images-mode-warning")).toBeTruthy());
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("button-switch-reference-ai"));
+    fireEvent.change(screen.getByTestId("input-reference-label-0"), {
+      target: { value: "Hero bottle" },
+    });
+    fireEvent.change(screen.getByTestId("input-reference-instructions-0"), {
+      target: { value: "Keep the logo readable" },
+    });
+    fireEvent.change(screen.getByTestId("select-reference-mode-0"), {
+      target: { value: "exact_insert" },
+    });
+    fireEvent.change(screen.getByTestId("input-reference-scenes-0"), {
+      target: { value: "0" },
+    });
+    await waitFor(() =>
+      expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true),
+    );
+
+    fireEvent.change(screen.getByTestId("input-reference-scenes-0"), {
+      target: { value: "1, 3" },
+    });
+    await waitFor(() =>
+      expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+
+    expect(mockState.lastGenerateVars.data.referenceImages).toEqual([
+      expect.objectContaining({
+        label: "Hero bottle",
+        objectPath: "/objects/1/uploads/presenter.mp4",
+        instructions: "Keep the logo readable",
+        mode: "exact_insert",
+        sceneNumbers: [1, 3],
+      }),
+    ]);
+    expect(mockState.lastGenerateVars.data.referenceImages[0].previewUrl).toBeUndefined();
+  });
+
   it("reviews and explicitly confirms replay for a failed Guided Story", async () => {
     mockState.featureFlags = { videoGen: true, videoTopicToVideo: true };
     mockState.activeJob = {

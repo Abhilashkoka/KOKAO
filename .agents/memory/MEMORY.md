@@ -144,3 +144,4 @@
 - [Image fallback failure classes](image-fallback-failure-classes.md) — no-output STOP without a safety block and provider-local model 404s should continue through an enabled fallback chain.
 - [Unified credit rollout](unified-credit-rollout.md) — provider-boundary metering must reconcile in shadow mode before enforce; purchased and expiring granted balances stay separate.
 - [Role-aware route verification](role-aware-route-verification.md) — superadmin development sessions can conceal middleware leaks that block ordinary production users.
+- [Topic reference images](topic-reference-images.md) — distinguish real AI image conditioning from exact fitted inserts; never silently ignore uploads or regenerate screenshot text.

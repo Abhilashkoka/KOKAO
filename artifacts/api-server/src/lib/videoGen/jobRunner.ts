@@ -147,6 +147,7 @@ import {
   resolveNarrationVoice,
   type StockSourceChoice,
 } from "./topicVideo";
+import { loadFrozenReference } from "./topicVideo/referenceImages";
 import { isSuppliedPlan } from "./topicVideo/suppliedPlan";
 import { generateCharacterClip } from "./characterClip";
 import {
@@ -225,7 +226,7 @@ import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBri
 import { videoPriceCriteria } from "./pricing";
 import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
-import { meter, type MeterContext } from "../meter";
+import { meter, isDefinitiveProviderRejection, type MeterContext } from "../meter";
 import type { MeterFundingSnapshot } from "../meterFunding";
 import { videoFundingSnapshot } from "./funding";
 import {
@@ -4370,6 +4371,15 @@ async function produceVideo(
     // was approved, so render it instead of planning again.
     if (job.storyboard) {
       let board = job.storyboard;
+      if (options.referenceImages?.length) {
+        const assigned = board.scenes.flatMap((scene) => scene.referenceImageIds ?? []);
+        if (options.referenceImages.some((ref) =>
+          !assigned.includes(ref.id) || !board.referenceImages?.some((saved) =>
+            saved.id === ref.id && saved.sha256 === ref.sha256 &&
+            saved.objectPath === ref.objectPath && saved.mode === ref.mode))) {
+          throw new VideoJobInputError("The frozen uploaded-reference mapping is missing or changed. Start a new video; no supplied image will be ignored.");
+        }
+      }
       const creativeIssues = lintStoryboardCreativeBrief(board, options.resolvedCreativeBrief);
       if (creativeIssues.length > 0) {
         throw new VideoJobInputError(
@@ -4726,7 +4736,7 @@ async function produceVideo(
       const previewUploadUrls = new Map<string, string>();
       const previewAttemptIds = new WeakMap<object, string>();
       if (
-        hasDeferredTemplateFunding(job) &&
+        (hasDeferredTemplateFunding(job) || Boolean(options.referenceImages?.length)) &&
         (board.mode === "guided_story" || board.visualsSource === "ai" || board.visualsSource === "ai_video" || board.visualsSource === "character")
       ) {
         for (const scene of board.scenes) {
@@ -4735,6 +4745,9 @@ async function produceVideo(
           // rather than clearing the path and charging for a replacement.
           if (scene.previewPath && !scene.previewCheckpoint) continue;
           if (scene.previewCheckpoint?.status === "complete" && scene.previewPath) continue;
+          if (options.referenceImages?.length && scene.previewCheckpoint?.status === "provider_started") {
+            throw new VideoGenProviderError("An uploaded-reference preview has an uncertain provider outcome. It was not repeated; contact support to reconcile the attempt.");
+          }
           if (scene.previewCheckpoint?.status === "provider_succeeded") {
             const events = previewCheckpointEvents(scene.previewCheckpoint);
             if (events.length === 0) throw new VideoGenProviderError("Preview checkpoint is missing its provider receipt.");
@@ -4886,7 +4899,7 @@ async function produceVideo(
       // visual workload is funded. Materialize those same prompts on resume;
       // never call the planner again.
       if (
-        hasDeferredTemplateFunding(job) &&
+        (hasDeferredTemplateFunding(job) || Boolean(options.referenceImages?.length)) &&
         (board.mode === "guided_story" || board.visualsSource === "ai" || board.visualsSource === "ai_video") &&
         board.scenes.some((scene) => !scene.previewPath)
       ) {
@@ -4896,6 +4909,16 @@ async function produceVideo(
             priorSelectedImages.push((
               await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Storyboard preview")
             ).buffer);
+            continue;
+          }
+          const exactReference = board.referenceImages?.find((ref) =>
+            ref.mode === "exact_insert" && scene.referenceImageIds?.includes(ref.id));
+          if (exactReference) {
+            const original = await loadFrozenReference(exactReference, job.tenantId);
+            const previewPath = await uploadToStorage(job.tenantId, original.buffer, original.mimeType);
+            board = { ...board, scenes: board.scenes.map((candidate) =>
+              candidate.id === scene.id ? { ...candidate, previewPath, previewCheckpoint: null } : candidate) };
+            await setJob(job.id, { storyboard: board });
             continue;
           }
           onStage(
@@ -4913,6 +4936,13 @@ async function produceVideo(
             upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
             priorImages: priorSelectedImages,
             imageSelectionPolicy: options.guidedStory?.imageModelSnapshot,
+            onProviderStart: options.referenceImages?.length ? async () => {
+              board = { ...board, scenes: board.scenes.map((candidate) =>
+                candidate.id === scene.id && candidate.previewCheckpoint
+                  ? { ...candidate, previewCheckpoint: { ...candidate.previewCheckpoint, status: "provider_started" as const } }
+                  : candidate) };
+              await setJob(job.id, { storyboard: board });
+            } : undefined,
             onProviderSuccess: async ({ attemptIndex, result }) => {
               const current = board.scenes.find((candidate) => candidate.id === scene.id)!;
               const checkpoint = current.previewCheckpoint;
@@ -4950,6 +4980,14 @@ async function produceVideo(
             },
             onProviderFailure: async ({ error }) => {
               const current = board.scenes.find((candidate) => candidate.id === scene.id)!;
+              if (options.referenceImages?.length && current.previewCheckpoint && isDefinitiveProviderRejection(error)) {
+                const checkpoint = current.previewCheckpoint;
+                board = { ...board, scenes: board.scenes.map((candidate) =>
+                  candidate.id === scene.id ? { ...candidate, previewCheckpoint: {
+                    ...checkpoint, status: previewCheckpointEvents(checkpoint).length ? "provider_succeeded" as const : "prepared" as const,
+                  } } : candidate) };
+                await setJob(job.id, { storyboard: board });
+              }
               await recordSceneFailure(
                 { ...job, storyboard: board },
                 current,
@@ -4995,6 +5033,10 @@ async function produceVideo(
           };
           await setJob(job.id, { storyboard: board });
         }
+      }
+      if (options.referenceImagesReviewPending) {
+        await setJob(job.id, { storyboard: board, options: { ...options, referenceImagesReviewPending: false } });
+        return { paused: true, storyboard: board };
       }
       // Legacy and previously rebuilt Guided Story boards may have lost their
       // narration when only visual references changed. Re-voice from the exact
@@ -5562,6 +5604,8 @@ async function produceVideo(
     // and no clip is animated until the plan is approved.
     if (reviewable) {
       let storyboard = await planTopicStoryboard({
+        referenceImages: options.referenceImages,
+        referenceImageSelection: options.referenceImageSelection,
         characterSnapshot: options.characterSnapshot,
         tenantId: job.tenantId,
         meterContext: videoMeterContext(job, "storyboard-planner"),
@@ -5591,14 +5635,16 @@ async function produceVideo(
         creativeVisualGuidance: creative.visual,
         scriptVariant,
         suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
-        materializePreviews: !hasDeferredTemplateFunding(job),
+        materializePreviews: !hasDeferredTemplateFunding(job) && !options.referenceImages?.length,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onPreviewProviderFailure: async ({ scenes, sceneIndex, error }) => {
           await recordPreviewFailureBoundary(job, scenes, sceneIndex, error);
         },
         onStage,
       });
-      let persistedOptions = options;
+      let persistedOptions = options.referenceImages?.length
+        ? { ...options, referenceImagesReviewPending: options.reviewStoryboard === true }
+        : options;
       if (
         storyboard.mode === "character_story" &&
         options.videoTemplateId &&
@@ -5624,7 +5670,7 @@ async function produceVideo(
         }
         persistedOptions = fundingResult.job.options!;
       }
-      if (options.reviewStoryboard) return { paused: true, storyboard };
+      if (options.reviewStoryboard && !options.referenceImages?.length) return { paused: true, storyboard };
       // No-review multi-operation jobs still use the same checkpoint-capable
       // renderer; they simply approve their generated plan immediately. The
       // planner may already have uploaded narration, stills, and character
@@ -8466,6 +8512,7 @@ async function executeVideoJob(
       videoJobUnits(job.engine, job.options) > 0 &&
       completedProviderEvents.length === 0 &&
       provider &&
+      provider !== "uploaded" &&
       model &&
       !isKnownFreeStockTopicRender(
         job.engine,

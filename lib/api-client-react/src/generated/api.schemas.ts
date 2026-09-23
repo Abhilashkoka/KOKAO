@@ -5703,6 +5703,39 @@ export type GuidedStoryDialogueReplayCheckpoint = GuidedStoryDialogueReplayOpera
   lines: GuidedStoryDialogueReplayLineCheckpoint[];
 };
 
+export type VideoReferenceImageMode = typeof VideoReferenceImageMode[keyof typeof VideoReferenceImageMode];
+
+
+export const VideoReferenceImageMode = {
+  visual_reference: 'visual_reference',
+  exact_insert: 'exact_insert',
+} as const;
+
+export interface VideoReferenceImage {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  label: string;
+  /** @minLength 1 */
+  objectPath: string;
+  /** @maxLength 2000 */
+  instructions: string;
+  mode: VideoReferenceImageMode;
+  /**
+     * One-based scene assignments; omitted or empty assigns automatically.
+     * @maxItems 80
+     * @items.minimum 1
+     * @items.maximum 80
+     */
+  sceneNumbers?: number[];
+}
+
 /**
  * Persisted funding rail; historical rows without a rail serialize as quota.
  */
@@ -6139,6 +6172,8 @@ export type VideoStoryboardSceneGuidedStory = {
 } | null;
 
 export interface VideoStoryboardScene {
+  /** Frozen uploaded reference assignments for this scene. */
+  referenceImageIds?: string[];
   /**
      * Immutable role/cast mapping and scene reuse identity for Guided Story review.
      * @nullable
@@ -6776,6 +6811,8 @@ export type VideoJobGuidedPreviewRender = {
 } | null;
 
 export interface VideoJob {
+  /** Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes. */
+  referenceImages?: VideoReferenceImage[];
   id: number;
   /** Persisted funding rail; historical rows without a rail serialize as quota. */
   funding: VideoJobFunding;
@@ -7287,6 +7324,11 @@ export const ScriptVariant = {
 } as const;
 
 export interface VideoGenerateRequest {
+  /**
+     * Tenant-owned PNG/JPEG/WebP uploads, at most 10 MB each. Separate from saved character references.
+     * @maxItems 6
+     */
+  referenceImages?: VideoReferenceImage[];
   /**
      * Stable id of an active, free-to-select platform fictional preset.
      * @nullable

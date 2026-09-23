@@ -220,6 +220,7 @@ import {
 } from "./characters";
 import { uploadBufferToStorage } from "../lib/storageUpload";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
+import { freezeReferenceImages } from "../lib/videoGen/topicVideo/referenceImages";
 import {
   normalizeLocalizedNarrationSelection,
   type LocalizedNarrationSelection,
@@ -1816,6 +1817,7 @@ function serializeVideoJob(
     totalCreditsUsed,
     savedContentItemId:
       lineage?.savedContentItemId ?? job.savedContentItemId ?? null,
+    referenceImages: job.options?.referenceImages?.map(({ sha256: _sha256, mimeType: _mimeType, ...ref }) => ref) ?? [],
     storyboard: job.storyboard ?? null,
     storyboardExpiresAt: job.storyboardExpiresAt?.toISOString() ?? null,
     // Localized dub result snapshot: populated on success for localized_dub
@@ -10387,6 +10389,22 @@ async function generateVideoHandler(
     return;
   }
   let body = parsed.data;
+  let uploadedReferences: Awaited<ReturnType<typeof freezeReferenceImages>> | undefined;
+  if (body.referenceImages?.length) {
+    if (body.engine !== "topic_to_video" ||
+        !["ai", "ai_video"].includes(body.visualsSource ?? "") ||
+        body.styleProfileId || body.guidedStoryDraftId || body.characterId ||
+        body.presetCharacterId) {
+      res.status(400).json({ error: "Uploaded prop references currently require a topic video with AI imagery or AI video visuals, without a character, Guided Story, or template. Saved character references remain separate." });
+      return;
+    }
+    try {
+      uploadedReferences = await freezeReferenceImages(body.referenceImages, req.tenantId, (body.paragraphCount ?? 1) * 4);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Could not validate uploaded reference images." });
+      return;
+    }
+  }
   // One authorization decision for enqueue-time paid planning and the worker.
   const creditSnapshot = await freezeMeterFunding(req.tenantId);
   const enqueueOperationKey = `video-enqueue:${req.tenantId}:${randomUUID()}`;
@@ -11882,6 +11900,10 @@ async function generateVideoHandler(
     return;
   }
   const options: VideoJobOptions = {
+    ...(uploadedReferences ? {
+      referenceImages: uploadedReferences.references,
+      referenceImageSelection: uploadedReferences.selection,
+    } : {}),
     ...(guidedDraft || (characterId != null && !selectedPresetSnapshot)
       ? { characterProvenanceVersion: CHARACTER_PROVENANCE_VERSION }
       : {}),
@@ -16505,6 +16527,16 @@ router.patch(
       // "slide" plan is ffmpeg cross-fades over the user's own photos: there is no
       // camera to move, so accepting the field would be accept-and-ignore.
       const sceneEdits = parsed.data.scenes;
+      if (sceneEdits.some((edit) => {
+        const scene = storyboard.scenes.find((candidate) => candidate.id === edit.id);
+        const exact = storyboard.referenceImages?.some((ref) =>
+          ref.mode === "exact_insert" && scene?.referenceImageIds?.includes(ref.id));
+        return exact && ((edit.visual !== undefined && edit.visual.trim() !== scene?.visual) ||
+          edit.motionPreset !== undefined || edit.seed !== undefined);
+      })) {
+        res.status(400).json({ error: "Exact inserts preserve the uploaded image. You can edit their narration, but not redraw or animate them. Start a new video to change the image or its mode." });
+        return;
+      }
       if (
         storyboard.visualsSource === "slide" &&
         sceneEdits.some((s) => s.motionPreset !== undefined)
@@ -17162,6 +17194,10 @@ router.post(
     const scene = storyboard.scenes.find((s) => s.id === req.params.sceneId);
     if (!scene) {
       res.status(400).json({ error: "That scene is not in this storyboard." });
+      return;
+    }
+    if (storyboard.referenceImages?.some((ref) => ref.mode === "exact_insert" && scene.referenceImageIds?.includes(ref.id))) {
+      res.status(400).json({ error: "Exact inserts display your original upload and cannot be redrawn." });
       return;
     }
     const cap = STORYBOARD_REGENERATIONS_PER_SCENE * storyboard.scenes.length;
