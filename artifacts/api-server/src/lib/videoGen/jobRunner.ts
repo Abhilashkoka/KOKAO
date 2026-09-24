@@ -871,6 +871,7 @@ async function recoverGeneratedStoryboardKeyframe(params: {
       model: result.model,
       inputTokens: result.usage?.inputTokens,
       outputTokens: result.usage?.outputTokens,
+      inputTokenDetails: result.usage?.inputTokenDetails,
     }).catch(() => null),
     unitWeight: 1,
   };
@@ -4613,6 +4614,7 @@ async function produceVideo(
                     costPaise: await computeImageCostPaise({
                       provider: keyframe.provider, model: keyframe.model,
                       inputTokens: keyframe.usage?.inputTokens, outputTokens: keyframe.usage?.outputTokens,
+                      inputTokenDetails: keyframe.usage?.inputTokenDetails,
                     }).catch(() => null),
                     unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
                   };
@@ -4830,6 +4832,7 @@ async function produceVideo(
                       model: result.model,
                       inputTokens: result.usage?.inputTokens,
                       outputTokens: result.usage?.outputTokens,
+                      inputTokenDetails: result.usage?.inputTokenDetails,
                     }).catch(() => null),
                     unitWeight: attemptIndex === 0 ? videoModelMultiplier(options.modelId) : 0,
                   };
@@ -4963,6 +4966,7 @@ async function produceVideo(
                   model: result.model,
                   inputTokens: result.usage?.inputTokens,
                   outputTokens: result.usage?.outputTokens,
+                  inputTokenDetails: result.usage?.inputTokenDetails,
                 }).catch(() => null),
                 unitWeight: attemptIndex === 0 ? videoModelMultiplier(options.modelId) : 0,
               };
@@ -6446,6 +6450,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
               model: result.model,
               inputTokens: result.usage?.inputTokens,
               outputTokens: result.usage?.outputTokens,
+              inputTokenDetails: result.usage?.inputTokenDetails,
             }).catch(() => null),
             unitWeight: attemptIndex === 0 ? videoModelMultiplier(claimed.options?.modelId) : 0,
           });
@@ -6733,6 +6738,7 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
               model: result.model,
               inputTokens: result.usage?.inputTokens,
               outputTokens: result.usage?.outputTokens,
+              inputTokenDetails: result.usage?.inputTokenDetails,
             }).catch(() => null),
             unitWeight: attemptIndex === 0 ? videoModelMultiplier(claimed.options?.modelId) : 0,
           });
@@ -7020,6 +7026,7 @@ export async function runGuidedSceneCorrectionJob(
           provider, model,
           inputTokens: result.usage?.inputTokens,
           outputTokens: result.usage?.outputTokens,
+          inputTokenDetails: result.usage?.inputTokenDetails,
         }).catch(() => null);
         await confirmSuccess?.({
           provider, model,

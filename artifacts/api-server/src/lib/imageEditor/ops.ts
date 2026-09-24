@@ -267,6 +267,7 @@ async function runCutout(
         image: imageFile,
         prompt: CUTOUT_PROMPT,
         background: "transparent",
+        output_format: "png",
       }),
     (result) => {
       const usage = (result as { usage?: { output_tokens?: number } }).usage;
@@ -277,6 +278,11 @@ async function runCutout(
   const b64 = response.data?.[0]?.b64_json ?? "";
   if (!b64) throw new ImageGenProviderError("The image provider returned no image data.");
   const buffer = Buffer.from(b64, "base64");
+  if ((await sharp(buffer).stats()).isOpaque) {
+    throw new ImageGenProviderError(
+      "OpenAI did not return a transparent cutout. GPT Image 2 transparency is in preview; no opaque layer was saved.",
+    );
+  }
   const { width, height } = await dimensionsOf(buffer);
 
   // Trim the transparent margin so the layer's box is the subject's box. A
@@ -300,7 +306,7 @@ async function runCutout(
   const trimmedSize = await dimensionsOf(trimmed);
 
   const objectPath = await uploadBufferToStorage(tenantId, trimmed, "image/png");
-  const usage = (response as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+  const usage = response.usage;
 
   return {
     imagePath: null,
@@ -331,6 +337,7 @@ async function runCutout(
           ? {
               inputTokens: typeof usage.input_tokens === "number" ? usage.input_tokens : null,
               outputTokens: typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+              inputTokenDetails: usage.input_tokens_details,
             }
           : undefined,
       })),

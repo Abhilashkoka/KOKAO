@@ -157,7 +157,7 @@ describe("POST /ai/edit-image", () => {
     expect(typeof res.body.b64Json).toBe("string");
     expect(imagesEdit).toHaveBeenCalledTimes(1);
     const call = imagesEdit.mock.calls[0][0] as Record<string, unknown>;
-    expect(call.model).toBe("gpt-image-1");
+    expect(call.model).toBe("gpt-image-2");
     expect(call.mask).toBeTruthy();
     // Funding settled: one image consumed.
     const after = await getUsage(tenant.tenantId);

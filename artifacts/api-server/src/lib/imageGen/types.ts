@@ -59,12 +59,13 @@ export interface ImageGenResult {
    */
   providerRequestId?: string | null;
   /**
-   * Token usage when the provider reports it (OpenAI gpt-image-1, Gemini).
+   * Token usage when the provider reports it (OpenAI GPT Image, Gemini).
    * Used for token-based cost computation; absent for flat-priced providers.
    */
   usage?: {
     inputTokens: number | null;
     outputTokens: number | null;
+    inputTokenDetails?: { text_tokens?: number; image_tokens?: number };
   };
 }
 

@@ -16,7 +16,7 @@ import { meter, type MeterContext } from "./meter";
  * Mask-based AI image editing (inpainting) for the web image editor.
  *
  * Deliberately narrower than the generation pipeline: it always uses the
- * built-in OpenAI provider (gpt-image-1 images.edit is the only routed
+ * built-in OpenAI provider (GPT Image images.edit is the only routed
  * provider with first-class mask support), so there is no provider routing,
  * no design-skill pass, and no reference-guide pass. Funding is NOT handled
  * here — the route reserves before and settles/releases after, exactly like
@@ -26,8 +26,8 @@ import { meter, type MeterContext } from "./meter";
  * TRANSPARENT pixels mark the region to regenerate; opaque pixels are kept.
  */
 
-/** Hard cap on the decoded mask (matches the reference-image cap). */
-export const MAX_MASK_BYTES = 10 * 1024 * 1024;
+/** OpenAI requires PNG edit masks smaller than 4 MB. */
+export const MAX_MASK_BYTES = 4 * 1024 * 1024;
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
@@ -91,8 +91,8 @@ export function decodeMask(maskB64: string): Buffer {
   if (mask.length === 0) {
     throw new ImageEditInputError("The mask is empty.");
   }
-  if (mask.length > MAX_MASK_BYTES) {
-    throw new ImageEditInputError("The mask is too large. Please use a mask under 10 MB.");
+  if (mask.length >= MAX_MASK_BYTES) {
+    throw new ImageEditInputError("The mask is too large. Please use a mask under 4 MB.");
   }
   if (!mask.subarray(0, 4).equals(PNG_MAGIC)) {
     throw new ImageEditInputError("The mask must be a PNG image.");
@@ -160,6 +160,7 @@ export async function performImageEdit(input: ImageEditInput): Promise<ImageEdit
       () =>
         openai.images.edit({
           model: OPENAI_BUILTIN_MODEL,
+          output_format: "png",
           image: imageFile,
           mask: maskFile,
           prompt: input.prompt,
@@ -191,7 +192,7 @@ export async function performImageEdit(input: ImageEditInput): Promise<ImageEdit
   const imagePath = await uploadBufferToStorage(input.tenantId, buffer, "image/png");
   const b64Json = buffer.toString("base64");
 
-  const usage = (response as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+  const usage = response.usage;
   return {
     imagePath,
     b64Json,
@@ -207,6 +208,7 @@ export async function performImageEdit(input: ImageEditInput): Promise<ImageEdit
           ? {
               inputTokens: typeof usage.input_tokens === "number" ? usage.input_tokens : null,
               outputTokens: typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+              inputTokenDetails: usage.input_tokens_details,
             }
           : undefined,
       })),

@@ -24,7 +24,7 @@ export async function generateImageBuffer(
   size: "1024x1024" | "1536x1024" | "1024x1536" = "1024x1024"
 ): Promise<Buffer> {
   const response = await openai.images.generate({
-    model: "gpt-image-1",
+    model: "gpt-image-2",
     prompt,
     size,
   });
@@ -46,7 +46,7 @@ export async function editImages(
   );
 
   const response = await openai.images.edit({
-    model: "gpt-image-1",
+    model: "gpt-image-2",
     image: images,
     prompt,
   });

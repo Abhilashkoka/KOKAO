@@ -25,7 +25,8 @@ vi.mock("./storageUpload", () => ({
 }));
 vi.mock("./aiCost", () => ({ buildImageCostMeta: vi.fn(async () => ({})) }));
 
-import { performImageEdit } from "./imageEdit";
+import { decodeMask, performImageEdit } from "./imageEdit";
+import { buildImageCostMeta } from "./aiCost";
 
 describe("performImageEdit metering", () => {
   beforeEach(() => {
@@ -33,7 +34,10 @@ describe("performImageEdit metering", () => {
     state.meter.mockReset();
     state.edit.mockResolvedValue({
       data: [{ b64_json: Buffer.from("edited").toString("base64") }],
-      usage: { output_tokens: 23 },
+      usage: {
+        input_tokens: 30, output_tokens: 23,
+        input_tokens_details: { text_tokens: 10, image_tokens: 20 },
+      },
     });
     state.meter.mockImplementation(async (_ctx, _key, _quantity, fn) => fn());
   });
@@ -72,5 +76,17 @@ describe("performImageEdit metering", () => {
       expect.any(Function),
     );
     expect(state.edit).toHaveBeenCalledTimes(1);
+    expect(state.edit.mock.calls[0][0]).toMatchObject({ model: "gpt-image-2", output_format: "png" });
+    expect(buildImageCostMeta).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-image-2",
+      usage: { inputTokens: 30, outputTokens: 23, inputTokenDetails: { text_tokens: 10, image_tokens: 20 } },
+    }));
+  });
+
+  it("rejects masks at the official 4 MB boundary before dispatch", () => {
+    const mask = Buffer.alloc(4 * 1024 * 1024);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47]).copy(mask);
+    expect(() => decodeMask(mask.toString("base64"))).toThrow("under 4 MB");
+    expect(state.edit).not.toHaveBeenCalled();
   });
 });

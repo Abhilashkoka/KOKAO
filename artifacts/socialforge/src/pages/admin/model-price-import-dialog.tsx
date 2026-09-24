@@ -341,7 +341,7 @@ export function ModelPriceImportDialog({
               <Input
                 id="import-price-url"
                 type="url"
-                placeholder="https://developers.openai.com/api/docs/models/gpt-image-1"
+                placeholder="https://developers.openai.com/api/docs/models/gpt-image-2"
                 value={sourceUrl}
                 disabled={requiresTarget && !target}
                 onChange={(event) => {

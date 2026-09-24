@@ -6651,6 +6651,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               model,
               inputTokens: generated.usage?.inputTokens,
               outputTokens: generated.usage?.outputTokens,
+              inputTokenDetails: generated.usage?.inputTokenDetails,
             }).catch(() => null),
                 // Temporary durable handoff: retries upload these exact paid bytes
                 // and never invoke the provider a second time on any funding rail.
@@ -7152,6 +7153,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
                     model: sheet.model,
                     inputTokens: sheet.usage?.inputTokens,
                     outputTokens: sheet.usage?.outputTokens,
+                    inputTokenDetails: sheet.usage?.inputTokenDetails,
                   }).catch(() => null),
                   imageBase64: sheet.buffer.toString("base64"),
                   imageByteLength: sheet.buffer.length,
@@ -9170,6 +9172,7 @@ router.post(
           model: generated.model,
           inputTokens: generated.usage?.inputTokens,
           outputTokens: generated.usage?.outputTokens,
+          inputTokenDetails: generated.usage?.inputTokenDetails,
         }).catch(() => null);
         const artifactHash = createHash("sha256").update(generated.buffer).digest("hex");
         const providerSaved = await persist({

@@ -102,7 +102,8 @@ export interface ImageGenProviderDef {
    * this the same way reference images are filtered on supportsImageInput:
    * a matte-from-white fallback looks fine in a thumbnail and falls apart the
    * moment a designer moves the layer, so "nearly transparent" is worse than
-   * an honest error. Today only gpt-image-1 qualifies.
+   * an honest error. GPT Image 2 supports transparency in preview; its
+   * adapter rejects opaque output rather than silently degrading.
    */
   supportsTransparency: boolean;
   /** Whether this adapter supports a multipart source-image + exact alpha mask edit. */
@@ -126,6 +127,8 @@ export interface ImageGenProviderDef {
 export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
   {
     id: "openai",
+    // Keep the provider label stable: existing likeness consent scope labels
+    // include it. Admins see the new model via defaultModel.
     label: "OpenAI (built in, no key needed)",
     defaultModel: OPENAI_BUILTIN_MODEL,
     envKey: null,
@@ -511,6 +514,10 @@ export async function setImageGenSelection(
 
 /** The model that will actually be used for a provider given the settings. */
 export function effectiveModel(def: ImageGenProviderDef, override: string | null): string {
+  // Existing approved jobs may be locked to the previous built-in model.
+  // Keep their recipient identity and dispatch aligned; new null settings
+  // resolve to Image 2. This does not enable arbitrary admin overrides.
+  if (def.id === "openai" && override?.trim() === "gpt-image-1") return "gpt-image-1";
   if (def.supportsModelOverride && override?.trim()) return override.trim();
   return def.defaultModel;
 }

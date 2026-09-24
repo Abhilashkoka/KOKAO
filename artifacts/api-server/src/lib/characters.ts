@@ -47,7 +47,7 @@ export class CharacterInputError extends Error {}
 /**
  * The image size that best matches a video aspect ratio.
  *
- * gpt-image-1 offers exactly three shapes, so every video ratio maps onto the
+ * KOKAO exposes three standard GPT Image shapes, so every video ratio maps onto the
  * nearest of them by orientation and the keyframe is cover-cropped into the
  * true frame downstream: 4:5 and 3:4 render tall, 4:3 and 21:9 render wide,
  * and only a genuinely square request gets the square canvas. Rendering a 4:5

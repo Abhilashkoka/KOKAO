@@ -68,7 +68,7 @@ describe("ModelPriceImportDialog", () => {
     expect(screen.getByText(/OpenAI, or Google Gemini model page/i)).toBeTruthy();
     expect(
       (screen.getByTestId("input-import-price-url") as HTMLInputElement).placeholder,
-    ).toBe("https://developers.openai.com/api/docs/models/gpt-image-1");
+    ).toBe("https://developers.openai.com/api/docs/models/gpt-image-2");
   });
 
   it("only offers used models that are missing a catalog price in the catalog picker", async () => {

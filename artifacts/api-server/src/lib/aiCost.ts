@@ -1,3 +1,4 @@
+import { gptImage2TokenCostUsd } from "./gptImage2Pricing";
 import {
   db,
   aiModelPricesTable,
@@ -257,6 +258,7 @@ export async function seedPublishedModelPrices(): Promise<void> {
         usdPerVideo: 0.089,
       },
       {
+        // Historical Image 1 price: retain for saved receipts/locked jobs.
         // OpenAI publishes gpt-image-1 at $5/M input tokens and $40/M
         // image-output tokens. The adapter persists response usage, so future
         // events calculate from the provider's actual token counts. When an
@@ -268,6 +270,20 @@ export async function seedPublishedModelPrices(): Promise<void> {
         inputUsdPerMtok: 5,
         outputUsdPerMtok: 40,
         usdPerImage: 0.25,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      },
+      {
+        // https://developers.openai.com/api/docs/pricing#image-generation
+        // Input column is IMAGE input; text is separately priced at $2.50/M.
+        // $0.211 is the published 1024x1024 HIGH output-only estimate,
+        // the largest standard-size output price. It is not an edit receipt.
+        kind: "image",
+        provider: "openai",
+        model: "gpt-image-2",
+        inputUsdPerMtok: 4,
+        outputUsdPerMtok: 15,
+        usdPerImage: 0.211,
         usdPerSecond: null,
         usdPerVideo: null,
       },
@@ -1002,7 +1018,7 @@ export async function computeTextCostPaise(args: {
 /**
  * Cost of one image generation in paise, or null when unknown.
  * Token-based when the price row has token prices AND the provider reported
- * token usage (OpenAI gpt-image-1, Gemini); otherwise the flat per-image
+ * token usage (OpenAI GPT Image, Gemini); otherwise the flat per-image
  * price. Never guessed.
  */
 export async function computeImageCostPaise(args: {
@@ -1010,6 +1026,7 @@ export async function computeImageCostPaise(args: {
   model: string;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  inputTokenDetails?: { text_tokens?: number; image_tokens?: number };
 }): Promise<number | null> {
   const price = await findPrice("image", args.provider, args.model);
   if (!price) return null;
@@ -1021,6 +1038,17 @@ export async function computeImageCostPaise(args: {
     inputTokens !== null &&
     outputTokens !== null
   ) {
+    if (args.model.trim().toLowerCase() === "gpt-image-2") {
+      const usd = gptImage2TokenCostUsd({
+        inputTokens,
+        outputTokens,
+        inputTokenDetails: args.inputTokenDetails,
+        imageInputUsdPerMtok: price.inputUsdPerMtok,
+        outputUsdPerMtok: price.outputUsdPerMtok,
+      });
+      // Historical aggregate-only receipts cannot safely be repriced.
+      return usd === null ? null : usdToPaise(usd, usdToInrPaise);
+    }
     const usd =
       (inputTokens / 1_000_000) * price.inputUsdPerMtok +
       (outputTokens / 1_000_000) * price.outputUsdPerMtok;
@@ -1356,7 +1384,11 @@ export type ImageCostMeta = Pick<
 export async function buildImageCostMeta(args: {
   provider: string;
   model: string;
-  usage?: { inputTokens: number | null; outputTokens: number | null };
+  usage?: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    inputTokenDetails?: { text_tokens?: number; image_tokens?: number };
+  };
 }): Promise<ImageCostMeta> {
   try {
     if (!(await isFeatureEnabled("aiCostTracking"))) return {};
@@ -1367,6 +1399,7 @@ export async function buildImageCostMeta(args: {
       model: args.model,
       inputTokens,
       outputTokens,
+      inputTokenDetails: args.usage?.inputTokenDetails,
     });
     return {
       provider: args.provider,

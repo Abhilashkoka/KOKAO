@@ -17,6 +17,12 @@ Choose and disclose image processors by purpose rather than requiring a global p
 
 Keep the subject attestation independent of recipient acknowledgements.
 
+Treat image-provider display names as consent-sensitive, not merely cosmetic.
+
+**Why:** Recipient scope labels incorporate provider labels; renaming a label during a model upgrade can invalidate existing acknowledgements unintentionally.
+
+**How to apply:** Preserve stable provider labels when changing defaults, expose the model separately, and retain explicitly frozen older model selections for already-authorized work.
+
 **Why:** Changing a configured provider does not change who is depicted or whether the user holds image rights. Requiring the entire statement to be signed again for that routing change confuses recipient permission with subject permission.
 
 **How to apply:** A new recipient needs its own acknowledgement, not a replacement subject attestation. A substantive statement change still requires renewed consent. Frozen jobs must retain both the original grant and recipient authorization, including independent withdrawal checks.

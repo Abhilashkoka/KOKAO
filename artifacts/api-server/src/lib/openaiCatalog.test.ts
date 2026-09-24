@@ -17,6 +17,8 @@ const PRICING_MARKDOWN = `
 | --- | --- | --- | --- | --- |
 | gpt-image-1 | Image | $10.00 | $2.50 | $40.00 |
 | gpt-image-1 | Text | $5.00 | $1.25 | - |
+| gpt-image-2 | Image | $4.00 | $1.00 | $15.00 |
+| Text | $2.50 | $0.625 | - |
 
 ## Batch image pricing
 | Model | Modality | Input | Cached input | Output |
@@ -41,6 +43,7 @@ describe("OpenAI pricing catalog", () => {
       new Map([
         ["gpt-5.4", { model: "gpt-5.4", inputPerMTokens: 2.5, outputPerMTokens: 15 }],
         ["gpt-image-1", { model: "gpt-image-1", inputPerMTokens: 10, outputPerMTokens: 40 }],
+        ["gpt-image-2", { model: "gpt-image-2", inputPerMTokens: 4, outputPerMTokens: 15 }],
       ]),
     );
   });
