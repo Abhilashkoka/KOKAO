@@ -459,3 +459,17 @@ mtime_ms = 1790082160024
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/f4e5d05c-560d-416d-bfba-9f1fbf7a8bcb/3fa573cf-3b0a-4d02-a55b-0026ceb37612"
 storage_version_token = "1790082170623226"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "XWx3LkSFjcsKK0ZWzxkSt"
+uri = "file://exports/female-character-reference-prompts.txt"
+type = "text"
+title = "Female Character Reference-Sheet Prompts"
+description = "Current five-view sheet prompt, initial portrait and outfit prompts, and female preset descriptions. Downloadable plain-text document."
+logical_id = "78cc4cd7-43ae-42da-a71b-660bcef80c89"
+content_hash = "sha256:78d347f8cef8bee7b75947d3861f82f22bb1313381ac37a97181f394d64a106b"
+size = 4696
+mtime_ms = 1790270052478
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/78cc4cd7-43ae-42da-a71b-660bcef80c89/a9dc50ee-db77-4baf-b200-31c57a996c96"
+storage_version_token = "1790270062726975"
+content_type = "text/plain"

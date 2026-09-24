@@ -1,0 +1,65 @@
+KOKAO — Character reference-sheet prompts
+
+These are the current source-code prompts, not a recovered prompt from a
+particular historical generation.
+
+There is no separate female-only reference-sheet prompt. Female characters
+use the same identity-preserving template as other characters. Appearance
+comes from the supplied reference portrait and the character description.
+Replace placeholders below with the character's saved values.
+
+1. FIVE-VIEW REFERENCE SHEET — EXACT SHARED TEMPLATE
+Source: artifacts/api-server/src/lib/characters.ts
+Function: characterReferenceSheetPrompt
+Image input: the character reference portrait.
+The sentence containing {character.description} is omitted if no description exists.
+
+Create a character reference sheet of the exact same single person shown in the reference image. Preserve their exact identity, face, hair, body, clothing, colors, accessories, and footwear. The character is described as: {character.description}. Arrange exactly five photographic panels edge to edge on one clean light gray background: full-body front view, full-body side/profile view, full-body back view, a front close-up of the face and hair filling its panel, and a top-down view. Photorealistic cinematic quality, natural even lighting, consistent scale across panels. Every panel depicts the same person in the same clothing; do not invent multiple distinct people, alternate identities, or alternate outfits. Each panel contains one view of that one person; the five panels are not five different people. The image contains photographs and nothing else: absolutely no text, no titles, no names, no panel labels or captions, no color swatches or chips, no arrows, no measurements, no borders, no logo, no watermark, no branding.
+
+2. INITIAL CHARACTER PORTRAIT — EXACT SHARED TEMPLATE
+Source: artifacts/api-server/src/lib/characters.ts
+Function: characterReferencePrompt
+This creates the initial portrait; it is not the five-view sheet.
+
+Full-body character reference portrait of one fictional person: {description}. Exactly one and only one person is present. Standing, facing the camera, full body visible from head to toe, with no other person, duplicate, reflection, extra body, mannequin, crowd, split panel, or collage. neutral light-grey studio background, soft even lighting, photorealistic, high detail. No text, no watermark.
+
+3. OUTFIT CHANGE — EXACT SHARED TEMPLATE
+Source: artifacts/api-server/src/lib/characters.ts
+Function: outfitVariantPrompt
+Image input: the existing character portrait.
+This changes the outfit; it is not the five-view sheet.
+
+Show exactly one person: the exact same character from the image — identical face, hair, body, and identity — now wearing: {outfitDescription}. Keep the same standing full-body pose, the same neutral studio background, and the same lighting. Only the clothing changes. No other person, duplicate, reflection, extra body, mannequin, crowd, split panel, or collage. No text, no watermark.
+
+4. FEMALE PRESET DESCRIPTIONS IN THE SOURCE
+Source: artifacts/api-server/src/lib/presetCharacters.ts
+These are preset data, not additional gender-specific prompt instructions.
+Wardrobe is listed separately and is not automatically appended by the sheet
+prompt builder: the sheet is instructed to preserve the reference image's clothes.
+
+Amara Sen
+Description: Fictional Indian documentary host in her early thirties, warm expression, shoulder-length dark hair.
+Default outfit: emerald field jacket over a cream shirt and dark trousers
+
+Zoya Khan
+Description: Fictional Indian culture reporter in her late twenties, expressive eyes, long wavy dark hair.
+Default outfit: rust kurta with subtle woven detail and neutral trousers
+
+Leela Nair
+Description: Fictional Indian science educator in her forties, silver-streaked dark bob, calm and precise presence.
+Default outfit: teal blazer over a white blouse and tailored navy trousers
+
+Maya Iyer
+Description: Fictional Indian finance guide in her early forties, shoulder-length dark hair, composed professional expression.
+Default outfit: sand-coloured suit with a soft blue blouse
+
+Tara Bose
+Description: Fictional Indian youth and social trends host in her mid twenties, short curly dark hair, lively expression.
+Default outfit: cobalt denim jacket, graphic-free white tee and black trousers
+
+SCOPE
+Guided Story has a separate initial-portrait prompt assembled from role,
+genre, customization, and governed prompt templates. That portrait-generation
+prompt is distinct from the five-view sheet template above.
+This export does not claim to reproduce any specific job's complete provider
+request, historical prompt, active database template overrides, or image inputs.
