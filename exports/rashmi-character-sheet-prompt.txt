@@ -1,0 +1,18 @@
+Create a professional photorealistic character reference turnaround sheet of ONE adult fictional character identity, using the attached photo as the facial-feature reference. This is one character repeated in exactly five requested views, NOT five different people.
+
+Character: 28-year-old unmarried woman of Indian origin, fair skin, approximately 5 feet 8 inches tall, fit build with natural body curvature. Match the facial features of the provided reference photo. Hair: smooth hair tied in a ponytail.
+Outfit: grey cotton T-shirt, blue denim jeans, stylish black sports shoes.
+Accessory: a futuristic smartwatch on her LEFT wrist, shaped like a sleek bracelet. Keep it on the anatomical left wrist in every view where visible.
+
+Arrange exactly five views LEFT TO RIGHT, evenly spaced on a single clean light-grey studio background:
+1. Full-body FRONT view facing camera.
+2. Full-body BACK view.
+3. Full-body LEFT profile, facing left.
+4. Full-body RIGHT profile, facing right.
+5. TRUE TOP-DOWN view: camera directly overhead looking vertically down at the head and shoulders, showing the ponytail and shoulder arrangement. This last view is naturally foreshortened, not another frontal or three-quarter standing pose.
+
+For views 1–4: standing in a neutral A-pose, arms slightly away from body, full body visible head to toe, feet aligned on the same baseline, same scale and proportions, relaxed expression. Orthographic camera with no perspective distortion. The overhead view is the explicit exception to the standing full-body baseline composition.
+
+Identical face, proportions, clothing colors, garment construction, hair and accessories across all views. One depiction per view, no extra people, extra faces, duplicated anatomy, reflections, mirrors, mannequins, crowd or incidental background figures. Use five borderless views across one continuous background, not decorative framed panels. Photorealistic high detail, soft even studio lighting, no cast shadows, neutral light-grey background. No text, titles, names, labels, measurements, graphics, logos or watermarks.
+
+Compose as a wide 16:9-style turnaround sheet with generous clear margins and all five views fully visible. Preserve all content within the output; do not crop shoes, hair, limbs or the overhead view.

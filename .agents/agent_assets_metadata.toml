@@ -473,3 +473,17 @@ mtime_ms = 1790270052478
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/78cc4cd7-43ae-42da-a71b-660bcef80c89/a9dc50ee-db77-4baf-b200-31c57a996c96"
 storage_version_token = "1790270062726975"
 content_type = "text/plain"
+
+[[outputs]]
+id = "KgKSyOFy8DtRC8uF8HFOj"
+uri = "file://attached_assets/generated_images/rashmi-character-sheet-16x9.png"
+type = "image"
+title = "Character Reference Sheet — GPT Image 1"
+description = "16:9 PNG generated from your facial reference with the requested outfit. Draft limitation: the fifth view remains a rear head close-up, not a true overhead view; profile order is reversed."
+logical_id = "b0e55ea2-b130-4644-8da2-c27941d70653"
+content_hash = "sha256:18013a79740d08664fea59b5dbb384b18bffd2c36fd707119eba00bb34b9ad69"
+size = 3240401
+mtime_ms = 1790272400297
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/b0e55ea2-b130-4644-8da2-c27941d70653/855a1a42-8552-40ef-985f-67493d3385a4"
+storage_version_token = "1790272412066296"
+content_type = "image/png"
