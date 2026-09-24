@@ -4039,6 +4039,34 @@ describe("Video Studio", () => {
     const video = screen.getByTestId("video-preview") as HTMLVideoElement;
     expect(video.getAttribute("src")).toBe("/api/storage/objects/1/uploads/v.mp4");
     expect(screen.getByTestId("button-save-video")).toBeTruthy();
+    const download = screen.getByTestId("button-download-video") as HTMLAnchorElement;
+    expect(download.getAttribute("href")).toBe(
+      "/api/storage/objects/1/uploads/v.mp4?download=kokao-video-7.mp4",
+    );
+    expect(download.download).toBe("kokao-video-7.mp4");
+    expect(download.getAttribute("target")).toBeNull();
+  });
+
+  it("downloads the repaired current video, not the original job output", () => {
+    mockState.activeJob = {
+      id: 7,
+      engine: "topic_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/original.mp4",
+      currentVideoPath: "/objects/1/uploads/repaired.mp4",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    const download = screen.getByTestId("button-download-video") as HTMLAnchorElement;
+    expect(download.getAttribute("href")).toBe(
+      "/api/storage/objects/1/uploads/repaired.mp4?download=kokao-video-7.mp4",
+    );
   });
 
   it("starts a no-charge repair for an eligible completed video", async () => {
