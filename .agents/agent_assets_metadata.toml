@@ -487,3 +487,17 @@ mtime_ms = 1790272400297
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/b0e55ea2-b130-4644-8da2-c27941d70653/855a1a42-8552-40ef-985f-67493d3385a4"
 storage_version_token = "1790272412066296"
 content_type = "image/png"
+
+[[outputs]]
+id = "5z09BQcAP_B6pXYIbWFoi"
+uri = "file://attached_assets/generated_images/rashmi-character-sheet-3x2.png"
+type = "image"
+title = "Character Sheet — Original 3:2"
+description = "1536 × 1024 PNG at the model’s native aspect ratio, without padding, stretching or cropping."
+logical_id = "9c73055c-797f-43fc-be24-46f6e623bf5b"
+content_hash = "sha256:f6b40fe371a89bbe53c482a8fdbb7a6ad70dfc8cf6b7906a3fa4650116e6498f"
+size = 2653838
+mtime_ms = 1790272521873
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/9c73055c-797f-43fc-be24-46f6e623bf5b/3d6c455b-2ae3-4ab4-a189-df40c2b2bd43"
+storage_version_token = "1790272534945245"
+content_type = "image/png"
