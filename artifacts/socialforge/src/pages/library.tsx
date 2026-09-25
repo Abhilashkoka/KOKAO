@@ -49,6 +49,7 @@ import { track, trackProjectEvent } from "@/lib/analytics";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useWalletBilling, quotaLimitDescription } from "@/lib/quotaCopy";
 import { isInteractiveTarget } from "@/lib/utils";
+import { VideoDownloadButton } from "@/components/video-download-button";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "Instagram",
@@ -757,6 +758,7 @@ export function LibraryPage() {
                     src={`/api/storage${item.videoPath}`}
                     poster={item.videoThumbnailPath ? `/api/storage${item.videoThumbnailPath}` : undefined}
                     controls
+                    controlsList="nodownload"
                     playsInline
                     preload="metadata"
                     className="w-full h-full object-contain"
@@ -793,6 +795,15 @@ export function LibraryPage() {
               )}
               
               <CardContent className="flex-1 p-5">
+                {item.videoPath && (
+                  <div className="mb-3">
+                    <VideoDownloadButton
+                      objectPath={item.videoPath}
+                      filename={`kokao-video-${item.id}.mp4`}
+                      testId={`button-download-content-${item.id}`}
+                    />
+                  </div>
+                )}
                 <div className="flex justify-between items-start gap-2 mb-3">
                   <h3 className="font-semibold text-lg line-clamp-1" title={item.title}>{item.title}</h3>
                   <DropdownMenu>
