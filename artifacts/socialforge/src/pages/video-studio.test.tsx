@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -23,6 +23,13 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 }
 
 const mockState: {
+  videoCopySource: any;
+  videoCopySourceCalls: number;
+  videoCopySourceGate: Promise<void> | null;
+  resolveVideoCopySourceGate: (() => void) | null;
+  videoCopyCalls: any[];
+  videoCopyGate: Promise<void> | null;
+  resolveVideoCopyGate: (() => void) | null;
   lastGenerateVars: any;
   generateError: any;
   jobs: any[];
@@ -86,6 +93,13 @@ const mockState: {
   deleteIdentityError: unknown;
   createdCharacters: any[];
 } = {
+  videoCopySource: null,
+  videoCopySourceCalls: 0,
+  videoCopySourceGate: null,
+  resolveVideoCopySourceGate: null,
+  videoCopyCalls: [],
+  videoCopyGate: null,
+  resolveVideoCopyGate: null,
   lastGenerateVars: null,
   generateError: null,
   jobs: [],
@@ -217,6 +231,19 @@ vi.mock("wouter/use-browser-location", () => ({
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
+    getVideoJobLibraryCopySource: async () => {
+      mockState.videoCopySourceCalls++;
+      if (mockState.videoCopySourceGate) await mockState.videoCopySourceGate;
+      return mockState.videoCopySource ?? { text: "Actual saved narration", sourceType: "narration" };
+    },
+    useGenerateCaption: () => ({
+      isPending: false,
+      mutateAsync: async (vars: any) => {
+        mockState.videoCopyCalls.push(vars);
+        if (mockState.videoCopyGate) await mockState.videoCopyGate;
+        return { title: "Generated video title", caption: "Script-based caption", hashtags: ["Reel"] };
+      },
+    }),
     useGetMe: () => ({ data: mockState.me }),
     useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
     useListGuidedStoryVoices: () => ({
@@ -961,6 +988,13 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  mockState.videoCopySource = null;
+  mockState.videoCopySourceCalls = 0;
+  mockState.videoCopySourceGate = null;
+  mockState.resolveVideoCopySourceGate = null;
+  mockState.videoCopyCalls = [];
+  mockState.videoCopyGate = null;
+  mockState.resolveVideoCopyGate = null;
   trackPresetCastEventSpy.mockClear();
   trackSpy.mockClear();
   trackProjectEventSpy.mockClear();
@@ -5489,6 +5523,149 @@ describe("Video Studio voice notes", () => {
         "golden hour vibes",
       ),
     );
+  });
+
+  it("writes a funded title, caption and hashtags from saved narration when a video is opened for saving", async () => {
+    mockState.activeJob = {
+      id: 7, engine: "topic_to_video", status: "succeeded", prompt: "A different brief",
+      videoPath: "/objects/1/uploads/v.mp4", aspectRatio: "9:16",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    await waitFor(() =>
+      expect((document.getElementById("save-title") as HTMLInputElement).value).toBe("Generated video title"),
+    );
+    expect((document.getElementById("save-caption") as HTMLTextAreaElement).value)
+      .toBe("Script-based caption\n\n#Reel");
+    expect(mockState.videoCopyCalls[0].data).toMatchObject({
+      platform: "instagram", videoCopy: true,
+    });
+    expect(mockState.videoCopyCalls[0].data.prompt).toContain("Actual saved narration");
+  });
+
+  it("keeps a manually entered title while automatically filling the missing caption", async () => {
+    mockState.activeJob = {
+      id: 8, engine: "topic_to_video", status: "succeeded",
+      prompt: "A creator brief", videoPath: "/objects/1/uploads/clip.mp4", aspectRatio: "9:16",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-8"));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    fireEvent.change(screen.getByTestId("input-save-title"), { target: { value: "My personal title" } });
+    await waitFor(() => expect((document.getElementById("save-caption") as HTMLTextAreaElement).value)
+      .toBe("Script-based caption\n\n#Reel"), { timeout: 3000 });
+    expect((document.getElementById("save-title") as HTMLInputElement).value).toBe("My personal title");
+    expect(mockState.videoCopyCalls).toHaveLength(1);
+  });
+
+  it("reuses funded copy on reopening the same job and avoids a second charge", async () => {
+    mockState.activeJob = {
+      id: 8, engine: "topic_to_video", status: "succeeded",
+      prompt: "A creator brief", videoPath: "/objects/1/uploads/clip.mp4", aspectRatio: "9:16",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-8"));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    await waitFor(() => expect(mockState.videoCopyCalls).toHaveLength(1), { timeout: 3000 });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    await waitFor(() => expect((document.getElementById("save-caption") as HTMLTextAreaElement).value)
+      .toBe("Script-based caption\n\n#Reel"), { timeout: 3000 });
+    expect(mockState.videoCopyCalls).toHaveLength(1);
+  });
+
+  it("shares an in-flight funded call when the dialog is closed and reopened before completion", async () => {
+    mockState.activeJob = {
+      id: 8, engine: "topic_to_video", status: "succeeded",
+      prompt: "A creator brief", videoPath: "/objects/1/uploads/clip.mp4", aspectRatio: "9:16",
+    };
+    mockState.jobs = [mockState.activeJob];
+    mockState.videoCopyGate = new Promise<void>((resolve) => {
+      mockState.resolveVideoCopyGate = resolve;
+    });
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-8"));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    await waitFor(() => expect(mockState.videoCopyCalls).toHaveLength(1), { timeout: 3000 });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 900)); });
+    expect(mockState.videoCopyCalls).toHaveLength(1);
+    await act(async () => { mockState.resolveVideoCopyGate?.(); });
+    await waitFor(() => expect((document.getElementById("save-caption") as HTMLTextAreaElement).value)
+      .toBe("Script-based caption\n\n#Reel"), { timeout: 3000 });
+    expect(mockState.videoCopyCalls).toHaveLength(1);
+  });
+
+  it("does not start a billable call when the dialog closes before the saved script arrives", async () => {
+    mockState.activeJob = {
+      id: 8, engine: "topic_to_video", status: "succeeded",
+      prompt: "A creator brief", videoPath: "/objects/1/uploads/clip.mp4", aspectRatio: "9:16",
+    };
+    mockState.jobs = [mockState.activeJob];
+    mockState.videoCopySourceGate = new Promise<void>((resolve) => {
+      mockState.resolveVideoCopySourceGate = resolve;
+    });
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-8"));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    await waitFor(() => expect(mockState.videoCopySourceCalls).toBe(1), { timeout: 3000 });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await act(async () => { mockState.resolveVideoCopySourceGate?.(); });
+    expect(mockState.videoCopyCalls).toHaveLength(0);
+  });
+
+  it("debounces platform selection and reuses prior platform copy instead of billing twice", async () => {
+    mockState.activeJob = {
+      id: 8, engine: "topic_to_video", status: "succeeded",
+      prompt: "A creator brief", videoPath: "/objects/1/uploads/clip.mp4", aspectRatio: "9:16",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    const user = userEvent.setup();
+    fireEvent.click(screen.getByTestId("job-card-8"));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: "X (Twitter)" }));
+    await waitFor(() => expect(mockState.videoCopyCalls).toHaveLength(1), { timeout: 3000 });
+    expect(mockState.videoCopyCalls[0].data.platform).toBe("twitter");
+    await waitFor(() => expect((document.getElementById("save-caption") as HTMLTextAreaElement).value)
+      .toBe("Script-based caption\n\n#Reel"), { timeout: 3000 });
+    await user.click(within(screen.getByRole("dialog")).getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: "Threads" }));
+    expect(mockState.videoCopyCalls).toHaveLength(1);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Generate for threads" }));
+    await waitFor(() => expect(mockState.videoCopyCalls).toHaveLength(2), { timeout: 3000 });
+    expect(mockState.videoCopyCalls[1].data.platform).toBe("threads");
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByRole("combobox").hasAttribute("disabled"))
+      .toBe(false));
+    await user.click(within(screen.getByRole("dialog")).getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: "X (Twitter)" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Generate for twitter" }));
+    await waitFor(() => expect((document.getElementById("save-caption") as HTMLTextAreaElement).value)
+      .toBe("Script-based caption\n\n#Reel"), { timeout: 3000 });
+    expect(mockState.videoCopyCalls).toHaveLength(2);
+  });
+
+  it("does not call the funded endpoint when both manual fields are filled during the grace period", async () => {
+    mockState.activeJob = {
+      id: 8, engine: "topic_to_video", status: "succeeded",
+      prompt: "A creator brief", videoPath: "/objects/1/uploads/clip.mp4", aspectRatio: "9:16",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-8"));
+    fireEvent.click(screen.getByTestId("button-save-video"));
+    fireEvent.change(screen.getByTestId("input-save-title"), { target: { value: "My own title" } });
+    fireEvent.change(document.getElementById("save-caption")!, { target: { value: "My own caption" } });
+    await new Promise((resolve) => setTimeout(resolve, 950));
+    expect(mockState.videoCopyCalls).toHaveLength(0);
+    expect((document.getElementById("save-caption") as HTMLTextAreaElement).value).toBe("My own caption");
+    expect(screen.getByTestId("video-save-copy-status").textContent).toContain("automatic generation was skipped");
   });
 
   it("labels included preset characters and exposes their casting metadata", async () => {

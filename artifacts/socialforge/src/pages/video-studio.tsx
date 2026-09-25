@@ -11,6 +11,8 @@ import {
   useListVideoCoverCandidates,
   useListVideoJobs,
   useSaveVideoToLibrary,
+  getVideoJobLibraryCopySource,
+  useGenerateCaption,
   useSetVideoCover,
   useUpdateVideoStoryboard,
   useInsertVideoStoryboardScene,
@@ -112,6 +114,7 @@ import {
 } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { formatVideoLibraryCopy, videoLibraryCopyPrompt } from "@/lib/videoLibraryCopy";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1034,6 +1037,17 @@ export function VideoStudioPage() {
   const [saveTitle, setSaveTitle] = useState("");
   const [saveCaption, setSaveCaption] = useState("");
   const [savePlatform, setSavePlatform] = useState("instagram");
+  const [saveCopyBusy, setSaveCopyBusy] = useState(false);
+  const [saveCopyNotice, setSaveCopyNotice] = useState("");
+  const [saveCopyPlatform, setSaveCopyPlatform] = useState("");
+  const [saveCopyPreview, setSaveCopyPreview] = useState<{ title: string; caption: string } | null>(null);
+  const saveCopyRequest = useRef(0);
+  const saveTitleEdited = useRef(false);
+  const saveCaptionEdited = useRef(false);
+  const saveCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveCopyActiveKey = useRef<string | null>(null);
+  const saveCopyCache = useRef(new Map<string, { title: string; caption: string; sourceType: string }>());
+  const saveCopyInFlight = useRef(new Map<string, Promise<{ title: string; caption: string; sourceType: string }>>());
 
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
@@ -1312,6 +1326,7 @@ export function VideoStudioPage() {
   const translateScript = useLocalizeScript();
   const runScriptIntake = useAnalyzeScriptIntake();
   const saveToLibrary = useSaveVideoToLibrary();
+  const generateSaveCaption = useGenerateCaption();
   const { data: videoCapabilities } = useGetVideoCapabilities({
     query: {
       queryKey: getGetVideoCapabilitiesQueryKey(),
@@ -3170,6 +3185,76 @@ export function VideoStudioPage() {
     );
   };
 
+  const writeSaveCopy = async (jobId: number, platform: string) => {
+    if (saveCopyTimer.current) clearTimeout(saveCopyTimer.current);
+    saveCopyTimer.current = null;
+    const key = `${jobId}:${platform}`;
+    saveCopyActiveKey.current = key;
+    const request = ++saveCopyRequest.current;
+    setSaveCopyBusy(true);
+    setSaveCopyNotice(saveCopyCache.current.has(key) ? "Restoring your generated copy…" : "Reading saved video script…");
+    setSaveCopyPreview(null);
+    try {
+      let pending = saveCopyInFlight.current.get(key);
+      const cached = saveCopyCache.current.get(key);
+      if (!pending && !cached) {
+        pending = (async () => {
+          const source = await getVideoJobLibraryCopySource(jobId);
+          // No billed dispatch for a dismissed dialog or a superseded platform.
+          if (saveCopyActiveKey.current !== key) throw new Error("Generation was cancelled before it started.");
+          setSaveCopyNotice(source.sourceType === "brief"
+            ? "No saved spoken script; using your original brief (not footage). Writing caption…"
+            : "Writing from the saved script or narration…");
+          const result = await generateSaveCaption.mutateAsync({
+            data: { prompt: videoLibraryCopyPrompt(source, platform), platform, videoCopy: true },
+          });
+          const copy = { ...formatVideoLibraryCopy(result, platform), sourceType: source.sourceType };
+          saveCopyCache.current.set(key, copy);
+          return copy;
+        })();
+        saveCopyInFlight.current.set(key, pending);
+        void pending.then(
+          () => saveCopyInFlight.current.delete(key),
+          () => saveCopyInFlight.current.delete(key),
+        );
+      }
+      const copy = cached ?? await pending!;
+      if (saveCopyRequest.current !== request) return;
+      setSaveCopyPlatform(saveCaptionEdited.current ? "" : platform);
+      if (saveTitleEdited.current || saveCaptionEdited.current) {
+        if (!saveTitleEdited.current) setSaveTitle(copy.title);
+        if (!saveCaptionEdited.current) setSaveCaption(copy.caption);
+        setSaveCopyPreview(copy);
+        setSaveCopyNotice("Your manually written fields were kept. Missing fields were generated; review the suggestion below if you want to replace them.");
+      } else {
+        setSaveTitle(copy.title);
+        setSaveCaption(copy.caption);
+        setSaveCopyNotice(copy.sourceType === "brief"
+          ? "Generated from your original brief (not footage). Review the title, caption and hashtags."
+          : "Generated title, caption and hashtags are ready to review and edit.");
+      }
+    } catch (error) {
+      if (saveCopyRequest.current !== request) return;
+      setSaveCopyNotice(apiErrorMessage(error, "Could not generate copy. Enter a title and caption yourself or try again."));
+      // Generation failures never block a manually written title and caption.
+    } finally {
+      if (saveCopyRequest.current === request) setSaveCopyBusy(false);
+    }
+  };
+
+  const scheduleSaveCopy = (jobId: number, platform: string) => {
+    if (saveCopyTimer.current) clearTimeout(saveCopyTimer.current);
+    // During the grace period there is no authorization to start a paid call.
+    // A pre-close source lookup must not see this new dialog as permission.
+    saveCopyActiveKey.current = null;
+    setSaveCopyNotice("Choose your platform now. Writing from the saved script shortly…");
+    saveCopyTimer.current = setTimeout(() => {
+      saveCopyTimer.current = null;
+      // Complete manual copy before dispatch skips the billable operation.
+      if (!saveTitleEdited.current || !saveCaptionEdited.current) void writeSaveCopy(jobId, platform);
+    }, 800);
+  };
+
   const onSave = () => {
     if (!activeJob || !saveTitle.trim()) return;
     saveToLibrary.mutate(
@@ -3183,6 +3268,8 @@ export function VideoStudioPage() {
       },
       {
         onSuccess: () => {
+          saveCopyActiveKey.current = null;
+          saveCopyRequest.current++;
           setSaveOpen(false);
           void queryClient.invalidateQueries({
             queryKey: getListContentQueryKey(),
@@ -7238,10 +7325,15 @@ export function VideoStudioPage() {
                   ) : (
                     <Button
                       onClick={() => {
-                        setSaveTitle(
-                          activeJob.prompt?.slice(0, 60) || "New video",
-                        );
+                        setSaveTitle("");
+                        setSaveCaption("");
+                        setSavePlatform("instagram");
+                        setSaveCopyPlatform("");
+                        setSaveCopyNotice("");
+                        saveTitleEdited.current = false;
+                        saveCaptionEdited.current = false;
                         setSaveOpen(true);
+                        scheduleSaveCopy(activeJob.id, "instagram");
                       }}
                       data-testid="button-save-video"
                     >
@@ -8107,7 +8199,15 @@ export function VideoStudioPage() {
         />
       )}
 
-      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+      <Dialog open={saveOpen} onOpenChange={(open) => {
+        if (!open) {
+          saveCopyActiveKey.current = null;
+          saveCopyRequest.current++;
+          if (saveCopyTimer.current) clearTimeout(saveCopyTimer.current);
+          saveCopyTimer.current = null;
+        }
+        setSaveOpen(open);
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Save to Content Library</DialogTitle>
@@ -8121,8 +8221,17 @@ export function VideoStudioPage() {
               <Input
                 id="save-title"
                 data-testid="input-save-title"
+                maxLength={200}
                 value={saveTitle}
-                onChange={(e) => setSaveTitle(e.target.value)}
+                onChange={(e) => {
+                  saveTitleEdited.current = true;
+                  if (saveCaptionEdited.current && saveCopyTimer.current) {
+                    clearTimeout(saveCopyTimer.current);
+                    saveCopyTimer.current = null;
+                    setSaveCopyNotice("Using your title and caption; automatic generation was skipped.");
+                  }
+                  setSaveTitle(e.target.value);
+                }}
               />
             </div>
             <div className="space-y-2">
@@ -8130,22 +8239,45 @@ export function VideoStudioPage() {
                 <Label htmlFor="save-caption">Caption (optional)</Label>
                 <VoiceNoteButton
                   testId="button-voice-save-caption"
-                  onTranscript={(text) =>
-                    setSaveCaption((prev) => (prev ? `${prev} ${text}` : text))
-                  }
+                  onTranscript={(text) => {
+                    saveCaptionEdited.current = true;
+                    if (saveTitleEdited.current && saveCopyTimer.current) {
+                      clearTimeout(saveCopyTimer.current);
+                      saveCopyTimer.current = null;
+                      setSaveCopyNotice("Using your title and caption; automatic generation was skipped.");
+                    }
+                    setSaveCopyPlatform("");
+                    setSaveCaption((prev) => (prev ? `${prev} ${text}` : text));
+                  }}
                   disabled={saveToLibrary.isPending}
                 />
               </div>
               <Textarea
                 id="save-caption"
                 value={saveCaption}
-                onChange={(e) => setSaveCaption(e.target.value)}
+                onChange={(e) => {
+                  saveCaptionEdited.current = true;
+                  if (saveTitleEdited.current && saveCopyTimer.current) {
+                    clearTimeout(saveCopyTimer.current);
+                    saveCopyTimer.current = null;
+                    setSaveCopyNotice("Using your title and caption; automatic generation was skipped.");
+                  }
+                  setSaveCopyPlatform("");
+                  setSaveCaption(e.target.value);
+                }}
                 rows={3}
               />
             </div>
             <div className="space-y-2">
               <Label>Platform</Label>
-              <Select value={savePlatform} onValueChange={setSavePlatform}>
+              <Select value={savePlatform} disabled={saveCopyBusy} onValueChange={(platform) => {
+                saveCopyRequest.current++;
+                setSaveCopyBusy(false);
+                setSaveCopyPreview(null);
+                setSavePlatform(platform);
+                if (activeJob && (!saveTitleEdited.current || !saveCaptionEdited.current) && !saveCopyPlatform) scheduleSaveCopy(activeJob.id, platform);
+                else setSaveCopyNotice("Platform changed. Generate again to adapt the caption and hashtags before saving.");
+              }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -8158,14 +8290,43 @@ export function VideoStudioPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2 text-sm" data-testid="video-save-copy-status">
+              <p className="text-muted-foreground">{saveCopyBusy ? "Generating…" : saveCopyNotice}</p>
+              <p className="text-xs text-muted-foreground">Automatic copy uses one funded caption generation (plan quota or caption credits{walletBilling ? walletOverview?.rates?.captionPaise ? `; estimated wallet charge ${rupees(walletOverview.rates.captionPaise)} (actual cost may vary)` : "; wallet charged at the configured caption rate" : ""}). Cancel before writing begins to skip this charge; a completed generation is billed even if you do not save the video. Only saved script/narration or your original brief is used; KOKAO does not inspect video footage here.</p>
+              {!saveCopyBusy && (
+                <Button type="button" size="sm" variant="outline" onClick={() => activeJob && void writeSaveCopy(activeJob.id, savePlatform)}>
+                  Generate for {savePlatform}
+                </Button>
+              )}
+              {saveCopyPreview && (
+                <div className="rounded-lg border p-3 space-y-2" data-testid="video-save-copy-preview">
+                  <p>Generated suggestion (your edits have not been replaced)</p>
+                  <Input value={saveCopyPreview.title} aria-label="Suggested title" maxLength={200}
+                    onChange={(e) => setSaveCopyPreview({ ...saveCopyPreview, title: e.target.value })} />
+                  <Textarea value={saveCopyPreview.caption} aria-label="Suggested caption and hashtags"
+                    onChange={(e) => setSaveCopyPreview({ ...saveCopyPreview, caption: e.target.value })} />
+                  <Button type="button" size="sm" onClick={() => {
+                    setSaveTitle(saveCopyPreview.title);
+                    setSaveCaption(saveCopyPreview.caption);
+                    setSaveCopyPreview(null);
+                  }}>Use suggestion</Button>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSaveOpen(false)}>
+            <Button variant="outline" onClick={() => {
+              saveCopyActiveKey.current = null;
+              saveCopyRequest.current++;
+              if (saveCopyTimer.current) clearTimeout(saveCopyTimer.current);
+              saveCopyTimer.current = null;
+              setSaveOpen(false);
+            }}>
               Cancel
             </Button>
             <Button
               onClick={onSave}
-              disabled={!saveTitle.trim() || saveToLibrary.isPending}
+              disabled={!saveTitle.trim() || saveCopyBusy || saveToLibrary.isPending || (Boolean(saveCopyPlatform) && saveCopyPlatform !== savePlatform)}
               data-testid="button-confirm-save"
             >
               {saveToLibrary.isPending ? "Saving…" : "Save"}

@@ -612,6 +612,7 @@ async function buildCaptionSystemPrompt(
     platform?: string | null;
     tone?: string | null;
     brandKitId?: number | null;
+    videoCopy?: boolean;
   },
   clerkUserId?: string | null,
 ): Promise<{
@@ -635,6 +636,14 @@ async function buildCaptionSystemPrompt(
     `Tone/voice: ${tone}.`,
   ];
   const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+  if (data.videoCopy) {
+    const budget = ({ instagram: 2200, twitter: 280, threads: 500, linkedin: 3000, facebook: 5000 } as Record<string, number>)[platform];
+    const hashtags = platform === "instagram" ? "3-5" : platform === "twitter" || platform === "threads" ? "1-3" : "3-5";
+    constraints.push(
+      "This is VIDEO copy. The supplied source is saved script/narration or a creator brief, not a video inspection. Never claim you watched the footage or invent a depicted scene.",
+      `Write a complete caption INCLUDING all hashtags within ${budget ?? 2200} characters. Give ${hashtags} relevant hashtags TOTAL, including any already written inline in the caption. Instagram must NEVER exceed 5 hashtags.`,
+    );
+  }
   if (brand) {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
     if (brand.identity.tagline)
@@ -658,7 +667,9 @@ async function buildCaptionSystemPrompt(
 
   const outputFormat = [
     'Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[]}.',
-    "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
+    data.videoCopy
+      ? `Hashtags in the array must not include #. Provide ${platform === "instagram" ? "3-5" : platform === "twitter" || platform === "threads" ? "1-3" : "3-5"} relevant hashtags TOTAL including those inline in the caption.`
+      : "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
     'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
   ];
 
@@ -769,7 +780,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
         caption = typeof obj.caption === "string" ? obj.caption : "";
         title = typeof obj.title === "string" ? obj.title : "";
         hashtags = Array.isArray(obj.hashtags)
-          ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+          ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter((tag) => parsed.data.videoCopy || Boolean(tag))
           : [];
       }
     } catch {
@@ -803,6 +814,43 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       req.log.error("Caption generation returned no usable caption text");
       res.status(500).json({ error: "Failed to generate caption" });
       return;
+    }
+
+    if (parsed.data.videoCopy) {
+      const maximum = ({
+        instagram: 2200,
+        twitter: 280,
+        threads: 500,
+        linkedin: 3000,
+        facebook: 5000,
+      } as Record<string, number>)[platform];
+      const hashtagMaximum = platform === "twitter" || platform === "threads" ? 3 : 5;
+      const invalidHashtags = hashtags.some((tag) => !/^[\p{L}\p{N}_]+$/u.test(tag.replace(/^#+/, "").trim()));
+      const unique = new Set<string>();
+      hashtags = hashtags.map((tag) => tag.replace(/^#+/, "").trim()).filter((tag) => {
+        if (!/^[\p{L}\p{N}_]+$/u.test(tag) || unique.has(tag.toLowerCase())) return false;
+        unique.add(tag.toLowerCase());
+        return true;
+      });
+      const inlineTags = Array.from(caption.matchAll(/#[\p{L}\p{N}_]+/gu), (match) => match[0].toLowerCase());
+      const captionTags = new Set(inlineTags);
+      hashtags = hashtags.filter((tag) => !captionTags.has(`#${tag.toLowerCase()}`));
+      const complete = caption.trim() + (hashtags.length ? `\n\n${hashtags.map((tag) => `#${tag}`).join(" ")}` : "");
+      const hashtagCount = inlineTags.length + hashtags.length;
+      const missingPlatformHashtag = (platform === "twitter" || platform === "threads") && hashtagCount < 1;
+      if (!maximum || !title.trim() || title.trim().length > 200 || invalidHashtags || inlineTags.length !== captionTags.size || missingPlatformHashtag || hashtagCount > hashtagMaximum || complete.length > maximum) {
+        await releaseFunding(req, captionFunding, "caption");
+        res.status(422).json({
+          error: !maximum ? "Select a supported platform." :
+            !title.trim() || title.trim().length > 200 ? "AI did not write a valid title. Please retry or write your own." :
+              invalidHashtags ? "AI copy contains an invalid hashtag. No caption credit was used. Please retry." :
+              inlineTags.length !== captionTags.size ? "AI copy repeats an inline hashtag. No caption credit was used. Please retry." :
+              missingPlatformHashtag ? `AI copy needs at least one ${platform} hashtag. No caption credit was used. Please retry.` :
+              hashtagCount > hashtagMaximum ? `AI copy has ${hashtagCount} hashtags; ${platform} allows ${hashtagMaximum}. No caption credit was used. Please retry.` :
+              `AI copy including hashtags exceeded the ${maximum}-character ${platform} limit. No caption credit was used. Please retry.`,
+        });
+        return;
+      }
     }
 
     const spendPaise = await settleFunding(req, captionFunding, "caption", {

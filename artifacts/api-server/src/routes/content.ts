@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, contentItemsTable, campaignsTable } from "@workspace/db";
-import { and, eq, desc } from "drizzle-orm";
+import { db, contentItemsTable, campaignsTable, videoGenerationsTable } from "@workspace/db";
+import { and, eq, desc, or } from "drizzle-orm";
+import { videoLibraryCopySource } from "../lib/videoLibraryCopySource";
 import { CreateContentBody, UpdateContentBody } from "@workspace/api-zod";
 import { serializeContent } from "../lib/serializers";
 import { recordTasteSignal } from "../lib/tasteMemory";
@@ -112,6 +113,41 @@ router.get("/content/:id", async (req: Request, res: Response) => {
     return;
   }
   res.json(serializeContent(row));
+});
+
+router.get("/content/:id/video-copy-source", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const item = (await db.select().from(contentItemsTable).where(and(
+    eq(contentItemsTable.id, id), eq(contentItemsTable.tenantId, req.tenantId),
+  )).limit(1))[0];
+  if (!item?.videoPath) {
+    res.status(404).json({ error: "Library video not found" });
+    return;
+  }
+  // Older Library items predate savedContentItemId. Match their exact tenant-owned
+  // output path; repaired videos may instead point to a succeeded repair child.
+  const jobs = await db.select().from(videoGenerationsTable)
+    .where(and(
+      eq(videoGenerationsTable.tenantId, req.tenantId),
+      or(eq(videoGenerationsTable.savedContentItemId, id), eq(videoGenerationsTable.videoPath, item.videoPath)),
+    ))
+    .orderBy(desc(videoGenerationsTable.id));
+  const job = jobs.find((candidate) =>
+    candidate.savedContentItemId === id || (candidate.status === "succeeded" && candidate.videoPath === item.videoPath));
+  const original = jobs.find((candidate) =>
+    candidate.status === "succeeded" && candidate.savedContentItemId === id && candidate.id !== job?.id)
+    || (job?.options?.repair?.sourceJobId
+      ? (await db.select().from(videoGenerationsTable).where(and(
+          eq(videoGenerationsTable.tenantId, req.tenantId),
+          eq(videoGenerationsTable.id, job.options.repair.sourceJobId),
+        )).limit(1))[0]
+      : null);
+  const source = (original && videoLibraryCopySource(original)) || (job && videoLibraryCopySource(job));
+  if (!source) {
+    res.status(404).json({ error: "No saved script or video brief is available for this video. Add the copy yourself." });
+    return;
+  }
+  res.json(source);
 });
 
 router.patch("/content/:id", async (req: Request, res: Response) => {

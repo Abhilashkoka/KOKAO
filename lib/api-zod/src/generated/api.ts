@@ -13590,7 +13590,8 @@ export const GenerateCaptionBody = zod.object({
   "platform": zod.string().optional(),
   "brandKitId": zod.number().nullish(),
   "tone": zod.string().optional(),
-  "contentId": zod.number().nullish().describe('Library\/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.')
+  "contentId": zod.number().nullish().describe('Library\/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
+  "videoCopy": zod.boolean().optional().describe('Validate the generated video title and complete platform caption including hashtags before settling caption funding.')
 })
 
 export const GenerateCaptionResponse = zod.object({
@@ -13826,7 +13827,8 @@ export const StreamCaptionBody = zod.object({
   "platform": zod.string().optional(),
   "brandKitId": zod.number().nullish(),
   "tone": zod.string().optional(),
-  "contentId": zod.number().nullish().describe('Library\/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.')
+  "contentId": zod.number().nullish().describe('Library\/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
+  "videoCopy": zod.boolean().optional().describe('Validate the generated video title and complete platform caption including hashtags before settling caption funding.')
 })
 
 export const StreamCaptionResponse = zod.unknown()
@@ -32168,6 +32170,19 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
 
 
 /**
+ * @summary Get the saved script or brief behind a finished video for caption generation
+ */
+export const GetVideoJobLibraryCopySourceParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetVideoJobLibraryCopySourceResponse = zod.object({
+  "text": zod.string(),
+  "sourceType": zod.enum(['guided_script', 'walkthrough_script', 'character_script', 'narration', 'brief'])
+})
+
+
+/**
  * @summary Save a finished video into the content library as a draft item
  */
 export const SaveVideoToLibraryParams = zod.object({
@@ -33621,6 +33636,19 @@ export const RetestInstagramCredentialsResponse = zod.object({
   "pageAccessTokenMasked": zod.string().nullish(),
   "igUserId": zod.string().nullish(),
   "accessTokenMasked": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get the source script of a tenant-owned Library video
+ */
+export const GetContentVideoCopySourceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetContentVideoCopySourceResponse = zod.object({
+  "text": zod.string(),
+  "sourceType": zod.enum(['guided_script', 'walkthrough_script', 'character_script', 'narration', 'brief'])
 })
 
 

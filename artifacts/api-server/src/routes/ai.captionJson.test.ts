@@ -134,7 +134,7 @@ afterAll(async () => {
   await pool.end();
 });
 
-function postCaption(): Promise<{ status: number; body: Record<string, unknown> }> {
+function postCaption(data: Record<string, unknown> = { prompt: "Write a post about coffee" }): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -156,7 +156,7 @@ function postCaption(): Promise<{ status: number; body: Record<string, unknown> 
       },
     );
     req.on("error", reject);
-    req.end(JSON.stringify({ prompt: "Write a post about coffee" }));
+    req.end(JSON.stringify(data));
   });
 }
 
@@ -175,6 +175,80 @@ async function ledgerRows() {
 }
 
 describe("JSON caption endpoint billing", () => {
+  it("refunds an Instagram video caption with more than five hashtags across inline and list tags", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId, captionCredits: 1, imageCredits: 0, kind: "admin_grant",
+    });
+    completionScript = async () => ({
+      choices: [{ message: { content: JSON.stringify({
+        title: "A launch", caption: "What a day #One #Two #Three",
+        hashtags: ["Four", "#Five", "Six", "one"],
+      }) } }],
+    });
+    const response = await postCaption({ prompt: "A real script", platform: "instagram", videoCopy: true });
+    expect(response.status).toBe(422);
+    expect(String(response.body.error)).toContain("6 hashtags");
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(1);
+    expect(await usageRows()).toHaveLength(0);
+    expect((await ledgerRows()).map((r) => r.kind).sort()).toEqual(["admin_grant", "refund", "spend"]);
+  });
+
+  it("rejects repeated inline hashtags instead of hiding their count", async () => {
+    planState.captions = 100;
+    completionScript = async () => ({
+      choices: [{ message: { content: JSON.stringify({
+        title: "A launch", caption: "#Repeat #repeat #Third", hashtags: ["Fourth"],
+      }) } }],
+    });
+    const response = await postCaption({ prompt: "A real script", platform: "instagram", videoCopy: true });
+    expect(response.status).toBe(422);
+    expect(String(response.body.error)).toContain("repeats an inline hashtag");
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("rejects invalid model hashtags without removing them silently", async () => {
+    planState.captions = 100;
+    completionScript = async () => ({
+      choices: [{ message: { content: JSON.stringify({
+        title: "A launch", caption: "What a day", hashtags: ["fine", "bad tag"],
+      }) } }],
+    });
+    const response = await postCaption({ prompt: "A real script", platform: "instagram", videoCopy: true });
+    expect(response.status).toBe(422);
+    expect(String(response.body.error)).toContain("invalid hashtag");
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("refunds Threads video copy without the required one to three hashtags", async () => {
+    planState.captions = 100;
+    completionScript = async () => ({
+      choices: [{ message: { content: JSON.stringify({
+        title: "A launch", caption: "A short update", hashtags: [],
+      }) } }],
+    });
+    const response = await postCaption({ prompt: "A real script", platform: "threads", videoCopy: true });
+    expect(response.status).toBe(422);
+    expect(String(response.body.error)).toContain("at least one threads hashtag");
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("refunds invalid video copy including hashtags before settling a caption credit", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId, captionCredits: 1, imageCredits: 0, kind: "admin_grant",
+    });
+    completionScript = async () => ({
+      choices: [{ message: { content: JSON.stringify({
+        title: "A launch", caption: "x".repeat(276), hashtags: ["launch"],
+      }) } }],
+    });
+    const response = await postCaption({ prompt: "A real script", platform: "twitter", videoCopy: true });
+    expect(response.status).toBe(422);
+    expect(String(response.body.error)).toContain("including hashtags");
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(1);
+    expect(await usageRows()).toHaveLength(0);
+    expect((await ledgerRows()).map((r) => r.kind).sort()).toEqual(["admin_grant", "refund", "spend"]);
+  });
+
   it("records exactly one quota-funded usage event on success", async () => {
     planState.captions = 100; // quota funding
 

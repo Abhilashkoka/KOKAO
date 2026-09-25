@@ -21,4 +21,6 @@ export interface CaptionRequest {
      * @nullable
      */
   contentId?: number | null;
+  /** Validate the generated video title and complete platform caption including hashtags before settling caption funding. */
+  videoCopy?: boolean;
 }

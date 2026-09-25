@@ -513,6 +513,7 @@ import videosRouter, {
   guidedCastOperationNeedsSweep,
   sweepPendingGuidedStoryCasts,
 } from "./videos";
+import contentRouter from "./content";
 import { actAs, resetAuthState } from "../test/authState";
 import {
   createTenant,
@@ -556,6 +557,7 @@ function createVideosTestApp(): Express {
     next();
   });
   app.use("/api", requireTenant, videosRouter);
+  app.use("/api", requireTenant, contentRouter);
   return app;
 }
 
@@ -13118,6 +13120,49 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
 });
 
 describe("POST /api/ai/video-jobs/:jobId/save-to-library", () => {
+  it("retrieves the saved script only for its tenant, including existing Library videos", async () => {
+    const owner = await newTenant();
+    const job = (await db.insert(videoGenerationsTable).values({
+      tenantId: owner.tenantId, engine: "topic_to_video", status: "succeeded",
+      videoPath: `/objects/${owner.tenantId}/uploads/actual.mp4`,
+      prompt: "Write a mystery",
+      storyboard: { scenes: [{ text: "An accurate voiced line." }] } as typeof videoGenerationsTable.$inferInsert["storyboard"],
+    }).returning())[0]!;
+    const jobSource = await request(app).get(`/api/ai/video-jobs/${job.id}/library-copy-source`);
+    expect(jobSource.status).toBe(200);
+    expect(jobSource.body).toEqual({ sourceType: "narration", text: "An accurate voiced line." });
+    const saved = await request(app).post(`/api/ai/video-jobs/${job.id}/save-to-library`)
+      .send({ title: "My own title", caption: "My own caption" });
+    expect(saved.status).toBe(201);
+    expect(saved.body.caption).toBe("My own caption");
+    const librarySource = await request(app).get(`/api/content/${saved.body.id}/video-copy-source`);
+    expect(librarySource.body).toEqual(jobSource.body);
+    const other = await newTenant();
+    expect(other.tenantId).not.toBe(owner.tenantId);
+    expect((await request(app).get(`/api/ai/video-jobs/${job.id}/library-copy-source`)).status).toBe(404);
+    expect((await request(app).get(`/api/content/${saved.body.id}/video-copy-source`)).status).toBe(404);
+  });
+
+  it("labels a creator prompt as a brief, and reports unavailable if no saved source exists", async () => {
+    const tenant = await newTenant();
+    const path = `/objects/${tenant.tenantId}/uploads/silent.mp4`;
+    const job = (await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId, engine: "text_to_video", status: "succeeded", videoPath: path,
+      prompt: "Show the new product in a moody setting",
+    }).returning())[0]!;
+    const source = await request(app).get(`/api/ai/video-jobs/${job.id}/library-copy-source`);
+    expect(source.body).toEqual({ sourceType: "brief", text: "Show the new product in a moody setting" });
+    const saved = await request(app).post(`/api/ai/video-jobs/${job.id}/save-to-library`).send({ title: "My clip" });
+    expect(saved.status).toBe(201);
+    await db.update(videoGenerationsTable).set({ savedContentItemId: null })
+      .where(eq(videoGenerationsTable.id, job.id));
+    expect((await request(app).get(`/api/content/${saved.body.id}/video-copy-source`)).body).toEqual(source.body);
+    await db.update(videoGenerationsTable).set({ prompt: null }).where(eq(videoGenerationsTable.id, job.id));
+    const unavailable = await request(app).get(`/api/content/${saved.body.id}/video-copy-source`);
+    expect(unavailable.status).toBe(404);
+    expect(unavailable.body.error).toContain("No saved script");
+  });
+
   it("rejects saving a job that has not finished", async () => {
     const tenant = await newTenant();
     const job = (

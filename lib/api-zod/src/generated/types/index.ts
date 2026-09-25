@@ -1013,6 +1013,8 @@ export * from './videoJobResolvedVideoModelSource';
 export * from './videoJobStatus';
 export * from './videoJobStudioLipSync';
 export * from './videoJobStudioLipSyncState';
+export * from './videoLibraryCopySource';
+export * from './videoLibraryCopySourceSourceType';
 export * from './videoModelInfo';
 export * from './videoModelInfoModesItem';
 export * from './videoModelInfoProviderModels';

@@ -17,6 +17,9 @@ import {
   useGetTwitterStatus,
   useGetLinkedinStatus,
   useGenerateCaption,
+  useWalletGetOverview,
+  getWalletGetOverviewQueryKey,
+  getContentVideoCopySource,
   useGenerateImage,
   useListCampaigns,
   useListPostMetrics,
@@ -50,6 +53,7 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useWalletBilling, quotaLimitDescription } from "@/lib/quotaCopy";
 import { isInteractiveTarget } from "@/lib/utils";
 import { VideoDownloadButton } from "@/components/video-download-button";
+import { formatVideoLibraryCopy, videoLibraryCopyPrompt } from "@/lib/videoLibraryCopy";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "Instagram",
@@ -79,11 +83,20 @@ export function LibraryPage() {
   // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
   // of upgrade / credit-pack advice they can't act on.
   const walletBilling = useWalletBilling();
+  const { data: captionWallet } = useWalletGetOverview({
+    query: { queryKey: getWalletGetOverviewQueryKey(), enabled: walletBilling },
+  });
 
   const [editItem, setEditItem] = useState<any | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editCaption, setEditCaption] = useState("");
   const [editPlatform, setEditPlatform] = useState("instagram");
+  const [videoCopyBusy, setVideoCopyBusy] = useState(false);
+  const videoCopyInFlight = useRef(false);
+  const [videoCopyPreview, setVideoCopyPreview] = useState<{ title: string; caption: string; platform: string } | null>(null);
+  const videoCopyRequest = useRef(0);
+  const editItemRef = useRef<any | null>(null);
+  editItemRef.current = editItem;
   const [editImagePath, setEditImagePath] = useState<string | null>(null);
   const [editImageLayers, setEditImageLayers] = useState<Record<string, unknown> | null>(null);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
@@ -567,6 +580,9 @@ export function LibraryPage() {
   };
 
   const openEdit = (item: any) => {
+    videoCopyRequest.current++;
+    setVideoCopyBusy(false);
+    setVideoCopyPreview(null);
     setEditItem(item);
     setEditTitle(item.title);
     setEditCaption(item.caption || "");
@@ -683,6 +699,40 @@ export function LibraryPage() {
         onError: aiErrorToast("Could not rewrite the caption"),
       },
     );
+  };
+
+  const handleVideoCopy = async () => {
+    if (!editItem?.videoPath || videoCopyBusy || videoCopyInFlight.current) return;
+    videoCopyInFlight.current = true;
+    const id = editItem.id;
+    const platform = editPlatform;
+    const request = ++videoCopyRequest.current;
+    setVideoCopyBusy(true);
+    setVideoCopyPreview(null);
+    try {
+      const source = await getContentVideoCopySource(id);
+      if (videoCopyRequest.current !== request || editItemRef.current?.id !== id) return;
+      const result = await generateCaption.mutateAsync({
+        data: {
+          prompt: videoLibraryCopyPrompt(source, platform),
+          platform,
+          videoCopy: true,
+          brandKitId: editItem.brandKitId ?? undefined,
+          contentId: id,
+        },
+      });
+      if (videoCopyRequest.current !== request || editItemRef.current?.id !== id) return;
+      const copy = formatVideoLibraryCopy(result, platform);
+      setVideoCopyPreview({ ...copy, platform });
+      toast({ title: "Video copy ready to review", description: "Nothing has been replaced. Review and apply, then save changes." });
+    } catch (error) {
+      if (videoCopyRequest.current === request && editItemRef.current?.id === id) {
+        aiErrorToast("Could not generate video copy")(error);
+      }
+    } finally {
+      videoCopyInFlight.current = false;
+      if (videoCopyRequest.current === request) setVideoCopyBusy(false);
+    }
   };
 
   const doRegenerateImage = () => {
@@ -1011,7 +1061,13 @@ export function LibraryPage() {
         </div>
       )}
 
-      <Dialog open={!!editItem} onOpenChange={(open) => !open && setEditItem(null)}>
+      <Dialog open={!!editItem} onOpenChange={(open) => {
+        if (!open) {
+          videoCopyRequest.current++;
+          setVideoCopyPreview(null);
+          setEditItem(null);
+        }
+      }}>
         <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Content</DialogTitle>
@@ -1028,7 +1084,7 @@ export function LibraryPage() {
             )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Platform</label>
-              <Select value={editPlatform} onValueChange={setEditPlatform}>
+              <Select value={editPlatform} disabled={videoCopyBusy} onValueChange={(platform) => { setEditPlatform(platform); setVideoCopyPreview(null); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Platform" />
                 </SelectTrigger>
@@ -1067,6 +1123,14 @@ export function LibraryPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium">Caption</label>
+                <div className="flex flex-wrap gap-2 justify-end">
+                {editItem?.videoPath && (
+                  <Button type="button" size="sm" variant="default" onClick={handleVideoCopy}
+                    disabled={videoCopyBusy || generateCaption.isPending} data-testid="button-generate-video-copy">
+                    {videoCopyBusy ? <RippleSpinner className="h-3 w-3 mr-1" /> : <Wand2 className="h-3 w-3 mr-1" />}
+                    {videoCopyBusy ? "Writing from script..." : "Generate from video script"}
+                  </Button>
+                )}
                 <Button
                   type="button"
                   size="sm"
@@ -1082,7 +1146,26 @@ export function LibraryPage() {
                   )}
                   {generateCaption.isPending ? "Adapting..." : `Adapt for ${PLATFORM_NAMES[editPlatform] ?? editPlatform}`}
                 </Button>
+                </div>
               </div>
+              {editItem?.videoPath && (
+                <p className="text-xs text-muted-foreground">Uses the saved script or narration (or the original brief if no script exists). Generates a title, caption and hashtags for {PLATFORM_NAMES[editPlatform] ?? editPlatform}. Uses one caption generation from your plan or credits{walletBilling ? captionWallet?.rates?.captionPaise ? `; wallet estimate ₹${(captionWallet.rates.captionPaise / 100).toFixed(2)} (actual cost may vary)` : "; wallet charged at the configured caption rate" : ""}. Review before replacing your edits.</p>
+              )}
+              {videoCopyPreview && (
+                <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3" data-testid="video-copy-preview">
+                  <p className="text-sm font-semibold">Review generated copy for {PLATFORM_NAMES[videoCopyPreview.platform]}</p>
+                  <Input aria-label="Generated title" value={videoCopyPreview.title} maxLength={200}
+                    onChange={(event) => setVideoCopyPreview({ ...videoCopyPreview, title: event.target.value })} />
+                  <Textarea aria-label="Generated caption and hashtags" value={videoCopyPreview.caption} rows={5}
+                    onChange={(event) => setVideoCopyPreview({ ...videoCopyPreview, caption: event.target.value })} />
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" disabled={videoCopyPreview.platform !== editPlatform || !videoCopyPreview.title.trim()}
+                      onClick={() => { setEditTitle(videoCopyPreview.title.trim()); setEditCaption(videoCopyPreview.caption.trim()); setVideoCopyPreview(null); }}
+                      data-testid="button-apply-video-copy">Use this copy</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setVideoCopyPreview(null)}>Keep mine</Button>
+                  </div>
+                </div>
+              )}
               <Textarea 
                 value={editCaption} 
                 onChange={e => setEditCaption(e.target.value)} 

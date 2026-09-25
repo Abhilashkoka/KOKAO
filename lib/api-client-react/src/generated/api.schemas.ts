@@ -4064,6 +4064,8 @@ export interface CaptionRequest {
      * @nullable
      */
   contentId?: number | null;
+  /** Validate the generated video title and complete platform caption including hashtags before settling caption funding. */
+  videoCopy?: boolean;
 }
 
 export interface CaptionResult {
@@ -8039,6 +8041,22 @@ export interface LibraryMusicImportResult {
   /** /objects/... path usable as generate-video musicPath. */
   musicPath: string;
   title: string;
+}
+
+export type VideoLibraryCopySourceSourceType = typeof VideoLibraryCopySourceSourceType[keyof typeof VideoLibraryCopySourceSourceType];
+
+
+export const VideoLibraryCopySourceSourceType = {
+  guided_script: 'guided_script',
+  walkthrough_script: 'walkthrough_script',
+  character_script: 'character_script',
+  narration: 'narration',
+  brief: 'brief',
+} as const;
+
+export interface VideoLibraryCopySource {
+  text: string;
+  sourceType: VideoLibraryCopySourceSourceType;
 }
 
 export interface SaveVideoToLibraryRequest {

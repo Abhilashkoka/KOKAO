@@ -7991,6 +7991,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/library-copy-source:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: getVideoJobLibraryCopySource
+      tags: [ai]
+      summary: Get the saved script or brief behind a finished video for caption generation
+      responses:
+        "200":
+          description: Tenant-owned source text and its provenance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoLibraryCopySource" }
+        "404":
+          description: Job or usable source not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /ai/video-jobs/{jobId}/save-to-library:
     parameters:
       - name: jobId
@@ -9072,6 +9093,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /content/{id}/video-copy-source:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: getContentVideoCopySource
+      tags: [content]
+      summary: Get the source script of a tenant-owned Library video
+      responses:
+        "200":
+          description: Source text and provenance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoLibraryCopySource" }
+        "404":
+          description: Video or usable source not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /content/{id}/publish-facebook:
     post:
       operationId: publishContentToFacebook
@@ -17891,6 +17933,9 @@ components:
             regenerating for an existing item. Used to link the billing ledger
             entry back to the item; ignored if the item is not in this
             workspace.
+        videoCopy:
+          type: boolean
+          description: Validate the generated video title and complete platform caption including hashtags before settling caption funding.
     CaptionResult:
       type: object
       required: [caption, hashtags]
@@ -21176,6 +21221,14 @@ components:
           description: /objects/... path usable as generate-video musicPath.
         title:
           type: string
+    VideoLibraryCopySource:
+      type: object
+      required: [text, sourceType]
+      properties:
+        text: { type: string }
+        sourceType:
+          type: string
+          enum: [guided_script, walkthrough_script, character_script, narration, brief]
     SaveVideoToLibraryRequest:
       type: object
       required: [title]

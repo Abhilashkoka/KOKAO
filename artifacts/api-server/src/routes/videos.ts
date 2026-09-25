@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
+import { videoLibraryCopySource } from "../lib/videoLibraryCopySource";
 import {
   db,
   aiModelPricesTable,
@@ -18322,6 +18323,28 @@ router.post(
     res.json(serializeVideoJob(dismissed!));
   },
 );
+
+/** Return only the tenant's persisted words, never claim to analyze unseen video frames. */
+router.get("/ai/video-jobs/:jobId/library-copy-source", async (req: Request, res: Response) => {
+  const id = Number(req.params.jobId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid job id" });
+    return;
+  }
+  const job = (await db.select().from(videoGenerationsTable).where(and(
+    eq(videoGenerationsTable.id, id), eq(videoGenerationsTable.tenantId, req.tenantId),
+  )).limit(1))[0];
+  if (!job || job.status !== "succeeded" || !job.videoPath) {
+    res.status(404).json({ error: "Finished video not found" });
+    return;
+  }
+  const source = videoLibraryCopySource(job);
+  if (!source) {
+    res.status(404).json({ error: "No saved script or video brief is available for this video. Add the copy yourself." });
+    return;
+  }
+  res.json(source);
+});
 
 /** Save a finished video into the content library as a draft item. */
 router.post(

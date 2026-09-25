@@ -454,6 +454,7 @@ import type {
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
+  VideoLibraryCopySource,
   VideoModelList,
   VideoModelPricingSyncResult,
   VideoModelPricingView,
@@ -20994,6 +20995,83 @@ export const useDismissUnrecoverableVideoStoryboard = <TError = ErrorType<ErrorE
       return useMutation(getDismissUnrecoverableVideoStoryboardMutationOptions(options));
     }
 
+export const getGetVideoJobLibraryCopySourceUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/library-copy-source`
+}
+
+/**
+ * @summary Get the saved script or brief behind a finished video for caption generation
+ */
+export const getVideoJobLibraryCopySource = async (jobId: number, options?: RequestInit): Promise<VideoLibraryCopySource> => {
+
+  return customFetch<VideoLibraryCopySource>(getGetVideoJobLibraryCopySourceUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVideoJobLibraryCopySourceQueryKey = (jobId: number,) => {
+    return [
+    `/api/ai/video-jobs/${jobId}/library-copy-source`
+    ] as const;
+    }
+
+
+export const getGetVideoJobLibraryCopySourceQueryOptions = <TData = Awaited<ReturnType<typeof getVideoJobLibraryCopySource>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobLibraryCopySource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVideoJobLibraryCopySourceQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVideoJobLibraryCopySource>>> = ({ signal }) => getVideoJobLibraryCopySource(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVideoJobLibraryCopySource>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVideoJobLibraryCopySourceQueryResult = NonNullable<Awaited<ReturnType<typeof getVideoJobLibraryCopySource>>>
+export type GetVideoJobLibraryCopySourceQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the saved script or brief behind a finished video for caption generation
+ */
+
+export function useGetVideoJobLibraryCopySource<TData = Awaited<ReturnType<typeof getVideoJobLibraryCopySource>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobLibraryCopySource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVideoJobLibraryCopySourceQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getSaveVideoToLibraryUrl = (jobId: number,) => {
 
 
@@ -23950,6 +24028,83 @@ export const useRetestInstagramCredentials = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getRetestInstagramCredentialsMutationOptions(options));
     }
+
+export const getGetContentVideoCopySourceUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/video-copy-source`
+}
+
+/**
+ * @summary Get the source script of a tenant-owned Library video
+ */
+export const getContentVideoCopySource = async (id: number, options?: RequestInit): Promise<VideoLibraryCopySource> => {
+
+  return customFetch<VideoLibraryCopySource>(getGetContentVideoCopySourceUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetContentVideoCopySourceQueryKey = (id: number,) => {
+    return [
+    `/api/content/${id}/video-copy-source`
+    ] as const;
+    }
+
+
+export const getGetContentVideoCopySourceQueryOptions = <TData = Awaited<ReturnType<typeof getContentVideoCopySource>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getContentVideoCopySource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetContentVideoCopySourceQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getContentVideoCopySource>>> = ({ signal }) => getContentVideoCopySource(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getContentVideoCopySource>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetContentVideoCopySourceQueryResult = NonNullable<Awaited<ReturnType<typeof getContentVideoCopySource>>>
+export type GetContentVideoCopySourceQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the source script of a tenant-owned Library video
+ */
+
+export function useGetContentVideoCopySource<TData = Awaited<ReturnType<typeof getContentVideoCopySource>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getContentVideoCopySource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetContentVideoCopySourceQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getPublishContentToFacebookUrl = (id: number,) => {
 
