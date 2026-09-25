@@ -2661,7 +2661,7 @@ function guidedSetup(
   if (!platform || !locale || !GUIDED_STORY_GENRES.includes(input.genre as never))
     return null;
   if (!platform.durations.includes(input.durationSeconds)) return null;
-  if (topic.length < 3 || topic.length > 2000) return null;
+  if (topic.length < 3 || topic.length > 6000) return null;
   return {
     genre: input.genre as NonNullable<GuidedStoryDraftState["setup"]>["genre"],
     platform: input.platform as NonNullable<
@@ -2689,7 +2689,7 @@ function guidedStorySetupValidationError(
     ["genre", "platform", "durationSeconds", "locale", "topic", "roleCount", "brandKitId"]
       .includes(String(part)),
   );
-  if (field === "topic") return "Topic must be between 3 and 2000 characters.";
+  if (field === "topic") return "Topic must be between 3 and 6000 characters.";
   if (field === "genre") {
     return "Genre is not supported. Choose Action / Adventure, Comedy, Drama, Romance, Thriller / Mystery, Fantasy, or Science Fiction.";
   }
@@ -2710,9 +2710,9 @@ function guidedStorySetupValidationError(
   if (
     typeof setup.topic !== "string" ||
     setup.topic.trim().length < 3 ||
-    setup.topic.length > 2000
+    setup.topic.length > 6000
   ) {
-    return "Topic must be between 3 and 2000 characters.";
+    return "Topic must be between 3 and 6000 characters.";
   }
   if (
     typeof setup.genre !== "string" ||

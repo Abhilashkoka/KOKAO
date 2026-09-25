@@ -399,13 +399,19 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("input-guided-topic") as HTMLTextAreaElement).value)
       .toBe(oversizedTopic);
     expect(screen.getByTestId("text-guided-topic-count").textContent)
-      .toContain("2,001 / 2,000");
+      .toContain("6,001 / 6,000");
     expect(screen.getByTestId("error-guided-topic").textContent)
-      .toContain("2,000 characters or fewer");
+      .toContain("6,000 characters or fewer");
     expect((screen.getByTestId("button-guided-create-draft") as HTMLButtonElement).disabled)
       .toBe(true);
     fireEvent.click(screen.getByTestId("button-guided-create-draft"));
     expect(state.created).toBeNull();
+  });
+
+  it("accepts topics up to exactly 6000 characters", () => {
+    expect(GUIDED_STORY_TOPIC_MAX).toBe(6000);
+    expect(guidedStorySetupIsComplete(contract, 15, "en", "x".repeat(6000))).toBe(true);
+    expect(guidedStorySetupIsComplete(contract, 15, "en", "x".repeat(6001))).toBe(false);
   });
 
   it("starts a new story without deleting the previously restored draft", async () => {

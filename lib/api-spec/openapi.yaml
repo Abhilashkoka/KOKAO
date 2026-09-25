@@ -18648,7 +18648,7 @@ components:
           minLength: 2
           maxLength: 35
           description: A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.
-        topic: { type: string, minLength: 3, maxLength: 2000 }
+        topic: { type: string, minLength: 3, maxLength: 6000 }
         roleCount:
           type: integer
           deprecated: true

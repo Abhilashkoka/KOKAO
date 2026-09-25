@@ -4906,7 +4906,7 @@ export interface GuidedStorySetupInput {
   locale: string;
   /**
      * @minLength 3
-     * @maxLength 2000
+     * @maxLength 6000
      */
   topic: string;
   /**

@@ -117,7 +117,7 @@ const VISUAL_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_VISUAL_IMAGE_BYTES = 10 * 1024 * 1024;
 export const GUIDED_BACKDROP_PROMPT_MAX = 1000;
 export const GUIDED_STORY_TOPIC_MIN = 3;
-export const GUIDED_STORY_TOPIC_MAX = 2000;
+export const GUIDED_STORY_TOPIC_MAX = 6000;
 
 export function fitGuidedBackdropPrompt(value: string): string {
   const prompt = value.trim();

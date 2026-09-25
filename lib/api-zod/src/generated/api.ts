@@ -14766,7 +14766,7 @@ export const createGuidedStoryDraftBodyLocaleMin = 2;
 export const createGuidedStoryDraftBodyLocaleMax = 35;
 
 export const createGuidedStoryDraftBodyTopicMin = 3;
-export const createGuidedStoryDraftBodyTopicMax = 2000;
+export const createGuidedStoryDraftBodyTopicMax = 6000;
 
 
 
@@ -14787,7 +14787,7 @@ export const createGuidedStoryDraftResponseSetupOneOneLocaleMin = 2;
 export const createGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 
 export const createGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
-export const createGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
+export const createGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const createGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -15130,7 +15130,7 @@ export const getGuidedStoryDraftResponseSetupOneOneLocaleMin = 2;
 export const getGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 
 export const getGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
-export const getGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
+export const getGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const getGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -15474,7 +15474,7 @@ export const updateGuidedStoryDraftBodySetupLocaleMin = 2;
 export const updateGuidedStoryDraftBodySetupLocaleMax = 35;
 
 export const updateGuidedStoryDraftBodySetupTopicMin = 3;
-export const updateGuidedStoryDraftBodySetupTopicMax = 2000;
+export const updateGuidedStoryDraftBodySetupTopicMax = 6000;
 
 export const updateGuidedStoryDraftBodyScriptRolesMax = 20;
 
@@ -15601,7 +15601,7 @@ export const updateGuidedStoryDraftResponseSetupOneOneLocaleMin = 2;
 export const updateGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 
 export const updateGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
-export const updateGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
+export const updateGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const updateGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -15951,7 +15951,7 @@ export const generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMin = 2;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax = 35;
 
 export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMin = 3;
-export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 2000;
+export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
@@ -16311,7 +16311,7 @@ export const refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMin = 2;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMax = 35;
 
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMin = 3;
-export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax = 2000;
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax = 6000;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMax = 20;
 
@@ -16770,7 +16770,7 @@ export const approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMin = 2;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax = 35;
 
 export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMin = 3;
-export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 2000;
+export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
@@ -17136,7 +17136,7 @@ export const castGuidedStoryDraftResponseSetupOneOneLocaleMin = 2;
 export const castGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 
 export const castGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
-export const castGuidedStoryDraftResponseSetupOneOneTopicMax = 2000;
+export const castGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const castGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -17488,7 +17488,7 @@ export const approveGuidedStoryCastRoleResponseSetupOneOneLocaleMin = 2;
 export const approveGuidedStoryCastRoleResponseSetupOneOneLocaleMax = 35;
 
 export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMin = 3;
-export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMax = 2000;
+export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMax = 6000;
 
 export const approveGuidedStoryCastRoleResponseScriptOneRolesMax = 20;
 
@@ -17855,7 +17855,7 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMin =
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMax = 35;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMin = 3;
-export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax = 2000;
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax = 6000;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax = 20;
 
@@ -18207,7 +18207,7 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocal
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocaleMax = 35;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMin = 3;
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMax = 2000;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMax = 6000;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax = 20;
 
@@ -18651,7 +18651,7 @@ export const prepareGuidedStoryBackdropResponseSetupOneOneLocaleMin = 2;
 export const prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
 
 export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
-export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMax = 2000;
+export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
 export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
@@ -19009,7 +19009,7 @@ export const approveGuidedStoryBackdropResponseSetupOneOneLocaleMin = 2;
 export const approveGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
 
 export const approveGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
-export const approveGuidedStoryBackdropResponseSetupOneOneTopicMax = 2000;
+export const approveGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
 export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
@@ -19360,7 +19360,7 @@ export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMin = 2;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax = 35;
 
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMin = 3;
-export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax = 2000;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax = 6000;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 20;
 
@@ -19711,7 +19711,7 @@ export const finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin = 2;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
 
 export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
-export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax = 2000;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
@@ -20062,7 +20062,7 @@ export const rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin = 2;
 export const rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
 
 export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
-export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMax = 2000;
+export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
 export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 

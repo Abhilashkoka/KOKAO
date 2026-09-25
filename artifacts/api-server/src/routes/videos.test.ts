@@ -2820,13 +2820,18 @@ describe("guided story route fail-closed regressions", () => {
       topic: "A storm rescue",
     };
 
-    const oversizedTopic = `private-${"x".repeat(2000)}`;
+    const oversizedTopic = `private-${"x".repeat(6000)}`;
+    const accepted = await request(app)
+      .post("/api/ai/guided-story/drafts")
+      .send({ ...base, topic: "x".repeat(6000) });
+    expect(accepted.status).toBe(201);
+
     const oversized = await request(app)
       .post("/api/ai/guided-story/drafts")
       .send({ ...base, topic: oversizedTopic });
     expect(oversized.status).toBe(400);
     expect(oversized.body).toEqual({
-      error: "Topic must be between 3 and 2000 characters.",
+      error: "Topic must be between 3 and 6000 characters.",
     });
     expect(oversized.body.error).not.toContain(oversizedTopic);
 
@@ -2855,7 +2860,7 @@ describe("guided story route fail-closed regressions", () => {
       });
     expect(oversizedUpdate.status).toBe(400);
     expect(oversizedUpdate.body).toEqual({
-      error: "Topic must be between 3 and 2000 characters.",
+      error: "Topic must be between 3 and 6000 characters.",
     });
 
     const invalidDurationUpdate = await request(app)
