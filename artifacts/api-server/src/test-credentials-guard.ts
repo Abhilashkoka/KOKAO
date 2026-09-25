@@ -47,6 +47,19 @@ const GUARDED_TABLES = [
 
 const API_TEST_RUN_ADVISORY_LOCK_KEY = 913_874_220;
 
+async function purgeMarkedVideoTemplates(client: pg.Client): Promise<void> {
+  // Only fixtures carrying the exact reserved marker. Never match human names
+  // or delete historical unmarked rows automatically.
+  const deleted = await client.query(
+    `DELETE FROM video_style_profiles
+     WHERE tenant_id IS NULL AND scope = 'platform' AND source_kind = 'curated'
+       AND payload ->> '__kokaoApiTestFixture' = 'video-template-v1'`,
+  );
+  if (deleted.rowCount) {
+    console.warn(`[test-fixture-guard] Removed ${deleted.rowCount} marked video template fixture(s).`);
+  }
+}
+
 interface TableSnapshot {
   table: string;
   columns: string[];
@@ -351,6 +364,7 @@ export default async function credentialsGuard(): Promise<() => Promise<void>> {
     // BEFORE taking ours — otherwise we'd snapshot (and later "restore")
     // the wiped state.
     await restoreOrphanedSnapshot(client);
+    await purgeMarkedVideoTemplates(client);
     await purgeSyntheticFailoverNotifications(client);
     await purgeSyntheticTestTenants(client);
 
@@ -387,6 +401,7 @@ export default async function credentialsGuard(): Promise<() => Promise<void>> {
   return async () => {
     try {
       await restoreSnapshots(client, snapshots);
+      await purgeMarkedVideoTemplates(client);
       await purgeSyntheticFailoverNotifications(client);
       await purgeSyntheticTestTenants(client);
       // Only after a successful restore — if the restore above threw, the file

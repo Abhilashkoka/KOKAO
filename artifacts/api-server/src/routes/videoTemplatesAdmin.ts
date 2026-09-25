@@ -20,6 +20,7 @@ import {
   validateCreativeDirection,
 } from "../lib/videoGen/videoTemplates";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
+import { isTestTemplate, markTestTemplatePayload, visibleVideoTemplate } from "../lib/videoGen/testTemplateIsolation";
 
 const router: IRouter = Router();
 // This router is mounted at the API root; do not gate unrelated tenant routes.
@@ -195,6 +196,7 @@ router.get("/admin/video-templates", async (_req: Request, res: Response): Promi
       and(
         eq(videoStyleProfilesTable.scope, "platform"),
         eq(videoStyleProfilesTable.sourceKind, "curated"),
+        visibleVideoTemplate(),
       ),
     )
     .orderBy(asc(videoStyleProfilesTable.id));
@@ -226,7 +228,13 @@ router.post("/admin/video-templates", async (req: Request, res: Response): Promi
   }
   const [created] = await db
     .insert(videoStyleProfilesTable)
-    .values({ ...safe.value, published: false })
+    .values({
+      ...safe.value,
+      payload: process.env.NODE_ENV === "test"
+        ? markTestTemplatePayload(safe.value.payload)
+        : safe.value.payload,
+      published: false,
+    })
     .returning();
   await auditTemplateChange(req, null, created);
   res.status(201).json(serializeTemplate(created!));
@@ -268,6 +276,7 @@ router.patch("/admin/video-templates/:templateId", async (req: Request, res: Res
         eq(videoStyleProfilesTable.id, id),
         eq(videoStyleProfilesTable.scope, "platform"),
         eq(videoStyleProfilesTable.sourceKind, "curated"),
+        visibleVideoTemplate(),
       ),
     )
     .limit(1);
@@ -277,7 +286,12 @@ router.patch("/admin/video-templates/:templateId", async (req: Request, res: Res
   }
   const [updated] = await db
     .update(videoStyleProfilesTable)
-    .set(safe.value)
+    .set({
+      ...safe.value,
+      payload: isTestTemplate(existing.payload)
+        ? markTestTemplatePayload(safe.value.payload)
+        : safe.value.payload,
+    })
     .where(eq(videoStyleProfilesTable.id, id))
     .returning();
   await auditTemplateChange(req, existing, updated);
@@ -305,6 +319,7 @@ router.put(
           eq(videoStyleProfilesTable.id, id),
           eq(videoStyleProfilesTable.scope, "platform"),
           eq(videoStyleProfilesTable.sourceKind, "curated"),
+          visibleVideoTemplate(),
         ),
       )
       .limit(1);
@@ -364,6 +379,7 @@ router.delete(
           eq(videoStyleProfilesTable.id, id),
           eq(videoStyleProfilesTable.scope, "platform"),
           eq(videoStyleProfilesTable.sourceKind, "curated"),
+          visibleVideoTemplate(),
         ),
       )
       .returning();

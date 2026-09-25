@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
+import { visibleVideoTemplate } from "../lib/videoGen/testTemplateIsolation";
 import { db, tenantsTable, videoStyleProfilesTable } from "@workspace/db";
 import type { VideoStyleProfile } from "@workspace/db";
 import { and, asc, eq, or } from "drizzle-orm";
@@ -147,13 +148,13 @@ router.get("/ai/video-styles", async (req: Request, res: Response) => {
     .select()
     .from(videoStyleProfilesTable)
     .where(
-      or(
+      and(visibleVideoTemplate(), or(
         eq(videoStyleProfilesTable.tenantId, req.tenantId),
         and(
           eq(videoStyleProfilesTable.scope, "platform"),
           eq(videoStyleProfilesTable.published, true),
         ),
-      ),
+      )),
     )
     .orderBy(asc(videoStyleProfilesTable.id));
 

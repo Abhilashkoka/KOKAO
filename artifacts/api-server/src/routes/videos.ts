@@ -29,6 +29,7 @@ import {
   type AssetProvenance,
 } from "@workspace/db";
 import { and, eq, desc, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { visibleVideoTemplate } from "../lib/videoGen/testTemplateIsolation";
 import {
   GenerateVideoBody,
   GenerateVideoCoverCandidatesBody,
@@ -11101,7 +11102,7 @@ async function generateVideoHandler(
       await db
         .select()
         .from(videoStyleProfilesTable)
-        .where(eq(videoStyleProfilesTable.id, body.styleProfileId))
+        .where(and(eq(videoStyleProfilesTable.id, body.styleProfileId), visibleVideoTemplate()))
         .limit(1)
     )[0];
     selectedStyleProfile =
@@ -14584,7 +14585,7 @@ async function validateRecoveryObjects(
         published: videoStyleProfilesTable.published,
       })
       .from(videoStyleProfilesTable)
-      .where(eq(videoStyleProfilesTable.id, options.styleProfileId))
+      .where(and(eq(videoStyleProfilesTable.id, options.styleProfileId), visibleVideoTemplate()))
       .limit(1);
     if (
       !profile ||

@@ -1,4 +1,5 @@
 import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
+import { markTestTemplatePayload } from "../lib/videoGen/testTemplateIsolation";
 import request from "supertest";
 import express, { type Express } from "express";
 import { createHash } from "node:crypto";
@@ -979,7 +980,7 @@ async function seedPresenterTemplate(presenterRequired = true) {
           reviewStoryboard: true,
         },
         sourceVideoPath: null,
-        payload: {
+        payload: markTestTemplatePayload({
           version: 1,
           hookShape: "presenter opens direct to camera",
           pacing: { sceneCount: 1, avgSceneSec: 60, wordsPerMinute: 145 },
@@ -989,7 +990,7 @@ async function seedPresenterTemplate(presenterRequired = true) {
           scriptGuidance: "Use the submitted script exactly.",
           sourceDurationSec: 60,
           transcriptExcerpt: "",
-        },
+        }),
       })
       .returning()
   )[0]!;
@@ -1023,12 +1024,12 @@ async function seedScreenDemoTemplate() {
       ],
     },
     sourceVideoPath: null,
-    payload: {
+    payload: markTestTemplatePayload({
       version: 1, hookShape: "character intro",
       pacing: { sceneCount: 3, avgSceneSec: 20, wordsPerMinute: 140 },
       captionStyle: "classic", energy: "clear", visualNotes: [],
       scriptGuidance: "Narrate the recording.", sourceDurationSec: 60, transcriptExcerpt: "",
-    },
+    }),
   }).returning())[0]!;
   createdStyleProfileIds.push(row.id);
   return row;
@@ -1059,12 +1060,12 @@ async function seedHybridTemplate() {
       ],
     },
     sourceVideoPath: null,
-    payload: {
+    payload: markTestTemplatePayload({
       version: 1, hookShape: "character opening",
       pacing: { sceneCount: 3, avgSceneSec: 12, wordsPerMinute: 120 },
       captionStyle: "classic", energy: "measured", visualNotes: [],
       scriptGuidance: "Tell a short story.", sourceDurationSec: 35, transcriptExcerpt: "",
-    },
+    }),
   }).returning())[0]!;
   createdStyleProfileIds.push(row.id);
   return row;
@@ -2685,7 +2686,7 @@ describe("POST /api/ai/generate-video", () => {
           paragraphCount: 1,
           visualsSource: "stock",
         },
-        payload: {
+        payload: markTestTemplatePayload({
           version: 1,
           hookShape: "Open with the benefit.",
           pacing: { sceneCount: 3, avgSceneSec: 10, wordsPerMinute: 140 },
@@ -2695,7 +2696,7 @@ describe("POST /api/ai/generate-video", () => {
           scriptGuidance: "Explain one useful idea.",
           sourceDurationSec: 30,
           transcriptExcerpt: "",
-        },
+        }),
       })
       .returning();
     try {

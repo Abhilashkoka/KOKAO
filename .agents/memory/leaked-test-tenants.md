@@ -19,3 +19,9 @@ broad type-and-time cleanup that could erase a real alert. If fan-out tests
 suddenly slow down, verify stale synthetic admins are absent before changing
 assertions. Preserve the separate sweep-suite lock; it protects a different
 shared background process.
+
+Platform-wide template fixtures must be excluded from live API reads while tests are running, not just removed afterward.
+
+**Why:** the real Preview and integration tests share a database; published fixtures become visible immediately, and interrupted teardown can leave them indefinitely.
+
+**How to apply:** explicitly mark synthetic fixtures and enforce visibility on both list and by-ID paths. Historical unmarked templates need exact fixture-content matching before reversible quarantine; a timestamp-like name alone is not proof.

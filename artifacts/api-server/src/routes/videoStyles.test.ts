@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
+import { HISTORICAL_PRESENTER_MARKER_VALUE, TEST_TEMPLATE_MARKER_KEY, markTestTemplatePayload } from "../lib/videoGen/testTemplateIsolation";
 
 vi.mock("@clerk/express", async () => {
   const { authState } = await import("../test/authState");
@@ -212,6 +213,53 @@ const samplePayload: VideoStyleProfilePayload = {
   sourceDurationSec: 30,
   transcriptExcerpt: "",
 };
+
+it("hides marked fixtures from live template lists but not legitimate same-name templates", async () => {
+  const admin = await createTenant({ isSuperadmin: true, email: "fixture-isolation-admin@test.invalid" });
+  createdTenants.push(admin);
+  actAs(admin.clerkUserId);
+  const name = `Presenter B-roll ${Date.now()}-0`;
+  const historicalPayload = { ...samplePayload, [TEST_TEMPLATE_MARKER_KEY]: HISTORICAL_PRESENTER_MARKER_VALUE };
+  const rows = await db.insert(videoStyleProfilesTable).values([
+    {
+      tenantId: null, scope: "platform", sourceKind: "curated", published: true,
+      name, summary: "Real template with a test-like name",
+      payload: samplePayload,
+    },
+    {
+      tenantId: null, scope: "platform", sourceKind: "curated", published: true,
+      name, summary: "Marked fixture",
+      payload: markTestTemplatePayload(samplePayload),
+    },
+    {
+      tenantId: null, scope: "platform", sourceKind: "curated", published: true,
+      name, summary: "Quarantined historical fixture",
+      payload: historicalPayload,
+    },
+  ]).returning();
+  createdPlatformTemplateIds.push(...rows.map((row) => row.id));
+  const originalEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = "development";
+    const [adminList, pickerList] = await Promise.all([
+      request(app).get("/api/admin/video-templates"),
+      request(app).get("/api/ai/video-styles"),
+    ]);
+    expect(adminList.status).toBe(200);
+    expect(pickerList.status).toBe(200);
+    expect(adminList.body.map((row: { id: number }) => row.id)).toContain(rows[0]!.id);
+    expect(pickerList.body.map((row: { id: number }) => row.id)).toContain(rows[0]!.id);
+    expect(adminList.body.map((row: { id: number }) => row.id)).not.toContain(rows[1]!.id);
+    expect(pickerList.body.map((row: { id: number }) => row.id)).not.toContain(rows[1]!.id);
+    expect(adminList.body.map((row: { id: number }) => row.id)).not.toContain(rows[2]!.id);
+    expect(pickerList.body.map((row: { id: number }) => row.id)).not.toContain(rows[2]!.id);
+    process.env.NODE_ENV = "test";
+    const testList = await request(app).get("/api/ai/video-styles");
+    expect(testList.body.map((row: { id: number }) => row.id)).toContain(rows[1]!.id);
+  } finally {
+    process.env.NODE_ENV = originalEnv;
+  }
+});
 
 async function seedProfiles(tenantId: number, count: number): Promise<void> {
   await db.insert(videoStyleProfilesTable).values(
@@ -735,6 +783,7 @@ describe("superadmin curated video templates", () => {
         sourceKind: "curated",
         published: false,
         ...invalidInput,
+        payload: markTestTemplatePayload(invalidInput.payload),
       })
       .returning();
     createdPlatformTemplateIds.push(legacyInvalid!.id);
@@ -828,7 +877,7 @@ describe("superadmin curated video templates", () => {
         published: false,
         ...input,
         name: `${input.name} legacy`,
-        payload: samplePayload,
+        payload: markTestTemplatePayload(samplePayload),
       })
       .returning();
     createdPlatformTemplateIds.push(legacy!.id);
