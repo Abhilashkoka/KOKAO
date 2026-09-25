@@ -4617,13 +4617,21 @@ export function VideoStudioPage() {
                         onValueChange={(value) => {
                           if (value === "auto" || value === "user") setScreenScriptMode(value);
                         }}
-                        className="justify-start"
+                        className="flex-wrap justify-start gap-3"
                         data-testid="toggle-screen-script-mode"
                       >
-                        <ToggleGroupItem value="auto" data-testid="toggle-screen-script-auto">
+                        <ToggleGroupItem
+                          value="auto"
+                          data-testid="toggle-screen-script-auto"
+                          className="h-11 cursor-pointer rounded-lg border-2 border-primary/40 bg-background px-5 font-semibold text-primary shadow-sm hover:border-primary hover:bg-primary/10 data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-md"
+                        >
                           Write it for me
                         </ToggleGroupItem>
-                        <ToggleGroupItem value="user" data-testid="toggle-screen-script-user">
+                        <ToggleGroupItem
+                          value="user"
+                          data-testid="toggle-screen-script-user"
+                          className="h-11 cursor-pointer rounded-lg border-2 border-primary/40 bg-background px-5 font-semibold text-primary shadow-sm hover:border-primary hover:bg-primary/10 data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-md"
+                        >
                           Use my script
                         </ToggleGroupItem>
                       </ToggleGroup>
