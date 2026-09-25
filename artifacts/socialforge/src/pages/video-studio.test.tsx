@@ -3660,6 +3660,8 @@ describe("Video Studio", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTestId("tab-topic-to-video"));
     await user.click(screen.getByTestId("button-use-video-template-25"));
+    expect(screen.getByTestId("screen-demo-inputs").contains(screen.getByTestId("input-video-prompt"))).toBe(true);
+    expect(screen.getByLabelText("Walkthrough brief")).toBe(screen.getByTestId("input-video-prompt"));
     fireEvent.change(screen.getByTestId("input-video-prompt"), {
       target: { value: "Show how our app helps teams organize work." },
     });
@@ -3670,6 +3672,15 @@ describe("Video Studio", () => {
     await user.upload(screen.getByTestId("input-screen-recording"), new File(["recording"], "demo.mp4", { type: "video/mp4" }));
     await waitFor(() => expect(screen.getByTestId("text-screen-recording-name").textContent).toBe("demo.mp4"));
     await user.click(screen.getByTestId("toggle-screen-script-user"));
+    const scriptInput = screen.getByLabelText("Your script") as HTMLTextAreaElement;
+    expect(scriptInput).toBe(screen.getByTestId("input-video-prompt"));
+    expect(scriptInput.value).toBe("Show how our app helps teams organize work.");
+    const script = "Our app keeps work moving. Open the dashboard to see your projects and add a task for your team. Try it today.";
+    fireEvent.change(scriptInput, { target: { value: script } });
+    await user.click(screen.getByTestId("toggle-screen-script-auto"));
+    expect((screen.getByLabelText("Walkthrough brief") as HTMLTextAreaElement).value).toBe(script);
+    await user.click(screen.getByTestId("toggle-screen-script-user"));
+    expect((screen.getByLabelText("Your script") as HTMLTextAreaElement).value).toBe(script);
     fireEvent.change(screen.getByTestId("input-end-card-tagline"), { target: { value: "  Work smarter  " } });
     fireEvent.change(screen.getByTestId("input-end-card-cta"), { target: { value: "Try it now" } });
     await user.click(screen.getByTestId("select-end-card-animation"));
@@ -3679,6 +3690,7 @@ describe("Video Studio", () => {
     await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
     expect(mockState.lastGenerateVars.data).toMatchObject({
       styleProfileId: 25,
+      prompt: script,
       lipSyncConsent: true,
       screenDemo: {
         recordingPath: "/objects/1/uploads/presenter.mp4",

@@ -4271,7 +4271,8 @@ export function VideoStudioPage() {
             {engine !== "slideshow" &&
               engine !== "lip_sync" &&
               engine !== "dialogue_lip_sync" &&
-              !isCharacterDialogue && (
+              !isCharacterDialogue &&
+              !isScreenDemoTemplate && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <Label htmlFor="video-prompt">
@@ -4628,9 +4629,33 @@ export function VideoStudioPage() {
                       </ToggleGroup>
                       <p className="text-xs text-muted-foreground">
                         {screenScriptMode === "auto"
-                          ? "Use the text box above as a short brief — what the app does and what to highlight. KOKAO watches the recording and writes the intro, the step-by-step voiceover and the closing line. You can edit it in the storyboard review."
-                          : "The text box above is spoken word for word. First sentence: your character's intro. Last sentence: the closing line. Everything in between is the voiceover over your recording."}
+                          ? "Describe what the app does and what to highlight. KOKAO watches the recording and writes the intro, the step-by-step voiceover and the closing line. You can edit it in the storyboard review."
+                          : "Your script is spoken word for word. Write at least three full sentences: the first is your character's intro, the last is their closing line, and everything in between is the voiceover over your recording. Keep the first and last sentences under 90 characters each."}
                       </p>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label htmlFor="video-prompt">
+                            {screenScriptMode === "user" ? "Your script" : "Walkthrough brief"}
+                          </Label>
+                          <VoiceNoteButton
+                            testId="button-voice-video-prompt"
+                            onTranscript={(text) =>
+                              setPrompt((prev) => (prev ? `${prev} ${text}` : text))
+                            }
+                            disabled={generateVideo.isPending || busy}
+                          />
+                        </div>
+                        <Textarea
+                          id="video-prompt"
+                          data-testid="input-video-prompt"
+                          placeholder={screenScriptMode === "user"
+                            ? "Our app makes planning easier. Open the dashboard to see your projects, then add a task and share it with your team. Try it today."
+                            : "What does your app do, and what should the walkthrough highlight?"}
+                          value={prompt}
+                          onChange={(e) => setPrompt(e.target.value)}
+                          rows={screenScriptMode === "user" ? 7 : 3}
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-3">
