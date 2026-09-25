@@ -8,6 +8,7 @@
 import type { CharacterDialogueInput } from './characterDialogueInput';
 import type { Cinematography } from './cinematography';
 import type { LocalizedDubTrackInput } from './localizedDubTrackInput';
+import type { ScreenDemoRequest } from './screenDemoRequest';
 import type { ScriptVariant } from './scriptVariant';
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
@@ -74,6 +75,8 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   sourceVideoPath?: string | null;
+  /** topic_to_video with a curated App Walkthrough template (a hybrid pattern with a screen_demo beat): the caller's screen recording, how the script is sourced, and the brand end card. Required by those templates and rejected by every other request. */
+  screenDemo?: null | ScreenDemoRequest;
   /**
      * topic_to_video with a curated presenter-overlay template: /objects/... path of the caller's continuous talking-to-camera take. Its original audio is preserved while planned B-roll and captions are composited over the picture.
      * @nullable

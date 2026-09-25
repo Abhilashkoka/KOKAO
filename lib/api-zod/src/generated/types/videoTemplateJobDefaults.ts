@@ -63,7 +63,7 @@ export interface VideoTemplateJobDefaults {
   /** Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time. */
   format?: VideoTemplateJobDefaultsFormat;
   /**
-     * Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.
+     * Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant's uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.
      * @minItems 3
      * @maxItems 25
      */

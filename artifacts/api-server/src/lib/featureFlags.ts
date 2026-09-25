@@ -288,6 +288,12 @@ export const FEATURES = [
       "Allow compatible Studio jobs with one consented speaker and native approved audio to add a shared lip-sync finishing pass. This is independent of the dedicated Spokesperson and AI Dialogue modes.",
   },
   {
+    id: "screenDemoVideo",
+    label: "App Walkthrough Videos",
+    description:
+      "Curated App Walkthrough templates: a saved character introduces the app, the tenant's screen recording plays under the voiceover, and the character closes on an animated brand end card. When off, new walkthrough jobs are refused and the upload fields are hidden.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

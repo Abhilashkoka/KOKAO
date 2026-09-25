@@ -884,6 +884,20 @@ export function VideoStudioPage() {
     objectPath: string;
     name: string;
   } | null>(null);
+  /** App Walkthrough: the tenant's screen recording and end-card settings. */
+  const [screenRecording, setScreenRecording] = useState<{
+    objectPath: string;
+    name: string;
+  } | null>(null);
+  const [screenScriptMode, setScreenScriptMode] = useState<"auto" | "user">(
+    "auto",
+  );
+  const [endCardEnabled, setEndCardEnabled] = useState(true);
+  const [endCardTagline, setEndCardTagline] = useState("");
+  const [endCardCta, setEndCardCta] = useState("");
+  const [endCardAnimation, setEndCardAnimation] = useState<
+    "fade_up" | "logo_scale" | "slide_in"
+  >("fade_up");
   /** "video" = filmed footage (the original mode); "portrait" = one headshot. */
   const [lipSyncSource, setLipSyncSource] = useState<"video" | "portrait">(
     "video",
@@ -1029,6 +1043,7 @@ export function VideoStudioPage() {
   const musicInputRef = useRef<HTMLInputElement>(null);
   const baseVideoInputRef = useRef<HTMLInputElement>(null);
   const presenterVideoInputRef = useRef<HTMLInputElement>(null);
+  const screenRecordingInputRef = useRef<HTMLInputElement>(null);
 
   const characterDialogueDraftKey = me?.tenant?.id
     ? `kokao-character-dialogue-draft-v1:${me.tenant.id}`
@@ -1406,6 +1421,15 @@ export function VideoStudioPage() {
   const isHybridCharacterStory =
     engine === "topic_to_video" &&
     selectedTemplate?.jobDefaults.format === "hybrid_character_story";
+  const isScreenDemoTemplate =
+    isHybridCharacterStory &&
+    (selectedTemplate?.jobDefaults.hybridBeatPattern ?? []).some(
+      (beat) => beat.kind === "screen_demo",
+    );
+  // A recording belongs to the walkthrough format only.
+  useEffect(() => {
+    if (!isScreenDemoTemplate) setScreenRecording(null);
+  }, [isScreenDemoTemplate]);
   useEffect(() => {
     if (
       !isHybridCharacterStory ||
@@ -2000,6 +2024,42 @@ export function VideoStudioPage() {
     }
   };
 
+  const handleScreenRecordingFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!PRESENTER_VIDEO_TYPES.includes(file.type)) {
+      toast({
+        title: "Not a supported screen recording",
+        description: "Use an MP4, MOV, or WebM video.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > MAX_PRESENTER_VIDEO_MB * 1024 * 1024) {
+      toast({
+        title: "Screen recording too large",
+        description: `The recording must be under ${MAX_PRESENTER_VIDEO_MB} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    beginUpload();
+    try {
+      const objectPath = await uploadFile(file);
+      setScreenRecording({ objectPath, name: file.name });
+    } catch {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the screen recording. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      finishUpload();
+      if (screenRecordingInputRef.current)
+        screenRecordingInputRef.current.value = "";
+    }
+  };
+
   const handleMusicFile = async (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
@@ -2129,6 +2189,8 @@ export function VideoStudioPage() {
         }
       }
       if (isHybridCharacterStory && !hasSelectedCast) return false;
+      if (isScreenDemoTemplate && (!flags.screenDemoVideo || screenRecording === null))
+        return false;
       if (templateRequiresPresenterVideo && presenterVideo === null)
         return false;
       return prompt.trim().length >= 3;
@@ -2186,6 +2248,9 @@ export function VideoStudioPage() {
     isHybridCharacterStory,
     templateRequiresPresenterVideo,
     presenterVideo,
+    isScreenDemoTemplate,
+    screenRecording,
+    flags.screenDemoVideo,
     studioLipSync,
     studioLipSyncConsent,
     studioLipSyncEligible,
@@ -2256,6 +2321,12 @@ export function VideoStudioPage() {
       }
       if (templateRequiresPresenterVideo && presenterVideo === null) {
         return "Upload a presenter video required by this template.";
+      }
+      if (isScreenDemoTemplate && !flags.screenDemoVideo) {
+        return "App Walkthrough videos are currently turned off.";
+      }
+      if (isScreenDemoTemplate && screenRecording === null) {
+        return "Upload the screen recording of your app.";
       }
       if (
         visuals === "character" &&
@@ -2797,6 +2868,7 @@ export function VideoStudioPage() {
         if (slot.kind === "presenter_video") {
           return !hasSelectedCast && !presenterVideo;
         }
+        if (slot.kind === "screen_recording") return !screenRecording;
         return true;
       }) ?? [];
     if (missingTemplateInputs.length > 0) {
@@ -2971,6 +3043,19 @@ export function VideoStudioPage() {
             !isCharacterDialogue &&
             templateRequiresPresenterVideo
               ? (presenterVideo?.objectPath ?? null)
+              : null,
+          screenDemo:
+            isScreenDemoTemplate && screenRecording
+              ? {
+                  recordingPath: screenRecording.objectPath,
+                  scriptMode: screenScriptMode,
+                  endCard: {
+                    enabled: endCardEnabled,
+                    tagline: endCardTagline.trim() || null,
+                    cta: endCardCta.trim() || null,
+                    animation: endCardAnimation,
+                  },
+                }
               : null,
           lipSyncConsent:
             isCharacterDialogue || isHybridCharacterStory
@@ -4436,11 +4521,14 @@ export function VideoStudioPage() {
                   >
                     <div>
                       <p className="font-medium">
-                        Hybrid character storyteller
+                        {isScreenDemoTemplate
+                          ? "App walkthrough presenter"
+                          : "Hybrid character storyteller"}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Your saved character opens and closes on camera. Story
-                        scenes use the same narration as voice-over.
+                        {isScreenDemoTemplate
+                          ? "Your saved character introduces the app and delivers the closing line on camera. Your screen recording plays in between under the same voice."
+                          : "Your saved character opens and closes on camera. Story scenes use the same narration as voice-over."}
                       </p>
                     </div>
                     <label className="flex items-start gap-3 text-sm cursor-pointer">
@@ -4456,6 +4544,160 @@ export function VideoStudioPage() {
                         appear to say this approved script.
                       </span>
                     </label>
+                  </section>
+                )}
+
+                {isScreenDemoTemplate && (
+                  <section
+                    className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-4"
+                    data-testid="screen-demo-inputs"
+                  >
+                    {!flags.screenDemoVideo && (
+                      <p className="text-sm text-destructive" data-testid="text-screen-demo-disabled">
+                        App Walkthrough videos are currently turned off.
+                      </p>
+                    )}
+                    <div className="space-y-1">
+                      <Label className="text-base">Screen recording</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Record the exact flow you want to show. It plays in
+                        full between your character's intro and closing,
+                        letterboxed so every part of the screen stays readable.
+                      </p>
+                    </div>
+                    {screenRecording ? (
+                      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                        <Film className="h-4 w-4 shrink-0 text-primary" />
+                        <span className="truncate" data-testid="text-screen-recording-name">
+                          {screenRecording.name}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Remove screen recording"
+                          onClick={() => setScreenRecording(null)}
+                          className="ml-auto"
+                          data-testid="button-remove-screen-recording"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={uploading || !flags.screenDemoVideo}
+                        onClick={() => screenRecordingInputRef.current?.click()}
+                        data-testid="button-upload-screen-recording"
+                      >
+                        <Upload className="mr-1.5 h-4 w-4" /> Upload screen
+                        recording
+                      </Button>
+                    )}
+                    <input
+                      ref={screenRecordingInputRef}
+                      type="file"
+                      accept={PRESENTER_VIDEO_TYPES.join(",")}
+                      className="hidden"
+                      data-testid="input-screen-recording"
+                      onChange={(e) => void handleScreenRecordingFile(e.target.files)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      MP4, MOV, or WebM, 5 seconds to 10 minutes, up to{" "}
+                      {MAX_PRESENTER_VIDEO_MB} MB.
+                    </p>
+
+                    <div className="space-y-2">
+                      <Label>Script</Label>
+                      <ToggleGroup
+                        type="single"
+                        variant="outline"
+                        value={screenScriptMode}
+                        onValueChange={(value) => {
+                          if (value === "auto" || value === "user") setScreenScriptMode(value);
+                        }}
+                        className="justify-start"
+                        data-testid="toggle-screen-script-mode"
+                      >
+                        <ToggleGroupItem value="auto" data-testid="toggle-screen-script-auto">
+                          Write it for me
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="user" data-testid="toggle-screen-script-user">
+                          Use my script
+                        </ToggleGroupItem>
+                      </ToggleGroup>
+                      <p className="text-xs text-muted-foreground">
+                        {screenScriptMode === "auto"
+                          ? "Use the text box above as a short brief — what the app does and what to highlight. KOKAO watches the recording and writes the intro, the step-by-step voiceover and the closing line. You can edit it in the storyboard review."
+                          : "The text box above is spoken word for word. First sentence: your character's intro. Last sentence: the closing line. Everything in between is the voiceover over your recording."}
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <Label htmlFor="switch-end-card">Brand end card</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Your logo, name and tagline animate in after the
+                            closing line. Colours come from your brand kit.
+                          </p>
+                        </div>
+                        <Switch
+                          id="switch-end-card"
+                          checked={endCardEnabled}
+                          onCheckedChange={setEndCardEnabled}
+                          data-testid="switch-end-card"
+                        />
+                      </div>
+                      {endCardEnabled && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label htmlFor="input-end-card-tagline" className="text-xs">
+                              Tagline
+                            </Label>
+                            <Input
+                              id="input-end-card-tagline"
+                              value={endCardTagline}
+                              maxLength={80}
+                              placeholder="Defaults to your brand kit tagline"
+                              onChange={(e) => setEndCardTagline(e.target.value)}
+                              data-testid="input-end-card-tagline"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="input-end-card-cta" className="text-xs">
+                              Call to action
+                            </Label>
+                            <Input
+                              id="input-end-card-cta"
+                              value={endCardCta}
+                              maxLength={80}
+                              placeholder="e.g. Book a demo at kokao.app"
+                              onChange={(e) => setEndCardCta(e.target.value)}
+                              data-testid="input-end-card-cta"
+                            />
+                          </div>
+                          <div className="space-y-1 sm:col-span-2">
+                            <Label className="text-xs">Animation</Label>
+                            <Select
+                              value={endCardAnimation}
+                              onValueChange={(value) =>
+                                setEndCardAnimation(value as "fade_up" | "logo_scale" | "slide_in")
+                              }
+                            >
+                              <SelectTrigger data-testid="select-end-card-animation">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="fade_up">Fade up</SelectItem>
+                                <SelectItem value="logo_scale">Logo scale-in</SelectItem>
+                                <SelectItem value="slide_in">Slide in</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </section>
                 )}
 

@@ -150,7 +150,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "imageLooks": zod.boolean(),
   "providerScoring": zod.boolean(),
   "lipSync": zod.boolean(),
-  "studioLipSync": zod.boolean()
+  "studioLipSync": zod.boolean(),
+  "screenDemoVideo": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -5432,7 +5433,7 @@ export const listVideoStylesResponseJobDefaultsMinSceneCountMax = 31;
 
 export const listVideoStylesResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const listVideoStylesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const listVideoStylesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const listVideoStylesResponseJobDefaultsHybridBeatPatternMin = 3;
 export const listVideoStylesResponseJobDefaultsHybridBeatPatternMax = 25;
@@ -5494,7 +5495,7 @@ export const ListVideoStylesResponseItem = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -5513,9 +5514,9 @@ export const ListVideoStylesResponseItem = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(listVideoStylesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(listVideoStylesResponseJobDefaultsHybridBeatPatternMin).max(listVideoStylesResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(listVideoStylesResponseJobDefaultsHybridBeatPatternMin).max(listVideoStylesResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -5627,7 +5628,7 @@ export const analyzeVideoStyleResponseJobDefaultsMinSceneCountMax = 31;
 
 export const analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const analyzeVideoStyleResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const analyzeVideoStyleResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMin = 3;
 export const analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMax = 25;
@@ -5689,7 +5690,7 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -5708,9 +5709,9 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMin).max(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMin).max(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -5821,7 +5822,7 @@ export const adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMin = 3;
 export const adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMax = 25;
@@ -5883,7 +5884,7 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -5902,9 +5903,9 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMin).max(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMin).max(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -6012,7 +6013,7 @@ export const adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
 export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
-export const adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMin = 3;
 export const adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMax = 25;
@@ -6070,7 +6071,7 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "name": zod.string().min(1).max(adminCreateVideoTemplateBodyNameMax),
   "summary": zod.string().max(adminCreateVideoTemplateBodySummaryMax).nullish(),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -6089,9 +6090,9 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMin).max(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMin).max(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -6183,7 +6184,7 @@ export const adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMin = 3;
 export const adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMax = 25;
@@ -6245,7 +6246,7 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -6264,9 +6265,9 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMin).max(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMin).max(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -6377,7 +6378,7 @@ export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
-export const adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMin = 3;
 export const adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMax = 25;
@@ -6435,7 +6436,7 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "name": zod.string().min(1).max(adminUpdateVideoTemplateBodyNameMax),
   "summary": zod.string().max(adminUpdateVideoTemplateBodySummaryMax).nullish(),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -6454,9 +6455,9 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMin).max(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMin).max(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -6548,7 +6549,7 @@ export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMin = 3;
 export const adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMax = 25;
@@ -6610,7 +6611,7 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -6629,9 +6630,9 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMin).max(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMin).max(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -6750,7 +6751,7 @@ export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax =
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 600;
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMin = 3;
 export const adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMax = 25;
@@ -6812,7 +6813,7 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo', 'screen_recording']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -6831,9 +6832,9 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
   "hybridBeatPattern": zod.array(zod.object({
-  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing', 'screen_demo']),
   "maxDurationSeconds": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
-})).min(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
+})).min(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant\'s uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.'),
   "shotCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -14043,6 +14044,17 @@ export const generateVideoBodyCharacterDialogueOneLocaleMax = 35;
 
 
 export const generateVideoBodyAiPersonConsentDefault = false;
+export const generateVideoBodyScreenDemoTwoScriptModeDefault = `auto`;
+export const generateVideoBodyScreenDemoTwoEndCardTwoEnabledDefault = true;
+export const generateVideoBodyScreenDemoTwoEndCardTwoTaglineMax = 80;
+
+export const generateVideoBodyScreenDemoTwoEndCardTwoCtaMax = 80;
+
+export const generateVideoBodyScreenDemoTwoEndCardTwoAnimationDefault = `fade_up`;
+export const generateVideoBodyScreenDemoTwoEndCardTwoDurationSecDefault = 3.5;
+export const generateVideoBodyScreenDemoTwoEndCardTwoDurationSecMin = 2;
+export const generateVideoBodyScreenDemoTwoEndCardTwoDurationSecMax = 6;
+
 export const generateVideoBodyLipSyncConsentDefault = false;
 export const generateVideoBodyStudioLipSyncConsentDefault = false;
 export const generateVideoBodyLocalizedTrackVoiceModeDefault = `stock`;
@@ -14114,6 +14126,17 @@ export const GenerateVideoBody = zod.object({
   "guidedStoryDraftId": zod.number().nullish().describe('Server-only orchestration reference used by the guided-story enqueue endpoint. The server resolves the exact approved script and immutable cast snapshot; clients cannot submit either snapshot here.'),
   "aiPersonConsent": zod.boolean().default(generateVideoBodyAiPersonConsentDefault).describe('dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person\/likeness and to make that person appear to speak the supplied dialogue.'),
   "sourceVideoPath": zod.string().nullish().describe('lip_sync VIDEO mode and localized_dub: \/objects\/... path of the tenant\'s own uploaded base video. For lip_sync the AI redraws the mouth to match the voice track and this is mutually exclusive with sourceImagePath. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.'),
+  "screenDemo": zod.union([zod.null(),zod.object({
+  "recordingPath": zod.string().describe('\/objects\/... path of the uploaded screen recording (MP4, MOV or WebM, 5 s – 10 min, up to 100 MB).'),
+  "scriptMode": zod.enum(['auto', 'user']).default(generateVideoBodyScreenDemoTwoScriptModeDefault).describe('auto: KOKAO writes the intro, walkthrough voiceover and closing from frames of the recording, using the request prompt as the brief. user: the request prompt is the full script, spoken verbatim (first sentence = character intro, last sentence = character closing).'),
+  "endCard": zod.union([zod.null(),zod.object({
+  "enabled": zod.boolean().default(generateVideoBodyScreenDemoTwoEndCardTwoEnabledDefault),
+  "tagline": zod.string().max(generateVideoBodyScreenDemoTwoEndCardTwoTaglineMax).nullish().describe('Defaults to the brand kit tagline.'),
+  "cta": zod.string().max(generateVideoBodyScreenDemoTwoEndCardTwoCtaMax).nullish(),
+  "animation": zod.enum(['fade_up', 'logo_scale', 'slide_in']).default(generateVideoBodyScreenDemoTwoEndCardTwoAnimationDefault),
+  "durationSec": zod.number().min(generateVideoBodyScreenDemoTwoEndCardTwoDurationSecMin).max(generateVideoBodyScreenDemoTwoEndCardTwoDurationSecMax).default(generateVideoBodyScreenDemoTwoEndCardTwoDurationSecDefault)
+})]).optional()
+})]).optional().describe('topic_to_video with a curated App Walkthrough template (a hybrid pattern with a screen_demo beat): the caller\'s screen recording, how the script is sourced, and the brand end card. Required by those templates and rejected by every other request.'),
   "presenterVideoPath": zod.string().nullish().describe('topic_to_video with a curated presenter-overlay template: \/objects\/... path of the caller\'s continuous talking-to-camera take. Its original audio is preserved while planned B-roll and captions are composited over the picture.'),
   "sourceImagePath": zod.string().nullish().describe('lip_sync PORTRAIT mode; \/objects\/... path of a single headshot to animate to the voice track — a founder gets a spokesperson without standing in front of a camera. Mutually exclusive with sourceVideoPath; send exactly one. Needs a platform portrait lip-sync model configured (see the admin video-gen settings); without one the request is refused before anything is charged.'),
   "audioPath": zod.string().nullish().describe('lip_sync; \/objects\/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.'),
@@ -14595,8 +14618,8 @@ export const GenerateVideoResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -20829,8 +20852,8 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -21429,8 +21452,8 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -21994,8 +22017,8 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -22570,8 +22593,8 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -23231,8 +23254,8 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -24162,8 +24185,8 @@ export const ListVideoJobsResponseItem = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -24719,8 +24742,8 @@ export const GetVideoJobResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -25276,8 +25299,8 @@ export const CancelVideoJobResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -25833,8 +25856,8 @@ export const RetryVideoJobResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -26390,8 +26413,8 @@ export const RestartVideoJobFreshResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -26951,8 +26974,8 @@ export const RepairVideoJobResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -27535,8 +27558,8 @@ export const UpdateVideoStoryboardResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -28104,8 +28127,8 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -28662,8 +28685,8 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -29232,8 +29255,8 @@ export const CorrectGuidedStorySceneResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -29789,8 +29812,8 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -30346,8 +30369,8 @@ export const CancelGuidedStoryPreviewRenderResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -30903,8 +30926,8 @@ export const ApproveVideoStoryboardResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -31459,8 +31482,8 @@ export const DiscardVideoStoryboardResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -32015,8 +32038,8 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
@@ -32675,8 +32698,8 @@ export const SetVideoCoverResponse = zod.object({
 }))
 }).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
-  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
-  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
   "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),

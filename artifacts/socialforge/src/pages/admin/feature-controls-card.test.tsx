@@ -41,6 +41,12 @@ const features = [
     description: "Existing spokesperson switch.",
     enabled: true,
   },
+  {
+    feature: "screenDemoVideo",
+    label: "App Walkthrough Videos",
+    description: "Screen recording walkthrough switch.",
+    enabled: true,
+  },
 ];
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -95,5 +101,15 @@ describe("FeatureControlsCard Video Studio controls", () => {
     });
     expect(screen.getByTestId("switch-feature-videoGen")).toBeTruthy();
     expect(screen.getByTestId("switch-feature-lipSync")).toBeTruthy();
+  });
+
+  it("toggles the App Walkthrough kill switch independently", () => {
+    renderCard();
+    fireEvent.click(screen.getByTestId("toggle-feature-controls-card"));
+    fireEvent.click(screen.getByTestId("switch-feature-screenDemoVideo"));
+    expect(updateFeature).toHaveBeenCalledWith({
+      feature: "screenDemoVideo",
+      data: { enabled: false },
+    }, expect.anything());
   });
 });

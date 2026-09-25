@@ -45,6 +45,27 @@ const MUSIC_SLOT: TemplateSlot = {
   hint: "Optional. Leave empty to keep only your voice.",
 };
 
+const SCREEN_RECORDING_SLOT: TemplateSlot = {
+  kind: "screen_recording",
+  required: true,
+  label: "A screen recording of your app",
+  hint: "MP4, MOV or WebM, 5 seconds to 10 minutes. Record the exact flow you want shown; it plays in full, never trimmed.",
+};
+
+const APP_BRIEF_SLOT: TemplateSlot = {
+  kind: "script",
+  required: true,
+  label: "What the app does, or your full script",
+  hint: "A short brief is enough: KOKAO writes the intro, the walkthrough voiceover and the closing line from your recording. Or paste your own script.",
+};
+
+const END_CARD_BRAND_KIT_SLOT: TemplateSlot = {
+  kind: "brand_kit",
+  required: true,
+  label: "Your brand kit",
+  hint: "Its logo, name, colour and tagline build the animated end card.",
+};
+
 export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
   name: string;
   summary: string;
@@ -84,6 +105,41 @@ export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
       pacing: { sceneCount: 5, avgSceneSec: 12, wordsPerMinute: 120 },
       captionStyle: "dynamic",
       energy: "cinematic, warm, story-led",
+      sourceDurationSec: 60,
+    },
+  },
+  {
+    name: "App Walkthrough",
+    summary: "Your character introduces the app, your screen recording plays under the voiceover, and the character closes on an animated brand end card.",
+    slots: [SAVED_CHARACTER_SLOT, SCREEN_RECORDING_SLOT, APP_BRIEF_SLOT, END_CARD_BRAND_KIT_SLOT, MUSIC_SLOT],
+    jobDefaults: {
+      aspectRatio: "16:9",
+      format: "hybrid_character_story",
+      visualStrategy: "ai_video",
+      visualsSource: "ai_video",
+      reviewStoryboard: true,
+      subtitles: true,
+      captionStyle: "classic",
+      hybridBeatPattern: [
+        { kind: "character_opening", maxDurationSeconds: 10 },
+        // Rewritten at enqueue from the probed recording length.
+        { kind: "screen_demo", maxDurationSeconds: 600 },
+        { kind: "character_closing", maxDurationSeconds: 10 },
+      ],
+    },
+    payload: {
+      version: 1,
+      transcriptExcerpt: "",
+      hookShape: "Open on the character naming the problem the app solves in one line, then cut straight to the product.",
+      scriptGuidance: "One-sentence intro spoken by the character. The walkthrough voiceover narrates exactly what is on screen, step by step, in plain words. One-sentence closing that names the brand and the next step.",
+      visualNotes: [
+        "The screen recording is letterboxed, never cropped, so every pixel of the UI stays readable.",
+        "Character beats are direct-to-camera and identity locked; the voice never changes between speaker and voiceover.",
+        "A brand end card animates in after the closing line.",
+      ],
+      pacing: { sceneCount: 3, avgSceneSec: 20, wordsPerMinute: 140 },
+      captionStyle: "classic",
+      energy: "clear, confident, product-led",
       sourceDurationSec: 60,
     },
   },

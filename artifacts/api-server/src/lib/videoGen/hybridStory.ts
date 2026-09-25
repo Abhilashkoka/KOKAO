@@ -1,7 +1,12 @@
 import type { HybridStoryBeatKind, HybridStoryBeatPattern } from "@workspace/db";
 import { VideoGenProviderError } from "./types";
 
-export type HybridStoryboardBeatType = "character_speaking" | "story_animation";
+export type HybridStoryboardBeatType = "character_speaking" | "story_animation" | "screen_demo";
+
+/** Interior roles a hybrid story cannot drop: each one is the "body" of the video. */
+function isBodyRole(kind: HybridStoryBeatKind): boolean {
+  return kind === "story_animation" || kind === "screen_demo";
+}
 
 export interface HybridStoryboardBeat {
   id: string;
@@ -29,9 +34,11 @@ export function planHybridStoryBeats(args: {
   if (!sentences.length) throw new VideoGenProviderError("A hybrid story needs spoken script text.");
   if (args.pattern.length < 3) throw new VideoGenProviderError("Hybrid beat pattern is incomplete.");
   const animationIndexes = args.pattern
-    .map((beat, index) => beat.kind === "story_animation" ? index : -1)
+    .map((beat, index) => isBodyRole(beat.kind) ? index : -1)
     .filter((index) => index >= 0);
-  if (!animationIndexes.length) throw new VideoGenProviderError("Hybrid story needs an animation beat.");
+  if (!animationIndexes.length) {
+    throw new VideoGenProviderError("Hybrid story needs an animation or screen demo beat.");
+  }
   // Opening/closing retain one line each. Spread the rest, in source order,
   // across all interior roles, ensuring neither dropped nor duplicated text.
   const assignments = args.pattern.map(() => [] as string[]);
@@ -42,7 +49,7 @@ export function planHybridStoryBeats(args: {
     .map((_, index) => index)
     .filter((index) => index > 0 && index < args.pattern.length - 1);
   const requiredTargets = interiorTargets.filter(
-    (index) => args.pattern[index]?.kind === "story_animation",
+    (index) => isBodyRole(args.pattern[index]!.kind),
   );
   // A short script can omit interludes, never an animation role. Seed every
   // mandatory animation before distributing surplus to optional interludes.
@@ -65,11 +72,15 @@ export function planHybridStoryBeats(args: {
     const duration = Math.min(role.maxDurationSeconds, estimated);
     const beat: HybridStoryboardBeat = {
       id: `h${index + 1}`,
-      type: role.kind === "story_animation" ? "story_animation" : "character_speaking",
+      type: role.kind === "story_animation" || role.kind === "screen_demo" ? role.kind : "character_speaking",
       role: role.kind,
       patternIndex: index,
       text,
-      visual: role.kind === "story_animation" ? text : "Locked character speaking directly to camera.",
+      visual: role.kind === "story_animation"
+        ? text
+        : role.kind === "screen_demo"
+          ? "Your screen recording plays under the voiceover."
+          : "Locked character speaking directly to camera.",
       startSec: cursor,
       endSec: cursor + duration,
     };
@@ -89,7 +100,11 @@ export function assertHybridStoryBeatPlan(beats: HybridStoryboardBeat[]): void {
     if (beat.startSec !== end || beat.endSec <= beat.startSec || !beat.text.trim()) {
       throw new VideoGenProviderError("Hybrid narration beats must be contiguous and non-empty.");
     }
-    if (beat.type === "story_animation" && beat.role !== "story_animation") {
+    if (
+      (beat.type === "story_animation" || beat.type === "screen_demo" ||
+        beat.role === "story_animation" || beat.role === "screen_demo") &&
+      beat.type !== beat.role
+    ) {
       throw new VideoGenProviderError("Hybrid beat role and render type disagree.");
     }
     end = beat.endSec;

@@ -37,17 +37,20 @@ export function remainingHybridUnits(args: {
 
 export function hybridRequiredUnits(args: {
   options: VideoJobOptions;
-  beatKinds?: Array<"character_speaking" | "story_animation">;
+  beatKinds?: Array<"character_speaking" | "story_animation" | "screen_demo">;
   narrationAccountingMode?: "aggregate" | "unmetered" | "independently_settled";
   /** Recompute from the immutable board instead of a previously frozen total. */
   ignoreFrozen?: boolean;
 }): number {
   const frozen = args.options.storyboardFunding?.requiredUnits;
   if (!args.ignoreFrozen && frozen != null) return Math.max(0, Math.trunc(frozen));
+  // Locally re-encoded tenant footage requires no provider units.
+  const beatOperations = (kind: string) =>
+    kind === "screen_demo" ? 0 : kind === "story_animation" ? 2 : 3;
   const operations = args.beatKinds
-    ? args.beatKinds.reduce((sum, kind) => sum + (kind === "story_animation" ? 2 : 3), 0)
+    ? args.beatKinds.reduce((sum, kind) => sum + beatOperations(kind), 0)
     : (args.options.hybridStory?.pattern ?? []).reduce(
-        (sum, beat) => sum + (beat.kind === "story_animation" ? 2 : 3),
+        (sum, beat) => sum + beatOperations(beat.kind),
         0,
       );
   const narrationUnits = hybridNarrationConsumesVideoUnit(args.narrationAccountingMode) ? 1 : 0;

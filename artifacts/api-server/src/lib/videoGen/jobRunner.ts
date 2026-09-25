@@ -23,6 +23,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { getUsage, recordUsage } from "../usage";
 import {
+  usageAccountingParams,
   computeVideoCostPaise,
   computeImageCostPaise,
   isVideoModelPriced,
@@ -109,6 +110,13 @@ import {
 } from "../atlascloud/assets";
 import { approvedGuidedReferenceUrls } from "../characterAssets";
 import { assertHybridStoryBeatPlan, planHybridStoryBeats } from "./hybridStory";
+import {
+  appendEndCard,
+  fitScreenDemoClip,
+  renderEndCard,
+  resolveScreenDemoScript,
+  ScreenDemoInputError,
+} from "./screenDemo";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import {
   normalizeVideo,
@@ -194,6 +202,7 @@ import {
   MAX_LIP_SYNC_AUDIO_BYTES,
 } from "./lipSyncModels";
 import type { SourceImage, VideoAspect } from "./types";
+import { ASPECT_DIMENSIONS } from "./types";
 import {
   orchestrateLocalizedDubFull,
   CueOverrunError,
@@ -619,7 +628,9 @@ export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStor
     return hybridRequiredUnits({
       options,
       beatKinds: storyboard.scenes.map((scene) =>
-        scene.beatType === "story_animation" ? "story_animation" : "character_speaking",
+        scene.beatType === "story_animation" || scene.beatType === "screen_demo"
+          ? scene.beatType
+          : "character_speaking",
       ),
       narrationAccountingMode: storyboard.narration?.event?.accountingMode,
       ignoreFrozen: true,
@@ -3923,6 +3934,12 @@ async function produceVideo(
   }
 
   if (job.engine === "topic_to_video") {
+    // Check again on the claimed worker, including storyboard resumes. A job
+    // queued before the switch flipped must not call a text, TTS or video provider.
+    if (options.hybridStory?.screenDemo &&
+      !(await isFeatureEnabled("screenDemoVideo").catch(() => true))) {
+      throw new VideoJobInputError("App Walkthrough videos are currently turned off.");
+    }
     // Brand kit → video (opt-in, fail-soft): voice for the script, accent
     // for the captions, logo for the corner watermark. Gated by the Brand
     // Video kill switch so already-queued branded jobs render unbranded
@@ -4302,6 +4319,74 @@ async function produceVideo(
       if (hybrid.lipSyncConsent !== true) {
         throw new VideoJobInputError("This hybrid story is missing recorded lip-sync consent.");
       }
+      const screenDemo = hybrid.screenDemo ?? null;
+      if (hybrid.pattern.some((beat) => beat.kind === "screen_demo") && !screenDemo) {
+        throw new VideoJobInputError("This App Walkthrough is missing its screen recording.");
+      }
+      if (screenDemo && !hybrid.pattern.some((beat) => beat.kind === "screen_demo")) {
+        throw new VideoJobInputError("This App Walkthrough has no screen demo beat.");
+      }
+      let screenDemoScript: string | null = null;
+      let screenDemoRecording: Buffer | null = null;
+      const loadScreenDemoRecording = async () => {
+        screenDemoRecording ??= (await loadTenantObject(
+          screenDemo!.recordingPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Screen recording",
+        )).buffer;
+        return screenDemoRecording;
+      };
+      if (screenDemo) {
+        try {
+          const resolved = await resolveScreenDemoScript({
+            screenDemo,
+            brief: job.prompt ?? "",
+            brandName: branding?.brandName ?? null,
+            brandVoice: branding?.voiceHint ?? null,
+            loadRecording: loadScreenDemoRecording,
+            textClient: async () => {
+              const tenant = (await db.select({ aiModel: tenantsTable.aiModel }).from(tenantsTable)
+                .where(eq(tenantsTable.id, job.tenantId)).limit(1))[0];
+              const text = await getTextGenClient(
+                tenant?.aiModel ?? "gpt-5.4", videoMeterContext(job, "screen-demo-script"),
+                { capability: "multimodal" },
+              );
+              return { client: text.client, model: text.model, requestParams: usageAccountingParams(text.provider) };
+            },
+            onStage,
+          });
+          screenDemoScript = resolved.script;
+          if (resolved.generated) {
+            // The job is already claimed by one worker. Preserve the latest
+            // options under a row lock so recovery/funding metadata cannot be
+            // overwritten by the stale enqueue snapshot.
+            const frozen = await db.transaction(async (tx) => {
+              const [row] = await tx.select().from(videoGenerationsTable)
+                .where(eq(videoGenerationsTable.id, job.id)).for("update");
+              if (!row || row.status !== "processing" ||
+                row.options?.hybridStory?.screenDemo?.recordingPath !== screenDemo.recordingPath) {
+                throw new VideoJobInputError("The App Walkthrough job changed before its script could be saved.");
+              }
+              const current = row.options.hybridStory.screenDemo;
+              const updated = {
+                ...row.options,
+                hybridStory: {
+                  ...row.options.hybridStory,
+                  screenDemo: { ...current, generatedScript: current.generatedScript?.trim() || resolved.script },
+                },
+              };
+              await tx.update(videoGenerationsTable).set({ options: updated })
+                .where(eq(videoGenerationsTable.id, job.id));
+              return updated;
+            });
+            screenDemoScript = frozen.hybridStory.screenDemo.generatedScript!;
+            // Funding immediately below uses job.options (this same object).
+            // Keep it in sync or that write would erase the script checkpoint.
+            Object.assign(options, frozen);
+          }
+        } catch (error) {
+          if (error instanceof ScreenDemoInputError) throw new VideoJobInputError(error.message);
+          throw error;
+        }
+      }
       const drafted = await planTopicStoryboard({
         characterSnapshot: options.characterSnapshot,
         tenantId: job.tenantId, meterContext: videoMeterContext(job, "hybrid-planner"),
@@ -4311,6 +4396,7 @@ async function produceVideo(
         brandVoice: branding?.voiceHint ?? null, referenceStyle: compiledReferenceStyle,
         creativeVisualGuidance: creative.visual, scriptVariant,
         suppliedPlan: null, materializePreviews: false,
+        approvedScript: screenDemoScript,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType), onStage,
       });
       if (!drafted.narration) throw new VideoJobInputError("Hybrid planner did not create narration.");
@@ -4334,11 +4420,27 @@ async function produceVideo(
           );
         }
         return {
-          id: `h${index + 1}`, text: beat.text, visual: beat.visual, durationSec: end - start,
-          previewPath: null, outfitId: beat.type === "character_speaking" ? hybrid.outfitId : null,
+          id: `h${index + 1}`, text: beat.text, visual: beat.visual,
+          // The approved visual timeline includes the full recording; the
+          // shorter narration slice remains anchored to its original cues.
+          durationSec: beat.type === "screen_demo"
+            ? Math.max(end - start, screenDemo!.recordingDurationSec)
+            : end - start,
+          previewPath: null as string | null,
+          outfitId: beat.type === "character_speaking" ? hybrid.outfitId : null,
           beatType: beat.type, hybridRole: beat.role, patternIndex: beat.patternIndex,
         };
       });
+      for (const scene of scenes) {
+        if (scene.beatType !== "screen_demo") continue;
+        try {
+          scene.previewPath = await uploadToStorage(
+            job.tenantId, await extractPosterFrame(await loadScreenDemoRecording()), "image/png",
+          );
+        } catch (err) {
+          logger.warn({ err, jobId: job.id }, "Screen recording poster failed; review shows no thumbnail");
+        }
+      }
       if (cueOffset !== drafted.narration.cues.length) {
         throw new VideoJobInputError("Hybrid planner did not assign all narration cues.");
       }
@@ -4414,6 +4516,10 @@ async function produceVideo(
         if (!hybrid || hybrid.lipSyncConsent !== true) {
           throw new VideoJobInputError("This hybrid story is missing recorded lip-sync consent.");
         }
+        if (board.scenes.some((scene) => scene.beatType === "screen_demo") &&
+          !hybrid.screenDemo) {
+          throw new VideoJobInputError("This App Walkthrough is missing its screen recording.");
+        }
         if (!hybrid.characterSnapshot) {
           throw new VideoJobInputError("This hybrid story is missing its immutable character snapshot.");
         }
@@ -4452,6 +4558,16 @@ async function produceVideo(
               : null,
           };
           await setJob(job.id, { storyboard: board });
+        }
+        // A narration edit changes spoken timings, not the length of the
+        // uploaded footage. Keep the approved visual timeline honest.
+        if (hybrid.screenDemo) {
+          for (const scene of board.scenes) {
+            if (scene.beatType === "screen_demo") {
+              scene.durationSec = Math.max(scene.durationSec, hybrid.screenDemo.recordingDurationSec);
+            }
+          }
+          if (refreshed) await setJob(job.id, { storyboard: board });
         }
         const beats = board.scenes.map((scene) => ({
           id: scene.id,
@@ -4581,6 +4697,18 @@ async function produceVideo(
             scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, clip, "video/mp4"), provider: animated.provider, model: animated.model, durationSec: providerDurationSec, event };
             await setJob(job.id, { storyboard: board });
             clips.push(clip); events.push(event);
+          } else if (scene.beatType === "screen_demo") {
+            onStage("Fitting your screen recording");
+            if (!hybrid.screenDemo) {
+              throw new VideoJobInputError("This App Walkthrough is missing its screen recording.");
+            }
+            sceneOperation = "screen_demo_fit";
+            const recording = (await loadTenantObject(
+              hybrid.screenDemo.recordingPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Screen recording",
+            )).buffer;
+            clips.push(await fitScreenDemoClip({
+              recording, targetSec: Math.max(targetSec, hybrid.screenDemo.recordingDurationSec), aspectRatio,
+            }));
           } else {
             onStage(`Rendering character beat ${scene.id}`);
             const savedPlate = scene.providerCheckpoint?.event.label === `hybrid_plate:${scene.id}`
@@ -4714,7 +4842,7 @@ async function produceVideo(
             throw error;
           }
         }
-        const final = await composeTopicVideo({
+        let final = await composeTopicVideo({
           preserveGeneratedClips: true,
           clips, narrationWav, cues: board.narration.cues, totalDurationSec: board.narration.totalDurationSec,
           aspectRatio, subtitles: options.subtitles ?? false,
@@ -4728,6 +4856,29 @@ async function produceVideo(
             return { clipIndex: index, durationSec: end - start };
           }),
         });
+        const endCard = hybrid.screenDemo?.endCard;
+        if (endCard?.enabled) {
+          try {
+            onStage("Animating your brand end card");
+            let logo: Buffer | null = watermark;
+            if (branding?.logoPath) {
+              logo = (await loadTenantObject(
+                branding.logoPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Brand logo",
+              ).catch(() => null))?.buffer ?? watermark;
+            }
+            const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
+            const card = await renderEndCard({
+              width, height, durationSec: endCard.durationSec, animation: endCard.animation,
+              background: branding?.primaryHex ?? null, logo,
+              brandName: branding?.brandName ?? null,
+              tagline: endCard.tagline?.trim() || branding?.tagline || null,
+              cta: endCard.cta ?? null,
+            });
+            final = await appendEndCard(final, card);
+          } catch (err) {
+            logger.warn({ err, jobId: job.id }, "Brand end card failed; delivering the video without it");
+          }
+        }
         return { buffer: final, provider: "hybrid", model: "mixed", providerEvents: events,
           renderedTimeline: measuredSceneTimeline(board.scenes.map((scene) => scene.id), await Promise.all(clips.map(actualClipDuration))),
           qa: { expectedDurationSec: await actualClipDuration(final), expectAudio: true, label: "hybrid character story" } };

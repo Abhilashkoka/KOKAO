@@ -14,4 +14,5 @@ export const VideoTemplateJobDefaultsHybridBeatPatternItemKind = {
   story_animation: 'story_animation',
   character_interlude: 'character_interlude',
   character_closing: 'character_closing',
+  screen_demo: 'screen_demo',
 } as const;

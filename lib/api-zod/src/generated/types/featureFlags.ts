@@ -56,4 +56,5 @@ export interface FeatureFlags {
   providerScoring: boolean;
   lipSync: boolean;
   studioLipSync: boolean;
+  screenDemoVideo: boolean;
 }

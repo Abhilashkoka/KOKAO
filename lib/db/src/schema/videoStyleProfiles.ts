@@ -87,7 +87,9 @@ export type TemplateSlotKind =
   | "character"
   | "saved_character"
   | "music"
-  | "logo";
+  | "logo"
+  /** A screen recording of the app/software being presented (App Walkthrough). */
+  | "screen_recording";
 
 export interface TemplateSlot {
   kind: TemplateSlotKind;
@@ -123,7 +125,9 @@ export type HybridStoryBeatKind =
   | "character_opening"
   | "story_animation"
   | "character_interlude"
-  | "character_closing";
+  | "character_closing"
+  /** The tenant's own screen recording plays under the shared voiceover. */
+  | "screen_demo";
 
 export interface HybridStoryBeatPattern {
   kind: HybridStoryBeatKind;

@@ -330,6 +330,14 @@ vi.mock("../lib/videoGen/presenterBroll", async (importOriginal) => {
   };
 });
 
+vi.mock("../lib/videoGen/screenDemo", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/videoGen/screenDemo")>();
+  return {
+    ...actual,
+    probeScreenRecording: vi.fn(async () => ({ durationSec: 40 })),
+  };
+});
+
 vi.mock("../lib/baseVideoAudio", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/baseVideoAudio")>()),
   extractVoiceSampleFromVideo: vi.fn(async () => Buffer.from("presenter-audio")),
@@ -516,6 +524,7 @@ import {
 } from "../test/dbHelpers";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
+import { probeScreenRecording, ScreenDemoInputError } from "../lib/videoGen/screenDemo";
 import { invalidatePlanCache } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { videoJobFullUnits, videoJobUnits } from "../lib/videoGen/units";
@@ -984,6 +993,43 @@ async function seedPresenterTemplate(presenterRequired = true) {
       })
       .returning()
   )[0]!;
+  createdStyleProfileIds.push(row.id);
+  return row;
+}
+
+async function seedScreenDemoTemplate() {
+  const row = (await db.insert(videoStyleProfilesTable).values({
+    tenantId: null,
+    scope: "platform",
+    sourceKind: "curated",
+    published: true,
+    name: `App walkthrough ${Date.now()}-${createdStyleProfileIds.length}`,
+    summary: "Portable app walkthrough test format.",
+    slots: [
+      { kind: "saved_character", required: true, label: "Character" },
+      { kind: "screen_recording", required: true, label: "Screen recording" },
+      { kind: "script", required: true, label: "Brief" },
+    ],
+    jobDefaults: {
+      format: "hybrid_character_story",
+      aspectRatio: "16:9",
+      visualStrategy: "ai_video",
+      visualsSource: "ai_video",
+      reviewStoryboard: true,
+      hybridBeatPattern: [
+        { kind: "character_opening", maxDurationSeconds: 10 },
+        { kind: "screen_demo", maxDurationSeconds: 600 },
+        { kind: "character_closing", maxDurationSeconds: 10 },
+      ],
+    },
+    sourceVideoPath: null,
+    payload: {
+      version: 1, hookShape: "character intro",
+      pacing: { sceneCount: 3, avgSceneSec: 20, wordsPerMinute: 140 },
+      captionStyle: "classic", energy: "clear", visualNotes: [],
+      scriptGuidance: "Narrate the recording.", sourceDurationSec: 60, transcriptExcerpt: "",
+    },
+  }).returning())[0]!;
   createdStyleProfileIds.push(row.id);
   return row;
 }
@@ -2165,6 +2211,178 @@ describe("POST /api/ai/generate-video", () => {
         },
       });
       expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "quota" }]);
+    });
+  });
+
+  describe("curated App Walkthrough templates", () => {
+    afterEach(async () => {
+      await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "screenDemoVideo"));
+      invalidateFeatureFlagCache();
+    });
+
+    it("requires the screen recording before funding or queueing", async () => {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const template = await seedScreenDemoTemplate();
+      const before = runnerState.calls.length;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "Appointment booking for small clinics.",
+        styleProfileId: template.id,
+        characterId: character.characterId,
+        outfitId: character.outfitId,
+        lipSyncConsent: true,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/screen recording/i);
+      expect(runnerState.calls).toHaveLength(before);
+    });
+
+    it("rejects a screen recording on a template without a demo beat", async () => {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const template = await seedHybridTemplate();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "A concise founder story.",
+        styleProfileId: template.id,
+        characterId: character.characterId,
+        outfitId: character.outfitId,
+        lipSyncConsent: true,
+        screenDemo: { recordingPath: `/objects/${tenant.tenantId}/uploads/demo.mp4` },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/App Walkthrough/);
+    });
+
+    it.each([
+      (id: number) => `/objects/${id + 1}/uploads/demo.mp4`,
+      (id: number) => `/objects/${id}/../${id + 1}/uploads/demo.mp4`,
+      (id: number) => `/objects/${id}/uploads/%2e%2e/demo.mp4`,
+      (id: number) => `/objects/${id}/uploads//demo.mp4`,
+    ])("rejects a noncanonical or cross-tenant recording path", async (makePath) => {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const template = await seedScreenDemoTemplate();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "Appointment booking for small clinics.",
+        styleProfileId: template.id,
+        characterId: character.characterId,
+        outfitId: character.outfitId,
+        lipSyncConsent: true,
+        screenDemo: { recordingPath: makePath(tenant.tenantId) },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/screen recording path/i);
+    });
+
+    it("refuses a recording outside the supported length with nothing charged", async () => {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const template = await seedScreenDemoTemplate();
+      vi.mocked(probeScreenRecording).mockRejectedValueOnce(
+        new ScreenDemoInputError("The screen recording must be at least 5 seconds long."),
+      );
+      const before = runnerState.calls.length;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "Appointment booking for small clinics.",
+        styleProfileId: template.id,
+        characterId: character.characterId,
+        outfitId: character.outfitId,
+        lipSyncConsent: true,
+        screenDemo: { recordingPath: `/objects/${tenant.tenantId}/uploads/demo.mp4` },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/at least 5 seconds/);
+      expect(runnerState.calls).toHaveLength(before);
+      expect((await getUsage(tenant.tenantId)).videos).toBe(0);
+    });
+
+    it("checks a user script before funding", async () => {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const template = await seedScreenDemoTemplate();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "Just one sentence here.",
+        styleProfileId: template.id,
+        characterId: character.characterId,
+        outfitId: character.outfitId,
+        lipSyncConsent: true,
+        screenDemo: {
+          recordingPath: `/objects/${tenant.tenantId}/uploads/demo.mp4`,
+          scriptMode: "user",
+        },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/three full sentences/);
+    });
+
+    it("is refused while the kill switch is off", async () => {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const template = await seedScreenDemoTemplate();
+      await db.insert(featureFlagsTable).values({ feature: "screenDemoVideo", enabled: false })
+        .onConflictDoUpdate({ target: featureFlagsTable.feature, set: { enabled: false } });
+      invalidateFeatureFlagCache();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "Appointment booking for small clinics.",
+        styleProfileId: template.id,
+        characterId: character.characterId,
+        outfitId: character.outfitId,
+        lipSyncConsent: true,
+        screenDemo: { recordingPath: `/objects/${tenant.tenantId}/uploads/demo.mp4` },
+      });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("feature_disabled");
+    });
+
+    it("freezes the recording, script mode, end card and recording-sized demo bound", async () => {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const template = await seedScreenDemoTemplate();
+      const recordingPath = `/objects/${tenant.tenantId}/uploads/demo.mp4`;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "Appointment booking for small clinics.",
+        styleProfileId: template.id,
+        characterId: character.characterId,
+        outfitId: character.outfitId,
+        lipSyncConsent: true,
+        screenDemo: {
+          recordingPath,
+          endCard: { cta: "Book a demo at kokao.app", animation: "logo_scale" },
+        },
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const row = (await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id)))[0]!;
+      expect(row.options?.aspectRatio).toBe("16:9");
+      expect(row.options?.hybridStory).toMatchObject({
+        pattern: [
+          { kind: "character_opening", maxDurationSeconds: 10 },
+          { kind: "screen_demo", maxDurationSeconds: 70 },
+          { kind: "character_closing", maxDurationSeconds: 10 },
+        ],
+        screenDemo: {
+          version: 1,
+          recordingPath,
+          recordingDurationSec: 40,
+          scriptMode: "auto",
+          script: null,
+          generatedScript: null,
+          endCard: {
+            enabled: true,
+            tagline: null,
+            cta: "Book a demo at kokao.app",
+            animation: "logo_scale",
+            durationSec: 3.5,
+          },
+        },
+      });
     });
   });
 

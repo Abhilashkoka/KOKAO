@@ -19,7 +19,7 @@ export interface VideoStoryboardScene {
      */
   guidedStory?: VideoStoryboardSceneGuidedStory;
   /**
-     * Hybrid storyboard render type: a lip-synced character beat or story animation.
+     * Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant's screen recording (App Walkthrough).
      * @nullable
      */
   beatType?: VideoStoryboardSceneBeatType;

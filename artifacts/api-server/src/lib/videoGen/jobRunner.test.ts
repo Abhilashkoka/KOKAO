@@ -14,6 +14,21 @@ import {
   mergeLiveAndCheckpointProviderEvents,
 } from "./jobRunner";
 import { buildVideoDeliveryBillingItems } from "../wallet";
+import { rebaseRenderedCues, renderedTimeline } from "./renderTimeline";
+
+it("keeps the full screen recording and shifts the closing narration instead of cutting frames", () => {
+  // The screen demo owns 24 seconds of visual timeline although its spoken
+  // slice only takes 3 seconds. composeTopicVideo uses this same timeline
+  // rebasing for preserveGeneratedClips.
+  const timeline = renderedTimeline([2, 3, 2], [2, 24, 2]);
+  expect(timeline.map((scene) => scene.durationSec)).toEqual([2, 24, 2]);
+  expect(timeline.at(-1)?.endSec).toBe(28);
+  expect(rebaseRenderedCues([
+    { text: "Intro.", startSec: 0, endSec: 2 },
+    { text: "Demo.", startSec: 2, endSec: 5 },
+    { text: "Close.", startSec: 5, endSec: 7 },
+  ], timeline).at(-1)?.startSec).toBe(26);
+});
 
 it("preserves conflicting stable receipts for delivery while deduping metering", () => {
   const normalized = normalizeLiveVideoProviderEvents([
@@ -1051,6 +1066,54 @@ async function readJob(id: number) {
     await db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, id)).limit(1)
   )[0]!;
 }
+
+it("charges no visual provider units for a tenant-owned screen demo beat", () => {
+  const options = {
+    aspectRatio: "9:16",
+    hybridStory: {
+      pattern: [
+        { kind: "character_opening", maxDurationSeconds: 12 },
+        { kind: "screen_demo", maxDurationSeconds: 90 },
+        { kind: "character_closing", maxDurationSeconds: 12 },
+      ],
+    },
+  } as VideoJobOptions;
+  const job = { options } as unknown as Parameters<typeof plannedTemplateUnits>[0];
+  const board = {
+    mode: "hybrid_character_story",
+    scenes: [
+      { beatType: "character_speaking" },
+      { beatType: "screen_demo" },
+      { beatType: "character_speaking" },
+    ],
+  } as VideoStoryboard;
+  // Two character beats (three operations each) and one narration unit.
+  expect(plannedTemplateUnits(job, board)).toBe(7);
+});
+
+it("stops a previously queued App Walkthrough before calling providers when disabled", async () => {
+  const tenant = await newTenant();
+  const job = await seedJob(tenant.tenantId, {
+    engine: "topic_to_video",
+    options: {
+      aspectRatio: "9:16",
+      hybridStory: {
+        screenDemo: {
+          version: 1,
+          recordingPath: `/objects/${tenant.tenantId}/recording.mp4`,
+          recordingDurationSec: 15,
+          scriptMode: "user",
+          script: "Welcome. Watch this screen. Thanks.",
+        },
+      } as VideoJobOptions["hybridStory"],
+    },
+  });
+  state.disabledFeature = "screenDemoVideo";
+  await runVideoGenerationJob(job.id, "quota");
+  expect((await readJob(job.id)).status).toBe("failed");
+  expect(state.topicPlans).toBe(0);
+  expect(state.lipSyncCalls).toBe(0);
+});
 
 beforeEach(() => {
   state.planned.length = 0;

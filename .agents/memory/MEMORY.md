@@ -145,3 +145,4 @@
 - [Unified credit rollout](unified-credit-rollout.md) — provider-boundary metering must reconcile in shadow mode before enforce; purchased and expiring granted balances stay separate.
 - [Role-aware route verification](role-aware-route-verification.md) — superadmin development sessions can conceal middleware leaks that block ordinary production users.
 - [Topic reference images](topic-reference-images.md) — distinguish real AI image conditioning from exact fitted inserts; never silently ignore uploads or regenerate screenshot text.
+- [App Walkthrough timing](app-walkthrough-timing.md) — preserving uploaded demo footage requires visual timeline expansion and matching narration cue shifts, not just clip fitting.

@@ -34,6 +34,9 @@ import {
 } from "@workspace/db";
 import { hybridRequiredUnits, videoJobUnits } from "./units";
 
+/** Longest screen recording an App Walkthrough accepts (and its beat bound). */
+export const SCREEN_DEMO_MAX_SECONDS = 600;
+
 /**
  * Job option keys that only mean something inside one workspace.
  *
@@ -535,6 +538,7 @@ export function invalidTemplateHybridBeatPattern(value: unknown): string[] {
   const issues: string[] = [];
   if (value.length < 3 || value.length > 25) issues.push("");
   let animations = 0;
+  let screenDemos = 0;
   value.forEach((entry, index) => {
     const path = `[${index}]`;
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
@@ -546,7 +550,8 @@ export function invalidTemplateHybridBeatPattern(value: unknown): string[] {
       beat.kind !== "character_opening" &&
       beat.kind !== "story_animation" &&
       beat.kind !== "character_interlude" &&
-      beat.kind !== "character_closing"
+      beat.kind !== "character_closing" &&
+      beat.kind !== "screen_demo"
     ) {
       issues.push(`${path}.kind`);
     }
@@ -554,7 +559,7 @@ export function invalidTemplateHybridBeatPattern(value: unknown): string[] {
       typeof beat.maxDurationSeconds !== "number" ||
       !Number.isFinite(beat.maxDurationSeconds) ||
       beat.maxDurationSeconds < 1 ||
-      beat.maxDurationSeconds > 30
+      beat.maxDurationSeconds > (beat.kind === "screen_demo" ? SCREEN_DEMO_MAX_SECONDS : 30)
     ) {
       issues.push(`${path}.maxDurationSeconds`);
     }
@@ -562,6 +567,10 @@ export function invalidTemplateHybridBeatPattern(value: unknown): string[] {
       issues.push(`${path}.maxDurationSeconds`);
     }
     if (beat.kind === "story_animation") animations++;
+    if (beat.kind === "screen_demo") {
+      screenDemos++;
+      if (screenDemos > 1) issues.push(`${path}.kind`);
+    }
     for (const key of Object.keys(beat)) {
       if (key !== "kind" && key !== "maxDurationSeconds") issues.push(`${path}.${key}`);
     }
@@ -575,7 +584,7 @@ export function invalidTemplateHybridBeatPattern(value: unknown): string[] {
   ) {
     issues.push(`[${value.length - 1}].kind`);
   }
-  if (animations < 1 || animations > 12) issues.push("");
+  if (animations + screenDemos < 1 || animations > 12) issues.push("");
   for (let index = 1; index < value.length; index++) {
     const previous = value[index - 1] as HybridStoryBeatPattern;
     const current = value[index] as HybridStoryBeatPattern;
@@ -985,6 +994,7 @@ export const SLOT_LABELS: Readonly<Record<TemplateSlotKind, string>> = {
   saved_character: "A saved character",
   music: "A music track",
   logo: "Your logo",
+  screen_recording: "A screen recording of your app",
 };
 
 /**

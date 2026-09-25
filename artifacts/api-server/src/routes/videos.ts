@@ -269,6 +269,12 @@ import {
   probePresenterDurationMs,
 } from "../lib/videoGen/presenterBroll";
 import {
+  probeScreenRecording,
+  ScreenDemoInputError,
+  screenDemoBeatMaxSeconds,
+  userScreenDemoScriptIssues,
+} from "../lib/videoGen/screenDemo";
+import {
   BaseVideoAudioExtractionError,
   extractVoiceSampleFromVideo,
 } from "../lib/baseVideoAudio";
@@ -10961,6 +10967,21 @@ async function generateVideoHandler(
     res.status(400).json({ error: "Invalid presenter video path." });
     return;
   }
+  if (body.screenDemo?.recordingPath) {
+    const path = body.screenDemo.recordingPath;
+    const prefix = `/objects/${req.tenantId}/`;
+    const suffix = path.startsWith(prefix) ? path.slice(prefix.length) : "";
+    // The storage resolver joins path segments to a private bucket key. Do not
+    // accept paths that could alias another tenant's object or a noncanonical key.
+    if (
+      !suffix ||
+      /[%?#\\\x00-\x1f\x7f]/.test(suffix) ||
+      suffix.split("/").some((segment) => !segment || segment === "." || segment === "..")
+    ) {
+      res.status(400).json({ error: "Invalid screen recording path." });
+      return;
+    }
+  }
   if (
     body.sourceImagePath &&
     !body.sourceImagePath.startsWith(`/objects/${req.tenantId}/`)
@@ -11123,6 +11144,38 @@ async function generateVideoHandler(
   const presenterTemplate = presenterSlots.some((slot) => slot.required);
   const hybridTemplate =
     selectedTemplate?.jobDefaults.format === "hybrid_character_story";
+  const screenDemoTemplate =
+    hybridTemplate &&
+    Array.isArray(selectedTemplate?.jobDefaults.hybridBeatPattern) &&
+    (selectedTemplate!.jobDefaults.hybridBeatPattern as Array<{ kind?: unknown }>).some(
+      (beat) => beat?.kind === "screen_demo",
+    );
+  if (body.screenDemo && !screenDemoTemplate) {
+    res.status(400).json({
+      error: "A screen recording can only be used with an App Walkthrough template.",
+    });
+    return;
+  }
+  if (screenDemoTemplate && !(await isFeatureEnabled("screenDemoVideo"))) {
+    res.status(403).json({
+      code: "feature_disabled",
+      error: "App Walkthrough videos are currently turned off.",
+    });
+    return;
+  }
+  if (screenDemoTemplate && !body.screenDemo?.recordingPath) {
+    res.status(400).json({
+      error: "This template needs a screen recording of your app.",
+    });
+    return;
+  }
+  if (screenDemoTemplate && body.screenDemo?.scriptMode === "user") {
+    const issues = userScreenDemoScriptIssues(body.prompt ?? "");
+    if (issues.length > 0) {
+      res.status(400).json({ error: issues.join(" ") });
+      return;
+    }
+  }
   if (body.presenterVideoPath && !presenterTemplate) {
     res.status(400).json({
       error:
@@ -11411,6 +11464,7 @@ async function generateVideoHandler(
       saved_character: characterId != null,
       music: Boolean(body.musicPath || body.musicPrompt?.trim()),
       logo: hasActiveBrandKit,
+      screen_recording: Boolean(body.screenDemo?.recordingPath),
     };
     const missing = missingSlots(selectedTemplate.slots, supplied);
     if (missing.length > 0) {
@@ -11580,6 +11634,72 @@ async function generateVideoHandler(
       return;
     }
     suppliedPlan = { flow: expectedFlow, raw };
+  }
+
+  // Validate the tenant's recording before reserving credits or queueing.
+  let screenDemo: NonNullable<VideoJobOptions["hybridStory"]>["screenDemo"] = null;
+  if (screenDemoTemplate && body.screenDemo?.recordingPath) {
+    try {
+      const file = await musicStorage.getObjectEntityFile(
+        body.screenDemo.recordingPath,
+        req.tenantId,
+      );
+      const [metadata] = await file.getMetadata();
+      const size = Number(metadata.size ?? 0);
+      const mimeType = String(metadata.contentType ?? "")
+        .toLowerCase()
+        .split(";")[0]
+        .trim();
+      if (!Number.isFinite(size) || size > MAX_PRESENTER_VIDEO_BYTES) {
+        res.status(400).json({ error: "Screen recording is too large (max 100 MB)." });
+        return;
+      }
+      if (!PRESENTER_VIDEO_TYPES.has(mimeType)) {
+        res.status(400).json({
+          error: "Unsupported screen recording type. Please upload an MP4, MOV, or WebM video.",
+        });
+        return;
+      }
+      const [recording] = await file.download();
+      if (recording.byteLength > MAX_PRESENTER_VIDEO_BYTES) {
+        res.status(400).json({ error: "Screen recording is too large (max 100 MB)." });
+        return;
+      }
+      const { durationSec } = await probeScreenRecording(recording);
+      const card = body.screenDemo.endCard;
+      screenDemo = {
+        version: 1,
+        recordingPath: body.screenDemo.recordingPath,
+        recordingDurationSec: durationSec,
+        scriptMode: body.screenDemo.scriptMode === "user" ? "user" : "auto",
+        script: body.screenDemo.scriptMode === "user" ? (body.prompt?.trim() ?? "") : null,
+        generatedScript: null,
+        endCard:
+          card === null
+            ? null
+            : {
+                enabled: card?.enabled !== false,
+                tagline: card?.tagline?.trim() || null,
+                cta: card?.cta?.trim() || null,
+                animation: card?.animation ?? "fade_up",
+                durationSec: Math.min(6, Math.max(2, card?.durationSec ?? 3.5)),
+              },
+      };
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(400).json({ error: "Screen recording not found." });
+        return;
+      }
+      if (error instanceof ScreenDemoInputError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      req.log.warn({ err: error }, "Screen recording intake failed before funding");
+      res.status(502).json({
+        error: "We could not read the screen recording. Nothing was charged; please try again.",
+      });
+      return;
+    }
   }
 
   let presenterBroll: VideoJobOptions["presenterBroll"] = null;
@@ -11979,14 +12099,25 @@ async function generateVideoHandler(
                   | "character_opening"
                   | "story_animation"
                   | "character_interlude"
-                  | "character_closing";
+                  | "character_closing"
+                  | "screen_demo";
                 maxDurationSeconds: number;
               }>
-            ).map((beat) => ({ ...beat })),
+            ).map((beat) =>
+              beat.kind === "screen_demo" && screenDemo
+                ? {
+                    ...beat,
+                    maxDurationSeconds: screenDemoBeatMaxSeconds(
+                      screenDemo.recordingDurationSec,
+                    ),
+                  }
+                : { ...beat },
+            ),
             characterId,
             outfitId,
             characterSnapshot: hybridCharacterSnapshot,
             lipSyncConsent: true,
+            ...(screenDemo ? { screenDemo } : {}),
           }
         : null,
     aspectRatio: defaultValue("aspectRatio", body.aspectRatio, "9:16"),

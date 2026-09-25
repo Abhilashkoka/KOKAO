@@ -50,6 +50,29 @@ export type VideoJobAspect =
   | "3:4"
   | "21:9";
 
+/** Brand end card appended after the closing character beat. */
+export type ScreenDemoEndCardAnimation = "fade_up" | "logo_scale" | "slide_in";
+
+export interface HybridScreenDemo {
+  version: 1;
+  /** /objects/<tenantId>/... path of the uploaded screen recording. */
+  recordingPath: string;
+  /** Probed at enqueue; the demo beat never trims this footage. */
+  recordingDurationSec: number;
+  /** "auto": generated from frames; "user": script is spoken verbatim. */
+  scriptMode: "auto" | "user";
+  script?: string | null;
+  /** Persisted once written so retries voice the same words. */
+  generatedScript?: string | null;
+  endCard?: {
+    enabled: boolean;
+    tagline?: string | null;
+    cta?: string | null;
+    animation: ScreenDemoEndCardAnimation;
+    durationSec: number;
+  } | null;
+}
+
 export type VideoDurationMode = "script_derived";
 export type VideoScriptDetailLevel = "concise" | "standard" | "detailed";
 export type VideoVisualStrategy = "stock" | "ai" | "ai_video" | "character";
@@ -570,9 +593,12 @@ export interface VideoJobOptions {
         | "character_opening"
         | "story_animation"
         | "character_interlude"
-        | "character_closing";
+        | "character_closing"
+        | "screen_demo";
       maxDurationSeconds: number;
     }>;
+    /** Probed and validated at enqueue for a walkthrough template. */
+    screenDemo?: HybridScreenDemo | null;
     characterId: number;
     outfitId: number;
     /** Server-authored identity inputs, frozen at enqueue for deterministic retries. */
@@ -1293,13 +1319,14 @@ export interface VideoStoryboardScene {
     };
   } | null;
   /** Mixed hybrid plans distinguish lip-synced character beats from AI animation. */
-  beatType?: "character_speaking" | "story_animation" | null;
+  beatType?: "character_speaking" | "story_animation" | "screen_demo" | null;
   /** Hybrid role is immutable and makes opening/closing validation explicit. */
   hybridRole?:
     | "character_opening"
     | "story_animation"
     | "character_interlude"
     | "character_closing"
+    | "screen_demo"
     | null;
   /** Original immutable template pattern position; interludes may be omitted. */
   patternIndex?: number | null;

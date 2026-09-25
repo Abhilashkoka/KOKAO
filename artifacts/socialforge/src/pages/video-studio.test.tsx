@@ -3628,6 +3628,71 @@ describe("Video Studio", () => {
     );
   });
 
+  it("uploads a walkthrough recording and sends script and end-card choices", async () => {
+    mockState.characters = [{
+      id: 41,
+      name: "Brand Character",
+      isPublic: false,
+      outfits: [{ id: 42, name: "Default", imagePath: "/objects/1/brand-character.png", isDefault: true }],
+    }];
+    mockState.styleProfiles = [curatedTemplate({
+      id: 25,
+      name: "App Walkthrough",
+      summary: "Character and app screen recording",
+      captionStyle: "classic",
+      jobDefaults: {
+        format: "hybrid_character_story",
+        visualsSource: "ai_video",
+        hybridBeatPattern: [
+          { kind: "character_opening", maxDurationSeconds: 10 },
+          { kind: "screen_demo", maxDurationSeconds: 600 },
+          { kind: "character_closing", maxDurationSeconds: 10 },
+        ],
+      },
+      slots: [
+        { kind: "script", required: true, label: "Script" },
+        { kind: "saved_character", required: true, label: "Character" },
+        { kind: "screen_recording", required: true, label: "Screen recording" },
+      ],
+    })];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("button-use-video-template-25"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "Show how our app helps teams organize work." },
+    });
+    await user.click(screen.getByTestId("checkbox-hybrid-lipsync-consent"));
+    expect(screen.getByTestId("screen-demo-inputs")).toBeTruthy();
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
+
+    await user.upload(screen.getByTestId("input-screen-recording"), new File(["recording"], "demo.mp4", { type: "video/mp4" }));
+    await waitFor(() => expect(screen.getByTestId("text-screen-recording-name").textContent).toBe("demo.mp4"));
+    await user.click(screen.getByTestId("toggle-screen-script-user"));
+    fireEvent.change(screen.getByTestId("input-end-card-tagline"), { target: { value: "  Work smarter  " } });
+    fireEvent.change(screen.getByTestId("input-end-card-cta"), { target: { value: "Try it now" } });
+    await user.click(screen.getByTestId("select-end-card-animation"));
+    await user.click(screen.getByRole("option", { name: "Slide in" }));
+    await user.click(screen.getByTestId("button-generate-video"));
+
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      styleProfileId: 25,
+      lipSyncConsent: true,
+      screenDemo: {
+        recordingPath: "/objects/1/uploads/presenter.mp4",
+        scriptMode: "user",
+        endCard: {
+          enabled: true,
+          tagline: "Work smarter",
+          cta: "Try it now",
+          animation: "slide_in",
+        },
+      },
+    });
+  });
+
   it("requires a presenter upload for presenter templates and sends its object path", async () => {
     mockState.styleProfiles = [
       curatedTemplate({

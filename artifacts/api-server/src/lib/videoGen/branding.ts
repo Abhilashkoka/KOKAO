@@ -26,6 +26,11 @@ export interface VideoBranding {
   presetVoice: string | null;
   /** Free-text delivery-style note for the script writer, or null. */
   deliveryStyle: string | null;
+  /** Undarkened first brand colour for end cards. */
+  primaryHex?: string | null;
+  tagline?: string | null;
+  /** Tenant storage path of the full logo. */
+  logoPath?: string | null;
 }
 
 /** "#A1B2C3" / "A1B2C3" → {r,g,b}, or null for anything else. */
@@ -62,6 +67,13 @@ function watermarkLogoPath(payload: BrandKitPayload): string | null {
   for (const logo of candidates) {
     // Only tenant-storage paths are loaded (external URLs would mean a
     // server-side fetch of an arbitrary host at render time).
+    if (logo?.url?.startsWith("/objects/")) return logo.url;
+  }
+  return null;
+}
+
+function endCardLogoPath(payload: BrandKitPayload): string | null {
+  for (const logo of [payload.logos.primary, payload.logos.icon_mark, payload.logos.secondary]) {
     if (logo?.url?.startsWith("/objects/")) return logo.url;
   }
   return null;
@@ -107,5 +119,8 @@ export async function loadVideoBranding(
     clonedVoice: clonedVoiceRef(payload),
     presetVoice: payload.brand_voice?.preset_voice?.trim() || null,
     deliveryStyle: payload.brand_voice?.delivery_style?.trim() || null,
+    primaryHex: hex ? `#${hex.replace(/^#/, "").trim().toUpperCase()}` : null,
+    tagline: payload.identity.tagline?.trim() || null,
+    logoPath: endCardLogoPath(payload),
   };
 }

@@ -109,6 +109,30 @@ describe("admin video template creative direction", () => {
     expect(screen.getByText(/final duration comes from the voiced script/i)).toBeTruthy();
   });
 
+  it("creates an app walkthrough with a required recording and three-beat pattern", async () => {
+    renderTab();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Name"), "App Walkthrough");
+    await user.selectOptions(screen.getByLabelText("Format type"), "app_walkthrough");
+    expect((screen.getByLabelText("Visual treatment") as HTMLSelectElement).disabled).toBe(true);
+    await user.click(screen.getByTestId("button-save-video-template"));
+
+    expect(state.createCalls).toHaveLength(1);
+    expect(state.createCalls[0].data.slots).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "screen_recording", required: true }),
+      expect.objectContaining({ kind: "character", required: true }),
+    ]));
+    expect(state.createCalls[0].data.jobDefaults).toMatchObject({
+      format: "hybrid_character_story",
+      visualsSource: "ai_video",
+      hybridBeatPattern: [
+        { kind: "character_opening", maxDurationSeconds: 10 },
+        { kind: "screen_demo", maxDurationSeconds: 600 },
+        { kind: "character_closing", maxDurationSeconds: 10 },
+      ],
+    });
+  });
+
   it("shows vocabulary conflicts and blocks saving", async () => {
     renderTab();
     const user = userEvent.setup();

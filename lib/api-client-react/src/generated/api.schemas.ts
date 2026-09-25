@@ -6050,7 +6050,7 @@ export interface GuidedSceneCorrectionAttempt {
 }
 
 /**
- * Hybrid storyboard render type: a lip-synced character beat or story animation.
+ * Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant's screen recording (App Walkthrough).
  * @nullable
  */
 export type VideoStoryboardSceneBeatType = typeof VideoStoryboardSceneBeatType[keyof typeof VideoStoryboardSceneBeatType] | null;
@@ -6059,6 +6059,7 @@ export type VideoStoryboardSceneBeatType = typeof VideoStoryboardSceneBeatType[k
 export const VideoStoryboardSceneBeatType = {
   character_speaking: 'character_speaking',
   story_animation: 'story_animation',
+  screen_demo: 'screen_demo',
 } as const;
 
 /**
@@ -6073,6 +6074,7 @@ export const VideoStoryboardSceneHybridRole = {
   story_animation: 'story_animation',
   character_interlude: 'character_interlude',
   character_closing: 'character_closing',
+  screen_demo: 'screen_demo',
 } as const;
 
 export type VideoStoryboardPreviewCheckpointStatus = typeof VideoStoryboardPreviewCheckpointStatus[keyof typeof VideoStoryboardPreviewCheckpointStatus];
@@ -6180,7 +6182,7 @@ export interface VideoStoryboardScene {
      */
   guidedStory?: VideoStoryboardSceneGuidedStory;
   /**
-     * Hybrid storyboard render type: a lip-synced character beat or story animation.
+     * Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant's screen recording (App Walkthrough).
      * @nullable
      */
   beatType?: VideoStoryboardSceneBeatType;
@@ -7179,6 +7181,55 @@ export interface RetryGuidedStoryGeneratedCastReferenceSheetInput {
   revision: number;
 }
 
+/**
+ * auto: KOKAO writes the intro, walkthrough voiceover and closing from frames of the recording, using the request prompt as the brief. user: the request prompt is the full script, spoken verbatim (first sentence = character intro, last sentence = character closing).
+ */
+export type ScreenDemoRequestScriptMode = typeof ScreenDemoRequestScriptMode[keyof typeof ScreenDemoRequestScriptMode];
+
+
+export const ScreenDemoRequestScriptMode = {
+  auto: 'auto',
+  user: 'user',
+} as const;
+
+export type ScreenDemoEndCardAnimation = typeof ScreenDemoEndCardAnimation[keyof typeof ScreenDemoEndCardAnimation];
+
+
+export const ScreenDemoEndCardAnimation = {
+  fade_up: 'fade_up',
+  logo_scale: 'logo_scale',
+  slide_in: 'slide_in',
+} as const;
+
+export interface ScreenDemoEndCard {
+  enabled?: boolean;
+  /**
+     * Defaults to the brand kit tagline.
+     * @maxLength 80
+     * @nullable
+     */
+  tagline?: string | null;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  cta?: string | null;
+  animation?: ScreenDemoEndCardAnimation;
+  /**
+     * @minimum 2
+     * @maximum 6
+     */
+  durationSec?: number;
+}
+
+export interface ScreenDemoRequest {
+  /** /objects/... path of the uploaded screen recording (MP4, MOV or WebM, 5 s – 10 min, up to 100 MB). */
+  recordingPath: string;
+  /** auto: KOKAO writes the intro, walkthrough voiceover and closing from frames of the recording, using the request prompt as the brief. user: the request prompt is the full script, spoken verbatim (first sentence = character intro, last sentence = character closing). */
+  scriptMode?: ScreenDemoRequestScriptMode;
+  endCard?: null | ScreenDemoEndCard;
+}
+
 export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
 
 
@@ -7376,6 +7427,8 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   sourceVideoPath?: string | null;
+  /** topic_to_video with a curated App Walkthrough template (a hybrid pattern with a screen_demo beat): the caller's screen recording, how the script is sourced, and the brand end card. Required by those templates and rejected by every other request. */
+  screenDemo?: null | ScreenDemoRequest;
   /**
      * topic_to_video with a curated presenter-overlay template: /objects/... path of the caller's continuous talking-to-camera take. Its original audio is preserved while planned B-roll and captions are composited over the picture.
      * @nullable
@@ -8227,6 +8280,7 @@ export const TemplateSlotKind = {
   saved_character: 'saved_character',
   music: 'music',
   logo: 'logo',
+  screen_recording: 'screen_recording',
 } as const;
 
 export interface TemplateSlot {
@@ -8315,6 +8369,7 @@ export const VideoTemplateJobDefaultsHybridBeatPatternItemKind = {
   story_animation: 'story_animation',
   character_interlude: 'character_interlude',
   character_closing: 'character_closing',
+  screen_demo: 'screen_demo',
 } as const;
 
 export type VideoTemplateJobDefaultsCaptionStyle = typeof VideoTemplateJobDefaultsCaptionStyle[keyof typeof VideoTemplateJobDefaultsCaptionStyle];
@@ -8349,7 +8404,7 @@ export type VideoTemplateJobDefaultsHybridBeatPatternItem = {
   kind: VideoTemplateJobDefaultsHybridBeatPatternItemKind;
   /**
      * @minimum 1
-     * @maximum 30
+     * @maximum 600
      */
   maxDurationSeconds: number;
 };
@@ -8402,7 +8457,7 @@ export interface VideoTemplateJobDefaults {
   /** Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time. */
   format?: VideoTemplateJobDefaultsFormat;
   /**
-     * Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.
+     * Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over. A single screen_demo beat plays the tenant's uploaded screen recording under the voice-over (App Walkthrough); its bound may be up to 600 seconds and is rewritten from the probed recording at enqueue.
      * @minItems 3
      * @maxItems 25
      */
@@ -10887,6 +10942,7 @@ export interface FeatureFlags {
   providerScoring: boolean;
   lipSync: boolean;
   studioLipSync: boolean;
+  screenDemoVideo: boolean;
 }
 
 /**

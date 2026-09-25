@@ -11,7 +11,7 @@ export type VideoTemplateJobDefaultsHybridBeatPatternItem = {
   kind: VideoTemplateJobDefaultsHybridBeatPatternItemKind;
   /**
      * @minimum 1
-     * @maximum 30
+     * @maximum 600
      */
   maxDurationSeconds: number;
 };

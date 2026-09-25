@@ -54,6 +54,7 @@ const ALL_ON: FeatureFlags = {
   providerScoring: true,
   lipSync: true,
   studioLipSync: true,
+  screenDemoVideo: true,
 };
 
 /**

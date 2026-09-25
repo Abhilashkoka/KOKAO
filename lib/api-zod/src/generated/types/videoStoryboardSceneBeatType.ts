@@ -7,7 +7,7 @@
  */
 
 /**
- * Hybrid storyboard render type: a lip-synced character beat or story animation.
+ * Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant's screen recording (App Walkthrough).
  * @nullable
  */
 export type VideoStoryboardSceneBeatType = typeof VideoStoryboardSceneBeatType[keyof typeof VideoStoryboardSceneBeatType] | null;
@@ -16,4 +16,5 @@ export type VideoStoryboardSceneBeatType = typeof VideoStoryboardSceneBeatType[k
 export const VideoStoryboardSceneBeatType = {
   character_speaking: 'character_speaking',
   story_animation: 'story_animation',
+  screen_demo: 'screen_demo',
 } as const;

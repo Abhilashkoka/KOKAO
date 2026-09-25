@@ -19480,6 +19480,51 @@ components:
           maxItems: 80
           items: { type: integer, minimum: 1, maximum: 80 }
           description: One-based scene assignments; omitted or empty assigns automatically.
+    ScreenDemoRequest:
+      type: object
+      additionalProperties: false
+      required: [recordingPath]
+      properties:
+        recordingPath:
+          type: string
+          description: /objects/... path of the uploaded screen recording (MP4, MOV or WebM, 5 s – 10 min, up to 100 MB).
+        scriptMode:
+          type: string
+          enum: [auto, user]
+          default: auto
+          description: >-
+            auto: KOKAO writes the intro, walkthrough voiceover and closing
+            from frames of the recording, using the request prompt as the
+            brief. user: the request prompt is the full script, spoken
+            verbatim (first sentence = character intro, last sentence =
+            character closing).
+        endCard:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/ScreenDemoEndCard"
+    ScreenDemoEndCard:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        tagline:
+          type: ["string", "null"]
+          maxLength: 80
+          description: Defaults to the brand kit tagline.
+        cta:
+          type: ["string", "null"]
+          maxLength: 80
+        animation:
+          type: string
+          enum: [fade_up, logo_scale, slide_in]
+          default: fade_up
+        durationSec:
+          type: number
+          minimum: 2
+          maximum: 6
+          default: 3.5
     VideoGenerateRequest:
       type: object
       required: [engine]
@@ -19545,6 +19590,15 @@ components:
             mouth to match the voice track and this is mutually exclusive with
             sourceImagePath. For localized_dub the audio track is replaced with
             the dubbed voice and subtitles are burned in.
+        screenDemo:
+          description: >-
+            topic_to_video with a curated App Walkthrough template (a hybrid
+            pattern with a screen_demo beat): the caller's screen recording,
+            how the script is sourced, and the brand end card. Required by
+            those templates and rejected by every other request.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/ScreenDemoRequest"
         presenterVideoPath:
           type: ["string", "null"]
           description: >-
@@ -20142,11 +20196,11 @@ components:
                     $ref: "#/components/schemas/GuidedSceneCorrectionAttempt"
         beatType:
           type: ["string", "null"]
-          enum: [character_speaking, story_animation, null]
-          description: "Hybrid storyboard render type: a lip-synced character beat or story animation."
+          enum: [character_speaking, story_animation, screen_demo, null]
+          description: "Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant's screen recording (App Walkthrough)."
         hybridRole:
           type: ["string", "null"]
-          enum: [character_opening, story_animation, character_interlude, character_closing, null]
+          enum: [character_opening, story_animation, character_interlude, character_closing, screen_demo, null]
           description: Immutable hybrid template role used to enforce opening/closing and beat order.
         patternIndex:
           type: ["integer", "null"]
@@ -21592,7 +21646,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [presenter_video, script, brand_kit, character, saved_character, music, logo]
+          enum: [presenter_video, script, brand_kit, character, saved_character, music, logo, screen_recording]
         required:
           type: boolean
         label:
@@ -21714,7 +21768,10 @@ components:
           description: >-
             Ordered portable roles for a hybrid story. The first and last beats
             are character_opening and character_closing; story_animation beats
-            use narration as voice-over.
+            use narration as voice-over. A single screen_demo beat plays the
+            tenant's uploaded screen recording under the voice-over (App
+            Walkthrough); its bound may be up to 600 seconds and is rewritten
+            from the probed recording at enqueue.
           items:
             type: object
             additionalProperties: false
@@ -21722,11 +21779,11 @@ components:
             properties:
               kind:
                 type: string
-                enum: [character_opening, story_animation, character_interlude, character_closing]
+                enum: [character_opening, story_animation, character_interlude, character_closing, screen_demo]
               maxDurationSeconds:
                 type: number
                 minimum: 1
-                maximum: 30
+                maximum: 600
         shotCount:
           type: integer
           minimum: 1
@@ -24584,6 +24641,7 @@ components:
           providerScoring,
           lipSync,
           studioLipSync,
+          screenDemoVideo,
         ]
       properties:
         aiStudio:
@@ -24677,6 +24735,8 @@ components:
         lipSync:
           type: boolean
         studioLipSync:
+          type: boolean
+        screenDemoVideo:
           type: boolean
     AiSpendSettingsView:
       type: object
