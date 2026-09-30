@@ -15,6 +15,7 @@ import { getPlanLimits } from "../plans";
 import { slugify, buildDefaultPayload } from "./defaults";
 import { scheduleStyleCompile } from "./compiledStyle";
 import { deleteClonedVoiceQuietly, type ClonedVoiceRef } from "../voiceClone";
+import { verifyBrandOutroAssets } from "../videoGen/brandOutro";
 
 /** Thrown when a tenant would exceed their plan's brand-kit allowance. */
 export class PlanLimitError extends Error {
@@ -266,6 +267,11 @@ export async function createKit(opts: CreateKitOptions) {
   // approved and activated immediately — this keeps the "only approved
   // versions can be activated" invariant consistent.
   payload.brand_controls.approval_status = "approved";
+  try {
+    await verifyBrandOutroAssets(payload, opts.tenantId);
+  } catch (error) {
+    throw new BrandInputError(error instanceof Error ? error.message : "Invalid brand video outro.");
+  }
   const approvalStatus = payload.brand_controls.approval_status;
 
   const { kitId, versionId } = await db.transaction(async (tx) => {
@@ -353,6 +359,11 @@ export interface AddVersionOptions {
 export async function addVersion(opts: AddVersionOptions) {
   const kit = await loadKit(opts.tenantId, opts.brandKitId);
   if (!kit) return null;
+  try {
+    await verifyBrandOutroAssets(opts.payload, opts.tenantId);
+  } catch (error) {
+    throw new BrandInputError(error instanceof Error ? error.message : "Invalid brand video outro.");
+  }
   const approvalStatus = opts.approvalStatus ?? opts.payload.brand_controls.approval_status;
 
   const created = await db.transaction(async (tx) => {

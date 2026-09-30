@@ -107,6 +107,14 @@ export function buildDefaultPayload(input?: {
       shadow: { sm: "", md: "", lg: "" },
     },
     channel_rules: defaultChannelRules(),
+    video_outro: {
+      enabled: false,
+      mode: "preset",
+      preset: "fade",
+      duration_seconds: 3,
+      background_color: "#000000",
+      clip_path: null,
+    },
     brand_controls: {
       approved: false,
       approval_status: "draft",

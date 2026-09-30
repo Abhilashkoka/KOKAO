@@ -14,6 +14,7 @@ import type { BrandKitPayloadIdentity } from './brandKitPayloadIdentity';
 import type { BrandKitPayloadLayoutTokens } from './brandKitPayloadLayoutTokens';
 import type { BrandKitPayloadLogos } from './brandKitPayloadLogos';
 import type { BrandKitPayloadTypography } from './brandKitPayloadTypography';
+import type { BrandKitPayloadVideoOutro } from './brandKitPayloadVideoOutro';
 import type { BrandKitPayloadVisualStyle } from './brandKitPayloadVisualStyle';
 import type { BrandKitPayloadVoice } from './brandKitPayloadVoice';
 
@@ -41,4 +42,9 @@ export interface BrandKitPayload {
      * @nullable
      */
   base_videos?: BrandKitPayloadBaseVideosItem[] | null;
+  /**
+     * Reusable final slate. Absent or null means disabled for legacy kits.
+     * @nullable
+     */
+  video_outro?: BrandKitPayloadVideoOutro;
 }

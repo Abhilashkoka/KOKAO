@@ -53,6 +53,11 @@ import {
 import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play, ScrollText, Copy, Check, Square, AudioLines } from "lucide-react";
 import { SavedVisualsSection } from "@/components/saved-visuals";
 import {
+  BrandOutroSection,
+  normalizeVideoOutro,
+  videoOutroError,
+} from "@/components/brand-outro-section";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -2387,6 +2392,14 @@ export function BrandKitsPage() {
         imagery_style: commaList(imagery),
       },
     };
+    const outroProblem = videoOutroError(
+      normalizeVideoOutro(draft.video_outro),
+      draft.logos?.primary?.url || null,
+    );
+    if (outroProblem) {
+      toast({ title: "Fix the logo outro", description: outroProblem, variant: "destructive" });
+      return;
+    }
     try {
       if (editName.trim() && editName.trim() !== editKit.name) {
         await updateBrandKit.mutateAsync({
@@ -2961,6 +2974,15 @@ export function BrandKitsPage() {
                       drafting from a website.
                     </p>
                   </div>
+                  <BrandOutroSection
+                    value={normalizeVideoOutro(draft.video_outro)}
+                    logoUrl={draft.logos?.primary?.url || null}
+                    onChange={(next) =>
+                      patchDraft((p) => ({ ...p, video_outro: next }))
+                    }
+                    onUploadLogo={() => logoFileRef.current?.click()}
+                    logoUploading={logoUploading}
+                  />
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Industry</label>
                     <Input

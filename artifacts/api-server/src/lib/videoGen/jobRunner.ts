@@ -137,6 +137,7 @@ import {
 import { getPlan, getPlanLimits } from "../plans";
 import { generateMusicBed, MUSICGEN_MODEL, musicGenDurationSec } from "./musicGen";
 import { loadVideoBranding } from "./branding";
+import { applyBrandOutro, type BrandOutroSnapshot } from "./brandOutro";
 import { loadStyleGuidance } from "./referenceAnalyzer";
 import { isFeatureEnabled, videoModeFeature } from "../featureFlags";
 import { verifyRenderedVideo, verifyRepairedVideo, type VideoQaExpectations } from "./qaGate";
@@ -320,6 +321,21 @@ export const STORYBOARD_TTL_MS = 24 * 60 * 60 * 1000;
  * billed, so this is the abuse ceiling on authenticated image generation — two
  * tries per scene is enough to fix a bad prompt without being an open tap. */
 export const STORYBOARD_REGENERATIONS_PER_SCENE = 2;
+
+/** Final output bytes only. A final checkpoint already contains its outro. */
+export async function appendFrozenBrandOutro(
+  buffer: Buffer,
+  snapshot: BrandOutroSnapshot | null | undefined,
+  tenantId: number,
+  alreadyFinal: boolean,
+): Promise<Buffer> {
+  if (alreadyFinal || !snapshot?.enabled) return buffer;
+  return applyBrandOutro(buffer, snapshot, tenantId);
+}
+
+function frozenBrandOutro(options: VideoJobOptions | null | undefined): BrandOutroSnapshot | undefined {
+  return (options as (VideoJobOptions & { brandOutro?: BrandOutroSnapshot }) | null | undefined)?.brandOutro;
+}
 
 const objectStorageService = new ObjectStorageService();
 
@@ -7472,16 +7488,27 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       0,
       ...board.narration.cues.map((cue) => cue.endSec),
     );
-    const { durationSec } = await verifyRepairedVideo(result.buffer, {
+    let { durationSec } = await verifyRepairedVideo(result.buffer, {
       expectedDurationSec: result.durationSec,
       finalNarrationEndSec: finalCueEnd,
     });
-    const videoPath = await uploadToStorage(claimed.tenantId, result.buffer, "video/mp4");
+    let finalBuffer = await appendFrozenBrandOutro(
+      result.buffer, frozenBrandOutro(latestOptions), claimed.tenantId, false,
+    );
+    if (frozenBrandOutro(latestOptions)?.enabled) {
+      durationSec = (await verifyRenderedVideo(finalBuffer, {
+        minDurationSec: 0.1, label: "repaired video with branded outro",
+      })).durationSec;
+    }
+    if (await shouldApplyAppWatermark(claimed.tenantId)) {
+      finalBuffer = await applyAppWatermarkToVideo(finalBuffer, options.aspectRatio ?? "9:16");
+    }
+    const videoPath = await uploadToStorage(claimed.tenantId, finalBuffer, "video/mp4");
     let thumbnailPath: string | null = null;
     try {
       thumbnailPath = await uploadToStorage(
         claimed.tenantId,
-        await extractPosterFrame(result.buffer),
+        await extractPosterFrame(finalBuffer),
         "image/png",
       );
     } catch (error) {
@@ -8585,6 +8612,7 @@ async function executeVideoJob(
     const savedRender =
       job.options?.renderCheckpoint ??
       job.options?.recovery?.rendered;
+    const savedFinal = Boolean(savedRender && "stage" in savedRender && savedRender.stage === "final");
     const produced: ProduceResult = savedRender?.path && (!("stage" in savedRender) || savedRender.stage !== "provider_raw")
       ? {
           buffer: (
@@ -8700,7 +8728,7 @@ async function executeVideoJob(
         }).catch(() => null),
       }];
     }
-    if (job.options?.guidedStoryIntrinsicLipSync) {
+    if (!savedFinal && job.options?.guidedStoryIntrinsicLipSync) {
       const finished = await withVideoProviderTaskStore(
         providerTaskStoreForJob(job.id),
         () => finishGuidedStoryIntrinsicDialogue(
@@ -8720,7 +8748,7 @@ async function executeVideoJob(
         })
       ).durationSec;
     }
-    if (job.options?.studioLipSync) {
+    if (!savedFinal && job.options?.studioLipSync) {
       const finished = await finishWithStudioLipSync(
         job,
         buffer,
@@ -8741,24 +8769,37 @@ async function executeVideoJob(
       ).durationSec;
     }
 
-    if (usesGuidedProviderSpeechOptions(job.options)) {
+    if (!savedFinal && usesGuidedProviderSpeechOptions(job.options)) {
       onStage("Checking spoken language");
       await verifyGuidedProviderSpeech(job, buffer);
+    }
+
+    // Speech QA and billable provider durations refer to the original render.
+    // The outro is local finishing, after every speech/lip-sync gate and before
+    // watermark, upload, and poster extraction. A final checkpoint is already
+    // finished, so a retry may never append it a second time.
+    buffer = await appendFrozenBrandOutro(buffer, frozenBrandOutro(job.options), job.tenantId, savedFinal);
+    if (!savedFinal && frozenBrandOutro(job.options)?.enabled) {
+      clipDurationSec = (await verifyRenderedVideo(buffer, {
+        minDurationSec: 0.1,
+        label: "video with branded outro",
+      })).durationSec;
     }
 
     // Plans with the watermark switch ON get a "Made with KOKAO.in" pill in
     // the corner, subject to the platform-wide kill switch. Every step fails
     // SOFT to the unwatermarked video — this must never fail a paid render.
-    if (await shouldApplyAppWatermark(job.tenantId)) {
+    if (!savedFinal && await shouldApplyAppWatermark(job.tenantId)) {
       const aspect = job.options?.aspectRatio ?? "9:16";
       buffer = await applyAppWatermarkToVideo(buffer, aspect);
     }
 
     onStage("Saving to your library");
-    let videoPath =
-      completedStudioLipSyncOutputPath
-        ? completedStudioLipSyncOutputPath
-        : (savedRender?.path ?? null);
+    let videoPath = savedFinal
+      ? savedRender!.path
+      : frozenBrandOutro(job.options)?.enabled
+        ? null
+        : (completedStudioLipSyncOutputPath ?? savedRender?.path ?? null);
     if (!videoPath) {
       videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
       const latest = (

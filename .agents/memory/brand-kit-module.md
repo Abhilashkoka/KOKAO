@@ -16,3 +16,8 @@ Brand identity lives in `brand_kit_versions.json_payload` (typed `BrandKitPayloa
 ## OpenAPI contract must stay in lockstep with routes
 The generated client defines operations from `openapi.yaml`; a missing server handler (e.g. `GET /brand-kits/:id/assets`) compiles fine but 404s at runtime for generated consumers.
 **Why:** codegen trusts the spec, not the server. **How to apply:** when adding/altering any brand-kit path in the spec, implement every method the spec declares, and grep the generated `api.ts` for the operationId to confirm parity.
+
+## Logo outros are local finishing, not provider generation
+Treat the outro as a separately appended segment after speech validation, with settings frozen when a new job starts. Existing jobs and completed videos must not change when the kit is edited.
+**Why:** an uploaded outro can contain speech/music unrelated to the generated script; including it in provider-language QA or paid generation duration would misclassify good output or bill for local rendering.
+**How to apply:** retain the original provider duration for accounting, measure the delivered video's full duration separately, and never append again when resuming an already-final checkpoint.

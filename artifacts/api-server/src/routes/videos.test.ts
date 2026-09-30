@@ -468,6 +468,7 @@ import {
   walletSettlementRetriesTable,
   usageEventsTable,
   videoStyleProfilesTable,
+  brandKitVersionsTable,
   aiModelPricesTable,
   imageGenSettingsTable,
   guidedStoryDraftsTable,
@@ -2613,6 +2614,8 @@ describe("POST /api/ai/generate-video", () => {
     // A foreign/unknown id is stored as-is; the job runner resolves it
     // tenant-scoped and simply renders unbranded when it does not match.
     expect(topicRow?.options?.brandKitId).toBe(4321);
+    expect((topicRow?.options as VideoJobOptions & { brandOutro?: { enabled: boolean } })?.brandOutro?.enabled)
+      .toBe(false);
 
     const text = await request(app).post("/api/ai/generate-video").send({
       engine: "text_to_video",
@@ -2628,7 +2631,59 @@ describe("POST /api/ai/generate-video", () => {
         .where(eq(videoGenerationsTable.id, text.body.id))
     )[0];
     expect(textRow?.options?.brandKitId).toBeNull();
+    expect((textRow?.options as VideoJobOptions & { brandOutro?: { enabled: boolean } })?.brandOutro?.enabled)
+      .toBe(false);
     expect(tenant.tenantId).toBeGreaterThan(0);
+  });
+
+  it("freezes the selected active outro for each new job without changing older jobs", async () => {
+    const tenant = await newTenant("pro");
+    const kit = await createKit({
+      tenantId: tenant.tenantId,
+      plan: "pro",
+      createdBy: tenant.clerkUserId,
+      name: `Video outro ${Date.now()}`,
+    });
+    const version = kit!.activeVersion!;
+    const initial = structuredClone(version.payload);
+    initial.logos.primary = {
+      url: `/objects/${tenant.tenantId}/uploads/approved-logo.png`,
+      type: "image/png",
+    };
+    initial.video_outro = {
+      enabled: true, mode: "preset", preset: "fade", duration_seconds: 3,
+      background_color: "#123456", clip_path: null,
+    };
+    await db.update(brandKitVersionsTable).set({ jsonPayload: initial })
+      .where(eq(brandKitVersionsTable.id, version.id));
+    const first = await request(app).post("/api/ai/generate-video").send({
+      engine: "text_to_video", prompt: "A calm ocean at dusk", brandKitId: kit!.id,
+    });
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    await waitForPendingJobs();
+    const firstJob = (await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, first.body.id)))[0]!;
+    expect((firstJob.options as VideoJobOptions & { brandOutro?: unknown })?.brandOutro)
+      .toMatchObject({ enabled: true, preset: "fade", backgroundColor: "#123456" });
+    const edited = structuredClone(initial);
+    edited.video_outro = {
+      ...initial.video_outro!, preset: "slide", background_color: "#654321",
+    };
+    await db.update(brandKitVersionsTable).set({ jsonPayload: edited })
+      .where(eq(brandKitVersionsTable.id, version.id));
+    const second = await request(app).post("/api/ai/generate-video").send({
+      engine: "text_to_video", prompt: "A second calm ocean at dusk", brandKitId: kit!.id,
+    });
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    await waitForPendingJobs();
+    const secondJob = (await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, second.body.id)))[0]!;
+    expect((secondJob.options as VideoJobOptions & { brandOutro?: unknown })?.brandOutro)
+      .toMatchObject({ enabled: true, preset: "slide", backgroundColor: "#654321" });
+    const persistedFirst = (await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, first.body.id)))[0]!;
+    expect((persistedFirst.options as VideoJobOptions & { brandOutro?: unknown })?.brandOutro)
+      .toEqual((firstJob.options as VideoJobOptions & { brandOutro?: unknown })?.brandOutro);
   });
 
   it("stores a style profile on a topic video and drops it on other engines", async () => {

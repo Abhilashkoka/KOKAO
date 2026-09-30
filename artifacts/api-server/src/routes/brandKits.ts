@@ -181,6 +181,10 @@ router.post("/brand-kits", async (req: Request, res: Response) => {
     });
     res.status(201).json(detail);
   } catch (error) {
+    if (error instanceof BrandInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     if (error instanceof PlanLimitError) {
       res.status(402).json({ error: error.message });
       return;
@@ -294,21 +298,29 @@ router.post("/brand-kits/:id/versions", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const detail = await addVersion({
-    tenantId: req.tenantId,
-    brandKitId: Number(req.params.id),
-    createdBy: tenant.clerkUserId,
-    payload: parsed.data.payload as BrandKitPayload,
-    sourceType: parsed.data.sourceType,
-    sourceNotes: parsed.data.sourceNotes ?? null,
-    approvalStatus: parsed.data.approvalStatus,
-    activate: parsed.data.activate,
-  });
-  if (!detail) {
-    res.status(404).json({ error: "Not found" });
-    return;
+  try {
+    const detail = await addVersion({
+      tenantId: req.tenantId,
+      brandKitId: Number(req.params.id),
+      createdBy: tenant.clerkUserId,
+      payload: parsed.data.payload as BrandKitPayload,
+      sourceType: parsed.data.sourceType,
+      sourceNotes: parsed.data.sourceNotes ?? null,
+      approvalStatus: parsed.data.approvalStatus,
+      activate: parsed.data.activate,
+    });
+    if (!detail) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.status(201).json(detail);
+  } catch (error) {
+    if (error instanceof BrandInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
   }
-  res.status(201).json(detail);
 });
 
 router.post("/brand-kits/:id/activate-version", async (req: Request, res: Response) => {

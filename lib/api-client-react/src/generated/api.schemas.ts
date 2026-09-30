@@ -3703,6 +3703,42 @@ export type BrandKitPayloadBaseVideosItem = {
   preset_voice: string | null;
 };
 
+export type BrandKitPayloadVideoOutroMode = typeof BrandKitPayloadVideoOutroMode[keyof typeof BrandKitPayloadVideoOutroMode];
+
+
+export const BrandKitPayloadVideoOutroMode = {
+  preset: 'preset',
+  upload: 'upload',
+} as const;
+
+export type BrandKitPayloadVideoOutroPreset = typeof BrandKitPayloadVideoOutroPreset[keyof typeof BrandKitPayloadVideoOutroPreset];
+
+
+export const BrandKitPayloadVideoOutroPreset = {
+  fade: 'fade',
+  zoom: 'zoom',
+  slide: 'slide',
+} as const;
+
+/**
+ * Reusable final slate. Absent or null means disabled for legacy kits.
+ * @nullable
+ */
+export type BrandKitPayloadVideoOutro = {
+  enabled: boolean;
+  mode: BrandKitPayloadVideoOutroMode;
+  preset: BrandKitPayloadVideoOutroPreset;
+  /**
+     * @minimum 2
+     * @maximum 5
+     */
+  duration_seconds: number;
+  /** @pattern ^#[0-9a-fA-F]{6}$ */
+  background_color: string;
+  /** @nullable */
+  clip_path: string | null;
+} | null;
+
 /**
  * Source-of-truth brand definition stored immutably per version.
  */
@@ -3727,6 +3763,11 @@ export interface BrandKitPayload {
      * @nullable
      */
   base_videos?: BrandKitPayloadBaseVideosItem[] | null;
+  /**
+     * Reusable final slate. Absent or null means disabled for legacy kits.
+     * @nullable
+     */
+  video_outro?: BrandKitPayloadVideoOutro;
 }
 
 export type BrandKitVersionApprovalStatus = typeof BrandKitVersionApprovalStatus[keyof typeof BrandKitVersionApprovalStatus];

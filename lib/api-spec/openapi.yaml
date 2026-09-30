@@ -17707,6 +17707,17 @@ components:
               preset_voice:
                 type: ["string", "null"]
                 description: Stock narration voice used when voice_mode is preset.
+        video_outro:
+          type: ["object", "null"]
+          description: Reusable final slate. Absent or null means disabled for legacy kits.
+          required: [enabled, mode, preset, duration_seconds, background_color, clip_path]
+          properties:
+            enabled: { type: boolean }
+            mode: { type: string, enum: [preset, upload] }
+            preset: { type: string, enum: [fade, zoom, slide] }
+            duration_seconds: { type: number, minimum: 2, maximum: 5, default: 3 }
+            background_color: { type: string, pattern: '^#[0-9a-fA-F]{6}$', default: '#000000' }
+            clip_path: { type: ["string", "null"] }
     BrandKitVersion:
       type: object
       required: [id, brandKitId, versionNumber, sourceType, approvalStatus, payload, createdAt]

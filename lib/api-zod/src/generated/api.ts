@@ -8481,6 +8481,12 @@ export const listBrandKitsResponseActiveVersionOnePayloadBaseVideosItemLabelMax 
 
 export const listBrandKitsResponseActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const ListBrandKitsResponseItem = zod.object({
@@ -8633,7 +8639,15 @@ export const ListBrandKitsResponseItem = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(listBrandKitsResponseActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(listBrandKitsResponseActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(listBrandKitsResponseActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(listBrandKitsResponseActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -8658,6 +8672,12 @@ export const createBrandKitBodyPayloadOneBaseVideosItemLabelMax = 120;
 
 export const createBrandKitBodyPayloadOneBaseVideosMax = 12;
 
+export const createBrandKitBodyPayloadOneVideoOutroDurationSecondsDefault = 3;
+export const createBrandKitBodyPayloadOneVideoOutroDurationSecondsMin = 2;
+export const createBrandKitBodyPayloadOneVideoOutroDurationSecondsMax = 5;
+
+export const createBrandKitBodyPayloadOneVideoOutroBackgroundColorDefault = `#000000`;
+export const createBrandKitBodyPayloadOneVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const CreateBrandKitBody = zod.object({
@@ -8799,7 +8819,15 @@ export const CreateBrandKitBody = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(createBrandKitBodyPayloadOneBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(createBrandKitBodyPayloadOneBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(createBrandKitBodyPayloadOneVideoOutroDurationSecondsMin).max(createBrandKitBodyPayloadOneVideoOutroDurationSecondsMax).default(createBrandKitBodyPayloadOneVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(createBrandKitBodyPayloadOneVideoOutroBackgroundColorRegExp).default(createBrandKitBodyPayloadOneVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),zod.null()]).optional()
 })
 
@@ -8814,6 +8842,12 @@ export const createBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabel
 
 export const createBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const createBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -8825,6 +8859,12 @@ export const createBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax 
 
 export const createBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const createBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const createBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const CreateBrandKitResponse = zod.object({
@@ -8977,7 +9017,15 @@ export const CreateBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(createBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(createBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(createBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(createBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -9125,7 +9173,15 @@ export const CreateBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(createBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(createBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(createBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(createBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -9163,6 +9219,12 @@ export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBase
 
 export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -9174,6 +9236,12 @@ export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadB
 
 export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const ResolveBrandSelectionResponse = zod.object({
@@ -9329,7 +9397,15 @@ export const ResolveBrandSelectionResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -9486,7 +9562,15 @@ export const ResolveBrandSelectionResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -9517,6 +9601,12 @@ export const draftBrandKitResponsePayloadBaseVideosItemLabelMax = 120;
 
 export const draftBrandKitResponsePayloadBaseVideosMax = 12;
 
+export const draftBrandKitResponsePayloadVideoOutroDurationSecondsDefault = 3;
+export const draftBrandKitResponsePayloadVideoOutroDurationSecondsMin = 2;
+export const draftBrandKitResponsePayloadVideoOutroDurationSecondsMax = 5;
+
+export const draftBrandKitResponsePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const draftBrandKitResponsePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const DraftBrandKitResponse = zod.object({
@@ -9654,7 +9744,15 @@ export const DraftBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(draftBrandKitResponsePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(draftBrandKitResponsePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(draftBrandKitResponsePayloadVideoOutroDurationSecondsMin).max(draftBrandKitResponsePayloadVideoOutroDurationSecondsMax).default(draftBrandKitResponsePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(draftBrandKitResponsePayloadVideoOutroBackgroundColorRegExp).default(draftBrandKitResponsePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "sourceNotes": zod.string()
 })
@@ -9678,6 +9776,12 @@ export const getBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax
 
 export const getBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const getBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -9689,6 +9793,12 @@ export const getBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 1
 
 export const getBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const getBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const getBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const GetBrandKitResponse = zod.object({
@@ -9841,7 +9951,15 @@ export const GetBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(getBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(getBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(getBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(getBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -9989,7 +10107,15 @@ export const GetBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(getBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(getBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(getBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(getBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -10032,6 +10158,12 @@ export const updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabel
 
 export const updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const updateBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -10043,6 +10175,12 @@ export const updateBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax 
 
 export const updateBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const updateBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const UpdateBrandKitResponse = zod.object({
@@ -10195,7 +10333,15 @@ export const UpdateBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -10343,7 +10489,15 @@ export const UpdateBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(updateBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(updateBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(updateBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(updateBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -10387,6 +10541,12 @@ export const listBrandKitVersionsResponsePayloadBaseVideosItemLabelMax = 120;
 
 export const listBrandKitVersionsResponsePayloadBaseVideosMax = 12;
 
+export const listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsDefault = 3;
+export const listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsMin = 2;
+export const listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsMax = 5;
+
+export const listBrandKitVersionsResponsePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const listBrandKitVersionsResponsePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const ListBrandKitVersionsResponseItem = zod.object({
@@ -10530,7 +10690,15 @@ export const ListBrandKitVersionsResponseItem = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(listBrandKitVersionsResponsePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(listBrandKitVersionsResponsePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsMin).max(listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsMax).default(listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(listBrandKitVersionsResponsePayloadVideoOutroBackgroundColorRegExp).default(listBrandKitVersionsResponsePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })
@@ -10555,6 +10723,12 @@ export const createBrandKitVersionBodyPayloadBaseVideosItemLabelMax = 120;
 
 export const createBrandKitVersionBodyPayloadBaseVideosMax = 12;
 
+export const createBrandKitVersionBodyPayloadVideoOutroDurationSecondsDefault = 3;
+export const createBrandKitVersionBodyPayloadVideoOutroDurationSecondsMin = 2;
+export const createBrandKitVersionBodyPayloadVideoOutroDurationSecondsMax = 5;
+
+export const createBrandKitVersionBodyPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const createBrandKitVersionBodyPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const CreateBrandKitVersionBody = zod.object({
@@ -10692,7 +10866,15 @@ export const CreateBrandKitVersionBody = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(createBrandKitVersionBodyPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(createBrandKitVersionBodyPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(createBrandKitVersionBodyPayloadVideoOutroDurationSecondsMin).max(createBrandKitVersionBodyPayloadVideoOutroDurationSecondsMax).default(createBrandKitVersionBodyPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(createBrandKitVersionBodyPayloadVideoOutroBackgroundColorRegExp).default(createBrandKitVersionBodyPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "sourceType": zod.enum(['manual', 'ai_extraction', 'import']).optional(),
   "sourceNotes": zod.string().nullish(),
@@ -10711,6 +10893,12 @@ export const createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosIt
 
 export const createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const createBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -10722,6 +10910,12 @@ export const createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItemLa
 
 export const createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const CreateBrandKitVersionResponse = zod.object({
@@ -10874,7 +11068,15 @@ export const CreateBrandKitVersionResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -11022,7 +11224,15 @@ export const CreateBrandKitVersionResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -11060,6 +11270,12 @@ export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideos
 
 export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const activateBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -11071,6 +11287,12 @@ export const activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItem
 
 export const activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const ActivateBrandKitVersionResponse = zod.object({
@@ -11223,7 +11445,15 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -11371,7 +11601,15 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -11405,6 +11643,12 @@ export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemL
 
 export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const setDefaultBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -11416,6 +11660,12 @@ export const setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabel
 
 export const setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const SetDefaultBrandKitResponse = zod.object({
@@ -11568,7 +11818,15 @@ export const SetDefaultBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -11716,7 +11974,15 @@ export const SetDefaultBrandKitResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -11904,6 +12170,12 @@ export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLabe
 
 export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const cloneBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -11915,6 +12187,12 @@ export const cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMax
 
 export const cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const CloneBrandVoiceResponse = zod.object({
@@ -12067,7 +12345,15 @@ export const CloneBrandVoiceResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -12215,7 +12501,15 @@ export const CloneBrandVoiceResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -12257,6 +12551,12 @@ export const selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLab
 
 export const selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const selectBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -12268,6 +12568,12 @@ export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMa
 
 export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const SelectBrandVoiceResponse = zod.object({
@@ -12420,7 +12726,15 @@ export const SelectBrandVoiceResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -12568,7 +12882,15 @@ export const SelectBrandVoiceResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -12604,6 +12926,12 @@ export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosIt
 
 export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -12615,6 +12943,12 @@ export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosItemLa
 
 export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const DeleteBrandVoiceEntryResponse = zod.object({
@@ -12767,7 +13101,15 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -12915,7 +13257,15 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -13005,6 +13355,12 @@ export const removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLab
 
 export const removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 export const removeBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
 
@@ -13016,6 +13372,12 @@ export const removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMa
 
 export const removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
+export const removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
+export const removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
+export const removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax = 5;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault = `#000000`;
+export const removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 
 
 export const RemoveBrandVoiceResponse = zod.object({
@@ -13168,7 +13530,15 @@ export const RemoveBrandVoiceResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin).max(removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax).default(removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorRegExp).default(removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional(),
@@ -13316,7 +13686,15 @@ export const RemoveBrandVoiceResponse = zod.object({
   "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
-})).max(removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+})).max(removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "video_outro": zod.object({
+  "enabled": zod.boolean(),
+  "mode": zod.enum(['preset', 'upload']),
+  "preset": zod.enum(['fade', 'zoom', 'slide']),
+  "duration_seconds": zod.number().min(removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin).max(removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMax).default(removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault),
+  "background_color": zod.string().regex(removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorRegExp).default(removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroBackgroundColorDefault),
+  "clip_path": zod.string().nullable()
+}).nullish().describe('Reusable final slate. Absent or null means disabled for legacy kits.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),

@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  appendFrozenBrandOutro,
   allowsGeneratedStoryboardPrivacyRecovery,
   hasDeferredTemplateFunding,
   topicStoryboardEligible,
@@ -13,6 +14,31 @@ import {
   applyNormalizedVideoEventCosts,
   mergeLiveAndCheckpointProviderEvents,
 } from "./jobRunner";
+import { applyBrandOutro, type BrandOutroSnapshot } from "./brandOutro";
+vi.mock("./brandOutro", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./brandOutro")>();
+  return {
+    ...actual,
+    applyBrandOutro: vi.fn(async (input: Buffer) => Buffer.concat([input, Buffer.from("outro")])),
+  };
+});
+
+it("appends a frozen enabled outro once, and never appends to a final checkpoint", async () => {
+  const base = Buffer.from("render");
+  const snapshot: BrandOutroSnapshot = {
+    schemaVersion: 1, enabled: true, mode: "preset", preset: "fade",
+    durationSeconds: 3, backgroundColor: "#000000",
+    logoPath: "/objects/1/uploads/logo.png", clipPath: null,
+  };
+  vi.mocked(applyBrandOutro).mockClear();
+  const finished = await appendFrozenBrandOutro(base, snapshot, 1, false);
+  expect(finished.toString()).toBe("renderoutro");
+  expect(applyBrandOutro).toHaveBeenCalledExactlyOnceWith(base, snapshot, 1);
+  expect(await appendFrozenBrandOutro(finished, snapshot, 1, true)).toBe(finished);
+  expect(await appendFrozenBrandOutro(base, undefined, 1, false)).toBe(base);
+  expect(await appendFrozenBrandOutro(base, { ...snapshot, enabled: false }, 1, false)).toBe(base);
+  expect(applyBrandOutro).toHaveBeenCalledTimes(1);
+});
 import { buildVideoDeliveryBillingItems } from "../wallet";
 import { rebaseRenderedCues, renderedTimeline } from "./renderTimeline";
 

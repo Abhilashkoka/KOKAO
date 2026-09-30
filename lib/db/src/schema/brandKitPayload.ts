@@ -119,6 +119,16 @@ export interface BrandBaseVideo {
   preset_voice: string | null;
 }
 
+/** Reusable end slate, appended after (never over) the finished video. */
+export interface BrandVideoOutro {
+  enabled: boolean;
+  mode: "preset" | "upload";
+  preset: "fade" | "zoom" | "slide";
+  duration_seconds: number;
+  background_color: string;
+  clip_path: string | null;
+}
+
 export interface BrandKitPayload {
   identity: {
     brand_name: string;
@@ -185,6 +195,8 @@ export interface BrandKitPayload {
   brand_voice?: BrandVoiceSettings | null;
   /** Reusable pre-recorded base videos for lip-sync; absent/null = none saved. */
   base_videos?: BrandBaseVideo[] | null;
+  /** Absent on legacy kits; absent/null/disabled means no outro. */
+  video_outro?: BrandVideoOutro | null;
   brand_controls: {
     approved: boolean;
     approval_status: BrandApprovalStatus;

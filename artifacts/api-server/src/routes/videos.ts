@@ -239,6 +239,7 @@ import {
   planCharacterDialogueScenes,
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
+import { resolveBrandOutroSnapshot, type BrandOutroSnapshot } from "../lib/videoGen/brandOutro";
 import { loadActivePayload } from "../lib/brandKit/service";
 import {
   listElevenLabsPremadeVoices,
@@ -354,6 +355,16 @@ import {
   freezePersonalWanVideoConsent,
   isFrozenPersonalWanGuidedCast,
 } from "../lib/videoGen/personalLikenessVideo";
+
+type FrozenOutroJobOptions = VideoJobOptions & {
+  brandOutro?: BrandOutroSnapshot;
+  brandOutroKitId?: number | null;
+};
+
+function selectedOutroKitId(options: VideoJobOptions | null | undefined): number | null {
+  return (options as FrozenOutroJobOptions | null | undefined)?.brandOutroKitId ??
+    options?.brandKitId ?? null;
+}
 
 function provenanceEvidenceSnapshot(
   evidence: AssetProvenance | null | undefined,
@@ -12024,7 +12035,7 @@ async function generateVideoHandler(
     });
     return;
   }
-  const options: VideoJobOptions = {
+  const options: FrozenOutroJobOptions = {
     ...(uploadedReferences ? {
       referenceImages: uploadedReferences.references,
       referenceImageSelection: uploadedReferences.selection,
@@ -12456,6 +12467,11 @@ async function generateVideoHandler(
   } else {
     options.resolvedVideoModel = null;
   }
+
+  // Freeze the selected active kit before provisional creation or funding.
+  options.brandOutroKitId =
+    body.brandKitId ?? guidedDraft?.state.setup?.brandKitId ?? options.brandKitId;
+  options.brandOutro = await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
 
   let provisionalGuidedJob: VideoGeneration | null = null;
   let guidedStorageEvidenceValid = true;
@@ -13812,6 +13828,9 @@ router.post(
     );
     const options = {
       aspectRatio: sourceOptions.aspectRatio,
+      brandKitId: sourceOptions.brandKitId,
+      brandOutroKitId: selectedOutroKitId(sourceOptions),
+      brandOutro: await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(sourceOptions)),
       guidedStory: structuredClone(sourceOptions.guidedStory!),
       resolvedVideoModel: structuredClone(sourceOptions.resolvedVideoModel),
       modelId: sourceOptions.modelId,
@@ -15891,6 +15910,7 @@ function freshRestartOptions(source: VideoGeneration): VideoJobOptions {
   delete options.guidedAtlasBackdropAssets;
   delete options.guidedAtlasBackdropCleanupFences;
   delete options.renderCheckpoint;
+  delete (options as FrozenOutroJobOptions).brandOutro;
   delete options.musicCheckpoint;
   delete options.presenterMusicCheckpoint;
   delete options.presenterBroll;
@@ -16059,6 +16079,8 @@ router.post(
     let options: VideoJobOptions;
     try {
       options = await prepareFreshRestartOptions(initial, req.tenantId);
+      (options as FrozenOutroJobOptions).brandOutro =
+        await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
     } catch (error) {
       if (error instanceof VideoModelResolutionError) {
         res.status(400).json({
@@ -16323,6 +16345,8 @@ router.post(
         return;
       }
       const options = structuredClone(source.options!);
+      (options as FrozenOutroJobOptions).brandOutro =
+        await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
       delete options.guidedAtlasBackdropAssets;
       delete options.guidedAtlasBackdropCleanupFences;
       options.repair = {
