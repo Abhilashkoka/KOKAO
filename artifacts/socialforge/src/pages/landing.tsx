@@ -58,10 +58,10 @@ function BrandMark({ site }: { site: LandingContent["site"] }) {
   return (
     <span className="flex items-center gap-2.5">
       {site.logo ? (
-        <img src={site.logo} alt={site.brand} className="h-9 w-auto" />
+        <img src={site.logo} alt={site.brand} className="h-12 md:h-16 w-auto object-contain" />
       ) : (
         <span
-          className="h-9 w-9 rounded-xl flex items-center justify-center font-extrabold text-lg"
+          className="h-12 w-12 md:h-16 md:w-16 rounded-xl flex items-center justify-center font-extrabold text-2xl md:text-3xl"
           style={{
             background: `linear-gradient(135deg, ${site.color_accent1}, ${site.color_accent2})`,
             color: site.color_ink,
