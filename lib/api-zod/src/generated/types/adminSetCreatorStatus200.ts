@@ -5,8 +5,8 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreatorAccountView } from './creatorAccountView';
+import type { CreatorStatus } from './creatorStatus';
 
 export type AdminSetCreatorStatus200 = {
-  creator: CreatorAccountView;
+  status: CreatorStatus;
 };

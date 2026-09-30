@@ -5,10 +5,10 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreatorAccountView } from './creatorAccountView';
-import type { CreatorCodeView } from './creatorCodeView';
+import type { CreatorStatus } from './creatorStatus';
 
 export type AdminReviewCreator200 = {
-  creator: CreatorAccountView;
-  code: CreatorCodeView | null;
+  status: CreatorStatus;
+  /** @nullable */
+  code: string | null;
 };

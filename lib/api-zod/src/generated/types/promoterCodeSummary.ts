@@ -5,16 +5,14 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreatorCodeViewReusePolicy } from './creatorCodeViewReusePolicy';
+import type { PromoterCodeSummaryReusePolicy } from './promoterCodeSummaryReusePolicy';
 
-export interface CreatorCodeView {
-  id: number;
-  creatorId: number;
+export interface PromoterCodeSummary {
   code: string;
   /** @nullable */
   label?: string | null;
-  active: boolean;
-  reusePolicy?: CreatorCodeViewReusePolicy;
+  reusePolicy: PromoterCodeSummaryReusePolicy;
+  redemptionCount: number;
   /** @nullable */
   maxRedemptions?: number | null;
   /** @nullable */

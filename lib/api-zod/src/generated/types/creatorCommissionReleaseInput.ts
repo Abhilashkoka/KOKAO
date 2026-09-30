@@ -11,5 +11,5 @@ export interface CreatorCommissionReleaseInput {
      * @minLength 1
      * @maxLength 1000
      */
-  reason: string;
+  reason?: string;
 }

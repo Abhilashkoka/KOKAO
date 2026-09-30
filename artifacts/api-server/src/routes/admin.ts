@@ -6034,6 +6034,8 @@ const AUDIT_ACTIONS = new Set([
   "creator_status_change",
   "creator_code_change",
   "creator_commission_release",
+  "creator_commission_reverse",
+  "creator_commission_mature",
   "creator_program_settings_change",
   "credit_account_correction",
   "plan_change",

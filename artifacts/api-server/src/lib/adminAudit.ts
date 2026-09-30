@@ -6,6 +6,8 @@ export type AdminAuditAction =
   | "creator_status_change"
   | "creator_code_change"
   | "creator_commission_release"
+  | "creator_commission_reverse"
+  | "creator_commission_mature"
   | "creator_program_settings_change"
   | "plan_change"
   | "superadmin_grant"

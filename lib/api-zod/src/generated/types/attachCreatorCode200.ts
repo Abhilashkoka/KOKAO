@@ -7,7 +7,9 @@
  */
 
 export type AttachCreatorCode200 = {
-  attached: true;
+  ok: true;
   code: string;
+  promoter: string;
+  bonusBps: number;
   message: string;
 };

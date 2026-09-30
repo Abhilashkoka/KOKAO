@@ -8393,7 +8393,7 @@ export const AdminListAuditLogsQueryParams = zod.object({
 export const AdminListAuditLogsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.number(),
-  "action": zod.enum(['plan_change', 'creator_review', 'creator_status_change', 'creator_code_change', 'creator_commission_release', 'creator_program_settings_change', 'credit_account_correction', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).describe('The privileged action that was recorded.'),
+  "action": zod.enum(['plan_change', 'creator_review', 'creator_status_change', 'creator_code_change', 'creator_commission_release', 'creator_commission_reverse', 'creator_commission_mature', 'creator_program_settings_change', 'credit_account_correction', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).describe('The privileged action that was recorded.'),
   "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
   "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
   "targetTenantId": zod.number().nullable().describe('Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.'),
@@ -34225,6 +34225,7 @@ export const GetReferralInfoResponse = zod.object({
   "referrerImageCredits": zod.number(),
   "maxRedemptions": zod.number().nullable(),
   "redemptions": zod.number().describe('Workspaces attributed to this invite code owner, not signup bonuses paid.'),
+  "attributedWorkspaces": zod.number().describe('Workspaces with this referrer\'s attached invite code.'),
   "captionCreditsEarned": zod.number(),
   "imageCreditsEarned": zod.number(),
   "creditsEarned": zod.number().describe('Canonical credits earned from qualifying referral purchases.'),
@@ -34232,6 +34233,7 @@ export const GetReferralInfoResponse = zod.object({
   "referrerCredits": zod.number().nullable().describe('Legacy amount; null for percentage-based purchase referrals.'),
   "qualifyingPurchases": zod.number().describe('Number of qualifying credit purchases rewarded.'),
   "grossPaise": zod.number().describe('Total qualifying purchase value in paise.'),
+  "grossDriven": zod.number().describe('Total qualifying purchase value in rupees.'),
   "currentSlabIndex": zod.number(),
   "currentReferrerBps": zod.number().describe('Current referrer reward percentage in basis points (1000 = 10%).'),
   "currentRefereeBps": zod.number().describe('Current buyer bonus percentage in basis points.'),
@@ -37359,28 +37361,9 @@ export const PromoterApplyBody = zod.object({
 })
 
 export const PromoterApplyResponse = zod.object({
-  "creator": zod.object({
-  "id": zod.number(),
-  "tenantId": zod.number(),
   "status": zod.enum(['applied', 'approved', 'rejected', 'suspended', 'closed']),
-  "displayName": zod.string(),
-  "contactEmail": zod.string(),
-  "phone": zod.string().nullish(),
-  "channels": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-  "appliedAt": zod.coerce.date().optional(),
-  "reviewedAt": zod.coerce.date().nullish(),
-  "statusReason": zod.string().nullish()
-}),
-  "code": zod.union([zod.object({
-  "id": zod.number(),
-  "creatorId": zod.number(),
-  "code": zod.string(),
-  "label": zod.string().nullish(),
-  "active": zod.boolean(),
-  "reusePolicy": zod.enum(['single_use', 'multi_use']).optional(),
-  "maxRedemptions": zod.number().nullish(),
-  "expiresAt": zod.coerce.date().nullish()
-}),zod.null()])
+  "code": zod.string().nullable(),
+  "message": zod.string()
 })
 
 
@@ -37388,39 +37371,49 @@ export const PromoterApplyResponse = zod.object({
  * @summary Get own promoter account and accrued earnings
  */
 export const PromoterMeResponse = zod.object({
-  "creator": zod.object({
-  "id": zod.number(),
-  "tenantId": zod.number(),
   "status": zod.enum(['applied', 'approved', 'rejected', 'suspended', 'closed']),
   "displayName": zod.string(),
-  "contactEmail": zod.string(),
-  "phone": zod.string().nullish(),
-  "channels": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  "contactEmail": zod.string().optional(),
+  "vertical": zod.string().nullish(),
+  "isRegisteredPractitioner": zod.boolean().optional(),
   "appliedAt": zod.coerce.date().optional(),
   "reviewedAt": zod.coerce.date().nullish(),
-  "statusReason": zod.string().nullish()
-}),
-  "earnings": zod.object({
-  "pendingPaise": zod.number(),
-  "heldPaise": zod.number(),
-  "payablePaise": zod.number(),
-  "paidPaise": zod.number(),
-  "reversedPaise": zod.number(),
-  "awaitingActivation": zod.number(),
-  "inHoldWindow": zod.number(),
-  "totalPurchases": zod.number(),
-  "grossDrivenPaise": zod.number()
-}),
+  "statusReason": zod.string().nullish(),
   "codes": zod.array(zod.object({
-  "id": zod.number(),
-  "creatorId": zod.number(),
   "code": zod.string(),
   "label": zod.string().nullish(),
-  "active": zod.boolean(),
-  "reusePolicy": zod.enum(['single_use', 'multi_use']).optional(),
+  "reusePolicy": zod.enum(['single_use', 'multi_use']),
+  "redemptionCount": zod.number(),
   "maxRedemptions": zod.number().nullish(),
   "expiresAt": zod.coerce.date().nullish()
-}))
+})),
+  "commission": zod.object({
+  "currentBps": zod.number(),
+  "isNegotiatedRate": zod.boolean(),
+  "slabIndex": zod.number(),
+  "qualifyingPurchases": zod.number(),
+  "nextSlabAt": zod.number().nullable(),
+  "nextSlabBps": zod.number().nullable()
+}),
+  "earnings": zod.object({
+  "pending": zod.number(),
+  "held": zod.number(),
+  "payable": zod.number(),
+  "paid": zod.number(),
+  "reversed": zod.number(),
+  "grossDriven": zod.number(),
+  "totalPurchases": zod.number(),
+  "awaitingActivation": zod.number(),
+  "inHoldWindow": zod.number()
+}),
+  "terms": zod.object({
+  "holdDays": zod.number(),
+  "consumptionThresholdBps": zod.number(),
+  "minPayout": zod.number(),
+  "payoutCadence": zod.string(),
+  "earningExpiryDays": zod.number(),
+  "buyerBonusBps": zod.number()
+})
 })
 
 
@@ -37437,20 +37430,20 @@ export const PromoterCommissionsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(promoterCommissionsQueryLimitMax).default(promoterCommissionsQueryLimitDefault)
 })
 
-export const PromoterCommissionsResponse = zod.object({
-  "commissions": zod.array(zod.object({
+export const PromoterCommissionsResponseItem = zod.object({
   "id": zod.number(),
-  "creatorId": zod.number(),
-  "tenantId": zod.number(),
+  "workspace": zod.string().describe('Masked label, e.g. Workspace #123'),
+  "purchasedOn": zod.coerce.date(),
+  "gross": zod.number(),
+  "commission": zod.number(),
+  "commissionBps": zod.number(),
   "state": zod.enum(['pending', 'held', 'payable', 'in_payout', 'paid', 'reversed', 'expired']),
-  "commissionPaise": zod.number(),
-  "grossPaise": zod.number(),
   "holdUntil": zod.coerce.date().nullish(),
-  "expiresAt": zod.coerce.date().nullish(),
-  "riskScore": zod.number().optional(),
-  "riskSignals": zod.array(zod.string()).optional()
-}))
-})
+  "consumptionBps": zod.number().nullish(),
+  "maturedAt": zod.coerce.date().nullish(),
+  "reason": zod.string().nullable()
+}).describe('Privacy-preserving commission. No workspace identity or risk assessment exposed.')
+export const PromoterCommissionsResponse = zod.array(PromoterCommissionsResponseItem)
 
 
 /**
@@ -37466,8 +37459,10 @@ export const AttachCreatorCodeBody = zod.object({
 })
 
 export const AttachCreatorCodeResponse = zod.object({
-  "attached": zod.literal(true),
+  "ok": zod.literal(true),
   "code": zod.string(),
+  "promoter": zod.string(),
+  "bonusBps": zod.number(),
   "message": zod.string()
 })
 
@@ -37485,8 +37480,7 @@ export const AdminListCreatorsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(adminListCreatorsQueryLimitMax).default(adminListCreatorsQueryLimitDefault)
 })
 
-export const AdminListCreatorsResponse = zod.object({
-  "creators": zod.array(zod.object({
+export const AdminListCreatorsResponseItem = zod.object({
   "id": zod.number(),
   "tenantId": zod.number(),
   "status": zod.enum(['applied', 'approved', 'rejected', 'suspended', 'closed']),
@@ -37497,8 +37491,15 @@ export const AdminListCreatorsResponse = zod.object({
   "appliedAt": zod.coerce.date().optional(),
   "reviewedAt": zod.coerce.date().nullish(),
   "statusReason": zod.string().nullish()
+}).and(zod.object({
+  "workspace": zod.union([zod.object({
+  "name": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "plan": zod.string().optional(),
+  "createdAt": zod.coerce.date().optional()
+}),zod.null()]).optional()
 }))
-})
+export const AdminListCreatorsResponse = zod.array(AdminListCreatorsResponseItem)
 
 
 /**
@@ -37521,28 +37522,8 @@ export const AdminReviewCreatorBody = zod.object({
 })
 
 export const AdminReviewCreatorResponse = zod.object({
-  "creator": zod.object({
-  "id": zod.number(),
-  "tenantId": zod.number(),
   "status": zod.enum(['applied', 'approved', 'rejected', 'suspended', 'closed']),
-  "displayName": zod.string(),
-  "contactEmail": zod.string(),
-  "phone": zod.string().nullish(),
-  "channels": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-  "appliedAt": zod.coerce.date().optional(),
-  "reviewedAt": zod.coerce.date().nullish(),
-  "statusReason": zod.string().nullish()
-}),
-  "code": zod.union([zod.object({
-  "id": zod.number(),
-  "creatorId": zod.number(),
-  "code": zod.string(),
-  "label": zod.string().nullish(),
-  "active": zod.boolean(),
-  "reusePolicy": zod.enum(['single_use', 'multi_use']).optional(),
-  "maxRedemptions": zod.number().nullish(),
-  "expiresAt": zod.coerce.date().nullish()
-}),zod.null()])
+  "code": zod.string().nullable()
 })
 
 
@@ -37566,18 +37547,7 @@ export const AdminSetCreatorStatusBody = zod.object({
 })
 
 export const AdminSetCreatorStatusResponse = zod.object({
-  "creator": zod.object({
-  "id": zod.number(),
-  "tenantId": zod.number(),
-  "status": zod.enum(['applied', 'approved', 'rejected', 'suspended', 'closed']),
-  "displayName": zod.string(),
-  "contactEmail": zod.string(),
-  "phone": zod.string().nullish(),
-  "channels": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-  "appliedAt": zod.coerce.date().optional(),
-  "reviewedAt": zod.coerce.date().nullish(),
-  "statusReason": zod.string().nullish()
-})
+  "status": zod.enum(['applied', 'approved', 'rejected', 'suspended', 'closed'])
 })
 
 
@@ -37605,16 +37575,8 @@ export const AdminIssueCreatorCodeBody = zod.object({
 })
 
 export const AdminIssueCreatorCodeResponse = zod.object({
-  "code": zod.object({
-  "id": zod.number(),
-  "creatorId": zod.number(),
   "code": zod.string(),
-  "label": zod.string().nullish(),
-  "active": zod.boolean(),
-  "reusePolicy": zod.enum(['single_use', 'multi_use']).optional(),
-  "maxRedemptions": zod.number().nullish(),
-  "expiresAt": zod.coerce.date().nullish()
-})
+  "id": zod.number()
 })
 
 
@@ -37662,22 +37624,11 @@ export const adminReleaseHeldCommissionBodyReasonMax = 1000;
 
 
 export const AdminReleaseHeldCommissionBody = zod.object({
-  "reason": zod.string().min(1).max(adminReleaseHeldCommissionBodyReasonMax)
+  "reason": zod.string().min(1).max(adminReleaseHeldCommissionBodyReasonMax).optional()
 })
 
 export const AdminReleaseHeldCommissionResponse = zod.object({
-  "commission": zod.object({
-  "id": zod.number(),
-  "creatorId": zod.number(),
-  "tenantId": zod.number(),
-  "state": zod.enum(['pending', 'held', 'payable', 'in_payout', 'paid', 'reversed', 'expired']),
-  "commissionPaise": zod.number(),
-  "grossPaise": zod.number(),
-  "holdUntil": zod.coerce.date().nullish(),
-  "expiresAt": zod.coerce.date().nullish(),
-  "riskScore": zod.number().optional(),
-  "riskSignals": zod.array(zod.string()).optional()
-})
+  "state": zod.enum(['pending', 'held', 'payable', 'in_payout', 'paid', 'reversed', 'expired'])
 })
 
 
@@ -37690,7 +37641,7 @@ export const adminGetCreatorSettingsResponseOneCommissionSlabsOneItemMinReferral
 export const adminGetCreatorSettingsResponseOneCommissionSlabsOneItemCommissionBpsMin = 0;
 export const adminGetCreatorSettingsResponseOneCommissionSlabsOneItemCommissionBpsMax = 10000;
 
-export const adminGetCreatorSettingsResponseOneCommissionSlabsOneMax = 20;
+export const adminGetCreatorSettingsResponseOneCommissionSlabsOneMax = 10;
 
 export const adminGetCreatorSettingsResponseOneBuyerBonusBpsMin = 0;
 export const adminGetCreatorSettingsResponseOneBuyerBonusBpsMax = 10000;
@@ -37698,7 +37649,7 @@ export const adminGetCreatorSettingsResponseOneBuyerBonusBpsMax = 10000;
 export const adminGetCreatorSettingsResponseOneBuyerBonusExpiryDaysMax = 3650;
 
 export const adminGetCreatorSettingsResponseOneHoldDaysMin = 0;
-export const adminGetCreatorSettingsResponseOneHoldDaysMax = 3650;
+export const adminGetCreatorSettingsResponseOneHoldDaysMax = 365;
 
 export const adminGetCreatorSettingsResponseOneConsumptionThresholdBpsMin = 0;
 export const adminGetCreatorSettingsResponseOneConsumptionThresholdBpsMax = 10000;
@@ -37720,10 +37671,10 @@ export const adminGetCreatorSettingsResponseOneTdsRateBpsMin = 0;
 export const adminGetCreatorSettingsResponseOneTdsRateBpsMax = 10000;
 
 export const adminGetCreatorSettingsResponseOneRiskHoldThresholdMin = 0;
-export const adminGetCreatorSettingsResponseOneRiskHoldThresholdMax = 1000;
+export const adminGetCreatorSettingsResponseOneRiskHoldThresholdMax = 100;
 
 export const adminGetCreatorSettingsResponseOneNewCreatorReviewCountMin = 0;
-export const adminGetCreatorSettingsResponseOneNewCreatorReviewCountMax = 1000;
+export const adminGetCreatorSettingsResponseOneNewCreatorReviewCountMax = 100;
 
 
 
@@ -37743,7 +37694,7 @@ export const AdminGetCreatorSettingsResponse = zod.object({
   "earningExpiryDays": zod.number().min(1).max(adminGetCreatorSettingsResponseOneEarningExpiryDaysMax).optional(),
   "attributionDays": zod.number().min(1).max(adminGetCreatorSettingsResponseOneAttributionDaysMax),
   "triggerMode": zod.enum(['first_purchase', 'every_purchase']),
-  "payoutCadence": zod.enum(['monthly']).optional(),
+  "payoutCadence": zod.enum(['monthly', 'fortnightly', 'on_request']).optional(),
   "tdsRateBps": zod.number().min(adminGetCreatorSettingsResponseOneTdsRateBpsMin).max(adminGetCreatorSettingsResponseOneTdsRateBpsMax).optional(),
   "autoApproveCreators": zod.boolean().optional(),
   "riskHoldThreshold": zod.number().min(adminGetCreatorSettingsResponseOneRiskHoldThresholdMin).max(adminGetCreatorSettingsResponseOneRiskHoldThresholdMax).optional(),
@@ -37763,7 +37714,7 @@ export const adminUpdateCreatorSettingsBodyCommissionSlabsOneItemMinReferralsMax
 export const adminUpdateCreatorSettingsBodyCommissionSlabsOneItemCommissionBpsMin = 0;
 export const adminUpdateCreatorSettingsBodyCommissionSlabsOneItemCommissionBpsMax = 10000;
 
-export const adminUpdateCreatorSettingsBodyCommissionSlabsOneMax = 20;
+export const adminUpdateCreatorSettingsBodyCommissionSlabsOneMax = 10;
 
 export const adminUpdateCreatorSettingsBodyBuyerBonusBpsMin = 0;
 export const adminUpdateCreatorSettingsBodyBuyerBonusBpsMax = 10000;
@@ -37771,7 +37722,7 @@ export const adminUpdateCreatorSettingsBodyBuyerBonusBpsMax = 10000;
 export const adminUpdateCreatorSettingsBodyBuyerBonusExpiryDaysMax = 3650;
 
 export const adminUpdateCreatorSettingsBodyHoldDaysMin = 0;
-export const adminUpdateCreatorSettingsBodyHoldDaysMax = 3650;
+export const adminUpdateCreatorSettingsBodyHoldDaysMax = 365;
 
 export const adminUpdateCreatorSettingsBodyConsumptionThresholdBpsMin = 0;
 export const adminUpdateCreatorSettingsBodyConsumptionThresholdBpsMax = 10000;
@@ -37793,10 +37744,10 @@ export const adminUpdateCreatorSettingsBodyTdsRateBpsMin = 0;
 export const adminUpdateCreatorSettingsBodyTdsRateBpsMax = 10000;
 
 export const adminUpdateCreatorSettingsBodyRiskHoldThresholdMin = 0;
-export const adminUpdateCreatorSettingsBodyRiskHoldThresholdMax = 1000;
+export const adminUpdateCreatorSettingsBodyRiskHoldThresholdMax = 100;
 
 export const adminUpdateCreatorSettingsBodyNewCreatorReviewCountMin = 0;
-export const adminUpdateCreatorSettingsBodyNewCreatorReviewCountMax = 1000;
+export const adminUpdateCreatorSettingsBodyNewCreatorReviewCountMax = 100;
 
 
 
@@ -37816,7 +37767,7 @@ export const AdminUpdateCreatorSettingsBody = zod.object({
   "earningExpiryDays": zod.number().min(1).max(adminUpdateCreatorSettingsBodyEarningExpiryDaysMax).optional(),
   "attributionDays": zod.number().min(1).max(adminUpdateCreatorSettingsBodyAttributionDaysMax).optional(),
   "triggerMode": zod.enum(['first_purchase', 'every_purchase']).optional(),
-  "payoutCadence": zod.enum(['monthly']).optional(),
+  "payoutCadence": zod.enum(['monthly', 'fortnightly', 'on_request']).optional(),
   "tdsRateBps": zod.number().min(adminUpdateCreatorSettingsBodyTdsRateBpsMin).max(adminUpdateCreatorSettingsBodyTdsRateBpsMax).optional(),
   "autoApproveCreators": zod.boolean().optional(),
   "riskHoldThreshold": zod.number().min(adminUpdateCreatorSettingsBodyRiskHoldThresholdMin).max(adminUpdateCreatorSettingsBodyRiskHoldThresholdMax).optional(),
@@ -37829,7 +37780,7 @@ export const adminUpdateCreatorSettingsResponseOneCommissionSlabsOneItemMinRefer
 export const adminUpdateCreatorSettingsResponseOneCommissionSlabsOneItemCommissionBpsMin = 0;
 export const adminUpdateCreatorSettingsResponseOneCommissionSlabsOneItemCommissionBpsMax = 10000;
 
-export const adminUpdateCreatorSettingsResponseOneCommissionSlabsOneMax = 20;
+export const adminUpdateCreatorSettingsResponseOneCommissionSlabsOneMax = 10;
 
 export const adminUpdateCreatorSettingsResponseOneBuyerBonusBpsMin = 0;
 export const adminUpdateCreatorSettingsResponseOneBuyerBonusBpsMax = 10000;
@@ -37837,7 +37788,7 @@ export const adminUpdateCreatorSettingsResponseOneBuyerBonusBpsMax = 10000;
 export const adminUpdateCreatorSettingsResponseOneBuyerBonusExpiryDaysMax = 3650;
 
 export const adminUpdateCreatorSettingsResponseOneHoldDaysMin = 0;
-export const adminUpdateCreatorSettingsResponseOneHoldDaysMax = 3650;
+export const adminUpdateCreatorSettingsResponseOneHoldDaysMax = 365;
 
 export const adminUpdateCreatorSettingsResponseOneConsumptionThresholdBpsMin = 0;
 export const adminUpdateCreatorSettingsResponseOneConsumptionThresholdBpsMax = 10000;
@@ -37859,10 +37810,10 @@ export const adminUpdateCreatorSettingsResponseOneTdsRateBpsMin = 0;
 export const adminUpdateCreatorSettingsResponseOneTdsRateBpsMax = 10000;
 
 export const adminUpdateCreatorSettingsResponseOneRiskHoldThresholdMin = 0;
-export const adminUpdateCreatorSettingsResponseOneRiskHoldThresholdMax = 1000;
+export const adminUpdateCreatorSettingsResponseOneRiskHoldThresholdMax = 100;
 
 export const adminUpdateCreatorSettingsResponseOneNewCreatorReviewCountMin = 0;
-export const adminUpdateCreatorSettingsResponseOneNewCreatorReviewCountMax = 1000;
+export const adminUpdateCreatorSettingsResponseOneNewCreatorReviewCountMax = 100;
 
 
 
@@ -37882,11 +37833,283 @@ export const AdminUpdateCreatorSettingsResponse = zod.object({
   "earningExpiryDays": zod.number().min(1).max(adminUpdateCreatorSettingsResponseOneEarningExpiryDaysMax).optional(),
   "attributionDays": zod.number().min(1).max(adminUpdateCreatorSettingsResponseOneAttributionDaysMax),
   "triggerMode": zod.enum(['first_purchase', 'every_purchase']),
-  "payoutCadence": zod.enum(['monthly']).optional(),
+  "payoutCadence": zod.enum(['monthly', 'fortnightly', 'on_request']).optional(),
   "tdsRateBps": zod.number().min(adminUpdateCreatorSettingsResponseOneTdsRateBpsMin).max(adminUpdateCreatorSettingsResponseOneTdsRateBpsMax).optional(),
   "autoApproveCreators": zod.boolean().optional(),
   "riskHoldThreshold": zod.number().min(adminUpdateCreatorSettingsResponseOneRiskHoldThresholdMin).max(adminUpdateCreatorSettingsResponseOneRiskHoldThresholdMax).optional(),
   "newCreatorReviewCount": zod.number().min(adminUpdateCreatorSettingsResponseOneNewCreatorReviewCountMin).max(adminUpdateCreatorSettingsResponseOneNewCreatorReviewCountMax).optional()
+}).and(zod.object({
+  "id": zod.number(),
+  "updatedAt": zod.coerce.date().optional()
+}))
+
+
+/**
+ * @summary List held commissions by descending risk score
+ */
+export const AdminHeldPromoterCommissionsResponseItem = zod.object({
+  "id": zod.number(),
+  "creatorId": zod.number(),
+  "tenantId": zod.number(),
+  "state": zod.enum(['pending', 'held', 'payable', 'in_payout', 'paid', 'reversed', 'expired']),
+  "commissionPaise": zod.number(),
+  "grossPaise": zod.number(),
+  "holdUntil": zod.coerce.date().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "riskScore": zod.number().optional(),
+  "riskSignals": zod.array(zod.string()).optional()
+})
+export const AdminHeldPromoterCommissionsResponse = zod.array(AdminHeldPromoterCommissionsResponseItem)
+
+
+/**
+ * @summary Reverse an unpaid commission
+ */
+
+
+
+export const AdminReversePromoterCommissionParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const adminReversePromoterCommissionBodyReasonMax = 1000;
+
+
+
+export const AdminReversePromoterCommissionBody = zod.object({
+  "reason": zod.string().min(1).max(adminReversePromoterCommissionBodyReasonMax).optional()
+})
+
+export const AdminReversePromoterCommissionResponse = zod.object({
+  "state": zod.enum(['reversed'])
+})
+
+
+/**
+ * @summary Trigger one batched commission maturation pass
+ */
+export const AdminMaturePromoterCommissionsResponse = zod.record(zod.string(), zod.unknown())
+
+
+/**
+ * @summary Get commission counts and accrued totals by state
+ */
+export const AdminPromoterMetricsResponse = zod.object({
+  "byState": zod.array(zod.object({
+  "state": zod.enum(['pending', 'held', 'payable', 'in_payout', 'paid', 'reversed', 'expired']),
+  "count": zod.number(),
+  "commission": zod.number()
+})),
+  "payableLast30d": zod.number()
+})
+
+
+/**
+ * @summary Get promoter program settings
+ */
+export const adminGetPromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMin = 0;
+export const adminGetPromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMax = 1000000;
+
+export const adminGetPromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMin = 0;
+export const adminGetPromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMax = 10000;
+
+export const adminGetPromoterSettingsResponseOneCommissionSlabsOneMax = 10;
+
+export const adminGetPromoterSettingsResponseOneBuyerBonusBpsMin = 0;
+export const adminGetPromoterSettingsResponseOneBuyerBonusBpsMax = 10000;
+
+export const adminGetPromoterSettingsResponseOneBuyerBonusExpiryDaysMax = 3650;
+
+export const adminGetPromoterSettingsResponseOneHoldDaysMin = 0;
+export const adminGetPromoterSettingsResponseOneHoldDaysMax = 365;
+
+export const adminGetPromoterSettingsResponseOneConsumptionThresholdBpsMin = 0;
+export const adminGetPromoterSettingsResponseOneConsumptionThresholdBpsMax = 10000;
+
+export const adminGetPromoterSettingsResponseOneReserveBpsMin = 0;
+export const adminGetPromoterSettingsResponseOneReserveBpsMax = 10000;
+
+export const adminGetPromoterSettingsResponseOneReserveReleaseDaysMin = 0;
+export const adminGetPromoterSettingsResponseOneReserveReleaseDaysMax = 3650;
+
+export const adminGetPromoterSettingsResponseOneMinPayoutPaiseMin = 0;
+export const adminGetPromoterSettingsResponseOneMinPayoutPaiseMax = 2000000000;
+
+export const adminGetPromoterSettingsResponseOneEarningExpiryDaysMax = 3650;
+
+export const adminGetPromoterSettingsResponseOneAttributionDaysMax = 3650;
+
+export const adminGetPromoterSettingsResponseOneTdsRateBpsMin = 0;
+export const adminGetPromoterSettingsResponseOneTdsRateBpsMax = 10000;
+
+export const adminGetPromoterSettingsResponseOneRiskHoldThresholdMin = 0;
+export const adminGetPromoterSettingsResponseOneRiskHoldThresholdMax = 100;
+
+export const adminGetPromoterSettingsResponseOneNewCreatorReviewCountMin = 0;
+export const adminGetPromoterSettingsResponseOneNewCreatorReviewCountMax = 100;
+
+
+
+export const AdminGetPromoterSettingsResponse = zod.object({
+  "programEnabled": zod.boolean(),
+  "commissionSlabs": zod.union([zod.array(zod.object({
+  "minReferrals": zod.number().min(adminGetPromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMin).max(adminGetPromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMax),
+  "commissionBps": zod.number().min(adminGetPromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMin).max(adminGetPromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMax)
+})).min(1).max(adminGetPromoterSettingsResponseOneCommissionSlabsOneMax).describe('First threshold 0; each next threshold strictly larger.'),zod.null()]).optional(),
+  "buyerBonusBps": zod.number().min(adminGetPromoterSettingsResponseOneBuyerBonusBpsMin).max(adminGetPromoterSettingsResponseOneBuyerBonusBpsMax),
+  "buyerBonusExpiryDays": zod.number().min(1).max(adminGetPromoterSettingsResponseOneBuyerBonusExpiryDaysMax).optional(),
+  "holdDays": zod.number().min(adminGetPromoterSettingsResponseOneHoldDaysMin).max(adminGetPromoterSettingsResponseOneHoldDaysMax),
+  "consumptionThresholdBps": zod.number().min(adminGetPromoterSettingsResponseOneConsumptionThresholdBpsMin).max(adminGetPromoterSettingsResponseOneConsumptionThresholdBpsMax),
+  "reserveBps": zod.number().min(adminGetPromoterSettingsResponseOneReserveBpsMin).max(adminGetPromoterSettingsResponseOneReserveBpsMax).optional(),
+  "reserveReleaseDays": zod.number().min(adminGetPromoterSettingsResponseOneReserveReleaseDaysMin).max(adminGetPromoterSettingsResponseOneReserveReleaseDaysMax).optional(),
+  "minPayoutPaise": zod.number().min(adminGetPromoterSettingsResponseOneMinPayoutPaiseMin).max(adminGetPromoterSettingsResponseOneMinPayoutPaiseMax).optional(),
+  "earningExpiryDays": zod.number().min(1).max(adminGetPromoterSettingsResponseOneEarningExpiryDaysMax).optional(),
+  "attributionDays": zod.number().min(1).max(adminGetPromoterSettingsResponseOneAttributionDaysMax),
+  "triggerMode": zod.enum(['first_purchase', 'every_purchase']),
+  "payoutCadence": zod.enum(['monthly', 'fortnightly', 'on_request']).optional(),
+  "tdsRateBps": zod.number().min(adminGetPromoterSettingsResponseOneTdsRateBpsMin).max(adminGetPromoterSettingsResponseOneTdsRateBpsMax).optional(),
+  "autoApproveCreators": zod.boolean().optional(),
+  "riskHoldThreshold": zod.number().min(adminGetPromoterSettingsResponseOneRiskHoldThresholdMin).max(adminGetPromoterSettingsResponseOneRiskHoldThresholdMax).optional(),
+  "newCreatorReviewCount": zod.number().min(adminGetPromoterSettingsResponseOneNewCreatorReviewCountMin).max(adminGetPromoterSettingsResponseOneNewCreatorReviewCountMax).optional()
+}).and(zod.object({
+  "id": zod.number(),
+  "updatedAt": zod.coerce.date().optional()
+}))
+
+
+/**
+ * @summary Update promoter program settings
+ */
+export const adminUpdatePromoterSettingsBodyCommissionSlabsOneItemMinReferralsMin = 0;
+export const adminUpdatePromoterSettingsBodyCommissionSlabsOneItemMinReferralsMax = 1000000;
+
+export const adminUpdatePromoterSettingsBodyCommissionSlabsOneItemCommissionBpsMin = 0;
+export const adminUpdatePromoterSettingsBodyCommissionSlabsOneItemCommissionBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsBodyCommissionSlabsOneMax = 10;
+
+export const adminUpdatePromoterSettingsBodyBuyerBonusBpsMin = 0;
+export const adminUpdatePromoterSettingsBodyBuyerBonusBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsBodyBuyerBonusExpiryDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsBodyHoldDaysMin = 0;
+export const adminUpdatePromoterSettingsBodyHoldDaysMax = 365;
+
+export const adminUpdatePromoterSettingsBodyConsumptionThresholdBpsMin = 0;
+export const adminUpdatePromoterSettingsBodyConsumptionThresholdBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsBodyReserveBpsMin = 0;
+export const adminUpdatePromoterSettingsBodyReserveBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsBodyReserveReleaseDaysMin = 0;
+export const adminUpdatePromoterSettingsBodyReserveReleaseDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsBodyMinPayoutPaiseMin = 0;
+export const adminUpdatePromoterSettingsBodyMinPayoutPaiseMax = 2000000000;
+
+export const adminUpdatePromoterSettingsBodyEarningExpiryDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsBodyAttributionDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsBodyTdsRateBpsMin = 0;
+export const adminUpdatePromoterSettingsBodyTdsRateBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsBodyRiskHoldThresholdMin = 0;
+export const adminUpdatePromoterSettingsBodyRiskHoldThresholdMax = 100;
+
+export const adminUpdatePromoterSettingsBodyNewCreatorReviewCountMin = 0;
+export const adminUpdatePromoterSettingsBodyNewCreatorReviewCountMax = 100;
+
+
+
+export const AdminUpdatePromoterSettingsBody = zod.object({
+  "programEnabled": zod.boolean().optional(),
+  "commissionSlabs": zod.union([zod.array(zod.object({
+  "minReferrals": zod.number().min(adminUpdatePromoterSettingsBodyCommissionSlabsOneItemMinReferralsMin).max(adminUpdatePromoterSettingsBodyCommissionSlabsOneItemMinReferralsMax),
+  "commissionBps": zod.number().min(adminUpdatePromoterSettingsBodyCommissionSlabsOneItemCommissionBpsMin).max(adminUpdatePromoterSettingsBodyCommissionSlabsOneItemCommissionBpsMax)
+})).min(1).max(adminUpdatePromoterSettingsBodyCommissionSlabsOneMax).describe('First threshold 0; each next threshold strictly larger.'),zod.null()]).optional(),
+  "buyerBonusBps": zod.number().min(adminUpdatePromoterSettingsBodyBuyerBonusBpsMin).max(adminUpdatePromoterSettingsBodyBuyerBonusBpsMax).optional(),
+  "buyerBonusExpiryDays": zod.number().min(1).max(adminUpdatePromoterSettingsBodyBuyerBonusExpiryDaysMax).optional(),
+  "holdDays": zod.number().min(adminUpdatePromoterSettingsBodyHoldDaysMin).max(adminUpdatePromoterSettingsBodyHoldDaysMax).optional(),
+  "consumptionThresholdBps": zod.number().min(adminUpdatePromoterSettingsBodyConsumptionThresholdBpsMin).max(adminUpdatePromoterSettingsBodyConsumptionThresholdBpsMax).optional(),
+  "reserveBps": zod.number().min(adminUpdatePromoterSettingsBodyReserveBpsMin).max(adminUpdatePromoterSettingsBodyReserveBpsMax).optional(),
+  "reserveReleaseDays": zod.number().min(adminUpdatePromoterSettingsBodyReserveReleaseDaysMin).max(adminUpdatePromoterSettingsBodyReserveReleaseDaysMax).optional(),
+  "minPayoutPaise": zod.number().min(adminUpdatePromoterSettingsBodyMinPayoutPaiseMin).max(adminUpdatePromoterSettingsBodyMinPayoutPaiseMax).optional(),
+  "earningExpiryDays": zod.number().min(1).max(adminUpdatePromoterSettingsBodyEarningExpiryDaysMax).optional(),
+  "attributionDays": zod.number().min(1).max(adminUpdatePromoterSettingsBodyAttributionDaysMax).optional(),
+  "triggerMode": zod.enum(['first_purchase', 'every_purchase']).optional(),
+  "payoutCadence": zod.enum(['monthly', 'fortnightly', 'on_request']).optional(),
+  "tdsRateBps": zod.number().min(adminUpdatePromoterSettingsBodyTdsRateBpsMin).max(adminUpdatePromoterSettingsBodyTdsRateBpsMax).optional(),
+  "autoApproveCreators": zod.boolean().optional(),
+  "riskHoldThreshold": zod.number().min(adminUpdatePromoterSettingsBodyRiskHoldThresholdMin).max(adminUpdatePromoterSettingsBodyRiskHoldThresholdMax).optional(),
+  "newCreatorReviewCount": zod.number().min(adminUpdatePromoterSettingsBodyNewCreatorReviewCountMin).max(adminUpdatePromoterSettingsBodyNewCreatorReviewCountMax).optional()
+})
+
+export const adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMin = 0;
+export const adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMax = 1000000;
+
+export const adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMin = 0;
+export const adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsResponseOneCommissionSlabsOneMax = 10;
+
+export const adminUpdatePromoterSettingsResponseOneBuyerBonusBpsMin = 0;
+export const adminUpdatePromoterSettingsResponseOneBuyerBonusBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsResponseOneBuyerBonusExpiryDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsResponseOneHoldDaysMin = 0;
+export const adminUpdatePromoterSettingsResponseOneHoldDaysMax = 365;
+
+export const adminUpdatePromoterSettingsResponseOneConsumptionThresholdBpsMin = 0;
+export const adminUpdatePromoterSettingsResponseOneConsumptionThresholdBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsResponseOneReserveBpsMin = 0;
+export const adminUpdatePromoterSettingsResponseOneReserveBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsResponseOneReserveReleaseDaysMin = 0;
+export const adminUpdatePromoterSettingsResponseOneReserveReleaseDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsResponseOneMinPayoutPaiseMin = 0;
+export const adminUpdatePromoterSettingsResponseOneMinPayoutPaiseMax = 2000000000;
+
+export const adminUpdatePromoterSettingsResponseOneEarningExpiryDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsResponseOneAttributionDaysMax = 3650;
+
+export const adminUpdatePromoterSettingsResponseOneTdsRateBpsMin = 0;
+export const adminUpdatePromoterSettingsResponseOneTdsRateBpsMax = 10000;
+
+export const adminUpdatePromoterSettingsResponseOneRiskHoldThresholdMin = 0;
+export const adminUpdatePromoterSettingsResponseOneRiskHoldThresholdMax = 100;
+
+export const adminUpdatePromoterSettingsResponseOneNewCreatorReviewCountMin = 0;
+export const adminUpdatePromoterSettingsResponseOneNewCreatorReviewCountMax = 100;
+
+
+
+export const AdminUpdatePromoterSettingsResponse = zod.object({
+  "programEnabled": zod.boolean(),
+  "commissionSlabs": zod.union([zod.array(zod.object({
+  "minReferrals": zod.number().min(adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMin).max(adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemMinReferralsMax),
+  "commissionBps": zod.number().min(adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMin).max(adminUpdatePromoterSettingsResponseOneCommissionSlabsOneItemCommissionBpsMax)
+})).min(1).max(adminUpdatePromoterSettingsResponseOneCommissionSlabsOneMax).describe('First threshold 0; each next threshold strictly larger.'),zod.null()]).optional(),
+  "buyerBonusBps": zod.number().min(adminUpdatePromoterSettingsResponseOneBuyerBonusBpsMin).max(adminUpdatePromoterSettingsResponseOneBuyerBonusBpsMax),
+  "buyerBonusExpiryDays": zod.number().min(1).max(adminUpdatePromoterSettingsResponseOneBuyerBonusExpiryDaysMax).optional(),
+  "holdDays": zod.number().min(adminUpdatePromoterSettingsResponseOneHoldDaysMin).max(adminUpdatePromoterSettingsResponseOneHoldDaysMax),
+  "consumptionThresholdBps": zod.number().min(adminUpdatePromoterSettingsResponseOneConsumptionThresholdBpsMin).max(adminUpdatePromoterSettingsResponseOneConsumptionThresholdBpsMax),
+  "reserveBps": zod.number().min(adminUpdatePromoterSettingsResponseOneReserveBpsMin).max(adminUpdatePromoterSettingsResponseOneReserveBpsMax).optional(),
+  "reserveReleaseDays": zod.number().min(adminUpdatePromoterSettingsResponseOneReserveReleaseDaysMin).max(adminUpdatePromoterSettingsResponseOneReserveReleaseDaysMax).optional(),
+  "minPayoutPaise": zod.number().min(adminUpdatePromoterSettingsResponseOneMinPayoutPaiseMin).max(adminUpdatePromoterSettingsResponseOneMinPayoutPaiseMax).optional(),
+  "earningExpiryDays": zod.number().min(1).max(adminUpdatePromoterSettingsResponseOneEarningExpiryDaysMax).optional(),
+  "attributionDays": zod.number().min(1).max(adminUpdatePromoterSettingsResponseOneAttributionDaysMax),
+  "triggerMode": zod.enum(['first_purchase', 'every_purchase']),
+  "payoutCadence": zod.enum(['monthly', 'fortnightly', 'on_request']).optional(),
+  "tdsRateBps": zod.number().min(adminUpdatePromoterSettingsResponseOneTdsRateBpsMin).max(adminUpdatePromoterSettingsResponseOneTdsRateBpsMax).optional(),
+  "autoApproveCreators": zod.boolean().optional(),
+  "riskHoldThreshold": zod.number().min(adminUpdatePromoterSettingsResponseOneRiskHoldThresholdMin).max(adminUpdatePromoterSettingsResponseOneRiskHoldThresholdMax).optional(),
+  "newCreatorReviewCount": zod.number().min(adminUpdatePromoterSettingsResponseOneNewCreatorReviewCountMin).max(adminUpdatePromoterSettingsResponseOneNewCreatorReviewCountMax).optional()
 }).and(zod.object({
   "id": zod.number(),
   "updatedAt": zod.coerce.date().optional()

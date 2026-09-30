@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type CreatorCodeViewReusePolicy = typeof CreatorCodeViewReusePolicy[keyof typeof CreatorCodeViewReusePolicy];
+export type PromoterCodeSummaryReusePolicy = typeof PromoterCodeSummaryReusePolicy[keyof typeof PromoterCodeSummaryReusePolicy];
 
 
-export const CreatorCodeViewReusePolicy = {
+export const PromoterCodeSummaryReusePolicy = {
   single_use: 'single_use',
   multi_use: 'multi_use',
 } as const;

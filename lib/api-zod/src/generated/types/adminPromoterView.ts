@@ -5,8 +5,9 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminPromoterViewWorkspace } from './adminPromoterViewWorkspace';
 import type { CreatorAccountView } from './creatorAccountView';
 
-export type AdminListCreators200 = {
-  creators: CreatorAccountView[];
+export type AdminPromoterView = CreatorAccountView & {
+  workspace?: AdminPromoterViewWorkspace;
 };

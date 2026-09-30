@@ -11,4 +11,6 @@ export type CreatorSettingsUpdatePayoutCadence = typeof CreatorSettingsUpdatePay
 
 export const CreatorSettingsUpdatePayoutCadence = {
   monthly: 'monthly',
+  fortnightly: 'fortnightly',
+  on_request: 'on_request',
 } as const;

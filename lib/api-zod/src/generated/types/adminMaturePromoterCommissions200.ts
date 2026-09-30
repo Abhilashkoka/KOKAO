@@ -6,7 +6,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminIssueCreatorCode201 = {
-  code: string;
-  id: number;
-};
+export type AdminMaturePromoterCommissions200 = { [key: string]: unknown };

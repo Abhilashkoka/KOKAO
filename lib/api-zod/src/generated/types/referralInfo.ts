@@ -20,6 +20,8 @@ export interface ReferralInfo {
   maxRedemptions: number | null;
   /** Workspaces attributed to this invite code owner, not signup bonuses paid. */
   redemptions: number;
+  /** Workspaces with this referrer's attached invite code. */
+  attributedWorkspaces: number;
   captionCreditsEarned: number;
   imageCreditsEarned: number;
   /** Canonical credits earned from qualifying referral purchases. */
@@ -38,6 +40,8 @@ export interface ReferralInfo {
   qualifyingPurchases: number;
   /** Total qualifying purchase value in paise. */
   grossPaise: number;
+  /** Total qualifying purchase value in rupees. */
+  grossDriven: number;
   currentSlabIndex: number;
   /** Current referrer reward percentage in basis points (1000 = 10%). */
   currentReferrerBps: number;

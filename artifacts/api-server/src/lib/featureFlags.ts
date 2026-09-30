@@ -177,11 +177,11 @@ export const FEATURES = [
     id: "referrals",
     label: "Referral Credits",
     description:
-      "Personal invite codes: new users get bonus credits, referrers earn credits per signup (per-plan tuning on the Plans tab).",
+      "Personal invite codes: attached workspaces receive bonus credits and referrers earn credits when they buy eligible credit packs or wallet top-ups (per-plan tuning on the Plans tab).",
   },
   {
     id: "creatorProgram",
-    label: "Creator Program",
+    label: "Promoter program",
     description: "Creator applications and commission accrual only; separate program settings must also enable the program. No payouts.",
   },
   {

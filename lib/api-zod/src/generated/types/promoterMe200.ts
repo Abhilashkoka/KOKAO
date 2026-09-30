@@ -5,12 +5,26 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreatorAccountView } from './creatorAccountView';
-import type { CreatorCodeView } from './creatorCodeView';
-import type { CreatorEarningsView } from './creatorEarningsView';
+import type { CreatorStatus } from './creatorStatus';
+import type { PromoterCodeSummary } from './promoterCodeSummary';
+import type { PromoterEarnings } from './promoterEarnings';
+import type { PromoterTerms } from './promoterTerms';
+import type { PromoterTier } from './promoterTier';
 
 export type PromoterMe200 = {
-  creator: CreatorAccountView;
-  earnings: CreatorEarningsView;
-  codes: CreatorCodeView[];
+  status: CreatorStatus;
+  displayName: string;
+  contactEmail?: string;
+  /** @nullable */
+  vertical?: string | null;
+  isRegisteredPractitioner?: boolean;
+  appliedAt?: Date;
+  /** @nullable */
+  reviewedAt?: Date | null;
+  /** @nullable */
+  statusReason?: string | null;
+  codes: PromoterCodeSummary[];
+  commission: PromoterTier;
+  earnings: PromoterEarnings;
+  terms: PromoterTerms;
 };

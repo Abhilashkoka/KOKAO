@@ -24,7 +24,7 @@ export interface CreatorSettingsUpdate {
   buyerBonusExpiryDays?: number;
   /**
      * @minimum 0
-     * @maximum 3650
+     * @maximum 365
      */
   holdDays?: number;
   /**
@@ -67,12 +67,12 @@ export interface CreatorSettingsUpdate {
   autoApproveCreators?: boolean;
   /**
      * @minimum 0
-     * @maximum 1000
+     * @maximum 100
      */
   riskHoldThreshold?: number;
   /**
      * @minimum 0
-     * @maximum 1000
+     * @maximum 100
      */
   newCreatorReviewCount?: number;
 }

@@ -7,6 +7,8 @@
  */
 import type { CreatorCommissionState } from './creatorCommissionState';
 
-export type AdminReleaseHeldCommission200 = {
+export type AdminPromoterMetrics200ByStateItem = {
   state: CreatorCommissionState;
+  count: number;
+  commission: number;
 };
