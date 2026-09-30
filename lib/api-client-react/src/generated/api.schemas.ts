@@ -5,6 +5,118 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+export interface CreatorPayoutExportInput {
+  /**
+     * @minItems 1
+     * @maxItems 500
+     * @items.minimum 1
+     */
+  payoutIds: number[];
+}
+
+export interface CreatorPayoutPaidInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  reference: string;
+}
+
+export interface CreatorPayoutReasonInput {
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export interface PromoterPayoutDetailsInput {
+  /**
+     * @minLength 10
+     * @maxLength 10
+     * @pattern ^[A-Z]{5}[0-9]{4}[A-Z]$
+     */
+  pan: string;
+  /**
+     * @minLength 6
+     * @maxLength 20
+     * @pattern ^[0-9]{6,20}$
+     */
+  accountNumber: string;
+  /**
+     * @minLength 11
+     * @maxLength 11
+     * @pattern ^[A-Z]{4}0[A-Z0-9]{6}$
+     */
+  ifsc: string;
+  /**
+     * @minLength 2
+     * @maxLength 120
+     */
+  beneficiaryName: string;
+}
+
+export interface PromoterPayoutDetails {
+  onFile: boolean;
+  panLast4?: string;
+  bankLast4?: string;
+  ifsc?: string;
+  beneficiaryName?: string;
+  verified?: boolean;
+}
+
+export type PromoterPayoutRowStatus = typeof PromoterPayoutRowStatus[keyof typeof PromoterPayoutRowStatus];
+
+
+export const PromoterPayoutRowStatus = {
+  draft: 'draft',
+  exported: 'exported',
+  paid: 'paid',
+  failed: 'failed',
+} as const;
+
+/**
+ * Review-only masked destination; cannot execute a transfer.
+ * @nullable
+ */
+export type PromoterPayoutRowDestination = {
+  beneficiaryName?: string;
+  bankLast4?: string;
+  ifsc?: string;
+} | null;
+
+export interface PromoterPayoutRow {
+  id: number;
+  gross: number;
+  tds: number;
+  tdsRateBps: number;
+  reserveHeld: number;
+  /** @nullable */
+  reserveReleasedAt?: string | null;
+  net: number;
+  status: PromoterPayoutRowStatus;
+  /** @nullable */
+  paidAt?: string | null;
+  /** @nullable */
+  reference?: string | null;
+  /**
+     * Review-only masked destination; cannot execute a transfer.
+     * @nullable
+     */
+  destination?: PromoterPayoutRowDestination;
+}
+
+export type PromoterPayoutHistoryBalance = {
+  payable: number;
+  netOwed: number;
+  owedBack: number;
+};
+
+export interface PromoterPayoutHistory {
+  balance: PromoterPayoutHistoryBalance;
+  payouts: PromoterPayoutRow[];
+}
+
 export type AdminPromoterViewWorkspace = {
   /** @nullable */
   name?: string | null;
@@ -3084,6 +3196,12 @@ export const AdminAuditLogAction = {
   creator_commission_reverse: 'creator_commission_reverse',
   creator_commission_mature: 'creator_commission_mature',
   creator_program_settings_change: 'creator_program_settings_change',
+  creator_payout_run: 'creator_payout_run',
+  creator_payout_export: 'creator_payout_export',
+  creator_payout_paid: 'creator_payout_paid',
+  creator_payout_failed: 'creator_payout_failed',
+  creator_payout_clawback: 'creator_payout_clawback',
+  creator_payout_reserve_release: 'creator_payout_reserve_release',
   credit_account_correction: 'credit_account_correction',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
@@ -14507,5 +14625,48 @@ export type AdminPromoterMetrics200ByStateItem = {
 export type AdminPromoterMetrics200 = {
   byState: AdminPromoterMetrics200ByStateItem[];
   payableLast30d: number;
+};
+
+export type RunPromoterPayouts200SkippedItem = {
+  creatorId: number;
+  reason: string;
+};
+
+export type RunPromoterPayouts200 = {
+  created: number;
+  skipped: RunPromoterPayouts200SkippedItem[];
+  totalNetPaise: number;
+};
+
+export type ListPromoterPayoutsParams = {
+status?: ListPromoterPayoutsStatus;
+};
+
+export type ListPromoterPayoutsStatus = typeof ListPromoterPayoutsStatus[keyof typeof ListPromoterPayoutsStatus];
+
+
+export const ListPromoterPayoutsStatus = {
+  draft: 'draft',
+  exported: 'exported',
+  paid: 'paid',
+  failed: 'failed',
+} as const;
+
+export type MarkPromoterPayoutPaid200 = {
+  status: string;
+  paidAt: string;
+};
+
+export type MarkPromoterPayoutFailed200 = {
+  status: string;
+};
+
+export type ClawbackPromoterCommission200 = {
+  clawedBack: boolean;
+  amount: number;
+};
+
+export type ReleasePromoterReserves200 = {
+  released: number;
 };
 

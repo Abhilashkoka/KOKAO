@@ -58,6 +58,7 @@ import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
 import { requireFeature, requireAnyFeature } from "../lib/featureFlags";
 import videoTemplatesAdminRouter from "./videoTemplatesAdmin";
 import creatorProgramRouter from "./creatorProgram";
+import promoterPayoutsRouter from "./promoterPayouts";
 
 const router: IRouter = Router();
 
@@ -221,6 +222,8 @@ router.use(billingRouter);
 router.use(walletRouter);
 router.use(creditsRouter);
 router.use(creatorProgramRouter);
+router.use("/promoter/payout-details", sensitiveLimiter);
+router.use(promoterPayoutsRouter);
 router.use(adminRouter);
 router.use(promptKitRouter);
 router.use(promptKitAdminRouter);

@@ -8394,7 +8394,7 @@ export const AdminListAuditLogsQueryParams = zod.object({
 export const AdminListAuditLogsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.number(),
-  "action": zod.enum(['plan_change', 'creator_review', 'creator_status_change', 'creator_code_change', 'creator_commission_release', 'creator_commission_reverse', 'creator_commission_mature', 'creator_program_settings_change', 'credit_account_correction', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).describe('The privileged action that was recorded.'),
+  "action": zod.enum(['plan_change', 'creator_review', 'creator_status_change', 'creator_code_change', 'creator_commission_release', 'creator_commission_reverse', 'creator_commission_mature', 'creator_program_settings_change', 'creator_payout_run', 'creator_payout_export', 'creator_payout_paid', 'creator_payout_failed', 'creator_payout_clawback', 'creator_payout_reserve_release', 'credit_account_correction', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).describe('The privileged action that was recorded.'),
   "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
   "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
   "targetTenantId": zod.number().nullable().describe('Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.'),
@@ -38115,5 +38115,221 @@ export const AdminUpdatePromoterSettingsResponse = zod.object({
   "id": zod.number(),
   "updatedAt": zod.coerce.date().optional()
 }))
+
+
+/**
+ * @summary Get masked payout identity on file
+ */
+export const GetPromoterPayoutDetailsResponse = zod.object({
+  "onFile": zod.boolean(),
+  "panLast4": zod.string().optional(),
+  "bankLast4": zod.string().optional(),
+  "ifsc": zod.string().optional(),
+  "beneficiaryName": zod.string().optional(),
+  "verified": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Save payout identity without retaining raw PAN or account number
+ */
+export const savePromoterPayoutDetailsBodyPanMin = 10;
+export const savePromoterPayoutDetailsBodyPanMax = 10;
+
+
+export const savePromoterPayoutDetailsBodyPanRegExp = new RegExp('^[A-Z]{5}[0-9]{4}[A-Z]$');
+export const savePromoterPayoutDetailsBodyAccountNumberMin = 6;
+export const savePromoterPayoutDetailsBodyAccountNumberMax = 20;
+
+
+export const savePromoterPayoutDetailsBodyAccountNumberRegExp = new RegExp('^[0-9]{6,20}$');
+export const savePromoterPayoutDetailsBodyIfscMin = 11;
+export const savePromoterPayoutDetailsBodyIfscMax = 11;
+
+
+export const savePromoterPayoutDetailsBodyIfscRegExp = new RegExp('^[A-Z]{4}0[A-Z0-9]{6}$');
+export const savePromoterPayoutDetailsBodyBeneficiaryNameMin = 2;
+export const savePromoterPayoutDetailsBodyBeneficiaryNameMax = 120;
+
+
+
+export const SavePromoterPayoutDetailsBody = zod.object({
+  "pan": zod.string().min(savePromoterPayoutDetailsBodyPanMin).max(savePromoterPayoutDetailsBodyPanMax).regex(savePromoterPayoutDetailsBodyPanRegExp),
+  "accountNumber": zod.string().min(savePromoterPayoutDetailsBodyAccountNumberMin).max(savePromoterPayoutDetailsBodyAccountNumberMax).regex(savePromoterPayoutDetailsBodyAccountNumberRegExp),
+  "ifsc": zod.string().min(savePromoterPayoutDetailsBodyIfscMin).max(savePromoterPayoutDetailsBodyIfscMax).regex(savePromoterPayoutDetailsBodyIfscRegExp),
+  "beneficiaryName": zod.string().min(savePromoterPayoutDetailsBodyBeneficiaryNameMin).max(savePromoterPayoutDetailsBodyBeneficiaryNameMax)
+})
+
+export const SavePromoterPayoutDetailsResponse = zod.object({
+  "onFile": zod.boolean(),
+  "panLast4": zod.string().optional(),
+  "bankLast4": zod.string().optional(),
+  "ifsc": zod.string().optional(),
+  "beneficiaryName": zod.string().optional(),
+  "verified": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Get own payout history and balance
+ */
+export const GetPromoterPayoutsResponse = zod.object({
+  "balance": zod.object({
+  "payable": zod.number(),
+  "netOwed": zod.number(),
+  "owedBack": zod.number()
+}),
+  "payouts": zod.array(zod.object({
+  "id": zod.number(),
+  "gross": zod.number(),
+  "tds": zod.number(),
+  "tdsRateBps": zod.number(),
+  "reserveHeld": zod.number(),
+  "reserveReleasedAt": zod.coerce.date().nullish(),
+  "net": zod.number(),
+  "status": zod.enum(['draft', 'exported', 'paid', 'failed']),
+  "paidAt": zod.coerce.date().nullish(),
+  "reference": zod.string().nullish(),
+  "destination": zod.object({
+  "beneficiaryName": zod.string().optional(),
+  "bankLast4": zod.string().optional(),
+  "ifsc": zod.string().optional()
+}).nullish().describe('Review-only masked destination; cannot execute a transfer.')
+}))
+})
+
+
+/**
+ * @summary Build draft batches only; no transfer is sent
+ */
+export const RunPromoterPayoutsResponse = zod.object({
+  "created": zod.number(),
+  "skipped": zod.array(zod.object({
+  "creatorId": zod.number(),
+  "reason": zod.string()
+})),
+  "totalNetPaise": zod.number()
+})
+
+
+/**
+ * @summary Review payout batches without payout identity hashes
+ */
+export const ListPromoterPayoutsQueryParams = zod.object({
+  "status": zod.enum(['draft', 'exported', 'paid', 'failed']).optional()
+})
+
+export const ListPromoterPayoutsResponseItem = zod.object({
+  "id": zod.number(),
+  "gross": zod.number(),
+  "tds": zod.number(),
+  "tdsRateBps": zod.number(),
+  "reserveHeld": zod.number(),
+  "reserveReleasedAt": zod.coerce.date().nullish(),
+  "net": zod.number(),
+  "status": zod.enum(['draft', 'exported', 'paid', 'failed']),
+  "paidAt": zod.coerce.date().nullish(),
+  "reference": zod.string().nullish(),
+  "destination": zod.object({
+  "beneficiaryName": zod.string().optional(),
+  "bankLast4": zod.string().optional(),
+  "ifsc": zod.string().optional()
+}).nullish().describe('Review-only masked destination; cannot execute a transfer.')
+})
+export const ListPromoterPayoutsResponse = zod.array(ListPromoterPayoutsResponseItem)
+
+
+/**
+ * @summary Export review-only CSV with last four digits, not bank-ready transfer instructions
+ */
+
+export const exportPromoterPayoutsBodyPayoutIdsMax = 500;
+
+
+
+export const ExportPromoterPayoutsBody = zod.object({
+  "payoutIds": zod.array(zod.number().min(1)).min(1).max(exportPromoterPayoutsBodyPayoutIdsMax)
+})
+
+export const ExportPromoterPayoutsResponse = zod.unknown()
+
+
+/**
+ * @summary Record a verified manually cleared transfer
+ */
+
+
+
+export const MarkPromoterPayoutPaidParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const markPromoterPayoutPaidBodyReferenceMax = 200;
+
+
+
+export const MarkPromoterPayoutPaidBody = zod.object({
+  "reference": zod.string().min(1).max(markPromoterPayoutPaidBodyReferenceMax)
+})
+
+export const MarkPromoterPayoutPaidResponse = zod.object({
+  "status": zod.string(),
+  "paidAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Record a failed manually attempted transfer
+ */
+
+
+
+export const MarkPromoterPayoutFailedParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const markPromoterPayoutFailedBodyReasonMax = 500;
+
+
+
+export const MarkPromoterPayoutFailedBody = zod.object({
+  "reason": zod.string().min(1).max(markPromoterPayoutFailedBodyReasonMax)
+})
+
+export const MarkPromoterPayoutFailedResponse = zod.object({
+  "status": zod.string()
+})
+
+
+/**
+ * @summary Record negative ledger adjustment for previously paid commission
+ */
+
+
+
+export const ClawbackPromoterCommissionParams = zod.object({
+  "commissionId": zod.coerce.number().min(1)
+})
+
+export const clawbackPromoterCommissionBodyReasonMax = 500;
+
+
+
+export const ClawbackPromoterCommissionBody = zod.object({
+  "reason": zod.string().min(1).max(clawbackPromoterCommissionBodyReasonMax)
+})
+
+export const ClawbackPromoterCommissionResponse = zod.object({
+  "clawedBack": zod.boolean(),
+  "amount": zod.number()
+})
+
+
+/**
+ * @summary Release eligible reserves once
+ */
+export const ReleasePromoterReservesResponse = zod.object({
+  "released": zod.number()
+})
 
 

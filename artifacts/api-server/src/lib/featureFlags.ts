@@ -182,7 +182,7 @@ export const FEATURES = [
   {
     id: "creatorProgram",
     label: "Promoter program",
-    description: "Creator applications and commission accrual only; separate program settings must also enable the program. No payouts.",
+    description: "Creator applications and commissions; manual payout review requires program settings to be enabled. No automated transfers.",
   },
   {
     id: "freeWatermark",

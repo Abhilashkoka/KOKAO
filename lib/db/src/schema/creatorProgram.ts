@@ -113,13 +113,14 @@ export const creatorPayoutIdentitiesTable = pgTable(
   {
     id: serial("id").primaryKey(),
     creatorId: integer("creator_id").notNull(),
-    /** SHA-256 of the normalized PAN. The raw value is never stored. */
+    /** Pepper-keyed HMAC-SHA256 of the normalized PAN. Never store the raw value. */
     panHash: text("pan_hash").notNull(),
     panLast4: text("pan_last4"),
     bankAccountHash: text("bank_account_hash"),
     bankLast4: text("bank_last4"),
     ifsc: text("ifsc"),
     beneficiaryName: text("beneficiary_name"),
+    version: integer("version").notNull().default(1),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
     verificationRef: text("verification_ref"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -280,7 +281,7 @@ export const creatorCommissionsTable = pgTable(
 export type CreatorCommission = typeof creatorCommissionsTable.$inferSelect;
 
 /**
- * Payout batches. Schema only in this bundle — nothing writes here yet.
+ * Manual payout batches. No gateway transfer automation is installed.
  * A reserve is withheld from each batch and released later, so a late
  * chargeback lands on money still held rather than money already gone.
  */
@@ -294,6 +295,14 @@ export const creatorPayoutsTable = pgTable(
     tdsPaise: integer("tds_paise").notNull().default(0),
     tdsRateBps: integer("tds_rate_bps").notNull().default(0),
     reserveHeldPaise: integer("reserve_held_paise").notNull().default(0),
+    /** Frozen at batching; never use current settings to release old reserves. */
+    reserveReleaseDays: integer("reserve_release_days").notNull().default(90),
+    reserveConsumedPaise: integer("reserve_consumed_paise").notNull().default(0),
+    identityVersion: integer("identity_version"),
+    /** Masked review destination only. Not an executable bank instruction. */
+    destinationSnapshot: jsonb("destination_snapshot").$type<{
+      beneficiaryName: string; bankLast4: string; ifsc: string;
+    }>(),
     reserveReleasedAt: timestamp("reserve_released_at", { withTimezone: true }),
     netPaise: integer("net_paise").notNull(),
     gateway: text("gateway"),

@@ -12,8 +12,9 @@
  */
 const pending = new Set<Promise<void>>();
 let creatorTimer: ReturnType<typeof setInterval> | undefined;
+let reserveTimer: ReturnType<typeof setInterval> | undefined;
 
-/** Accrual-only maintenance. No payouts are performed by this worker. */
+/** Accounting maintenance only. Never builds batches or sends bank transfers. */
 export function startCreatorCommissionMaintenance(): void {
   if (creatorTimer) return;
   const run = () => {
@@ -29,6 +30,18 @@ export function startCreatorCommissionMaintenance(): void {
   };
   creatorTimer = setInterval(run, 60 * 60 * 1000);
   creatorTimer.unref();
+  reserveTimer = setInterval(() => {
+    enqueueBackgroundJob(async () => {
+      try {
+        const { releaseMatureReserves } = await import("./creatorPayouts");
+        await releaseMatureReserves();
+      } catch {
+        const { logger } = await import("./logger");
+        logger.error("Creator reserve maintenance failed");
+      }
+    });
+  }, 24 * 60 * 60 * 1000);
+  reserveTimer.unref();
 }
 
 let shuttingDown = false;
@@ -43,6 +56,8 @@ export function markShutdownStarted(): void {
   shuttingDown = true;
   if (creatorTimer) clearInterval(creatorTimer);
   creatorTimer = undefined;
+  if (reserveTimer) clearInterval(reserveTimer);
+  reserveTimer = undefined;
 }
 
 /** Whether graceful shutdown has begun. */

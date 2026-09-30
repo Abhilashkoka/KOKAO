@@ -163,6 +163,7 @@ import type {
   CinematographyCatalog,
   ClaimGamificationRewardRequest,
   ClaimGamificationRewardResult,
+  ClawbackPromoterCommission200,
   CloneBrandVoiceRequest,
   CompleteOnboardingInput,
   ConnectedAccount,
@@ -182,6 +183,9 @@ import type {
   CreatorCodeIssueInput,
   CreatorCommissionReleaseInput,
   CreatorCommissionView,
+  CreatorPayoutExportInput,
+  CreatorPayoutPaidInput,
+  CreatorPayoutReasonInput,
   CreatorReviewInput,
   CreatorSettingsUpdate,
   CreatorSettingsView,
@@ -294,10 +298,13 @@ import type {
   ListGoogleDriveFilesParams,
   ListLinkedinCampaignGroupsParams,
   ListNotificationsParams,
+  ListPromoterPayoutsParams,
   ListPromptCasesParams,
   ListPromptTemplatesParams,
   LocalizeScriptInput,
   LocalizeScriptResult,
+  MarkPromoterPayoutFailed200,
+  MarkPromoterPayoutPaid200,
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
@@ -338,6 +345,10 @@ import type {
   PromoterCommission,
   PromoterCommissionsParams,
   PromoterMe200,
+  PromoterPayoutDetails,
+  PromoterPayoutDetailsInput,
+  PromoterPayoutHistory,
+  PromoterPayoutRow,
   PromptCaseType,
   PromptCaseTypeInput,
   PromptCaseTypeUpdate,
@@ -381,6 +392,7 @@ import type {
   RecoverCharacterProvenanceRequest,
   RedeemPromoInput,
   ReferralInfo,
+  ReleasePromoterReserves200,
   ReliabilityAnalytics,
   RepairVideoRequest,
   ResearchRequest,
@@ -392,6 +404,7 @@ import type {
   RetryGuidedStoryGeneratedCastReferenceSheetInput,
   RevenueAnalytics,
   RevokeCharacterLikenessConsentRequest,
+  RunPromoterPayouts200,
   SarvamTtsSettingsView,
   SaveVideoToLibraryRequest,
   ScheduleInput,
@@ -37402,5 +37415,736 @@ export const useAdminUpdatePromoterSettings = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getAdminUpdatePromoterSettingsMutationOptions(options));
+    }
+
+export const getGetPromoterPayoutDetailsUrl = () => {
+
+
+
+
+  return `/api/promoter/payout-details`
+}
+
+/**
+ * @summary Get masked payout identity on file
+ */
+export const getPromoterPayoutDetails = async ( options?: RequestInit): Promise<PromoterPayoutDetails> => {
+
+  return customFetch<PromoterPayoutDetails>(getGetPromoterPayoutDetailsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPromoterPayoutDetailsQueryKey = () => {
+    return [
+    `/api/promoter/payout-details`
+    ] as const;
+    }
+
+
+export const getGetPromoterPayoutDetailsQueryOptions = <TData = Awaited<ReturnType<typeof getPromoterPayoutDetails>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromoterPayoutDetails>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPromoterPayoutDetailsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPromoterPayoutDetails>>> = ({ signal }) => getPromoterPayoutDetails({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPromoterPayoutDetails>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPromoterPayoutDetailsQueryResult = NonNullable<Awaited<ReturnType<typeof getPromoterPayoutDetails>>>
+export type GetPromoterPayoutDetailsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get masked payout identity on file
+ */
+
+export function useGetPromoterPayoutDetails<TData = Awaited<ReturnType<typeof getPromoterPayoutDetails>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromoterPayoutDetails>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPromoterPayoutDetailsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSavePromoterPayoutDetailsUrl = () => {
+
+
+
+
+  return `/api/promoter/payout-details`
+}
+
+/**
+ * @summary Save payout identity without retaining raw PAN or account number
+ */
+export const savePromoterPayoutDetails = async (promoterPayoutDetailsInput: PromoterPayoutDetailsInput, options?: RequestInit): Promise<PromoterPayoutDetails> => {
+
+  return customFetch<PromoterPayoutDetails>(getSavePromoterPayoutDetailsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promoterPayoutDetailsInput)
+  }
+);}
+
+
+
+
+export const getSavePromoterPayoutDetailsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof savePromoterPayoutDetails>>, TError,{data: BodyType<PromoterPayoutDetailsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof savePromoterPayoutDetails>>, TError,{data: BodyType<PromoterPayoutDetailsInput>}, TContext> => {
+
+const mutationKey = ['savePromoterPayoutDetails'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof savePromoterPayoutDetails>>, {data: BodyType<PromoterPayoutDetailsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  savePromoterPayoutDetails(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SavePromoterPayoutDetailsMutationResult = NonNullable<Awaited<ReturnType<typeof savePromoterPayoutDetails>>>
+    export type SavePromoterPayoutDetailsMutationBody = BodyType<PromoterPayoutDetailsInput>
+    export type SavePromoterPayoutDetailsMutationError = ErrorType<void>
+
+    /**
+ * @summary Save payout identity without retaining raw PAN or account number
+ */
+export const useSavePromoterPayoutDetails = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof savePromoterPayoutDetails>>, TError,{data: BodyType<PromoterPayoutDetailsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof savePromoterPayoutDetails>>,
+        TError,
+        {data: BodyType<PromoterPayoutDetailsInput>},
+        TContext
+      > => {
+      return useMutation(getSavePromoterPayoutDetailsMutationOptions(options));
+    }
+
+export const getGetPromoterPayoutsUrl = () => {
+
+
+
+
+  return `/api/promoter/payouts`
+}
+
+/**
+ * @summary Get own payout history and balance
+ */
+export const getPromoterPayouts = async ( options?: RequestInit): Promise<PromoterPayoutHistory> => {
+
+  return customFetch<PromoterPayoutHistory>(getGetPromoterPayoutsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPromoterPayoutsQueryKey = () => {
+    return [
+    `/api/promoter/payouts`
+    ] as const;
+    }
+
+
+export const getGetPromoterPayoutsQueryOptions = <TData = Awaited<ReturnType<typeof getPromoterPayouts>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromoterPayouts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPromoterPayoutsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPromoterPayouts>>> = ({ signal }) => getPromoterPayouts({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPromoterPayouts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPromoterPayoutsQueryResult = NonNullable<Awaited<ReturnType<typeof getPromoterPayouts>>>
+export type GetPromoterPayoutsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get own payout history and balance
+ */
+
+export function useGetPromoterPayouts<TData = Awaited<ReturnType<typeof getPromoterPayouts>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromoterPayouts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPromoterPayoutsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunPromoterPayoutsUrl = () => {
+
+
+
+
+  return `/api/admin/payouts/run`
+}
+
+/**
+ * @summary Build draft batches only; no transfer is sent
+ */
+export const runPromoterPayouts = async ( options?: RequestInit): Promise<RunPromoterPayouts200> => {
+
+  return customFetch<RunPromoterPayouts200>(getRunPromoterPayoutsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRunPromoterPayoutsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPromoterPayouts>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runPromoterPayouts>>, TError,void, TContext> => {
+
+const mutationKey = ['runPromoterPayouts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runPromoterPayouts>>, void> = () => {
+
+
+          return  runPromoterPayouts(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunPromoterPayoutsMutationResult = NonNullable<Awaited<ReturnType<typeof runPromoterPayouts>>>
+
+    export type RunPromoterPayoutsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Build draft batches only; no transfer is sent
+ */
+export const useRunPromoterPayouts = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPromoterPayouts>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runPromoterPayouts>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRunPromoterPayoutsMutationOptions(options));
+    }
+
+export const getListPromoterPayoutsUrl = (params?: ListPromoterPayoutsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/payouts?${stringifiedParams}` : `/api/admin/payouts`
+}
+
+/**
+ * @summary Review payout batches without payout identity hashes
+ */
+export const listPromoterPayouts = async (params?: ListPromoterPayoutsParams, options?: RequestInit): Promise<PromoterPayoutRow[]> => {
+
+  return customFetch<PromoterPayoutRow[]>(getListPromoterPayoutsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromoterPayoutsQueryKey = (params?: ListPromoterPayoutsParams,) => {
+    return [
+    `/api/admin/payouts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPromoterPayoutsQueryOptions = <TData = Awaited<ReturnType<typeof listPromoterPayouts>>, TError = ErrorType<unknown>>(params?: ListPromoterPayoutsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromoterPayouts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromoterPayoutsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromoterPayouts>>> = ({ signal }) => listPromoterPayouts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromoterPayouts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromoterPayoutsQueryResult = NonNullable<Awaited<ReturnType<typeof listPromoterPayouts>>>
+export type ListPromoterPayoutsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Review payout batches without payout identity hashes
+ */
+
+export function useListPromoterPayouts<TData = Awaited<ReturnType<typeof listPromoterPayouts>>, TError = ErrorType<unknown>>(
+ params?: ListPromoterPayoutsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromoterPayouts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromoterPayoutsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExportPromoterPayoutsUrl = () => {
+
+
+
+
+  return `/api/admin/payouts/export`
+}
+
+/**
+ * @summary Export review-only CSV with last four digits, not bank-ready transfer instructions
+ */
+export const exportPromoterPayouts = async (creatorPayoutExportInput: CreatorPayoutExportInput, options?: RequestInit): Promise<string> => {
+
+  return customFetch<string>(getExportPromoterPayoutsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorPayoutExportInput)
+  }
+);}
+
+
+
+
+export const getExportPromoterPayoutsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportPromoterPayouts>>, TError,{data: BodyType<CreatorPayoutExportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof exportPromoterPayouts>>, TError,{data: BodyType<CreatorPayoutExportInput>}, TContext> => {
+
+const mutationKey = ['exportPromoterPayouts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof exportPromoterPayouts>>, {data: BodyType<CreatorPayoutExportInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  exportPromoterPayouts(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExportPromoterPayoutsMutationResult = NonNullable<Awaited<ReturnType<typeof exportPromoterPayouts>>>
+    export type ExportPromoterPayoutsMutationBody = BodyType<CreatorPayoutExportInput>
+    export type ExportPromoterPayoutsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Export review-only CSV with last four digits, not bank-ready transfer instructions
+ */
+export const useExportPromoterPayouts = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportPromoterPayouts>>, TError,{data: BodyType<CreatorPayoutExportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof exportPromoterPayouts>>,
+        TError,
+        {data: BodyType<CreatorPayoutExportInput>},
+        TContext
+      > => {
+      return useMutation(getExportPromoterPayoutsMutationOptions(options));
+    }
+
+export const getMarkPromoterPayoutPaidUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/payouts/${id}/paid`
+}
+
+/**
+ * @summary Record a verified manually cleared transfer
+ */
+export const markPromoterPayoutPaid = async (id: number,
+    creatorPayoutPaidInput: CreatorPayoutPaidInput, options?: RequestInit): Promise<MarkPromoterPayoutPaid200> => {
+
+  return customFetch<MarkPromoterPayoutPaid200>(getMarkPromoterPayoutPaidUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorPayoutPaidInput)
+  }
+);}
+
+
+
+
+export const getMarkPromoterPayoutPaidMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markPromoterPayoutPaid>>, TError,{id: number;data: BodyType<CreatorPayoutPaidInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markPromoterPayoutPaid>>, TError,{id: number;data: BodyType<CreatorPayoutPaidInput>}, TContext> => {
+
+const mutationKey = ['markPromoterPayoutPaid'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markPromoterPayoutPaid>>, {id: number;data: BodyType<CreatorPayoutPaidInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  markPromoterPayoutPaid(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkPromoterPayoutPaidMutationResult = NonNullable<Awaited<ReturnType<typeof markPromoterPayoutPaid>>>
+    export type MarkPromoterPayoutPaidMutationBody = BodyType<CreatorPayoutPaidInput>
+    export type MarkPromoterPayoutPaidMutationError = ErrorType<void>
+
+    /**
+ * @summary Record a verified manually cleared transfer
+ */
+export const useMarkPromoterPayoutPaid = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markPromoterPayoutPaid>>, TError,{id: number;data: BodyType<CreatorPayoutPaidInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markPromoterPayoutPaid>>,
+        TError,
+        {id: number;data: BodyType<CreatorPayoutPaidInput>},
+        TContext
+      > => {
+      return useMutation(getMarkPromoterPayoutPaidMutationOptions(options));
+    }
+
+export const getMarkPromoterPayoutFailedUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/payouts/${id}/failed`
+}
+
+/**
+ * @summary Record a failed manually attempted transfer
+ */
+export const markPromoterPayoutFailed = async (id: number,
+    creatorPayoutReasonInput: CreatorPayoutReasonInput, options?: RequestInit): Promise<MarkPromoterPayoutFailed200> => {
+
+  return customFetch<MarkPromoterPayoutFailed200>(getMarkPromoterPayoutFailedUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorPayoutReasonInput)
+  }
+);}
+
+
+
+
+export const getMarkPromoterPayoutFailedMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markPromoterPayoutFailed>>, TError,{id: number;data: BodyType<CreatorPayoutReasonInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markPromoterPayoutFailed>>, TError,{id: number;data: BodyType<CreatorPayoutReasonInput>}, TContext> => {
+
+const mutationKey = ['markPromoterPayoutFailed'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markPromoterPayoutFailed>>, {id: number;data: BodyType<CreatorPayoutReasonInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  markPromoterPayoutFailed(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkPromoterPayoutFailedMutationResult = NonNullable<Awaited<ReturnType<typeof markPromoterPayoutFailed>>>
+    export type MarkPromoterPayoutFailedMutationBody = BodyType<CreatorPayoutReasonInput>
+    export type MarkPromoterPayoutFailedMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record a failed manually attempted transfer
+ */
+export const useMarkPromoterPayoutFailed = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markPromoterPayoutFailed>>, TError,{id: number;data: BodyType<CreatorPayoutReasonInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markPromoterPayoutFailed>>,
+        TError,
+        {id: number;data: BodyType<CreatorPayoutReasonInput>},
+        TContext
+      > => {
+      return useMutation(getMarkPromoterPayoutFailedMutationOptions(options));
+    }
+
+export const getClawbackPromoterCommissionUrl = (commissionId: number,) => {
+
+
+
+
+  return `/api/admin/payouts/clawback/${commissionId}`
+}
+
+/**
+ * @summary Record negative ledger adjustment for previously paid commission
+ */
+export const clawbackPromoterCommission = async (commissionId: number,
+    creatorPayoutReasonInput: CreatorPayoutReasonInput, options?: RequestInit): Promise<ClawbackPromoterCommission200> => {
+
+  return customFetch<ClawbackPromoterCommission200>(getClawbackPromoterCommissionUrl(commissionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorPayoutReasonInput)
+  }
+);}
+
+
+
+
+export const getClawbackPromoterCommissionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clawbackPromoterCommission>>, TError,{commissionId: number;data: BodyType<CreatorPayoutReasonInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clawbackPromoterCommission>>, TError,{commissionId: number;data: BodyType<CreatorPayoutReasonInput>}, TContext> => {
+
+const mutationKey = ['clawbackPromoterCommission'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clawbackPromoterCommission>>, {commissionId: number;data: BodyType<CreatorPayoutReasonInput>}> = (props) => {
+          const {commissionId,data} = props ?? {};
+
+          return  clawbackPromoterCommission(commissionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClawbackPromoterCommissionMutationResult = NonNullable<Awaited<ReturnType<typeof clawbackPromoterCommission>>>
+    export type ClawbackPromoterCommissionMutationBody = BodyType<CreatorPayoutReasonInput>
+    export type ClawbackPromoterCommissionMutationError = ErrorType<void>
+
+    /**
+ * @summary Record negative ledger adjustment for previously paid commission
+ */
+export const useClawbackPromoterCommission = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clawbackPromoterCommission>>, TError,{commissionId: number;data: BodyType<CreatorPayoutReasonInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clawbackPromoterCommission>>,
+        TError,
+        {commissionId: number;data: BodyType<CreatorPayoutReasonInput>},
+        TContext
+      > => {
+      return useMutation(getClawbackPromoterCommissionMutationOptions(options));
+    }
+
+export const getReleasePromoterReservesUrl = () => {
+
+
+
+
+  return `/api/admin/payouts/release-reserves`
+}
+
+/**
+ * @summary Release eligible reserves once
+ */
+export const releasePromoterReserves = async ( options?: RequestInit): Promise<ReleasePromoterReserves200> => {
+
+  return customFetch<ReleasePromoterReserves200>(getReleasePromoterReservesUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getReleasePromoterReservesMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof releasePromoterReserves>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof releasePromoterReserves>>, TError,void, TContext> => {
+
+const mutationKey = ['releasePromoterReserves'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof releasePromoterReserves>>, void> = () => {
+
+
+          return  releasePromoterReserves(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReleasePromoterReservesMutationResult = NonNullable<Awaited<ReturnType<typeof releasePromoterReserves>>>
+
+    export type ReleasePromoterReservesMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Release eligible reserves once
+ */
+export const useReleasePromoterReserves = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof releasePromoterReserves>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof releasePromoterReserves>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getReleasePromoterReservesMutationOptions(options));
     }
 

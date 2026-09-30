@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { PromoterPayoutDetails } from "@/components/promoter-payout-details";
 
 const money = (n: number) => n.toLocaleString("en-IN", { style: "currency", currency: "INR" });
 const percent = (bps: number) => `${bps / 100}%`;
@@ -55,12 +56,13 @@ function Dashboard({ data }: { data: PromoterMe200 }) {
     {suspended && <Card data-testid="promoter-suspended"><CardContent className="py-4">Your account is suspended{data.statusReason ? `: ${data.statusReason}` : "."} Your existing earnings remain visible.</CardContent></Card>}
     {code && <Card className="border-primary/20 bg-primary/[0.03]"><CardContent className="flex items-center gap-3 py-4"><code data-testid="promoter-code" className="flex-1 rounded border border-border bg-background px-4 py-2 text-center text-lg font-semibold tracking-widest">{code.code}</code><Button variant="outline" onClick={() => void navigator.clipboard.writeText(code.code).then(() => toast({ title: "Copied" })).catch(() => toast({ title: "Copy failed", description: code.code }))}>Copy code</Button></CardContent></Card>}
     <div className="grid gap-3 sm:grid-cols-4">{([["Ready to pay", earnings.payable], ["Pending", earnings.pending], ["Paid out", earnings.paid], ["Sales driven", earnings.grossDriven]] as const).map(([label, value]) => <Card key={label}><CardContent className="py-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-lg font-semibold" data-testid={`promoter-stat-${label.toLowerCase().replaceAll(" ", "-")}`}>{money(value)}</p></CardContent></Card>)}</div>
-    <p className="text-xs text-muted-foreground">Commissions marked “Ready to pay” have accrued. Payouts are not enabled yet; no payout date is available.</p>
+    <p className="text-xs text-muted-foreground">Commissions marked “Ready to pay” have accrued. Payouts require manual review and verification; no transfer date is available.</p>
     {(earnings.pending > 0 || earnings.held > 0) && <Card><CardContent className="space-y-2 py-4"><h2 className="font-medium">{money(earnings.pending)} pending</h2><ul className="space-y-1 text-sm text-muted-foreground">
       {earnings.inHoldWindow > 0 && <li>{earnings.inHoldWindow} in the {terms.holdDays}-day refund window</li>}
       {earnings.awaitingActivation > 0 && <li>{earnings.awaitingActivation} waiting on activation — the workspace needs to use {percent(terms.consumptionThresholdBps)} of the credits it bought</li>}
       {earnings.held > 0 && <li>{money(earnings.held)} under review</li>}
     </ul></CardContent></Card>}
+    <PromoterPayoutDetails suspended={suspended} />
     {next !== null && !commission.isNegotiatedRate && <Card><CardContent className="space-y-2 py-4"><p className="text-sm">{Math.max(0, next - commission.qualifyingPurchases)} more qualifying purchases to {percent(commission.nextSlabBps ?? commission.currentBps)}</p><Progress value={next > 0 ? Math.min(100, commission.qualifyingPurchases / next * 100) : 100} /></CardContent></Card>}
     {commission.isNegotiatedRate && <p className="text-sm text-muted-foreground">Your negotiated rate is {percent(commission.currentBps)}.</p>}
     <CommissionTable />
@@ -88,7 +90,7 @@ function ApplyState() {
     return match ? { platform: match[1], handle: match[2].trim() } : { platform: "", handle: "" };
   });
   const valid = displayName.trim().length >= 2 && displayName.trim().length <= 120 && channels.length >= 1 && channels.length <= 20 && channels.every(c => c.platform.length >= 1 && c.platform.length <= 60 && c.handle.length >= 1 && c.handle.length <= 160) && accepted;
-  return <div className="mx-auto max-w-xl space-y-4 p-4 sm:p-6"><h1 className="text-2xl font-semibold">Become a promoter</h1><p className="text-sm text-muted-foreground">Share your code to accrue commissions on qualifying purchases. Payouts are not enabled yet.</p><Card><CardContent className="space-y-4 py-5">
+  return <div className="mx-auto max-w-xl space-y-4 p-4 sm:p-6"><h1 className="text-2xl font-semibold">Become a promoter</h1><p className="text-sm text-muted-foreground">Share your code to accrue commissions on qualifying purchases. Payouts require manual review and identity verification; availability and timing are not guaranteed.</p><Card><CardContent className="space-y-4 py-5">
     <div className="space-y-1"><Label htmlFor="promoter-name">Your name or brand</Label><Input id="promoter-name" data-testid="input-promoter-name" value={displayName} onChange={e => setDisplayName(e.target.value)} /></div>
     <div className="space-y-1"><Label htmlFor="promoter-vertical">What do you mostly talk about?</Label><Input id="promoter-vertical" value={vertical} onChange={e => setVertical(e.target.value)} maxLength={80} /></div>
     <div className="space-y-1"><Label htmlFor="promoter-channels">Where you'll share it</Label><Textarea id="promoter-channels" data-testid="input-promoter-channels" value={channelsRaw} onChange={e => setChannelsRaw(e.target.value)} placeholder={"instagram @yourhandle\nyoutube @yourchannel"} /><p className="text-xs text-muted-foreground">One per line: platform then handle (up to 20).</p></div>
