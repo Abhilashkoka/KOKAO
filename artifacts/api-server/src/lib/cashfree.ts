@@ -252,6 +252,20 @@ export async function getCashfreeOrder(
 }
 
 // ---------- plans + subscriptions ----------
+/** Read-only canonical reconciliation/capture API calls; never creates refunds. */
+export async function getCashfreeRefund(orderId: string, refundId: string) {
+  return cashfreeRequest<{
+    refund_id: string; cf_refund_id?: string | number; order_id: string;
+    refund_status: string; refund_amount: number; cf_payment_id?: string | number;
+  }>(await requireCredentials(), `/orders/${encodeURIComponent(orderId)}/refunds/${encodeURIComponent(refundId)}`);
+}
+export async function getCashfreePayments(orderId: string) {
+  return cashfreeRequest<Array<{
+    cf_payment_id: string | number; order_id: string; payment_status: string;
+    payment_amount: number; payment_currency: string;
+    payment_method?: { upi?: { upi_id?: string } };
+  }>>(await requireCredentials(), `/orders/${encodeURIComponent(orderId)}/payments`);
+}
 
 /** Create a periodic plan for a catalog plan's INR price. */
 export async function createCashfreePlan(params: {

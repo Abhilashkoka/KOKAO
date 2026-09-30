@@ -1,5 +1,6 @@
 import { creditReferralForPurchase } from "./referralPurchase";
 import { accrueCreatorCommission } from "./creatorCommissions";
+import { retryRefundReconciliations } from "./refundReconciliation";
 import {
   db,
   billingProfilesTable,
@@ -114,6 +115,8 @@ export async function recordInvoice(
 ): Promise<InvoiceRow | null> {
   await creditReferralForPurchase(params);
   await accrueCreatorCommission(params);
+  try { await retryRefundReconciliations(params.refId); }
+  catch { logger.error("Refund accounting retry unavailable; durable receipts retained"); }
   try {
     // Cheap fast path — the common repeat call (webhook after verify).
     const [existing] = await db

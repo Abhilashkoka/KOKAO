@@ -15,6 +15,7 @@ import { applyPlanBillingMode, getPlan } from "../lib/plans";
 import { recordInvoice } from "../lib/invoices";
 import { recordServerEvent } from "../lib/analytics";
 import { creditWalletTopup } from "../lib/wallet";
+import { reconcileRazorpayRefund, captureRazorpayInstrument } from "../lib/gatewayRefunds";
 
 /**
  * PUBLIC Razorpay webhook receiver (mounted before requireTenant). Every
@@ -31,6 +32,7 @@ const router: IRouter = Router();
 interface WebhookEvent {
   event?: string;
   payload?: {
+    refund?: { entity?: { id?: string } };
     subscription?: {
       entity?: {
         id?: string;
@@ -232,6 +234,7 @@ async function handlePaymentCaptured(
       description: "Wallet top-up", baseAmountPaise: basePaise,
       gstAmountPaise: gstPaise, gstPercent, totalPaise: order.amount,
     });
+    await captureRazorpayInstrument(tenantId, orderId, payment?.id, order.amount);
     if (credited) void recordServerEvent({
       name: "purchase", tenantId,
       params: { item_type: "wallet_topup", item_name: "wallet", amount_paise: order.amount },
@@ -274,6 +277,7 @@ async function handlePaymentCaptured(
       baseAmountPaise: pack.pricePaise,
       totalPaise: pack.pricePaise,
   });
+  await captureRazorpayInstrument(tenantId, orderId, payment?.id, order.amount);
   if (granted) {
     req.log.info({ tenantId, packId, orderId }, "Credited pack via webhook backstop");
     void recordServerEvent({
@@ -310,7 +314,7 @@ router.post("/billing/razorpay-webhook", async (req: Request, res: Response) => 
       duplicate = true;
       // Paid orders have independently idempotent credit/invoice/referral
       // ledgers. Replay them to recover a prior best-effort invoice/reward.
-      if (event.event !== "payment.captured") {
+      if (event.event !== "payment.captured" && !["refund.created", "refund.processed"].includes(event.event ?? "")) {
         res.json({ ok: true, duplicate: true });
         return;
       }
@@ -318,14 +322,18 @@ router.post("/billing/razorpay-webhook", async (req: Request, res: Response) => 
   }
 
   try {
-    if (event.event?.startsWith("subscription.")) {
+    if (["refund.created", "refund.processed"].includes(event.event ?? "")) {
+      const refundId = event.payload?.refund?.entity?.id;
+      if (!refundId) throw new Error("Missing refund identifier");
+      await reconcileRazorpayRefund(refundId);
+    } else if (event.event?.startsWith("subscription.")) {
       await handleSubscriptionEvent(req, event.payload?.subscription?.entity, event.event);
     } else if (event.event === "payment.captured") {
       await handlePaymentCaptured(req, event.payload?.payment?.entity);
     }
     res.json({ ok: true, ...(duplicate ? { duplicate: true } : {}) });
   } catch (error) {
-    req.log.error({ err: error, event: event.event }, "Webhook processing failed");
+    req.log.error({ event: event.event }, "Webhook processing failed");
     // 500 so Razorpay retries; the event-id row blocks double-processing of
     // whatever DID complete only if we got far enough — remove it so the
     // retry can run the handler again.

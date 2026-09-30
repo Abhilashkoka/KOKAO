@@ -21,6 +21,7 @@ import { applyPlanBillingMode, getPlan } from "../lib/plans";
 import { recordInvoice } from "../lib/invoices";
 import { grantMonthlyCreditsSafely } from "../lib/monthlyCreditGrant";
 import { recordServerEvent } from "../lib/analytics";
+import { reconcileCashfreeRefund, captureCashfreeInstrument } from "../lib/gatewayRefunds";
 
 /**
  * PUBLIC Cashfree webhook receiver (mounted before requireTenant). Every
@@ -42,6 +43,7 @@ interface CashfreeWebhookBody {
   type?: string;
   event_time?: string;
   data?: {
+    refund?: { refund_id?: string; order_id?: string };
     order?: {
       order_id?: string;
       order_tags?: Record<string, string> | null;
@@ -123,6 +125,7 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
         gstPercent,
         totalPaise: chargedPaise,
     });
+    await captureCashfreeInstrument(tenantId, orderId, chargedPaise);
     if (credited) {
       req.log.info({ tenantId, orderId }, "Credited wallet via Cashfree webhook backstop");
       void recordServerEvent({
@@ -177,6 +180,7 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
         baseAmountPaise: pack.pricePaise,
         totalPaise: pack.pricePaise,
     });
+    await captureCashfreeInstrument(tenantId, orderId, chargedPaise);
     if (granted) {
       req.log.info({ tenantId, packId, orderId }, "Credited pack via Cashfree webhook backstop");
       void recordServerEvent({
@@ -318,14 +322,19 @@ router.post("/billing/cashfree-webhook", async (req: Request, res: Response) => 
   const isOrderEvent = !body.type?.includes("SUBSCRIPTION") &&
     !body.type?.includes("REFUND") &&
     (body.type?.includes("PAYMENT_SUCCESS") || body.type?.includes("ORDER"));
-  if (duplicate && !isOrderEvent) {
+  if (duplicate && !isOrderEvent && body.type !== "REFUND_STATUS_WEBHOOK") {
     res.json({ ok: true, duplicate: true });
     return;
   }
 
   try {
     const type = body.type ?? "";
-    if (type.includes("SUBSCRIPTION")) {
+    if (type === "REFUND_STATUS_WEBHOOK") {
+      const orderId = body.data?.refund?.order_id ?? body.data?.order?.order_id;
+      const refundId = body.data?.refund?.refund_id;
+      if (!orderId || !refundId) throw new Error("Missing refund identifiers");
+      await reconcileCashfreeRefund(orderId, refundId);
+    } else if (type.includes("SUBSCRIPTION")) {
       const subId =
         body.data?.subscription?.subscription_id ??
         body.data?.subscription_details?.subscription_id;
@@ -336,7 +345,7 @@ router.post("/billing/cashfree-webhook", async (req: Request, res: Response) => 
     }
     res.json({ ok: true, ...(duplicate ? { duplicate: true } : {}) });
   } catch (error) {
-    req.log.error({ err: error, type: body.type }, "Cashfree webhook processing failed");
+    req.log.error({ type: body.type }, "Cashfree webhook processing failed");
     // 500 so Cashfree retries; drop the idempotency row so the retry re-runs.
     await db.delete(cashfreeEventsTable).where(eq(cashfreeEventsTable.id, key));
     res.status(500).json({ error: "Webhook processing failed" });

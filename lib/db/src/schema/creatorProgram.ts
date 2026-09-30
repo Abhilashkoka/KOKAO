@@ -231,6 +231,8 @@ export const creatorCommissionsTable = pgTable(
     invoiceId: integer("invoice_id"),
     purchaseKind: text("purchase_kind").notNull(),
     purchaseRefId: text("purchase_ref_id").notNull(),
+    refundedPaise: integer("refunded_paise").notNull().default(0),
+    refundedCommissionPaise: integer("refunded_commission_paise").notNull().default(0),
     grossPaise: integer("gross_paise").notNull(),
     /** Gross less refunds/chargebacks recognised so far. */
     netPaise: integer("net_paise").notNull(),

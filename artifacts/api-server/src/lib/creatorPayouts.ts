@@ -1,26 +1,19 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import {
   db, creatorAccountsTable as accounts, creatorCommissionsTable as commissions,
   creatorLedgerAdjustmentsTable as adjustments, creatorPayoutIdentitiesTable as identities,
   creatorPayoutsTable as payouts, type CreatorPayout, type CreatorPayoutIdentity,
+  refundReconciliationsTable as refunds,
 } from "@workspace/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { creatorSettingsAccess } from "./creatorProgram";
 import { getFeatureFlags } from "./featureFlags";
+import { hashPii, PayoutIdentityError } from "./creatorPii";
+import { payoutMatchesOwnReferrals } from "./paymentInstruments";
+export { hashPii, PayoutIdentityError } from "./creatorPii";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export class PayoutIdentityError extends Error {
-  constructor(message: string, public readonly code: string) {
-    super(message);
-    this.name = "PayoutIdentityError";
-  }
-}
 const fail = (code: string, message: string): never => { throw new PayoutIdentityError(message, code); };
-export function hashPii(value: string): string {
-  const secret = process.env.CREATOR_PII_PEPPER;
-  if (!secret || secret.length < 32) return fail("pii_not_configured", "Payout details are not available until the server privacy key is configured.");
-  return createHmac("sha256", secret).update(value).digest("hex");
-}
 export const normalizePan = (raw: string) => raw.replace(/\s+/g, "").toUpperCase();
 export const normalizeAccount = (raw: string) => raw.replace(/[\s-]/g, "");
 export function hashesMatch(a: string, b: string): boolean {
@@ -49,6 +42,7 @@ export async function saveCreatorPayoutIdentity(input: PayoutIdentityInput): Pro
   if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) fail("invalid_ifsc", "That IFSC doesn't look right.");
   if (!name || name.length > 120 || /[\r\n\u0000-\u001f]/.test(name)) fail("invalid_beneficiary", "Enter a beneficiary name of at most 120 characters.");
   const panHash = hashPii(pan), bankAccountHash = hashPii(`${account}|${ifsc}`);
+  const match = await payoutMatchesOwnReferrals(input.creatorId, bankAccountHash);
   try {
     return await db.transaction(async tx => {
       await lock(tx);
@@ -56,6 +50,9 @@ export async function saveCreatorPayoutIdentity(input: PayoutIdentityInput): Pro
       if (!creator || creator.status !== "approved") fail("not_a_promoter", "An approved promoter account is required.");
       const [owner] = await tx.select({ creatorId: identities.creatorId }).from(identities).where(eq(identities.panHash, panHash));
       if (owner && owner.creatorId !== input.creatorId) fail("pan_in_use", "These payout details are already registered to another promoter.");
+      if (match.matched) await tx.update(accounts).set({ riskFlags: {
+        ...(creator.riskFlags ?? {}), payoutMatchesOwnReferrals: true,
+      } }).where(eq(accounts.id, creator.id));
       const values = { panHash, bankAccountHash, panLast4: pan.slice(-4), bankLast4: account.slice(-4), ifsc, beneficiaryName: name };
       const [saved] = await tx.insert(identities).values({ creatorId: input.creatorId, ...values })
         .onConflictDoUpdate({ target: identities.creatorId, set: {
@@ -112,6 +109,10 @@ export async function buildPayoutRun(periodStart?: Date, periodEnd?: Date, creat
       const b = await balance(tx, creator.id);
       if (!b.rows.length && !b.entries.length) continue;
       const skip = (reason: string) => summary.skipped.push({ creatorId: creator.id, reason });
+      const [unresolved] = await tx.select({ id: refunds.id }).from(refunds).innerJoin(commissions,
+        and(eq(commissions.purchaseKind, refunds.kind), eq(commissions.purchaseRefId, refunds.refId)))
+        .where(and(eq(commissions.creatorId, creator.id), inArray(refunds.status, ["pending", "needs_manual_review"]))).limit(1);
+      if (unresolved) { skip("refund reconciliation pending"); continue; }
       if (b.netOwedPaise <= 0 || b.netOwedPaise < settings.minPayoutPaise) {
         skip(b.owedBackPaise > 0 ? "negative balance" : "below minimum payout"); continue;
       }
@@ -240,7 +241,8 @@ export async function clawbackPaidCommission(commissionId: number, reason: strin
     if (c.state !== "paid") return { clawedBack: false };
     const [prior] = await tx.select({ id: adjustments.id }).from(adjustments).where(eq(adjustments.idempotencyKey, `clawback:${c.id}`));
     if (prior) return { clawedBack: false };
-    let remainder = c.commissionPaise;
+    const clawbackAmount = Math.max(0, Number(BigInt(c.grossPaise) * BigInt(c.commissionBps) / 10000n) - c.refundedCommissionPaise);
+    let remainder = clawbackAmount;
     const reserves = await tx.select().from(payouts).where(and(eq(payouts.creatorId, c.creatorId), eq(payouts.status, "paid"), isNull(payouts.reserveReleasedAt))).orderBy(payouts.id).for("update");
     for (const p of reserves) {
       const absorbed = Math.min(remainder, Math.max(0, p.reserveHeldPaise - p.reserveConsumedPaise));
@@ -253,11 +255,11 @@ export async function clawbackPaidCommission(commissionId: number, reason: strin
       remainder -= absorbed;
     }
     await tx.insert(adjustments).values({
-      creatorId: c.creatorId, amountPaise: -c.commissionPaise, kind: "clawback", commissionId: c.id, payoutId: c.payoutId,
+      creatorId: c.creatorId, amountPaise: -clawbackAmount, kind: "clawback", commissionId: c.id, payoutId: c.payoutId,
       idempotencyKey: `clawback:${c.id}`, note: reason.slice(0, 500),
     });
     await tx.update(commissions).set({ state: "reversed", netPaise: 0, stateReason: reason.slice(0, 500) }).where(eq(commissions.id, c.id));
-    return { clawedBack: true, amountPaise: c.commissionPaise };
+    return { clawedBack: true, amountPaise: clawbackAmount };
   });
 }
 export async function listCreatorPayouts(creatorId: number): Promise<CreatorPayout[]> {

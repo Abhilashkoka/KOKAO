@@ -1,10 +1,11 @@
-import { db, creatorAttributionsTable, referralAttributionsTable, referralPurchaseGrantsTable, tenantsTable, notificationsTable, type PromoCode } from "@workspace/db";
+import { db, creatorAttributionsTable, referralAttributionsTable, referralPurchaseGrantsTable, tenantsTable, type PromoCode } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { getFeatureFlags } from "./featureFlags";
 import { getPlanGamification, type PlanGamification } from "./gamification";
 import { grantCredits } from "./creditAccounts";
 import { getCreditPricePaise, MILLI } from "./creditRates";
+import { notifyCreatorEvent } from "./notifications";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type ReferralTriggerMode = "first_purchase" | "every_purchase";
@@ -125,11 +126,12 @@ export async function creditReferralForPurchase(params: ReferralPurchaseParams):
     });
     if (outcome.granted && outcome.referrerTenantId && outcome.referrerCredits) {
       try {
-        await db.insert(notificationsTable).values({
+        await notifyCreatorEvent({
           tenantId: outcome.referrerTenantId, type: "referral_purchase_reward",
+          eventKey: `referral-purchase:${params.kind}:${params.refId}`,
           title: "You earned referral credits",
           message: `Someone you referred bought credits — ${outcome.referrerCredits} credits added to your balance.`,
-          linkUrl: "/studio", inApp: true,
+          linkUrl: "/studio",
         });
       } catch (err) {
         logger.error({ err }, "Referral purchase notification failed");

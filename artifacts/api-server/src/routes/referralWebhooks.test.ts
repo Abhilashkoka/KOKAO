@@ -6,6 +6,7 @@ import {
   referralAttributionsTable, referralPurchaseGrantsTable, creditAccountsTable,
   creditAccountLedgerTable, razorpayEventsTable, cashfreeEventsTable,
   walletLedgerTable, walletBalancesTable, creditPacksTable, creditLedgerTable, creditBalancesTable,
+  refundReconciliationsTable,
 } from "@workspace/db";
 import { eq, inArray, like } from "drizzle-orm";
 import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
@@ -13,14 +14,17 @@ import { getOrCreateReferralCode } from "../lib/referrals";
 import { redeemPromoCode } from "../lib/promoCodes";
 import * as accounts from "../lib/creditAccounts";
 
-const mocks = vi.hoisted(() => ({ razorOrder: vi.fn(), cashOrder: vi.fn(), invoice: vi.fn() }));
+const mocks = vi.hoisted(() => ({ razorOrder: vi.fn(), cashOrder: vi.fn(), invoice: vi.fn(),
+  razorRequest: vi.fn(), cashRefund: vi.fn(), cashPayments: vi.fn() }));
 vi.mock("../lib/razorpay", async importOriginal => ({
   ...await importOriginal<typeof import("../lib/razorpay")>(),
   fetchRazorpayOrder: mocks.razorOrder, verifyWebhookSignature: vi.fn(async () => true),
+  razorpayRequest: mocks.razorRequest,
 }));
 vi.mock("../lib/cashfree", async importOriginal => ({
   ...await importOriginal<typeof import("../lib/cashfree")>(),
   getCashfreeOrder: mocks.cashOrder, verifyCashfreeWebhookSignature: vi.fn(async () => true),
+  getCashfreeRefund: mocks.cashRefund, getCashfreePayments: mocks.cashPayments,
 }));
 // Exercise the real referral transaction, without mutating the shared invoice
 // numbering singleton or issuing email. The dedicated invoice suite tests it.
@@ -56,6 +60,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   const ids = [owner, buyer];
+  await db.delete(refundReconciliationsTable).where(inArray(refundReconciliationsTable.tenantId, ids));
   await db.delete(referralPurchaseGrantsTable).where(inArray(referralPurchaseGrantsTable.tenantId, ids));
   await db.delete(referralAttributionsTable).where(inArray(referralAttributionsTable.tenantId, ids));
   await db.delete(promoRedemptionsTable).where(inArray(promoRedemptionsTable.tenantId, ids));
@@ -79,21 +84,28 @@ function post(gateway: string, purpose: string, refund = false) {
   if (gateway === "razorpay") return request(app).post("/billing/razorpay-webhook")
     .set("x-razorpay-event-id", `${prefix}-${purpose}-${refund ? "refund" : "paid"}`)
     .send({ event: refund ? "refund.processed" : "payment.captured",
-      payload: { payment: { entity: { order_id: orderId } } } });
+      payload: { payment: { entity: { order_id: orderId } }, ...(refund ? { refund: { entity: { id: `${orderId}-refund` } } } : {}) } });
   return request(app).post("/billing/cashfree-webhook").send({
     type: refund ? "REFUND_STATUS_WEBHOOK" : "PAYMENT_SUCCESS_WEBHOOK",
-    event_time: prefix, data: { order: { order_id: orderId }, payment: { cf_payment_id: prefix } },
+    event_time: prefix, data: { order: { order_id: orderId }, payment: { cf_payment_id: prefix },
+      ...(refund ? { refund: { refund_id: `${orderId}-refund`, order_id: orderId } } : {}) },
   });
 }
 function canonical(gateway: string, purpose: string, amount = 45000, paid = true) {
   const notes = { purpose, tenantId: String(buyer), creditPackId: String(packId),
     basePaise: "37500", gstPaise: "7500", gstPercent: "20" };
+  const orderId = `${prefix}-${purpose}`;
+  mocks.razorRequest.mockImplementation(async (path: string) => path.startsWith("/refunds/") ?
+    { id: `${orderId}-refund`, payment_id: `${orderId}-payment`, status: "processed", amount: 1000, currency: "INR" } :
+    { id: `${orderId}-payment`, order_id: orderId, status: "refunded", amount, currency: "INR" });
+  mocks.cashRefund.mockResolvedValue({ refund_id: `${orderId}-refund`, order_id: orderId, refund_status: "SUCCESS", refund_amount: 10, cf_payment_id: prefix });
+  mocks.cashPayments.mockResolvedValue([{ order_id: orderId, cf_payment_id: prefix, payment_status: "SUCCESS", payment_currency: "INR", payment_amount: amount / 100 }]);
   if (gateway === "razorpay") mocks.razorOrder.mockResolvedValue({
     id: `${prefix}-${purpose}`, amount, currency: "INR", status: paid ? "paid" : "attempted", notes,
   });
   else mocks.cashOrder.mockResolvedValue({
     order_id: `${prefix}-${purpose}`, order_amount: amount / 100,
-    order_status: paid ? "PAID" : "ACTIVE", order_tags: notes,
+    order_status: paid ? "PAID" : "ACTIVE", order_tags: notes, order_currency: "INR",
   });
 }
 describe("paid referral webhook recovery", () => {
@@ -115,6 +127,8 @@ describe("paid referral webhook recovery", () => {
       expect(await rows()).toHaveLength(1);
       const calls = mocks.invoice.mock.calls.length;
       expect((await post(gateway, purpose, true)).status).toBe(200);
+      expect((await post(gateway, purpose, true)).status).toBe(200);
+      expect(await db.select().from(refundReconciliationsTable).where(eq(refundReconciliationsTable.tenantId, buyer))).toHaveLength(1);
       expect(mocks.invoice).toHaveBeenCalledTimes(calls);
       expect(await rows()).toHaveLength(1);
     });

@@ -6,7 +6,7 @@ import {
   tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
@@ -18,7 +18,7 @@ import {
   getPolicyState,
   resolveEffective,
 } from "./notificationSettings";
-import type { EmailPolicy } from "./notificationCatalog";
+import { ADMIN_ONLY_NOTIFICATION_TYPE_SET, NOTIFICATION_TYPE_SET, type EmailPolicy } from "./notificationCatalog";
 import { isSuperadminEmail } from "./superadmins";
 import { sendTenantPush } from "./push";
 import type { SweepFailure } from "@workspace/db";
@@ -37,6 +37,86 @@ export const SEAT_REQUEST_DECIDED = "seat_request_decided";
 export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
 export const SUPPORT_REQUEST_SUBMITTED = "support_request_submitted";
 export const SUPPORT_REQUEST_RESOLVED = "support_request_resolved";
+
+/**
+ * Preference-aware promoter/referral delivery. The stable event key prevents
+ * gateway replay from emitting a second alert, even after the first was read.
+ * No email is sent unless both the per-type setting and global email pause
+ * permit it (sendEmail enforces the latter).
+ */
+export async function notifyCreatorEvent(details: {
+  tenantId: number;
+  type: string;
+  eventKey: string;
+  title: string;
+  message: string;
+  linkUrl: string;
+}): Promise<void> {
+  try {
+    if (!NOTIFICATION_TYPE_SET.has(details.type) || !details.eventKey) return;
+    const effective = await getEffectiveSetting(details.tenantId, details.type);
+    if (!effective.enabled) return;
+    // Email allowlists are only candidate hints: resolve the verified address
+    // live before dispatching any admin-only event.
+    const [tenant] = await db.select({
+      clerkUserId: tenantsTable.clerkUserId,
+      isSuperadmin: tenantsTable.isSuperadmin,
+    }).from(tenantsTable).where(eq(tenantsTable.id, details.tenantId)).limit(1);
+    if (!tenant) return;
+    let verifiedEmail: string | null = null;
+    if (ADMIN_ONLY_NOTIFICATION_TYPE_SET.has(details.type) || effective.email) {
+      verifiedEmail = await fetchVerifiedEmail(tenant.clerkUserId);
+    }
+    if (ADMIN_ONLY_NOTIFICATION_TYPE_SET.has(details.type) &&
+      !tenant.isSuperadmin && !isSuperadminEmail(verifiedEmail)) return;
+    const created = await db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`creator-alert:${details.tenantId}:${details.type}:${details.eventKey}`}))`);
+      const [existing] = await tx.select({ id: notificationsTable.id }).from(notificationsTable)
+        .where(and(eq(notificationsTable.tenantId, details.tenantId),
+          eq(notificationsTable.type, details.type),
+          eq(notificationsTable.platform, details.eventKey))).limit(1);
+      if (existing) return false;
+      await tx.insert(notificationsTable).values({
+        tenantId: details.tenantId, type: details.type,
+        platform: details.eventKey, title: details.title,
+        message: details.message, linkUrl: details.linkUrl,
+        inApp: effective.inApp,
+      });
+      return true;
+    });
+    if (!created) return;
+    await sendTenantPush(details.tenantId, details.type, {
+      title: details.title, message: details.message, linkUrl: details.linkUrl,
+    });
+    if (effective.email && verifiedEmail) {
+      await sendEmail({
+        to: verifiedEmail, subject: details.title,
+        text: details.message, html: `<p>${escapeHtml(details.message)}</p>`,
+      });
+    }
+  } catch (err) {
+    logger.error({ err, type: details.type }, "Failed to deliver creator notification");
+  }
+}
+
+export async function notifyCreatorAdmins(details: Omit<Parameters<typeof notifyCreatorEvent>[0], "tenantId">): Promise<void> {
+  if (!ADMIN_ONLY_NOTIFICATION_TYPE_SET.has(details.type)) return;
+  try {
+    const candidates = await db.select({ id: tenantsTable.id, isSuperadmin: tenantsTable.isSuperadmin,
+      clerkUserId: tenantsTable.clerkUserId }).from(tenantsTable);
+    for (const candidate of candidates) {
+      try {
+        const email = await fetchVerifiedEmail(candidate.clerkUserId);
+        if (!candidate.isSuperadmin && !isSuperadminEmail(email)) continue;
+        await notifyCreatorEvent({ ...details, tenantId: candidate.id });
+      } catch (err) {
+        logger.error({ err, type: details.type }, "Failed to notify creator programme admin");
+      }
+    }
+  } catch (err) {
+    logger.error({ err, type: details.type }, "Failed to find creator programme admins");
+  }
+}
 
 /**
  * Resolve the "workspace email recipients" for team-management alerts: the

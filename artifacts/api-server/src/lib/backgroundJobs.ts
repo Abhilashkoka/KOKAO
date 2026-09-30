@@ -35,6 +35,8 @@ export function startCreatorCommissionMaintenance(): void {
       try {
         const { releaseMatureReserves } = await import("./creatorPayouts");
         await releaseMatureReserves();
+        const { retryRefundReconciliations } = await import("./refundReconciliation");
+        await retryRefundReconciliations();
       } catch {
         const { logger } = await import("./logger");
         logger.error("Creator reserve maintenance failed");

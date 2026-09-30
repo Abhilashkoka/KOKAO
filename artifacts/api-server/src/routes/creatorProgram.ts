@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, creatorCommissionsTable, tenantsTable } from "@workspace/db";
+import { db, creatorAccountsTable, creatorCommissionsTable, tenantsTable } from "@workspace/db";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-zod";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { requireFeature } from "../lib/featureFlags";
+import { notifyCreatorAdmins, notifyCreatorEvent } from "../lib/notifications";
 import { sensitiveLimiter } from "../middlewares/rateLimit";
 import { recordAdminAction, type AdminAuditAction } from "../lib/adminAudit";
 import {
@@ -104,6 +105,11 @@ router.post("/promoter/apply", run(async (req, res) => {
   const body = parse(application, req.body, res);
   if (!body) return;
   const result = await applyAsCreator({ ...body, tenantId: req.tenantId });
+  if (result.creator.status === "applied") await notifyCreatorAdmins({
+    type: "promoter_application_submitted", eventKey: `application:${result.creator.id}`,
+    title: "New promoter application", message: `Promoter application #${result.creator.id} is waiting for review.`,
+    linkUrl: "/admin",
+  });
   res.status(201).json({ status: result.creator.status, code: result.code?.code ?? null,
     message: result.creator.status === "approved" ? "Your promoter code is ready to share." : "Application received. We'll review it shortly." });
 }));
@@ -194,7 +200,18 @@ router.post("/admin/creators/:id/review", run(async (req, res) => {
   const creatorId = parse(id, req.params.id, res);
   const body = parse(reviewInput, req.body, res);
   if (!creatorId || !body) return;
+  const [before] = await db.select({ status: creatorAccountsTable.status }).from(creatorAccountsTable)
+    .where(eq(creatorAccountsTable.id, creatorId)).limit(1);
   const result = await reviewCreator(creatorId, body.decision, req.tenantId, body.reason);
+  if (before?.status === "applied") await notifyCreatorEvent({
+    tenantId: result.creator.tenantId, type: "promoter_application_reviewed",
+    eventKey: `review:${creatorId}:${body.decision}`,
+    title: body.decision === "approved" ? "Promoter application approved" : "Promoter application declined",
+    message: body.decision === "approved"
+      ? "Your promoter application was approved. You can view your code in the promoter dashboard."
+      : "Your promoter application was declined. See your dashboard for the decision.",
+    linkUrl: "/promoter",
+  });
   await audit(req, "creator_review", null, { id: creatorId, decision: body.decision, reason: body.reason }, result.creator.tenantId);
   res.json({ status: result.creator.status, code: result.code?.code ?? null });
 }));

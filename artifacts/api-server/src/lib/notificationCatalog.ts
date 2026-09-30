@@ -24,6 +24,43 @@ export interface NotificationTypeDef {
 
 export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
   {
+    type: "referral_attached",
+    label: "Invite code used",
+    description: "Someone applied your invite code to their workspace. You earn credits when they buy.",
+  },
+  {
+    type: "referral_purchase_reward",
+    label: "Referral credits earned",
+    description: "Someone who used your invite code bought credits, and your share was added to your balance.",
+  },
+  {
+    type: "promoter_application_reviewed",
+    label: "Promoter application decisions",
+    description: "Your application to the promoter programme was approved or declined.",
+  },
+  {
+    type: "promoter_commission_earned",
+    label: "Promoter commissions",
+    description: "A purchase made with your promoter code earned a commission.",
+  },
+  {
+    type: "promoter_payout_sent",
+    label: "Promoter payouts",
+    description: "A promoter payout was marked as sent, with its reference and amounts.",
+  },
+  {
+    type: "promoter_application_submitted",
+    label: "New promoter applications (platform admins)",
+    description: "Someone applied to the promoter programme and is waiting for review. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
+    type: "promoter_commission_held",
+    label: "Promoter commissions held for review (platform admins)",
+    description: "A commission scored above the risk threshold and is waiting in the review queue. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "social_connection_failed",
     label: "Connection problems",
     description:

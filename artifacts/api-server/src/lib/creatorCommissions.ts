@@ -13,6 +13,7 @@ import { referralCreditsMilli } from "./referralPurchase";
 import { logger } from "./logger";
 import { grantCredits } from "./creditAccounts";
 import { getCreditPricePaise, MILLI } from "./creditRates";
+import { notifyCreatorAdmins, notifyCreatorEvent } from "./notifications";
 import {
   commissionSlabsFrom,
   getActiveCreatorAttribution,
@@ -173,6 +174,7 @@ export interface AccrueResult {
   commissionPaise?: number;
   buyerCredits?: number;
   state?: CommissionState;
+  notification?: { commissionId: number; creatorTenantId: number };
 }
 
 /**
@@ -332,6 +334,7 @@ async function accrueInner(
       commissionPaise,
       buyerCredits: buyerBonusMilli / MILLI,
       state,
+      notification: { commissionId: inserted, creatorTenantId: creator.tenantId },
     };
   } catch (err) {
     logger.error(
@@ -661,8 +664,26 @@ export async function listCreatorCommissions(
 const db = rootDb;
 type Database = typeof rootDb;
 export async function accrueCreatorCommission(params: AccrueParams): Promise<AccrueResult> {
- try { return await rootDb.transaction(async tx => {
+ try { const result = await rootDb.transaction(async tx => {
   await tx.execute(sql`select pg_advisory_xact_lock(73142, 1)`);
   return accrueInner(tx as unknown as Database, params);
- }); } catch (err) { logger.error({err, kind: params.kind, refId: params.refId}, "Creator accrual failed; payment unaffected"); return {accrued:false}; }
+  });
+  if (result.notification) {
+    const { commissionId, creatorTenantId } = result.notification;
+    await notifyCreatorEvent({
+      tenantId: creatorTenantId, type: "promoter_commission_earned",
+      eventKey: `commission:${commissionId}`,
+      title: "Your promoter code earned a commission",
+      message: "An eligible credit purchase earned a promoter commission. It may be held for review before becoming ready to pay.",
+      linkUrl: "/promoter",
+    });
+    if (result.state === "held") await notifyCreatorAdmins({
+      type: "promoter_commission_held", eventKey: `commission:${commissionId}`,
+      title: "Promoter commission awaiting review",
+      message: `Commission #${commissionId} is held for review.`,
+      linkUrl: "/admin",
+    });
+  }
+  return result;
+ } catch (err) { logger.error({err, kind: params.kind, refId: params.refId}, "Creator accrual failed; payment unaffected"); return {accrued:false}; }
 }

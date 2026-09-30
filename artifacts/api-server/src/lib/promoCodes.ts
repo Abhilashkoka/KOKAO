@@ -5,7 +5,6 @@ import {
   promoRedemptionsTable,
   promoRedemptionFailuresTable,
   tenantsTable,
-  notificationsTable,
   type PromoCode,
 } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -19,6 +18,7 @@ import {
 import { grantCredits } from "./creditAccounts";
 import { attachReferralAttribution, attributionDaysFor } from "./referralPurchase";
 import { MILLI } from "./creditRates";
+import { notifyCreatorEvent } from "./notifications";
 
 /**
  * Promo code redemption engine.
@@ -428,13 +428,13 @@ export async function redeemPromoCode(
     result.attached
   ) {
     try {
-      await db.insert(notificationsTable).values({
+      await notifyCreatorEvent({
         tenantId: result.referrerTenantId,
         type: "referral_attached",
+        eventKey: `referral-attached:${tenantId}`,
         title: "Someone used your invite code",
         message: "Your code was applied to a workspace. You'll earn credits when they make eligible credit purchases.",
         linkUrl: "/studio",
-        inApp: true,
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to record referral notification");

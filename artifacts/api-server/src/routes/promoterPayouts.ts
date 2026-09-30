@@ -11,6 +11,8 @@ import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { requireFeature } from "../lib/featureFlags";
 import { recordAdminAction, type AdminAuditAction } from "../lib/adminAudit";
 import { getCreatorForTenant } from "../lib/creatorProgram";
+import { notifyCreatorEvent } from "../lib/notifications";
+import { creatorAccountsTable } from "@workspace/db";
 import {
   buildPayoutRun, clawbackPaidCommission, exportPayoutBatch,
   getCreatorPayoutIdentity, getPayoutBalance, listCreatorPayouts,
@@ -149,6 +151,14 @@ router.post("/admin/payouts/:id/paid", run(async (req, res) => {
   if (!payoutId || !input) return;
   const paid = await markPayoutPaid(payoutId, input.reference);
   if (!paid) { res.status(409).json({ error: "Payout is not awaiting payment.", code: "bad_state" }); return; }
+  const [creator] = await db.select({ tenantId: creatorAccountsTable.tenantId })
+    .from(creatorAccountsTable).where(eq(creatorAccountsTable.id, paid.creatorId)).limit(1);
+  if (creator) await notifyCreatorEvent({
+    tenantId: creator.tenantId, type: "promoter_payout_sent", eventKey: `payout:${paid.id}`,
+    title: "Promoter payout marked sent",
+    message: `A payout of ₹${(paid.netPaise / 100).toFixed(2)} was marked sent. Reference: ${paid.gatewayRef ?? "not provided"}.`,
+    linkUrl: "/promoter",
+  });
   await audit(req, "creator_payout_paid", { payoutId, status: paid.status });
   res.json({ status: paid.status, paidAt: paid.paidAt });
 }));
