@@ -1,3 +1,4 @@
+import { creditReferralForPurchase } from "./referralPurchase";
 import {
   db,
   billingProfilesTable,
@@ -110,6 +111,7 @@ async function buildBuyer(tenantId: number): Promise<InvoiceParty> {
 export async function recordInvoice(
   params: RecordInvoiceParams,
 ): Promise<InvoiceRow | null> {
+  await creditReferralForPurchase(params);
   try {
     // Cheap fast path — the common repeat call (webhook after verify).
     const [existing] = await db

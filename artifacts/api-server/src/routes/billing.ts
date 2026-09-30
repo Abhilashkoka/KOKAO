@@ -1204,10 +1204,12 @@ router.post("/billing/promo/redeem", async (req: Request, res: Response) => {
         image_credits: result.imageCredits,
         video_credits: result.videoCredits,
         credits: result.credits,
+        attached: result.attached,
       },
     });
     res.json({
       ok: true,
+      attached: result.attached,
       captionCredits: result.captionCredits,
       imageCredits: result.imageCredits,
       videoCredits: result.videoCredits,

@@ -95,6 +95,12 @@ export const gamificationPlanSettingsTable = pgTable(
      * `quest:<id>`, `streak:<days>`, `referrer`, and `referee`.
      * Values are milli-credits and take precedence over legacy bucket amounts.
      */
+    referralSlabs: jsonb("referral_slabs").$type<
+      { minReferrals: number; referrerBps: number; refereeBps: number }[]
+    >(),
+    referralTriggerMode: text("referral_trigger_mode").notNull().default("every_purchase"),
+    referralAttributionDays: integer("referral_attribution_days").notNull().default(180),
+    referralBonusExpiryDays: integer("referral_bonus_expiry_days").notNull().default(90),
     rewardCreditOverrides: jsonb("reward_credit_overrides").$type<
       Record<string, number>
     >(),

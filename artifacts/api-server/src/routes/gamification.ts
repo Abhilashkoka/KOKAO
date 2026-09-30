@@ -7,11 +7,10 @@ import {
   claimReward,
   ClaimError,
   getPlanGamification,
-  legacyRewardToCreditsMilli,
 } from "../lib/gamification";
 import { getFeatureFlags } from "../lib/featureFlags";
 import { getOrCreateReferralCode, getReferralStats } from "../lib/referrals";
-import { MILLI } from "../lib/creditRates";
+import { referralSlabsFor } from "../lib/referralPurchase";
 
 const router: IRouter = Router();
 
@@ -87,59 +86,32 @@ router.get("/gamification/referral", async (req: Request, res: Response) => {
     return;
   }
   const code = await getOrCreateReferralCode(tenant);
-  let refereeCreditsMilli: number;
-  let referrerCreditsMilli: number;
-  try {
-    refereeCreditsMilli =
-      code.rewardCreditsMilli ??
-      (await legacyRewardToCreditsMilli({
-        captionCredits: code.captionCredits,
-        imageCredits: code.imageCredits,
-        videoCredits: code.videoCredits,
-      }));
-    referrerCreditsMilli =
-      settings.rewardCreditOverrides.referrer ??
-      (await legacyRewardToCreditsMilli({
-        captionCredits: settings.referrerCaptionCredits,
-        imageCredits: settings.referrerImageCredits,
-        videoCredits: 0,
-      }));
-  } catch (error) {
-    res.status(422).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : "Referral rewards need a credit override.",
-      code: "reward_mapping_missing",
-    });
-    return;
-  }
-  let stats;
-  try {
-    stats = await getReferralStats(req.tenantId);
-  } catch (error) {
-    res.status(422).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : "Referral history needs a credit override.",
-      code: "reward_mapping_missing",
-    });
-    return;
-  }
+  const stats = await getReferralStats(req.tenantId, tenant.plan);
+  const slabs = referralSlabsFor(settings);
+  const current = slabs[stats.currentSlabIndex] ?? slabs[0]!;
   res.json({
     code: code.code,
     refereeCaptionCredits: code.captionCredits,
     refereeImageCredits: code.imageCredits,
-    refereeCredits: refereeCreditsMilli / MILLI,
+    refereeCredits: null,
     referrerCaptionCredits: settings.referrerCaptionCredits,
     referrerImageCredits: settings.referrerImageCredits,
-    referrerCredits: referrerCreditsMilli / MILLI,
+    referrerCredits: null,
     maxRedemptions: code.maxRedemptions,
     redemptions: stats.redemptions,
     captionCreditsEarned: stats.captionCreditsEarned,
     imageCreditsEarned: stats.imageCreditsEarned,
     creditsEarned: stats.creditsEarned,
+    qualifyingPurchases: stats.qualifyingPurchases,
+    grossPaise: stats.grossPaise,
+    currentSlabIndex: stats.currentSlabIndex,
+    currentReferrerBps: stats.currentReferrerBps,
+    currentRefereeBps: current.refereeBps,
+    nextSlabAt: stats.nextSlabAt,
+    nextSlabBps: stats.nextSlabBps,
+    referralTriggerMode: settings.referralTriggerMode,
+    referralAttributionDays: settings.referralAttributionDays,
+    referralBonusExpiryDays: settings.referralBonusExpiryDays,
   });
 });
 

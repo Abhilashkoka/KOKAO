@@ -31,6 +31,31 @@ import { useToast } from "@/hooks/use-toast";
  */
 
 type Draft = GamificationPlanSettingsView;
+const DEFAULT_REFERRAL_SLABS = [
+  { minReferrals: 0, referrerBps: 1000, refereeBps: 1000 },
+  { minReferrals: 5, referrerBps: 1200, refereeBps: 1000 },
+  { minReferrals: 15, referrerBps: 1500, refereeBps: 1000 },
+];
+
+export function validateReferralSettings(draft: Draft): string | null {
+  const slabs = draft.referralSlabs;
+  if (slabs !== null && slabs !== undefined &&
+    (slabs.length < 1 || slabs.length > 20 || slabs[0]?.minReferrals !== 0 ||
+      slabs.some((s, i) =>
+        !Number.isInteger(s.minReferrals) || s.minReferrals < 0 || s.minReferrals > 1_000_000 ||
+        (i > 0 && s.minReferrals <= slabs[i - 1]!.minReferrals) ||
+        !Number.isInteger(s.referrerBps) || s.referrerBps < 0 || s.referrerBps > 10000 ||
+        !Number.isInteger(s.refereeBps) || s.refereeBps < 0 || s.refereeBps > 10000))) {
+    return "Referral tiers must start at 0, use strictly increasing purchase counts, and have rates between 0% and 100%.";
+  }
+  if (draft.referralTriggerMode !== "first_purchase" && draft.referralTriggerMode !== "every_purchase") {
+    return "Choose a valid referral purchase trigger.";
+  }
+  if ([draft.referralAttributionDays, draft.referralBonusExpiryDays].some(
+    (n) => !Number.isInteger(n) || n < 1 || n > 3650,
+  )) return "Referral durations must be whole numbers between 1 and 3650 days.";
+  return null;
+}
 
 const QUEST_REWARD_OVERRIDES = [
   ["quest:create_brand_kit", "Create a brand kit"],
@@ -154,6 +179,11 @@ export function GamificationPlansCard() {
   const onSave = (planId: string) => {
     const draft = drafts[planId];
     if (!draft) return;
+    const validationError = validateReferralSettings(draft);
+    if (validationError) {
+      toast({ title: "Check referral settings", description: validationError, variant: "destructive" });
+      return;
+    }
     update.mutate(
       { planId, data: draft },
       {
@@ -190,7 +220,7 @@ export function GamificationPlansCard() {
       <CardHeader>
         <CardTitle>Gamification per plan</CardTitle>
         <CardDescription>
-           Tune quests, streaks, referral credits, and the upgrade meter for each
+           Tune quests, streaks, purchase-based referral rates, and the upgrade meter for each
            plan — new plans automatically appear here with the defaults. Reward
            overrides use the single prepaid-credit balance; leave one blank to
            convert the legacy reward through the current rate card. The
@@ -292,6 +322,61 @@ export function GamificationPlansCard() {
                     max={10000}
                     onChange={(v) => setDraft(plan.planId, { referralMaxRedemptions: v })}
                   />
+                </div>
+
+                <div className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-3">
+                  <div>
+                    <p className="text-sm font-medium">Purchase referral rewards</p>
+                    <p className="text-xs text-muted-foreground">
+                      Attaching an invite code awards nothing immediately. Rates apply to paid credit packs and wallet top-ups, not plan renewals. Each tier unlocks after the specified number of qualifying purchases; the next purchase uses the unlocked rate. Existing wallet balance rules may extend a bonus grant's effective expiry.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-1">
+                      <Label htmlFor={`trigger-${plan.planId}`} className="text-xs text-muted-foreground">Reward trigger</Label>
+                      <select
+                        id={`trigger-${plan.planId}`}
+                        data-testid={`referral-trigger-${plan.planId}`}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        value={draft.referralTriggerMode}
+                        onChange={(e) => setDraft(plan.planId, { referralTriggerMode: e.target.value as Draft["referralTriggerMode"] })}
+                      >
+                        <option value="every_purchase">Every qualifying purchase</option>
+                        <option value="first_purchase">First qualifying purchase per workspace</option>
+                      </select>
+                    </div>
+                    <NumberField id={`attribution-days-${plan.planId}`} label="Code attribution (days)" value={draft.referralAttributionDays} min={1} max={3650} onChange={(v) => setDraft(plan.planId, { referralAttributionDays: v })} />
+                    <NumberField id={`bonus-expiry-days-${plan.planId}`} label="Requested bonus expiry (days)" value={draft.referralBonusExpiryDays} min={1} max={3650} onChange={(v) => setDraft(plan.planId, { referralBonusExpiryDays: v })} />
+                  </div>
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      data-testid={`use-default-referral-slabs-${plan.planId}`}
+                      checked={draft.referralSlabs === null}
+                      onChange={(e) => setDraft(plan.planId, {
+                        referralSlabs: e.target.checked ? null : DEFAULT_REFERRAL_SLABS.map((s) => ({ ...s })),
+                      })}
+                    />
+                    Use default tiers (0 purchases: 10%; 5: 12%; 15: 15%)
+                  </label>
+                  {draft.referralSlabs !== null && (
+                    <div className="space-y-2">
+                      {draft.referralSlabs.map((slab, index) => {
+                        const editSlab = (patch: Partial<typeof slab>) => setDraft(plan.planId, {
+                          referralSlabs: draft.referralSlabs!.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row),
+                        });
+                        return (
+                          <div key={index} className="grid gap-2 rounded-md border border-border/60 p-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                            <NumberField id={`slab-threshold-${plan.planId}-${index}`} label="Purchases needed" value={slab.minReferrals} min={0} max={1_000_000} onChange={(v) => editSlab({ minReferrals: v })} />
+                            <NumberField id={`slab-owner-${plan.planId}-${index}`} label="Referrer rate %" value={slab.referrerBps / 100} min={0} max={100} onChange={(v) => editSlab({ referrerBps: v * 100 })} />
+                            <NumberField id={`slab-buyer-${plan.planId}-${index}`} label="Buyer bonus %" value={slab.refereeBps / 100} min={0} max={100} onChange={(v) => editSlab({ refereeBps: v * 100 })} />
+                            <Button size="sm" variant="ghost" className="self-end" onClick={() => setDraft(plan.planId, { referralSlabs: draft.referralSlabs!.filter((_, i) => i !== index) })} disabled={draft.referralSlabs!.length <= 1} aria-label={`Remove tier ${index + 1}`}>Remove</Button>
+                          </div>
+                        );
+                      })}
+                      <Button size="sm" variant="outline" disabled={draft.referralSlabs.length >= 20} onClick={() => setDraft(plan.planId, { referralSlabs: [...draft.referralSlabs!, { minReferrals: draft.referralSlabs!.at(-1)!.minReferrals + 1, referrerBps: draft.referralSlabs!.at(-1)!.referrerBps, refereeBps: draft.referralSlabs!.at(-1)!.refereeBps }] })}>Add tier</Button>
+                    </div>
+                  )}
                 </div>
 
                  <div className="space-y-3 rounded-md border border-primary/20 bg-primary/5 p-3">

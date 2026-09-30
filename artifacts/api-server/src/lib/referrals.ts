@@ -12,20 +12,19 @@ import {
   legacyRewardToCreditsMilli,
 } from "./gamification";
 import { MILLI } from "./creditRates";
+import { getReferralPurchaseStats } from "./referralPurchase";
 
 /**
  * Referral credits, built ON TOP of the promo-code engine rather than beside
  * it: a tenant's personal invite code IS a promo code (campaign "referral",
  * ownerTenantId set), so every existing guarantee — atomic redemption,
  * per-tenant limits, global caps, audience targeting, failure logging, admin
- * metrics — applies to referrals for free. The referrer's reward is granted
- * inside the same redemption transaction (see lib/promoCodes.ts).
+ * metrics — applies to referrals for free. Redemption attaches the code;
+ * eligible paid purchases award both sides (see lib/referralPurchase.ts).
  */
 
 export const REFERRAL_CAMPAIGN = "referral";
 
-/** New-account window for redeeming an invite (days since signup). */
-const REFERRAL_NEW_TENANT_DAYS = 30;
 
 export async function getReferralCode(
   tenantId: number,
@@ -46,10 +45,9 @@ export async function getReferralCode(
 }
 
 /**
- * The tenant's personal invite code, minted on first ask. Referee amounts are
- * snapshotted onto the code from the owner's CURRENT plan settings (that is
- * how the promo engine grants), so later admin changes affect new codes, not
- * codes already in circulation.
+ * The tenant's personal invite code, minted on first ask. Legacy amount fields
+ * remain compatible with the promo schema but are not granted on redemption.
+ * Purchase reward rates are resolved live from the owner's plan.
  */
 export async function getOrCreateReferralCode(
   tenant: Tenant,
@@ -72,8 +70,7 @@ export async function getOrCreateReferralCode(
             captionCredits: settings.refereeCaptionCredits,
             imageCredits: settings.refereeImageCredits,
             rewardCreditsMilli: settings.rewardCreditOverrides.referee ?? null,
-            audience: "new",
-            newTenantDays: REFERRAL_NEW_TENANT_DAYS,
+            audience: "all",
             maxRedemptions: settings.referralMaxRedemptions,
             perTenantLimit: 1,
             active: true,
@@ -95,6 +92,12 @@ export async function getOrCreateReferralCode(
 }
 
 export interface ReferralStats {
+  qualifyingPurchases: number;
+  grossPaise: number;
+  currentSlabIndex: number;
+  currentReferrerBps: number;
+  nextSlabAt: number | null;
+  nextSlabBps: number | null;
   redemptions: number;
   captionCreditsEarned: number;
   imageCreditsEarned: number;
@@ -105,7 +108,9 @@ export interface ReferralStats {
 /** How the tenant's invite code has performed (what THEY earned as referrer). */
 export async function getReferralStats(
   tenantId: number,
+  plan: string,
 ): Promise<ReferralStats> {
+  const purchases = await getReferralPurchaseStats(tenantId, plan);
   const rows = await db
     .select({
       redemptions: promoRedemptionsTable.id,
@@ -132,7 +137,8 @@ export async function getReferralStats(
     }
   }
   return {
-    redemptions: rows.length,
+    ...purchases,
+    redemptions: purchases.attributedWorkspaces,
     captionCreditsEarned: rows.reduce(
       (sum, row) => sum + row.captionCreditsEarned,
       0,
@@ -141,6 +147,6 @@ export async function getReferralStats(
       (sum, row) => sum + row.imageCreditsEarned,
       0,
     ),
-    creditsEarned: creditsEarned / MILLI,
+    creditsEarned: creditsEarned / MILLI + purchases.creditsEarned,
   };
 }

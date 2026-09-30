@@ -51,6 +51,10 @@ export interface PlanGamification {
   refereeCaptionCredits: number;
   refereeImageCredits: number;
   referralMaxRedemptions: number;
+  referralSlabs: { minReferrals: number; referrerBps: number; refereeBps: number }[] | null;
+  referralTriggerMode: string;
+  referralAttributionDays: number;
+  referralBonusExpiryDays: number;
   rewardCreditOverrides: Record<string, number>;
 }
 
@@ -65,6 +69,10 @@ export const DEFAULT_PLAN_GAMIFICATION: PlanGamification = {
   refereeCaptionCredits: 5,
   refereeImageCredits: 3,
   referralMaxRedemptions: 25,
+  referralSlabs: null,
+  referralTriggerMode: "every_purchase",
+  referralAttributionDays: 180,
+  referralBonusExpiryDays: 90,
   rewardCreditOverrides: {},
 };
 
@@ -96,6 +104,10 @@ export function rowToPlanGamification(
     refereeCaptionCredits: row.refereeCaptionCredits,
     refereeImageCredits: row.refereeImageCredits,
     referralMaxRedemptions: row.referralMaxRedemptions,
+    referralSlabs: row.referralSlabs ?? null,
+    referralTriggerMode: row.referralTriggerMode,
+    referralAttributionDays: row.referralAttributionDays,
+    referralBonusExpiryDays: row.referralBonusExpiryDays,
     rewardCreditOverrides: row.rewardCreditOverrides ?? {},
   };
 }

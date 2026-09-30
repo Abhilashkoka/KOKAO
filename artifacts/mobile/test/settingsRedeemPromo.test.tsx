@@ -95,6 +95,16 @@ beforeEach(() => {
 });
 
 describe("Mobile Settings invite/promo code redeem box", () => {
+  it("shows attached invite confirmation without promising instant credits", async () => {
+    redeemMutate.mockImplementation((_vars, opts) =>
+      opts?.onSuccess?.({ attached: true, message: "Code applied. You'll get bonus credits on your next credit purchase." }),
+    );
+    renderScreen();
+    fireEvent.change(screen.getByTestId("input-promo-code"), { target: { value: "INVITE123" } });
+    fireEvent.click(screen.getByTestId("button-redeem-promo"));
+    expect(await screen.findByText("Code applied. You'll get bonus credits on your next credit purchase.")).toBeTruthy();
+  });
+
   it("successful redeem shows the success notice and clears the input", async () => {
     redeemMutate.mockImplementation((_vars, opts) =>
       opts?.onSuccess?.({ message: "Code redeemed! 50 caption credits added." }),

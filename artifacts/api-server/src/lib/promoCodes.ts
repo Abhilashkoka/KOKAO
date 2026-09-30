@@ -17,6 +17,7 @@ import {
   RewardMappingError,
 } from "./gamification";
 import { grantCredits } from "./creditAccounts";
+import { attachReferralAttribution, attributionDaysFor } from "./referralPurchase";
 import { MILLI } from "./creditRates";
 
 /**
@@ -45,6 +46,7 @@ export type RedeemFailureReason =
 export type RedeemResult =
   | {
       ok: true;
+      attached: boolean;
       captionCredits: number;
       imageCredits: number;
       videoCredits: number;
@@ -296,7 +298,7 @@ export async function redeemPromoCode(
       // All promotional redemptions now land in the canonical account. A
       // legacy video-generation amount has no safe duration mapping, so it must
       // be replaced by an explicit override rather than guessed.
-      refereeCreditsMilli =
+      refereeCreditsMilli = promo.ownerTenantId !== null ? 0 :
         promo.rewardCreditsMilli ??
         (await legacyRewardToCreditsMilli({
           captionCredits: promo.captionCredits,
@@ -326,20 +328,23 @@ export async function redeemPromoCode(
             message: failureMessage("referrals_disabled"),
           };
         }
-        referrerCaptionCredits = ownerSettings.referrerCaptionCredits;
-        referrerImageCredits = ownerSettings.referrerImageCredits;
-        // A code-level override is a frozen value. Otherwise the old
-        // caption/image buckets are converted against the current rate card.
-        referrerCreditsMilli =
-          ownerSettings.rewardCreditOverrides.referrer ??
-          (await legacyRewardToCreditsMilli({
-            captionCredits: referrerCaptionCredits,
-            imageCredits: referrerImageCredits,
-            videoCredits: 0,
-          }));
-        refereeCreditsMilli = promo.rewardCreditsMilli ?? refereeCreditsMilli;
+        referrerCreditsMilli = 0;
       }
 
+      const isReferral = promo.ownerTenantId !== null;
+      let attached = false;
+      if (isReferral) {
+        attached = await attachReferralAttribution(tx, {
+          tenantId, promo, attributionDays: attributionDaysFor(ownerSettings!),
+        });
+        if (!attached) {
+          return {
+            ok: false,
+            reason: "per_tenant_limit_reached",
+            message: "A referral code is already attached to this workspace. The first referral code cannot be replaced, even after its earning window expires.",
+          };
+        }
+      }
       // All checks passed — record the redemption and grant the credits, all
       // inside this same transaction.
       const redemption = (
@@ -349,9 +354,9 @@ export async function redeemPromoCode(
             promoCodeId: promo.id,
             tenantId,
             planAtRedemption: tenant.plan,
-            captionCredits: promo.captionCredits,
-            imageCredits: promo.imageCredits,
-            videoCredits: promo.videoCredits,
+            captionCredits: isReferral ? 0 : promo.captionCredits,
+            imageCredits: isReferral ? 0 : promo.imageCredits,
+            videoCredits: isReferral ? 0 : promo.videoCredits,
             referrerCaptionCredits,
             referrerImageCredits,
             rewardCreditsMilli: refereeCreditsMilli,
@@ -367,7 +372,7 @@ export async function redeemPromoCode(
       // Both ordinary promos and referral rewards are canonical expiring
       // grants. The redemption receipt and each ledger grant share this
       // transaction and stable idempotency keys.
-      await grantCredits(
+      if (!isReferral) await grantCredits(
         {
           tenantId,
           credits: (refereeCreditsMilli ?? 0) / MILLI,
@@ -379,37 +384,24 @@ export async function redeemPromoCode(
         tx,
       );
 
-      // Referrer reward: same transaction, so the redemption and the owner's
-      // credits can never disagree.
-      if (ownerTenant && (referrerCreditsMilli ?? 0) > 0) {
-        await grantCredits(
-          {
-            tenantId: ownerTenant.id,
-            credits: (referrerCreditsMilli ?? 0) / MILLI,
-            kind: "grant_promo",
-            expiresInDays: Number(process.env.CREDIT_GRANT_EXPIRY_DAYS ?? 90),
-            idempotencyKey: `referral:${redemption.id}:referrer`,
-            note: `Referral: ${promo.code} redeemed`,
-          },
-          tx,
-        );
-      }
-
       const parts: string[] = [];
       if ((refereeCreditsMilli ?? 0) > 0) {
         parts.push(`${(refereeCreditsMilli ?? 0) / MILLI} prepaid credits`);
       }
       return {
         ok: true,
-        captionCredits: promo.captionCredits,
-        imageCredits: promo.imageCredits,
-        videoCredits: promo.videoCredits,
+        attached,
+        captionCredits: isReferral ? 0 : promo.captionCredits,
+        imageCredits: isReferral ? 0 : promo.imageCredits,
+        videoCredits: isReferral ? 0 : promo.videoCredits,
         referrerTenantId: ownerTenant?.id ?? null,
         referrerCaptionCredits,
         referrerImageCredits,
         credits: (refereeCreditsMilli ?? 0) / MILLI,
         referrerCredits: (referrerCreditsMilli ?? 0) / MILLI,
-        message: `Success! ${formatCreditParts(parts)} added to your account.`,
+        message: isReferral
+          ? "Code applied. Eligible paid credit purchases during the referral window earn bonus credits."
+          : `Success! ${formatCreditParts(parts)} added to your account.`,
       };
     });
   } catch (error) {
@@ -433,17 +425,14 @@ export async function redeemPromoCode(
   // failure never affects the redemption itself.
   if (
     result.referrerTenantId !== null &&
-    (result.referrerCaptionCredits > 0 || result.referrerImageCredits > 0)
+    result.attached
   ) {
     try {
-      const parts: string[] = [];
-      if (result.referrerCredits > 0)
-        parts.push(`${result.referrerCredits} prepaid credits`);
       await db.insert(notificationsTable).values({
         tenantId: result.referrerTenantId,
-        type: "referral_redeemed",
-        title: "Your invite was redeemed!",
-        message: `Someone joined with your referral code — ${parts.join(" and ")} added to your balance.`,
+        type: "referral_attached",
+        title: "Someone used your invite code",
+        message: "Your code was applied to a workspace. You'll earn credits when they make eligible credit purchases.",
         linkUrl: "/studio",
         inApp: true,
       });

@@ -14677,10 +14677,13 @@ components:
           maxLength: 64
     PromoRedeemResult:
       type: object
-      required: [ok, captionCredits, imageCredits, videoCredits, credits, referrerCredits, message]
+      required: [ok, attached, captionCredits, imageCredits, videoCredits, credits, referrerCredits, message]
       properties:
         ok:
           type: boolean
+        attached:
+          type: boolean
+          description: True for an invite code attached to this workspace; no credits are granted until a qualifying paid credit purchase.
         captionCredits:
           type: integer
         imageCredits:
@@ -22756,6 +22759,16 @@ components:
            creditsEarned,
            refereeCredits,
            referrerCredits,
+          qualifyingPurchases,
+          grossPaise,
+          currentSlabIndex,
+          currentReferrerBps,
+          currentRefereeBps,
+          nextSlabAt,
+          nextSlabBps,
+          referralTriggerMode,
+          referralAttributionDays,
+          referralBonusExpiryDays,
         ]
       properties:
         code:
@@ -22763,31 +22776,76 @@ components:
           description: The personal invite code (share this).
         refereeCaptionCredits:
           type: integer
-          description: What a new user gets for redeeming this code.
+          description: Historical legacy referral configuration, not the current purchase reward.
         refereeImageCredits:
           type: integer
         referrerCaptionCredits:
           type: integer
-          description: What the owner currently earns per redemption.
+          description: Historical legacy referral configuration, not the current purchase reward.
         referrerImageCredits:
           type: integer
         maxRedemptions:
           type: ["integer", "null"]
         redemptions:
           type: integer
+          description: Workspaces attributed to this invite code owner, not signup bonuses paid.
         captionCreditsEarned:
           type: integer
         imageCreditsEarned:
           type: integer
         creditsEarned:
           type: number
-          description: Canonical prepaid credits earned by the referrer.
+          description: Canonical credits earned from qualifying referral purchases.
         refereeCredits:
           type: ["number", "null"]
-          description: Canonical amount awarded to a new user; null for legacy codes awaiting conversion.
+          description: Legacy amount; null for percentage-based purchase referrals.
         referrerCredits:
           type: ["number", "null"]
-          description: Canonical amount currently awarded to the code owner.
+          description: Legacy amount; null for percentage-based purchase referrals.
+        qualifyingPurchases:
+          type: integer
+          description: Number of qualifying credit purchases rewarded.
+        grossPaise:
+          type: number
+          description: Total qualifying purchase value in paise.
+        currentSlabIndex:
+          type: integer
+        currentReferrerBps:
+          type: integer
+          description: Current referrer reward percentage in basis points (1000 = 10%).
+        currentRefereeBps:
+          type: integer
+          description: Current buyer bonus percentage in basis points.
+        nextSlabAt:
+          type: ["integer", "null"]
+          description: Qualifying purchase count needed to reach the next rung.
+        nextSlabBps:
+          type: ["integer", "null"]
+        referralTriggerMode:
+          type: string
+          enum: [first_purchase, every_purchase]
+        referralAttributionDays:
+          type: integer
+        referralBonusExpiryDays:
+          type: integer
+          description: Requested expiry for referral bonus grants; existing wallet balance policy can extend effective expiry.
+    ReferralSlab:
+      type: object
+      required: [minReferrals, referrerBps, refereeBps]
+      properties:
+        minReferrals:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          description: Qualifying purchase count required for this rung.
+        referrerBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        refereeBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
     GamificationPlanSettingsView:
       type: object
       required:
@@ -22802,6 +22860,10 @@ components:
           refereeCaptionCredits,
           refereeImageCredits,
           referralMaxRedemptions,
+          referralSlabs,
+          referralTriggerMode,
+          referralAttributionDays,
+          referralBonusExpiryDays,
           rewardCreditOverrides,
         ]
       properties:
@@ -22825,6 +22887,18 @@ components:
         refereeImageCredits:
           type: integer
         referralMaxRedemptions:
+          type: integer
+        referralSlabs:
+          type: ["array", "null"]
+          description: Null uses the default 0/5/15 qualifying purchase ladder.
+          items:
+            $ref: "#/components/schemas/ReferralSlab"
+        referralTriggerMode:
+          type: string
+          enum: [first_purchase, every_purchase]
+        referralAttributionDays:
+          type: integer
+        referralBonusExpiryDays:
           type: integer
         rewardCreditOverrides:
           type: object
@@ -22889,6 +22963,24 @@ components:
           type: integer
           minimum: 1
           maximum: 10000
+        referralSlabs:
+          type: ["array", "null"]
+          description: Null restores the built-in ladder. First rung must start at zero and thresholds must strictly increase.
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ReferralSlab"
+        referralTriggerMode:
+          type: string
+          enum: [first_purchase, every_purchase]
+        referralAttributionDays:
+          type: integer
+          minimum: 1
+          maximum: 3650
+        referralBonusExpiryDays:
+          type: integer
+          minimum: 1
+          maximum: 3650
         rewardCreditOverrides:
           type: object
           additionalProperties:

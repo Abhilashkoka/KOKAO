@@ -4953,7 +4953,40 @@ router.put(
     ];
     const overrides = s.rewardCreditOverrides ?? {};
     const overrideEntries = Object.entries(overrides);
+    const slabs = s.referralSlabs;
+    const invalidSlabs =
+      slabs !== undefined &&
+      slabs !== null &&
+      (!Array.isArray(slabs) ||
+        slabs.length < 1 ||
+        slabs.length > 20 ||
+        slabs[0]?.minReferrals !== 0 ||
+        slabs.some(
+          (slab, i) =>
+            !Number.isInteger(slab.minReferrals) ||
+            slab.minReferrals < 0 ||
+            slab.minReferrals > 1_000_000 ||
+            (i > 0 && slab.minReferrals <= slabs[i - 1]!.minReferrals) ||
+            !Number.isInteger(slab.referrerBps) ||
+            slab.referrerBps < 0 ||
+            slab.referrerBps > 10_000 ||
+            !Number.isInteger(slab.refereeBps) ||
+            slab.refereeBps < 0 ||
+            slab.refereeBps > 10_000,
+        ));
     if (
+      invalidSlabs ||
+      (s.referralTriggerMode !== undefined &&
+        s.referralTriggerMode !== "first_purchase" &&
+        s.referralTriggerMode !== "every_purchase") ||
+      (s.referralAttributionDays !== undefined &&
+        (!Number.isInteger(s.referralAttributionDays) ||
+          s.referralAttributionDays < 1 ||
+          s.referralAttributionDays > 3650)) ||
+      (s.referralBonusExpiryDays !== undefined &&
+        (!Number.isInteger(s.referralBonusExpiryDays) ||
+          s.referralBonusExpiryDays < 1 ||
+          s.referralBonusExpiryDays > 3650)) ||
       nonNegative.some((n) => !Number.isInteger(n) || n < 0) ||
       !Number.isInteger(s.rewardMultiplierPercent) ||
       s.rewardMultiplierPercent < 0 ||
@@ -4971,7 +5004,7 @@ router.put(
     ) {
       res.status(400).json({
         error:
-          "Credits must be whole numbers >= 0, the multiplier 0-1000%, and the referral cap 1-10000.",
+          "Invalid settings. Referral slabs must start at 0, increase strictly, and use rates from 0–100%; referral durations must be 1–3650 days.",
       });
       return;
     }
@@ -4983,6 +5016,10 @@ router.put(
         .select({
           rewardCreditOverrides:
             gamificationPlanSettingsTable.rewardCreditOverrides,
+          referralSlabs: gamificationPlanSettingsTable.referralSlabs,
+          referralTriggerMode: gamificationPlanSettingsTable.referralTriggerMode,
+          referralAttributionDays: gamificationPlanSettingsTable.referralAttributionDays,
+          referralBonusExpiryDays: gamificationPlanSettingsTable.referralBonusExpiryDays,
         })
         .from(gamificationPlanSettingsTable)
         .where(eq(gamificationPlanSettingsTable.planId, planId))
@@ -5002,6 +5039,10 @@ router.put(
       refereeCaptionCredits: s.refereeCaptionCredits,
       refereeImageCredits: s.refereeImageCredits,
       referralMaxRedemptions: s.referralMaxRedemptions,
+      referralSlabs: s.referralSlabs === undefined ? existing?.referralSlabs ?? null : s.referralSlabs,
+      referralTriggerMode: s.referralTriggerMode ?? existing?.referralTriggerMode ?? "every_purchase",
+      referralAttributionDays: s.referralAttributionDays ?? existing?.referralAttributionDays ?? 180,
+      referralBonusExpiryDays: s.referralBonusExpiryDays ?? existing?.referralBonusExpiryDays ?? 90,
       rewardCreditOverrides,
       updatedAt: new Date(),
     };

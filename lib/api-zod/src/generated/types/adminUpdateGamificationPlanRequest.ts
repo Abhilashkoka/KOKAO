@@ -5,7 +5,9 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminUpdateGamificationPlanRequestReferralTriggerMode } from './adminUpdateGamificationPlanRequestReferralTriggerMode';
 import type { AdminUpdateGamificationPlanRequestRewardCreditOverrides } from './adminUpdateGamificationPlanRequestRewardCreditOverrides';
+import type { ReferralSlab } from './referralSlab';
 
 export interface AdminUpdateGamificationPlanRequest {
   questsEnabled: boolean;
@@ -30,6 +32,24 @@ export interface AdminUpdateGamificationPlanRequest {
      * @maximum 10000
      */
   referralMaxRedemptions: number;
+  /**
+     * Null restores the built-in ladder. First rung must start at zero and thresholds must strictly increase.
+     * @minItems 1
+     * @maxItems 20
+     * @nullable
+     */
+  referralSlabs?: ReferralSlab[] | null;
+  referralTriggerMode?: AdminUpdateGamificationPlanRequestReferralTriggerMode;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  referralAttributionDays?: number;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  referralBonusExpiryDays?: number;
   /** Optional canonical milli-credit overrides; omitted preserves the current map. */
   rewardCreditOverrides?: AdminUpdateGamificationPlanRequestRewardCreditOverrides;
 }

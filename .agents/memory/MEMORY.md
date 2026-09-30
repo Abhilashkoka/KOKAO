@@ -48,6 +48,7 @@
 - [Feature kill switches](feature-kill-switches.md) — gate every execution path (background jobs, settings mutations), not just route prefixes; admin routes stay ungated; fail open on DB errors.
 - [Sweep fail-ratio alert e2e](sweep-alert-e2e-verification.md) — force with temporary 1ms timeout env then delete it; verify DB suppression because schema drift can break notifications.
 - [Promo codes](promo-codes.md) — all redemption checks + credit grant in one FOR UPDATE tx; new audit actions need 3 registration spots or filters silently reject them.
+- [Purchase referrals](purchase-referral-boundaries.md) — purchase-count tiers, shared expiry limitations, and paid-replay settlement boundaries.
 - [E2E tenant seeding](e2e-tenant-seeding.md) — resolve tenant by polling email lookup, never "newest row" fallback; /ads tabs need a seeded connected ad connection.
 - [Text-gen provider switch](textgen-provider-switch.md) — builtin vs OpenRouter routing layer; no silent fallback (503 on misconfig); web-search endpoints stay builtin.
 - [Per-tenant row caps](per-tenant-caps.md) — count-then-insert caps race under parallel creates; lock the tenant row FOR UPDATE in one tx, refund any spent funding on cap-fail.

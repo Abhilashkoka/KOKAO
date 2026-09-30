@@ -112,9 +112,7 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
       cashfreeOrderId: orderId,
       note: "Wallet top-up (webhook)",
     });
-    if (credited) {
-      req.log.info({ tenantId, orderId }, "Credited wallet via Cashfree webhook backstop");
-      await recordInvoice({
+    await recordInvoice({
         tenantId,
         kind: "wallet_topup",
         refId: orderId,
@@ -124,7 +122,9 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
         gstAmountPaise: gstPaise,
         gstPercent,
         totalPaise: chargedPaise,
-      });
+    });
+    if (credited) {
+      req.log.info({ tenantId, orderId }, "Credited wallet via Cashfree webhook backstop");
       void recordServerEvent({
         name: "purchase",
         tenantId,
@@ -168,9 +168,7 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
     // Same order key as the browser verify path, so whichever lands first
     // credits and the other is a no-op.
     await topUpCreditAccount(tenantId, pack, `cf:${orderId}`);
-    if (granted) {
-      req.log.info({ tenantId, packId, orderId }, "Credited pack via Cashfree webhook backstop");
-      await recordInvoice({
+    await recordInvoice({
         tenantId,
         kind: "credit_pack",
         refId: orderId,
@@ -178,7 +176,9 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
         description: `Credit pack — ${pack.name}`,
         baseAmountPaise: pack.pricePaise,
         totalPaise: pack.pricePaise,
-      });
+    });
+    if (granted) {
+      req.log.info({ tenantId, packId, orderId }, "Credited pack via Cashfree webhook backstop");
       void recordServerEvent({
         name: "purchase",
         tenantId,
@@ -314,7 +314,11 @@ router.post("/billing/cashfree-webhook", async (req: Request, res: Response) => 
     .values({ id: key, eventType: body.type ?? "unknown" })
     .onConflictDoNothing()
     .returning();
-  if (inserted.length === 0) {
+  const duplicate = inserted.length === 0;
+  const isOrderEvent = !body.type?.includes("SUBSCRIPTION") &&
+    !body.type?.includes("REFUND") &&
+    (body.type?.includes("PAYMENT_SUCCESS") || body.type?.includes("ORDER"));
+  if (duplicate && !isOrderEvent) {
     res.json({ ok: true, duplicate: true });
     return;
   }
@@ -326,11 +330,11 @@ router.post("/billing/cashfree-webhook", async (req: Request, res: Response) => 
         body.data?.subscription?.subscription_id ??
         body.data?.subscription_details?.subscription_id;
       if (subId) await handleSubscriptionEvent(req, subId);
-    } else if (type.includes("PAYMENT_SUCCESS") || type.includes("ORDER")) {
+    } else if (isOrderEvent) {
       const orderId = body.data?.order?.order_id;
       if (orderId) await handleOrderPaid(req, orderId);
     }
-    res.json({ ok: true });
+    res.json({ ok: true, ...(duplicate ? { duplicate: true } : {}) });
   } catch (error) {
     req.log.error({ err: error, type: body.type }, "Cashfree webhook processing failed");
     // 500 so Cashfree retries; drop the idempotency row so the retry re-runs.

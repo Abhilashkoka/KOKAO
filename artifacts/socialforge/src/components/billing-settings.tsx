@@ -368,7 +368,7 @@ export function BillingSettings() {
       { data: { code } },
       {
         onSuccess: (result) => {
-          toast({ title: "Code redeemed", description: result.message });
+          toast({ title: result.attached ? "Invite code applied" : "Code redeemed", description: result.message });
           setPromoCode("");
           refresh();
         },
@@ -687,7 +687,7 @@ export function BillingSettings() {
               <TicketPercent className="h-5 w-5 text-primary" /> Have a promo code?
             </CardTitle>
             <CardDescription>
-              Enter a promotional code to add free credits to your workspace.
+              Enter an invite code to earn bonus credits when you buy credits, or a promo code for an immediate reward.
             </CardDescription>
           </CardHeader>
           <CardContent>

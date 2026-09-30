@@ -3302,6 +3302,15 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
 /**
  * @summary Gamification settings for every plan in the catalog (superadmin only)
  */
+export const adminListGamificationPlansResponseSettingsReferralSlabsItemMinReferralsMin = 0;
+export const adminListGamificationPlansResponseSettingsReferralSlabsItemMinReferralsMax = 1000000;
+
+export const adminListGamificationPlansResponseSettingsReferralSlabsItemReferrerBpsMin = 0;
+export const adminListGamificationPlansResponseSettingsReferralSlabsItemReferrerBpsMax = 10000;
+
+export const adminListGamificationPlansResponseSettingsReferralSlabsItemRefereeBpsMin = 0;
+export const adminListGamificationPlansResponseSettingsReferralSlabsItemRefereeBpsMax = 10000;
+
 export const adminListGamificationPlansResponseSettingsRewardCreditOverridesMinOne = 0;
 
 
@@ -3321,6 +3330,14 @@ export const AdminListGamificationPlansResponseItem = zod.object({
   "refereeCaptionCredits": zod.number(),
   "refereeImageCredits": zod.number(),
   "referralMaxRedemptions": zod.number(),
+  "referralSlabs": zod.array(zod.object({
+  "minReferrals": zod.number().min(adminListGamificationPlansResponseSettingsReferralSlabsItemMinReferralsMin).max(adminListGamificationPlansResponseSettingsReferralSlabsItemMinReferralsMax).describe('Qualifying purchase count required for this rung.'),
+  "referrerBps": zod.number().min(adminListGamificationPlansResponseSettingsReferralSlabsItemReferrerBpsMin).max(adminListGamificationPlansResponseSettingsReferralSlabsItemReferrerBpsMax),
+  "refereeBps": zod.number().min(adminListGamificationPlansResponseSettingsReferralSlabsItemRefereeBpsMin).max(adminListGamificationPlansResponseSettingsReferralSlabsItemRefereeBpsMax)
+})).nullable().describe('Null uses the default 0\/5\/15 qualifying purchase ladder.'),
+  "referralTriggerMode": zod.enum(['first_purchase', 'every_purchase']),
+  "referralAttributionDays": zod.number(),
+  "referralBonusExpiryDays": zod.number(),
   "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminListGamificationPlansResponseSettingsRewardCreditOverridesMinOne)).describe('Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.')
 })
 })
@@ -3347,6 +3364,21 @@ export const adminUpdateGamificationPlanBodyRefereeImageCreditsMin = 0;
 
 export const adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax = 10000;
 
+export const adminUpdateGamificationPlanBodyReferralSlabsItemMinReferralsMin = 0;
+export const adminUpdateGamificationPlanBodyReferralSlabsItemMinReferralsMax = 1000000;
+
+export const adminUpdateGamificationPlanBodyReferralSlabsItemReferrerBpsMin = 0;
+export const adminUpdateGamificationPlanBodyReferralSlabsItemReferrerBpsMax = 10000;
+
+export const adminUpdateGamificationPlanBodyReferralSlabsItemRefereeBpsMin = 0;
+export const adminUpdateGamificationPlanBodyReferralSlabsItemRefereeBpsMax = 10000;
+
+export const adminUpdateGamificationPlanBodyReferralSlabsMax = 20;
+
+export const adminUpdateGamificationPlanBodyReferralAttributionDaysMax = 3650;
+
+export const adminUpdateGamificationPlanBodyReferralBonusExpiryDaysMax = 3650;
+
 export const adminUpdateGamificationPlanBodyRewardCreditOverridesMinOne = 0;
 
 
@@ -3362,8 +3394,25 @@ export const AdminUpdateGamificationPlanBody = zod.object({
   "refereeCaptionCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeCaptionCreditsMin),
   "refereeImageCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeImageCreditsMin),
   "referralMaxRedemptions": zod.number().min(1).max(adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax),
+  "referralSlabs": zod.array(zod.object({
+  "minReferrals": zod.number().min(adminUpdateGamificationPlanBodyReferralSlabsItemMinReferralsMin).max(adminUpdateGamificationPlanBodyReferralSlabsItemMinReferralsMax).describe('Qualifying purchase count required for this rung.'),
+  "referrerBps": zod.number().min(adminUpdateGamificationPlanBodyReferralSlabsItemReferrerBpsMin).max(adminUpdateGamificationPlanBodyReferralSlabsItemReferrerBpsMax),
+  "refereeBps": zod.number().min(adminUpdateGamificationPlanBodyReferralSlabsItemRefereeBpsMin).max(adminUpdateGamificationPlanBodyReferralSlabsItemRefereeBpsMax)
+})).min(1).max(adminUpdateGamificationPlanBodyReferralSlabsMax).nullish().describe('Null restores the built-in ladder. First rung must start at zero and thresholds must strictly increase.'),
+  "referralTriggerMode": zod.enum(['first_purchase', 'every_purchase']).optional(),
+  "referralAttributionDays": zod.number().min(1).max(adminUpdateGamificationPlanBodyReferralAttributionDaysMax).optional(),
+  "referralBonusExpiryDays": zod.number().min(1).max(adminUpdateGamificationPlanBodyReferralBonusExpiryDaysMax).optional(),
   "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminUpdateGamificationPlanBodyRewardCreditOverridesMinOne)).optional().describe('Optional canonical milli-credit overrides; omitted preserves the current map.')
 })
+
+export const adminUpdateGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMin = 0;
+export const adminUpdateGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMax = 1000000;
+
+export const adminUpdateGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMin = 0;
+export const adminUpdateGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMax = 10000;
+
+export const adminUpdateGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMin = 0;
+export const adminUpdateGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMax = 10000;
 
 export const adminUpdateGamificationPlanResponseSettingsRewardCreditOverridesMinOne = 0;
 
@@ -3384,6 +3433,14 @@ export const AdminUpdateGamificationPlanResponseItem = zod.object({
   "refereeCaptionCredits": zod.number(),
   "refereeImageCredits": zod.number(),
   "referralMaxRedemptions": zod.number(),
+  "referralSlabs": zod.array(zod.object({
+  "minReferrals": zod.number().min(adminUpdateGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMin).max(adminUpdateGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMax).describe('Qualifying purchase count required for this rung.'),
+  "referrerBps": zod.number().min(adminUpdateGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMin).max(adminUpdateGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMax),
+  "refereeBps": zod.number().min(adminUpdateGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMin).max(adminUpdateGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMax)
+})).nullable().describe('Null uses the default 0\/5\/15 qualifying purchase ladder.'),
+  "referralTriggerMode": zod.enum(['first_purchase', 'every_purchase']),
+  "referralAttributionDays": zod.number(),
+  "referralBonusExpiryDays": zod.number(),
   "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminUpdateGamificationPlanResponseSettingsRewardCreditOverridesMinOne)).describe('Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.')
 })
 })
@@ -3396,6 +3453,15 @@ export const AdminUpdateGamificationPlanResponse = zod.array(AdminUpdateGamifica
 export const AdminResetGamificationPlanParams = zod.object({
   "planId": zod.coerce.string()
 })
+
+export const adminResetGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMin = 0;
+export const adminResetGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMax = 1000000;
+
+export const adminResetGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMin = 0;
+export const adminResetGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMax = 10000;
+
+export const adminResetGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMin = 0;
+export const adminResetGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMax = 10000;
 
 export const adminResetGamificationPlanResponseSettingsRewardCreditOverridesMinOne = 0;
 
@@ -3416,6 +3482,14 @@ export const AdminResetGamificationPlanResponseItem = zod.object({
   "refereeCaptionCredits": zod.number(),
   "refereeImageCredits": zod.number(),
   "referralMaxRedemptions": zod.number(),
+  "referralSlabs": zod.array(zod.object({
+  "minReferrals": zod.number().min(adminResetGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMin).max(adminResetGamificationPlanResponseSettingsReferralSlabsItemMinReferralsMax).describe('Qualifying purchase count required for this rung.'),
+  "referrerBps": zod.number().min(adminResetGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMin).max(adminResetGamificationPlanResponseSettingsReferralSlabsItemReferrerBpsMax),
+  "refereeBps": zod.number().min(adminResetGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMin).max(adminResetGamificationPlanResponseSettingsReferralSlabsItemRefereeBpsMax)
+})).nullable().describe('Null uses the default 0\/5\/15 qualifying purchase ladder.'),
+  "referralTriggerMode": zod.enum(['first_purchase', 'every_purchase']),
+  "referralAttributionDays": zod.number(),
+  "referralBonusExpiryDays": zod.number(),
   "rewardCreditOverrides": zod.record(zod.string(), zod.number().min(adminResetGamificationPlanResponseSettingsRewardCreditOverridesMinOne)).describe('Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.')
 })
 })
@@ -34145,17 +34219,27 @@ export const ClaimGamificationRewardResponse = zod.object({
  */
 export const GetReferralInfoResponse = zod.object({
   "code": zod.string().describe('The personal invite code (share this).'),
-  "refereeCaptionCredits": zod.number().describe('What a new user gets for redeeming this code.'),
+  "refereeCaptionCredits": zod.number().describe('Historical legacy referral configuration, not the current purchase reward.'),
   "refereeImageCredits": zod.number(),
-  "referrerCaptionCredits": zod.number().describe('What the owner currently earns per redemption.'),
+  "referrerCaptionCredits": zod.number().describe('Historical legacy referral configuration, not the current purchase reward.'),
   "referrerImageCredits": zod.number(),
   "maxRedemptions": zod.number().nullable(),
-  "redemptions": zod.number(),
+  "redemptions": zod.number().describe('Workspaces attributed to this invite code owner, not signup bonuses paid.'),
   "captionCreditsEarned": zod.number(),
   "imageCreditsEarned": zod.number(),
-  "creditsEarned": zod.number().describe('Canonical prepaid credits earned by the referrer.'),
-  "refereeCredits": zod.number().nullable().describe('Canonical amount awarded to a new user; null for legacy codes awaiting conversion.'),
-  "referrerCredits": zod.number().nullable().describe('Canonical amount currently awarded to the code owner.')
+  "creditsEarned": zod.number().describe('Canonical credits earned from qualifying referral purchases.'),
+  "refereeCredits": zod.number().nullable().describe('Legacy amount; null for percentage-based purchase referrals.'),
+  "referrerCredits": zod.number().nullable().describe('Legacy amount; null for percentage-based purchase referrals.'),
+  "qualifyingPurchases": zod.number().describe('Number of qualifying credit purchases rewarded.'),
+  "grossPaise": zod.number().describe('Total qualifying purchase value in paise.'),
+  "currentSlabIndex": zod.number(),
+  "currentReferrerBps": zod.number().describe('Current referrer reward percentage in basis points (1000 = 10%).'),
+  "currentRefereeBps": zod.number().describe('Current buyer bonus percentage in basis points.'),
+  "nextSlabAt": zod.number().nullable().describe('Qualifying purchase count needed to reach the next rung.'),
+  "nextSlabBps": zod.number().nullable(),
+  "referralTriggerMode": zod.enum(['first_purchase', 'every_purchase']),
+  "referralAttributionDays": zod.number(),
+  "referralBonusExpiryDays": zod.number().describe('Requested expiry for referral bonus grants; existing wallet balance policy can extend effective expiry.')
 })
 
 
@@ -34800,6 +34884,7 @@ export const BillingRedeemPromoBody = zod.object({
 
 export const BillingRedeemPromoResponse = zod.object({
   "ok": zod.boolean(),
+  "attached": zod.boolean().describe('True for an invite code attached to this workspace; no credits are granted until a qualifying paid credit purchase.'),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number(),

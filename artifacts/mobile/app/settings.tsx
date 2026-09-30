@@ -168,7 +168,7 @@ export default function SettingsScreen() {
           setPromoCode("");
           setNotice({
             kind: "success",
-            text: result.message ?? "Code redeemed. Credits added to your workspace.",
+            text: result.message ?? (result.attached ? "Invite code applied. Bonus credits arrive after a qualifying purchase." : "Code redeemed. Credits added to your workspace."),
           });
           refreshAfterPurchase();
         },

@@ -14,6 +14,7 @@ import { grantMonthlyCreditsSafely } from "../lib/monthlyCreditGrant";
 import { applyPlanBillingMode, getPlan } from "../lib/plans";
 import { recordInvoice } from "../lib/invoices";
 import { recordServerEvent } from "../lib/analytics";
+import { creditWalletTopup } from "../lib/wallet";
 
 /**
  * PUBLIC Razorpay webhook receiver (mounted before requireTenant). Every
@@ -21,8 +22,9 @@ import { recordServerEvent } from "../lib/analytics";
  * with the configured webhook secret); everything else is rejected.
  *
  * Idempotent: each Razorpay event id is recorded in razorpay_events on first
- * processing, and redeliveries are acknowledged without reprocessing.
- * Credit grants are additionally deduped per order id in the credit ledger.
+ * processing. Subscription redeliveries are acknowledged without reprocessing.
+ * Paid-order replays recheck the canonical order and retry independently
+ * idempotent credit, invoice and referral ledgers.
  */
 const router: IRouter = Router();
 
@@ -191,29 +193,51 @@ async function handleSubscriptionEvent(
 }
 
 /**
- * Backstop crediting for one-time credit-pack orders: if the browser closed
- * before verification, the payment.captured webhook still credits the pack.
- * Order notes carry tenantId + creditPackId (set when the order was created).
+ * Backstop crediting for credit packs and wallet top-ups when the browser
+ * closes before verification. Canonical order notes determine the purpose.
  */
 async function handlePaymentCaptured(
   req: Request,
   payment: NonNullable<NonNullable<WebhookEvent["payload"]>["payment"]>["entity"],
 ): Promise<void> {
   const orderId = payment?.order_id;
-  const paymentNotes = payment?.notes ?? {};
-  if (!orderId || paymentNotes.purpose !== "credit_pack") return;
+  if (!orderId) return;
 
   // Don't trust the delivered payload's notes: fetch the canonical order from
   // Razorpay and validate purpose, tenant, pack, and amount before crediting
   // (mirrors the interactive /billing/verify-purchase checks).
   const order = await fetchRazorpayOrder(orderId);
   const notes = order.notes ?? {};
-  if (notes.purpose !== "credit_pack") return;
+  if (!["credit_pack", "wallet_topup"].includes(notes.purpose ?? "")) return;
   if (order.status !== "paid") {
     req.log.warn({ orderId, status: order.status }, "Webhook order not paid; skipping credit");
     return;
   }
   const tenantId = Number(notes.tenantId);
+  if (!Number.isSafeInteger(tenantId) || tenantId <= 0 || order.currency !== "INR") return;
+  if (notes.purpose === "wallet_topup") {
+    const basePaise = Number(notes.basePaise);
+    const gstPaise = Number(notes.gstPaise);
+    const gstPercent = Number(notes.gstPercent);
+    if (!Number.isSafeInteger(basePaise) || basePaise <= 0 ||
+      !Number.isSafeInteger(gstPaise) || gstPaise < 0 ||
+      !Number.isSafeInteger(gstPercent) || gstPercent < 0 || gstPercent > 100 ||
+      basePaise + gstPaise !== order.amount) return;
+    const credited = await creditWalletTopup({
+      tenantId, basePaise, gstPaise, gstPercent, razorpayOrderId: orderId,
+      note: "Wallet top-up (webhook)",
+    });
+    await recordInvoice({
+      tenantId, kind: "wallet_topup", refId: orderId, gateway: "razorpay",
+      description: "Wallet top-up", baseAmountPaise: basePaise,
+      gstAmountPaise: gstPaise, gstPercent, totalPaise: order.amount,
+    });
+    if (credited) void recordServerEvent({
+      name: "purchase", tenantId,
+      params: { item_type: "wallet_topup", item_name: "wallet", amount_paise: order.amount },
+    });
+    return;
+  }
   const packId = Number(notes.creditPackId);
   if (!Number.isInteger(tenantId) || !Number.isInteger(packId)) return;
 
@@ -241,9 +265,7 @@ async function handlePaymentCaptured(
   // Same order key as the browser verify path, so whichever lands first
   // credits and the other is a no-op.
   await topUpCreditAccount(tenantId, pack, `rzp:${orderId}`);
-  if (granted) {
-    req.log.info({ tenantId, packId, orderId }, "Credited pack via webhook backstop");
-    await recordInvoice({
+  await recordInvoice({
       tenantId,
       kind: "credit_pack",
       refId: orderId,
@@ -251,7 +273,9 @@ async function handlePaymentCaptured(
       description: `Credit pack — ${pack.name}`,
       baseAmountPaise: pack.pricePaise,
       totalPaise: pack.pricePaise,
-    });
+  });
+  if (granted) {
+    req.log.info({ tenantId, packId, orderId }, "Credited pack via webhook backstop");
     void recordServerEvent({
       name: "purchase",
       tenantId,
@@ -274,6 +298,7 @@ router.post("/billing/razorpay-webhook", async (req: Request, res: Response) => 
 
   const event = req.body as WebhookEvent;
   const eventId = req.header("x-razorpay-event-id");
+  let duplicate = false;
   if (eventId) {
     // First-writer wins: a redelivered event id is acknowledged untouched.
     const inserted = await db
@@ -282,8 +307,13 @@ router.post("/billing/razorpay-webhook", async (req: Request, res: Response) => 
       .onConflictDoNothing()
       .returning();
     if (inserted.length === 0) {
-      res.json({ ok: true, duplicate: true });
-      return;
+      duplicate = true;
+      // Paid orders have independently idempotent credit/invoice/referral
+      // ledgers. Replay them to recover a prior best-effort invoice/reward.
+      if (event.event !== "payment.captured") {
+        res.json({ ok: true, duplicate: true });
+        return;
+      }
     }
   }
 
@@ -293,7 +323,7 @@ router.post("/billing/razorpay-webhook", async (req: Request, res: Response) => 
     } else if (event.event === "payment.captured") {
       await handlePaymentCaptured(req, event.payload?.payment?.entity);
     }
-    res.json({ ok: true });
+    res.json({ ok: true, ...(duplicate ? { duplicate: true } : {}) });
   } catch (error) {
     req.log.error({ err: error, event: event.event }, "Webhook processing failed");
     // 500 so Razorpay retries; the event-id row blocks double-processing of

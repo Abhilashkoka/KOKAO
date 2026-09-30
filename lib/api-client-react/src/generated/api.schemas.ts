@@ -1180,6 +1180,8 @@ export interface RedeemPromoInput {
 
 export interface PromoRedeemResult {
   ok: boolean;
+  /** True for an invite code attached to this workspace; no credits are granted until a qualifying paid credit purchase. */
+  attached: boolean;
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
@@ -9452,33 +9454,89 @@ export interface ClaimGamificationRewardResult {
   credits: CreditBalance;
 }
 
+export type ReferralInfoReferralTriggerMode = typeof ReferralInfoReferralTriggerMode[keyof typeof ReferralInfoReferralTriggerMode];
+
+
+export const ReferralInfoReferralTriggerMode = {
+  first_purchase: 'first_purchase',
+  every_purchase: 'every_purchase',
+} as const;
+
 export interface ReferralInfo {
   /** The personal invite code (share this). */
   code: string;
-  /** What a new user gets for redeeming this code. */
+  /** Historical legacy referral configuration, not the current purchase reward. */
   refereeCaptionCredits: number;
   refereeImageCredits: number;
-  /** What the owner currently earns per redemption. */
+  /** Historical legacy referral configuration, not the current purchase reward. */
   referrerCaptionCredits: number;
   referrerImageCredits: number;
   /** @nullable */
   maxRedemptions: number | null;
+  /** Workspaces attributed to this invite code owner, not signup bonuses paid. */
   redemptions: number;
   captionCreditsEarned: number;
   imageCreditsEarned: number;
-  /** Canonical prepaid credits earned by the referrer. */
+  /** Canonical credits earned from qualifying referral purchases. */
   creditsEarned: number;
   /**
-     * Canonical amount awarded to a new user; null for legacy codes awaiting conversion.
+     * Legacy amount; null for percentage-based purchase referrals.
      * @nullable
      */
   refereeCredits: number | null;
   /**
-     * Canonical amount currently awarded to the code owner.
+     * Legacy amount; null for percentage-based purchase referrals.
      * @nullable
      */
   referrerCredits: number | null;
+  /** Number of qualifying credit purchases rewarded. */
+  qualifyingPurchases: number;
+  /** Total qualifying purchase value in paise. */
+  grossPaise: number;
+  currentSlabIndex: number;
+  /** Current referrer reward percentage in basis points (1000 = 10%). */
+  currentReferrerBps: number;
+  /** Current buyer bonus percentage in basis points. */
+  currentRefereeBps: number;
+  /**
+     * Qualifying purchase count needed to reach the next rung.
+     * @nullable
+     */
+  nextSlabAt: number | null;
+  /** @nullable */
+  nextSlabBps: number | null;
+  referralTriggerMode: ReferralInfoReferralTriggerMode;
+  referralAttributionDays: number;
+  /** Requested expiry for referral bonus grants; existing wallet balance policy can extend effective expiry. */
+  referralBonusExpiryDays: number;
 }
+
+export interface ReferralSlab {
+  /**
+     * Qualifying purchase count required for this rung.
+     * @minimum 0
+     * @maximum 1000000
+     */
+  minReferrals: number;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  referrerBps: number;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  refereeBps: number;
+}
+
+export type GamificationPlanSettingsViewReferralTriggerMode = typeof GamificationPlanSettingsViewReferralTriggerMode[keyof typeof GamificationPlanSettingsViewReferralTriggerMode];
+
+
+export const GamificationPlanSettingsViewReferralTriggerMode = {
+  first_purchase: 'first_purchase',
+  every_purchase: 'every_purchase',
+} as const;
 
 /**
  * Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee.
@@ -9497,6 +9555,14 @@ export interface GamificationPlanSettingsView {
   refereeCaptionCredits: number;
   refereeImageCredits: number;
   referralMaxRedemptions: number;
+  /**
+     * Null uses the default 0/5/15 qualifying purchase ladder.
+     * @nullable
+     */
+  referralSlabs: ReferralSlab[] | null;
+  referralTriggerMode: GamificationPlanSettingsViewReferralTriggerMode;
+  referralAttributionDays: number;
+  referralBonusExpiryDays: number;
   /** Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee. */
   rewardCreditOverrides: GamificationPlanSettingsViewRewardCreditOverrides;
 }
@@ -9508,6 +9574,14 @@ export interface AdminGamificationPlan {
   customized: boolean;
   settings: GamificationPlanSettingsView;
 }
+
+export type AdminUpdateGamificationPlanRequestReferralTriggerMode = typeof AdminUpdateGamificationPlanRequestReferralTriggerMode[keyof typeof AdminUpdateGamificationPlanRequestReferralTriggerMode];
+
+
+export const AdminUpdateGamificationPlanRequestReferralTriggerMode = {
+  first_purchase: 'first_purchase',
+  every_purchase: 'every_purchase',
+} as const;
 
 /**
  * Optional canonical milli-credit overrides; omitted preserves the current map.
@@ -9537,6 +9611,24 @@ export interface AdminUpdateGamificationPlanRequest {
      * @maximum 10000
      */
   referralMaxRedemptions: number;
+  /**
+     * Null restores the built-in ladder. First rung must start at zero and thresholds must strictly increase.
+     * @minItems 1
+     * @maxItems 20
+     * @nullable
+     */
+  referralSlabs?: ReferralSlab[] | null;
+  referralTriggerMode?: AdminUpdateGamificationPlanRequestReferralTriggerMode;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  referralAttributionDays?: number;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  referralBonusExpiryDays?: number;
   /** Optional canonical milli-credit overrides; omitted preserves the current map. */
   rewardCreditOverrides?: AdminUpdateGamificationPlanRequestRewardCreditOverrides;
 }

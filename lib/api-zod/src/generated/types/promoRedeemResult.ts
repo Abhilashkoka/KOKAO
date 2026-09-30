@@ -8,6 +8,8 @@
 
 export interface PromoRedeemResult {
   ok: boolean;
+  /** True for an invite code attached to this workspace; no credits are granted until a qualifying paid credit purchase. */
+  attached: boolean;
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;

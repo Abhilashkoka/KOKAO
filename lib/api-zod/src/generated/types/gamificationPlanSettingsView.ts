@@ -5,7 +5,9 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GamificationPlanSettingsViewReferralTriggerMode } from './gamificationPlanSettingsViewReferralTriggerMode';
 import type { GamificationPlanSettingsViewRewardCreditOverrides } from './gamificationPlanSettingsViewRewardCreditOverrides';
+import type { ReferralSlab } from './referralSlab';
 
 export interface GamificationPlanSettingsView {
   questsEnabled: boolean;
@@ -19,6 +21,14 @@ export interface GamificationPlanSettingsView {
   refereeCaptionCredits: number;
   refereeImageCredits: number;
   referralMaxRedemptions: number;
+  /**
+     * Null uses the default 0/5/15 qualifying purchase ladder.
+     * @nullable
+     */
+  referralSlabs: ReferralSlab[] | null;
+  referralTriggerMode: GamificationPlanSettingsViewReferralTriggerMode;
+  referralAttributionDays: number;
+  referralBonusExpiryDays: number;
   /** Canonical milli-credit overrides keyed by quest:id, streak:days, referrer, or referee. */
   rewardCreditOverrides: GamificationPlanSettingsViewRewardCreditOverrides;
 }

@@ -9,6 +9,7 @@ import {
   gamificationPlanSettingsTable,
   creditAccountsTable,
   creditAccountLedgerTable,
+  referralAttributionsTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { getOrCreateReferralCode, getReferralCode, getReferralStats } from "./referrals";
@@ -34,6 +35,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(referralAttributionsTable).where(eq(referralAttributionsTable.tenantId, refereeId));
   const codes = await db
     .select({ id: promoCodesTable.id })
     .from(promoCodesTable)
@@ -83,23 +85,21 @@ describe("referral codes", () => {
     if (!result.ok) expect(result.reason).toBe("own_code");
   });
 
-  it("pays the referee from the code and the referrer from their plan settings", async () => {
+  it("attaches the referral without granting either side credits", async () => {
     const code = (await getReferralCode(referrerId))!;
     const refereeBefore = await getCreditBalance(refereeId);
     const referrerBefore = await getCreditBalance(referrerId);
     const refereeLegacyBefore = await getLegacyCreditBalances(refereeId);
     const referrerLegacyBefore = await getLegacyCreditBalances(referrerId);
-    const expectedCredits =
-      ((await creditsMilliFor("caption", 5))! +
-        (await creditsMilliFor("image", 3))!) /
-      MILLI;
+    const expectedCredits = 0;
 
     const result = await redeemPromoCode(refereeId, code.code);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.referrerTenantId).toBe(referrerId);
-    expect(result.referrerCaptionCredits).toBe(5);
-    expect(result.referrerImageCredits).toBe(3);
+    expect(result.attached).toBe(true);
+    expect(result.referrerCaptionCredits).toBe(0);
+    expect(result.referrerImageCredits).toBe(0);
     expect(result.credits).toBe(expectedCredits);
     expect(result.referrerCredits).toBe(expectedCredits);
 
@@ -113,10 +113,10 @@ describe("referral codes", () => {
       referrerLegacyBefore,
     );
 
-    const stats = await getReferralStats(referrerId);
+    const stats = await getReferralStats(referrerId, TEST_PLAN);
     expect(stats.redemptions).toBe(1);
-    expect(stats.captionCreditsEarned).toBe(5);
-    expect(stats.imageCreditsEarned).toBe(3);
+    expect(stats.captionCreditsEarned).toBe(0);
+    expect(stats.imageCreditsEarned).toBe(0);
     expect(stats.creditsEarned).toBe(expectedCredits);
 
     // The referrer got an in-app heads-up.
@@ -124,7 +124,7 @@ describe("referral codes", () => {
       .select()
       .from(notificationsTable)
       .where(eq(notificationsTable.tenantId, referrerId));
-    expect(notes.some((n) => n.type === "referral_redeemed")).toBe(true);
+    expect(notes.some((n) => n.type === "referral_attached")).toBe(true);
 
     // One redemption per workspace: a second attempt is rejected.
     const again = await redeemPromoCode(refereeId, code.code);

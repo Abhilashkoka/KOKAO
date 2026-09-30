@@ -49,20 +49,6 @@ function rewardText(reward: RewardAmounts): string {
     : `Legacy: ${legacy.join(" + ")} credits`;
 }
 
-function referralReward(
-  canonical: number | null | undefined,
-  caption: number,
-  image: number,
-): string {
-  if (typeof canonical === "number" && Number.isFinite(canonical)) {
-    return `${formatCredits(canonical)} credits`;
-  }
-  const legacy: string[] = [];
-  if (caption > 0) legacy.push(`${caption} caption`);
-  if (image > 0) legacy.push(`${image} image`);
-  return legacy.length ? `${legacy.join(" + ")} (legacy balances)` : "not configured";
-}
-
 export function GamificationCard() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -378,7 +364,7 @@ function ReferralModal({
             <View style={{ flex: 1 }}>
               <Text style={styles.modalTitle}>Invite friends</Text>
               <Text style={styles.modalSubtitle}>
-                Earn unified credits when a friend joins with your code.
+                Earn credits when a friend buys credits with your code.
               </Text>
             </View>
             <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close referral dialog">
@@ -399,24 +385,12 @@ function ReferralModal({
                 <Button title="Copy" icon="copy" variant="outline" onPress={copy} />
               </View>
               <Text style={styles.modalDescription}>
-                Your friend gets{" "}
-                {referralReward(
-                  referral.data.refereeCredits,
-                  referral.data.refereeCaptionCredits,
-                  referral.data.refereeImageCredits,
-                )}
-                ; you get{" "}
-                {referralReward(
-                  referral.data.referrerCredits,
-                  referral.data.referrerCaptionCredits,
-                  referral.data.referrerImageCredits,
-                )}{" "}
-                per signup.
+                Friends can apply your code at any time. On a paid credit purchase they get {referral.data.currentRefereeBps / 100}% bonus credits; you earn {referral.data.currentReferrerBps / 100}% in credits. Applying the code alone does not award credits.
               </Text>
               <View style={styles.stats}>
                 <View style={styles.stat}>
                   <Text style={styles.statValue}>{referral.data.redemptions}</Text>
-                  <Text style={styles.statLabel}>signups</Text>
+                  <Text style={styles.statLabel}>attributed workspaces</Text>
                 </View>
                 <View style={styles.stat}>
                   <Text style={styles.statValue}>
@@ -426,15 +400,21 @@ function ReferralModal({
                         : 0,
                     )}
                   </Text>
-                  <Text style={styles.statLabel}>credits earned</Text>
+                  <Text style={styles.statLabel}>purchase credits earned</Text>
                 </View>
                 <View style={styles.stat}>
                   <Text style={styles.statValue}>
                     {referral.data.captionCreditsEarned + referral.data.imageCreditsEarned}
                   </Text>
-                  <Text style={styles.statLabel}>legacy balances</Text>
+                  <Text style={styles.statLabel}>legacy credits awarded</Text>
                 </View>
               </View>
+              <Text style={styles.modalFootnote}>
+                {referral.data.qualifyingPurchases} qualifying credit purchases · {referral.data.referralTriggerMode === "first_purchase" ? "First purchase per referred workspace" : "Every purchase"} within {referral.data.referralAttributionDays} days of applying the code.
+                {referral.data.nextSlabAt !== null && referral.data.nextSlabBps !== null
+                  ? ` At ${referral.data.nextSlabAt} qualifying purchases, your rate becomes ${referral.data.nextSlabBps / 100}%.`
+                  : " You're on the highest reward tier."}
+              </Text>
               {referral.data.maxRedemptions !== null ? (
                 <Text style={styles.modalFootnote}>
                   Up to {referral.data.maxRedemptions} redemptions on this code.

@@ -5,31 +5,53 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ReferralInfoReferralTriggerMode } from './referralInfoReferralTriggerMode';
 
 export interface ReferralInfo {
   /** The personal invite code (share this). */
   code: string;
-  /** What a new user gets for redeeming this code. */
+  /** Historical legacy referral configuration, not the current purchase reward. */
   refereeCaptionCredits: number;
   refereeImageCredits: number;
-  /** What the owner currently earns per redemption. */
+  /** Historical legacy referral configuration, not the current purchase reward. */
   referrerCaptionCredits: number;
   referrerImageCredits: number;
   /** @nullable */
   maxRedemptions: number | null;
+  /** Workspaces attributed to this invite code owner, not signup bonuses paid. */
   redemptions: number;
   captionCreditsEarned: number;
   imageCreditsEarned: number;
-  /** Canonical prepaid credits earned by the referrer. */
+  /** Canonical credits earned from qualifying referral purchases. */
   creditsEarned: number;
   /**
-     * Canonical amount awarded to a new user; null for legacy codes awaiting conversion.
+     * Legacy amount; null for percentage-based purchase referrals.
      * @nullable
      */
   refereeCredits: number | null;
   /**
-     * Canonical amount currently awarded to the code owner.
+     * Legacy amount; null for percentage-based purchase referrals.
      * @nullable
      */
   referrerCredits: number | null;
+  /** Number of qualifying credit purchases rewarded. */
+  qualifyingPurchases: number;
+  /** Total qualifying purchase value in paise. */
+  grossPaise: number;
+  currentSlabIndex: number;
+  /** Current referrer reward percentage in basis points (1000 = 10%). */
+  currentReferrerBps: number;
+  /** Current buyer bonus percentage in basis points. */
+  currentRefereeBps: number;
+  /**
+     * Qualifying purchase count needed to reach the next rung.
+     * @nullable
+     */
+  nextSlabAt: number | null;
+  /** @nullable */
+  nextSlabBps: number | null;
+  referralTriggerMode: ReferralInfoReferralTriggerMode;
+  referralAttributionDays: number;
+  /** Requested expiry for referral bonus grants; existing wallet balance policy can extend effective expiry. */
+  referralBonusExpiryDays: number;
 }

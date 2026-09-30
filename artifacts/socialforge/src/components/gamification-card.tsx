@@ -67,20 +67,6 @@ function formatCredits(value: number): string {
   });
 }
 
-function referralReward(
-  canonical: number | null | undefined,
-  caption: number,
-  image: number,
-): string {
-  if (typeof canonical === "number" && Number.isFinite(canonical)) {
-    return `${formatCredits(canonical)} credits`;
-  }
-  const legacy: string[] = [];
-  if (caption > 0) legacy.push(`${caption} caption`);
-  if (image > 0) legacy.push(`${image} image`);
-  return legacy.length ? `${legacy.join(" + ")} (legacy balances)` : "not configured";
-}
-
 export function GamificationCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -397,7 +383,7 @@ function ReferralDialog({
           </DialogTitle>
           <DialogDescription>
             {referral
-              ? `Friends redeem your code on their Billing page within 30 days of signing up. They get ${referralReward(referral.refereeCredits, referral.refereeCaptionCredits, referral.refereeImageCredits)} — you earn ${referralReward(referral.referrerCredits, referral.referrerCaptionCredits, referral.referrerImageCredits)} per signup.`
+              ? `Friends can apply your code on their Billing page. When they buy credits, they get a ${referral.currentRefereeBps / 100}% bonus and you earn ${referral.currentReferrerBps / 100}% in credits. No credits are awarded just for entering the code.`
               : isError
                 ? (error as { message?: string } | undefined)?.message ||
                   "Referral rewards are unavailable right now."
@@ -420,7 +406,7 @@ function ReferralDialog({
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-lg bg-muted/60 py-2">
                 <p className="text-lg font-semibold">{referral.redemptions}</p>
-                <p className="text-xs text-muted-foreground">signups</p>
+                <p className="text-xs text-muted-foreground">attributed workspaces</p>
               </div>
               <div className="rounded-lg bg-muted/60 py-2">
                 <p className="text-lg font-semibold">
@@ -430,17 +416,23 @@ function ReferralDialog({
                       : 0,
                   )}
                 </p>
-                <p className="text-xs text-muted-foreground">credits earned</p>
+                <p className="text-xs text-muted-foreground">purchase credits earned</p>
               </div>
               <div className="rounded-lg bg-muted/60 py-2">
                 <p className="text-lg font-semibold">
                   {referral.captionCreditsEarned + referral.imageCreditsEarned}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  legacy balances
+                  legacy credits awarded
                 </p>
               </div>
             </div>
+            <p className="text-xs text-muted-foreground text-center">
+              {referral.qualifyingPurchases} qualifying credit purchases · {referral.referralTriggerMode === "first_purchase" ? "First purchase per referred workspace" : "Every purchase"} within {referral.referralAttributionDays} days of applying the code.
+              {referral.nextSlabAt !== null && referral.nextSlabBps !== null
+                ? ` At ${referral.nextSlabAt} qualifying purchases, your rate becomes ${referral.nextSlabBps / 100}%.`
+                : " You're on the highest reward tier."}
+            </p>
             {referral.maxRedemptions !== null && (
               <p className="text-xs text-muted-foreground text-center">
                 Up to {referral.maxRedemptions} redemptions on this code.
