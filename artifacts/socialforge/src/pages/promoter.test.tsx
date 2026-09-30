@@ -71,17 +71,40 @@ describe("promoter UI", () => {
   it("requires valid name, channel and agreement and invalidates me after applying", () => {
     render(<PromoterPage />);
     const button = screen.getByTestId("button-promoter-apply") as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(screen.getByRole("alert").textContent).toContain("Enter your name or brand");
+    expect(screen.getByRole("alert").textContent).toContain("Accept the promoter agreement");
+    expect(mock.mutateApply).not.toHaveBeenCalled();
     fireEvent.change(screen.getByTestId("input-promoter-name"), { target: { value: "Name" } });
     fireEvent.change(screen.getByTestId("input-promoter-channels"), { target: { value: "invalid" } });
     fireEvent.click(screen.getByTestId("checkbox-promoter-agreement"));
-    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(screen.getByRole("alert").textContent).toContain("platform then handle");
+    expect(mock.mutateApply).not.toHaveBeenCalled();
     fireEvent.change(screen.getByTestId("input-promoter-channels"), { target: { value: "instagram @valid" } });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     expect(mock.mutateApply).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ agreementAccepted: true }) }), expect.any(Object));
-    mock.mutateApply.mock.calls[0][1].onSuccess({ message: "Applied" });
+    act(() => mock.mutateApply.mock.calls[0][1].onSuccess({ message: "Applied" }));
     expect(mock.invalidate).toHaveBeenCalledWith({ queryKey: expect.any(Array) });
+    expect(screen.getByText("Application under review")).toBeTruthy();
+  });
+  it("keeps application details and displays API errors so the user can retry", () => {
+    render(<PromoterPage />);
+    fireEvent.change(screen.getByTestId("input-promoter-name"), { target: { value: "Name" } });
+    fireEvent.change(screen.getByTestId("input-promoter-channels"), { target: { value: "instagram @valid" } });
+    fireEvent.click(screen.getByTestId("checkbox-promoter-agreement"));
+    fireEvent.click(screen.getByTestId("button-promoter-apply"));
+    act(() => mock.mutateApply.mock.calls[0][1].onError(new ApiError(
+      new Response(null, { status: 503 }), { error: "Please try again shortly." },
+      { method: "POST", url: "/api/promoter/apply" },
+    )));
+    expect(screen.getByRole("alert").textContent).toBe("Please try again shortly.");
+    expect((screen.getByTestId("input-promoter-name") as HTMLInputElement).value).toBe("Name");
+    fireEvent.click(screen.getByTestId("button-promoter-apply"));
+    expect(mock.mutateApply).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
   it("explains only nonzero pending reasons and renders no identities or risk details", () => {
     mock.me = { isLoading: false, isError: false, data: account("approved") };
