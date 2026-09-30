@@ -41,12 +41,20 @@ import type {
   AdminGetAiCostReportParams,
   AdminGetCreditMeterReportParams,
   AdminGrantCredits200,
+  AdminIssueCreatorCode201,
   AdminListAuditLogsParams,
+  AdminListCreatorCommissions200,
+  AdminListCreatorCommissionsParams,
+  AdminListCreators200,
+  AdminListCreatorsParams,
   AdminListTextGenModelPricingParams,
   AdminListVideoModelPricingParams,
   AdminPresetCharacter,
   AdminPresetCharacterInput,
+  AdminReleaseHeldCommission200,
+  AdminReviewCreator200,
   AdminSeatRequest,
+  AdminSetCreatorStatus200,
   AdminStats,
   AdminSupportRequest,
   AdminSweepRunResult,
@@ -91,6 +99,7 @@ import type {
   AppBrandUploadUrlResponse,
   AsrSettingsView,
   AtlasCloudAssetsAdminView,
+  AttachCreatorCode200,
   AudienceAnalytics,
   AudioUploadInput,
   BillingCancelSubscription200,
@@ -165,6 +174,14 @@ import type {
   CreateCustomAiProviderRequest,
   CreateVisualAssetRequest,
   CreativeDirectionConflictEnvelope,
+  CreatorApplicationBody,
+  CreatorCodeAttachInput,
+  CreatorCodeIssueInput,
+  CreatorCommissionReleaseInput,
+  CreatorReviewInput,
+  CreatorSettingsUpdate,
+  CreatorSettingsView,
+  CreatorStatusInput,
   CreditAccountGrantInput,
   CreditAccountView,
   CreditBalance,
@@ -313,6 +330,10 @@ import type {
   PromoFailure,
   PromoMetrics,
   PromoRedeemResult,
+  PromoterApply201,
+  PromoterCommissions200,
+  PromoterCommissionsParams,
+  PromoterMe200,
   PromptCaseType,
   PromptCaseTypeInput,
   PromptCaseTypeUpdate,
@@ -36034,5 +36055,906 @@ export const useAdminAdjustTenantWallet = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminAdjustTenantWalletMutationOptions(options));
+    }
+
+export const getPromoterApplyUrl = () => {
+
+
+
+
+  return `/api/promoter/apply`
+}
+
+/**
+ * @summary Apply as a promoter from the signed-in workspace
+ */
+export const promoterApply = async (creatorApplicationBody: CreatorApplicationBody, options?: RequestInit): Promise<PromoterApply201> => {
+
+  return customFetch<PromoterApply201>(getPromoterApplyUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorApplicationBody)
+  }
+);}
+
+
+
+
+export const getPromoterApplyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof promoterApply>>, TError,{data: BodyType<CreatorApplicationBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof promoterApply>>, TError,{data: BodyType<CreatorApplicationBody>}, TContext> => {
+
+const mutationKey = ['promoterApply'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof promoterApply>>, {data: BodyType<CreatorApplicationBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  promoterApply(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PromoterApplyMutationResult = NonNullable<Awaited<ReturnType<typeof promoterApply>>>
+    export type PromoterApplyMutationBody = BodyType<CreatorApplicationBody>
+    export type PromoterApplyMutationError = ErrorType<void>
+
+    /**
+ * @summary Apply as a promoter from the signed-in workspace
+ */
+export const usePromoterApply = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof promoterApply>>, TError,{data: BodyType<CreatorApplicationBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof promoterApply>>,
+        TError,
+        {data: BodyType<CreatorApplicationBody>},
+        TContext
+      > => {
+      return useMutation(getPromoterApplyMutationOptions(options));
+    }
+
+export const getPromoterMeUrl = () => {
+
+
+
+
+  return `/api/promoter/me`
+}
+
+/**
+ * @summary Get own promoter account and accrued earnings
+ */
+export const promoterMe = async ( options?: RequestInit): Promise<PromoterMe200> => {
+
+  return customFetch<PromoterMe200>(getPromoterMeUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPromoterMeQueryKey = () => {
+    return [
+    `/api/promoter/me`
+    ] as const;
+    }
+
+
+export const getPromoterMeQueryOptions = <TData = Awaited<ReturnType<typeof promoterMe>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof promoterMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPromoterMeQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof promoterMe>>> = ({ signal }) => promoterMe({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof promoterMe>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type PromoterMeQueryResult = NonNullable<Awaited<ReturnType<typeof promoterMe>>>
+export type PromoterMeQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get own promoter account and accrued earnings
+ */
+
+export function usePromoterMe<TData = Awaited<ReturnType<typeof promoterMe>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof promoterMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getPromoterMeQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPromoterCommissionsUrl = (params?: PromoterCommissionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/promoter/commissions?${stringifiedParams}` : `/api/promoter/commissions`
+}
+
+/**
+ * @summary List own commissions
+ */
+export const promoterCommissions = async (params?: PromoterCommissionsParams, options?: RequestInit): Promise<PromoterCommissions200> => {
+
+  return customFetch<PromoterCommissions200>(getPromoterCommissionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPromoterCommissionsQueryKey = (params?: PromoterCommissionsParams,) => {
+    return [
+    `/api/promoter/commissions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getPromoterCommissionsQueryOptions = <TData = Awaited<ReturnType<typeof promoterCommissions>>, TError = ErrorType<void>>(params?: PromoterCommissionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof promoterCommissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPromoterCommissionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof promoterCommissions>>> = ({ signal }) => promoterCommissions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof promoterCommissions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type PromoterCommissionsQueryResult = NonNullable<Awaited<ReturnType<typeof promoterCommissions>>>
+export type PromoterCommissionsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List own commissions
+ */
+
+export function usePromoterCommissions<TData = Awaited<ReturnType<typeof promoterCommissions>>, TError = ErrorType<void>>(
+ params?: PromoterCommissionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof promoterCommissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getPromoterCommissionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAttachCreatorCodeUrl = () => {
+
+
+
+
+  return `/api/credits/creator-code`
+}
+
+/**
+ * Attach a promoter code; neither commission nor bonus is awarded until an eligible purchase.
+ * @summary Attach a promoter code to the signed-in workspace
+ */
+export const attachCreatorCode = async (creatorCodeAttachInput: CreatorCodeAttachInput, options?: RequestInit): Promise<AttachCreatorCode200> => {
+
+  return customFetch<AttachCreatorCode200>(getAttachCreatorCodeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorCodeAttachInput)
+  }
+);}
+
+
+
+
+export const getAttachCreatorCodeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof attachCreatorCode>>, TError,{data: BodyType<CreatorCodeAttachInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof attachCreatorCode>>, TError,{data: BodyType<CreatorCodeAttachInput>}, TContext> => {
+
+const mutationKey = ['attachCreatorCode'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof attachCreatorCode>>, {data: BodyType<CreatorCodeAttachInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  attachCreatorCode(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AttachCreatorCodeMutationResult = NonNullable<Awaited<ReturnType<typeof attachCreatorCode>>>
+    export type AttachCreatorCodeMutationBody = BodyType<CreatorCodeAttachInput>
+    export type AttachCreatorCodeMutationError = ErrorType<void>
+
+    /**
+ * @summary Attach a promoter code to the signed-in workspace
+ */
+export const useAttachCreatorCode = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof attachCreatorCode>>, TError,{data: BodyType<CreatorCodeAttachInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof attachCreatorCode>>,
+        TError,
+        {data: BodyType<CreatorCodeAttachInput>},
+        TContext
+      > => {
+      return useMutation(getAttachCreatorCodeMutationOptions(options));
+    }
+
+export const getAdminListCreatorsUrl = (params?: AdminListCreatorsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/creators?${stringifiedParams}` : `/api/admin/creators`
+}
+
+/**
+ * @summary Review promoter applications
+ */
+export const adminListCreators = async (params?: AdminListCreatorsParams, options?: RequestInit): Promise<AdminListCreators200> => {
+
+  return customFetch<AdminListCreators200>(getAdminListCreatorsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListCreatorsQueryKey = (params?: AdminListCreatorsParams,) => {
+    return [
+    `/api/admin/creators`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminListCreatorsQueryOptions = <TData = Awaited<ReturnType<typeof adminListCreators>>, TError = ErrorType<void>>(params?: AdminListCreatorsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCreators>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListCreatorsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListCreators>>> = ({ signal }) => adminListCreators(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListCreators>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListCreatorsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListCreators>>>
+export type AdminListCreatorsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Review promoter applications
+ */
+
+export function useAdminListCreators<TData = Awaited<ReturnType<typeof adminListCreators>>, TError = ErrorType<void>>(
+ params?: AdminListCreatorsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCreators>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListCreatorsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminReviewCreatorUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/creators/${id}/review`
+}
+
+/**
+ * @summary Approve or reject a promoter application
+ */
+export const adminReviewCreator = async (id: number,
+    creatorReviewInput: CreatorReviewInput, options?: RequestInit): Promise<AdminReviewCreator200> => {
+
+  return customFetch<AdminReviewCreator200>(getAdminReviewCreatorUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorReviewInput)
+  }
+);}
+
+
+
+
+export const getAdminReviewCreatorMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReviewCreator>>, TError,{id: number;data: BodyType<CreatorReviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminReviewCreator>>, TError,{id: number;data: BodyType<CreatorReviewInput>}, TContext> => {
+
+const mutationKey = ['adminReviewCreator'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminReviewCreator>>, {id: number;data: BodyType<CreatorReviewInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminReviewCreator(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminReviewCreatorMutationResult = NonNullable<Awaited<ReturnType<typeof adminReviewCreator>>>
+    export type AdminReviewCreatorMutationBody = BodyType<CreatorReviewInput>
+    export type AdminReviewCreatorMutationError = ErrorType<void>
+
+    /**
+ * @summary Approve or reject a promoter application
+ */
+export const useAdminReviewCreator = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReviewCreator>>, TError,{id: number;data: BodyType<CreatorReviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminReviewCreator>>,
+        TError,
+        {id: number;data: BodyType<CreatorReviewInput>},
+        TContext
+      > => {
+      return useMutation(getAdminReviewCreatorMutationOptions(options));
+    }
+
+export const getAdminSetCreatorStatusUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/creators/${id}/status`
+}
+
+/**
+ * @summary Change promoter status
+ */
+export const adminSetCreatorStatus = async (id: number,
+    creatorStatusInput: CreatorStatusInput, options?: RequestInit): Promise<AdminSetCreatorStatus200> => {
+
+  return customFetch<AdminSetCreatorStatus200>(getAdminSetCreatorStatusUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorStatusInput)
+  }
+);}
+
+
+
+
+export const getAdminSetCreatorStatusMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetCreatorStatus>>, TError,{id: number;data: BodyType<CreatorStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetCreatorStatus>>, TError,{id: number;data: BodyType<CreatorStatusInput>}, TContext> => {
+
+const mutationKey = ['adminSetCreatorStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetCreatorStatus>>, {id: number;data: BodyType<CreatorStatusInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminSetCreatorStatus(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetCreatorStatusMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetCreatorStatus>>>
+    export type AdminSetCreatorStatusMutationBody = BodyType<CreatorStatusInput>
+    export type AdminSetCreatorStatusMutationError = ErrorType<void>
+
+    /**
+ * @summary Change promoter status
+ */
+export const useAdminSetCreatorStatus = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetCreatorStatus>>, TError,{id: number;data: BodyType<CreatorStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetCreatorStatus>>,
+        TError,
+        {id: number;data: BodyType<CreatorStatusInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSetCreatorStatusMutationOptions(options));
+    }
+
+export const getAdminIssueCreatorCodeUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/creators/${id}/codes`
+}
+
+/**
+ * @summary Issue a promoter code
+ */
+export const adminIssueCreatorCode = async (id: number,
+    creatorCodeIssueInput: CreatorCodeIssueInput, options?: RequestInit): Promise<AdminIssueCreatorCode201> => {
+
+  return customFetch<AdminIssueCreatorCode201>(getAdminIssueCreatorCodeUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorCodeIssueInput)
+  }
+);}
+
+
+
+
+export const getAdminIssueCreatorCodeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminIssueCreatorCode>>, TError,{id: number;data: BodyType<CreatorCodeIssueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminIssueCreatorCode>>, TError,{id: number;data: BodyType<CreatorCodeIssueInput>}, TContext> => {
+
+const mutationKey = ['adminIssueCreatorCode'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminIssueCreatorCode>>, {id: number;data: BodyType<CreatorCodeIssueInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminIssueCreatorCode(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminIssueCreatorCodeMutationResult = NonNullable<Awaited<ReturnType<typeof adminIssueCreatorCode>>>
+    export type AdminIssueCreatorCodeMutationBody = BodyType<CreatorCodeIssueInput>
+    export type AdminIssueCreatorCodeMutationError = ErrorType<void>
+
+    /**
+ * @summary Issue a promoter code
+ */
+export const useAdminIssueCreatorCode = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminIssueCreatorCode>>, TError,{id: number;data: BodyType<CreatorCodeIssueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminIssueCreatorCode>>,
+        TError,
+        {id: number;data: BodyType<CreatorCodeIssueInput>},
+        TContext
+      > => {
+      return useMutation(getAdminIssueCreatorCodeMutationOptions(options));
+    }
+
+export const getAdminListCreatorCommissionsUrl = (params?: AdminListCreatorCommissionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/commissions?${stringifiedParams}` : `/api/admin/commissions`
+}
+
+/**
+ * @summary Review creator commission accruals
+ */
+export const adminListCreatorCommissions = async (params?: AdminListCreatorCommissionsParams, options?: RequestInit): Promise<AdminListCreatorCommissions200> => {
+
+  return customFetch<AdminListCreatorCommissions200>(getAdminListCreatorCommissionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListCreatorCommissionsQueryKey = (params?: AdminListCreatorCommissionsParams,) => {
+    return [
+    `/api/admin/commissions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminListCreatorCommissionsQueryOptions = <TData = Awaited<ReturnType<typeof adminListCreatorCommissions>>, TError = ErrorType<void>>(params?: AdminListCreatorCommissionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCreatorCommissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListCreatorCommissionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListCreatorCommissions>>> = ({ signal }) => adminListCreatorCommissions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListCreatorCommissions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListCreatorCommissionsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListCreatorCommissions>>>
+export type AdminListCreatorCommissionsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Review creator commission accruals
+ */
+
+export function useAdminListCreatorCommissions<TData = Awaited<ReturnType<typeof adminListCreatorCommissions>>, TError = ErrorType<void>>(
+ params?: AdminListCreatorCommissionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCreatorCommissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListCreatorCommissionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminReleaseHeldCommissionUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/commissions/${id}/release`
+}
+
+/**
+ * @summary Release a held commission for normal maturation
+ */
+export const adminReleaseHeldCommission = async (id: number,
+    creatorCommissionReleaseInput: CreatorCommissionReleaseInput, options?: RequestInit): Promise<AdminReleaseHeldCommission200> => {
+
+  return customFetch<AdminReleaseHeldCommission200>(getAdminReleaseHeldCommissionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorCommissionReleaseInput)
+  }
+);}
+
+
+
+
+export const getAdminReleaseHeldCommissionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReleaseHeldCommission>>, TError,{id: number;data: BodyType<CreatorCommissionReleaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminReleaseHeldCommission>>, TError,{id: number;data: BodyType<CreatorCommissionReleaseInput>}, TContext> => {
+
+const mutationKey = ['adminReleaseHeldCommission'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminReleaseHeldCommission>>, {id: number;data: BodyType<CreatorCommissionReleaseInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminReleaseHeldCommission(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminReleaseHeldCommissionMutationResult = NonNullable<Awaited<ReturnType<typeof adminReleaseHeldCommission>>>
+    export type AdminReleaseHeldCommissionMutationBody = BodyType<CreatorCommissionReleaseInput>
+    export type AdminReleaseHeldCommissionMutationError = ErrorType<void>
+
+    /**
+ * @summary Release a held commission for normal maturation
+ */
+export const useAdminReleaseHeldCommission = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReleaseHeldCommission>>, TError,{id: number;data: BodyType<CreatorCommissionReleaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminReleaseHeldCommission>>,
+        TError,
+        {id: number;data: BodyType<CreatorCommissionReleaseInput>},
+        TContext
+      > => {
+      return useMutation(getAdminReleaseHeldCommissionMutationOptions(options));
+    }
+
+export const getAdminGetCreatorSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/creator-program/settings`
+}
+
+/**
+ * @summary Read creator program settings
+ */
+export const adminGetCreatorSettings = async ( options?: RequestInit): Promise<CreatorSettingsView> => {
+
+  return customFetch<CreatorSettingsView>(getAdminGetCreatorSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetCreatorSettingsQueryKey = () => {
+    return [
+    `/api/admin/creator-program/settings`
+    ] as const;
+    }
+
+
+export const getAdminGetCreatorSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetCreatorSettings>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreatorSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetCreatorSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetCreatorSettings>>> = ({ signal }) => adminGetCreatorSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetCreatorSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetCreatorSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetCreatorSettings>>>
+export type AdminGetCreatorSettingsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read creator program settings
+ */
+
+export function useAdminGetCreatorSettings<TData = Awaited<ReturnType<typeof adminGetCreatorSettings>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreatorSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetCreatorSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateCreatorSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/creator-program/settings`
+}
+
+/**
+ * @summary Update creator program settings
+ */
+export const adminUpdateCreatorSettings = async (creatorSettingsUpdate: CreatorSettingsUpdate, options?: RequestInit): Promise<CreatorSettingsView> => {
+
+  return customFetch<CreatorSettingsView>(getAdminUpdateCreatorSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creatorSettingsUpdate)
+  }
+);}
+
+
+
+
+export const getAdminUpdateCreatorSettingsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreatorSettings>>, TError,{data: BodyType<CreatorSettingsUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreatorSettings>>, TError,{data: BodyType<CreatorSettingsUpdate>}, TContext> => {
+
+const mutationKey = ['adminUpdateCreatorSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateCreatorSettings>>, {data: BodyType<CreatorSettingsUpdate>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateCreatorSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateCreatorSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateCreatorSettings>>>
+    export type AdminUpdateCreatorSettingsMutationBody = BodyType<CreatorSettingsUpdate>
+    export type AdminUpdateCreatorSettingsMutationError = ErrorType<void>
+
+    /**
+ * @summary Update creator program settings
+ */
+export const useAdminUpdateCreatorSettings = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreatorSettings>>, TError,{data: BodyType<CreatorSettingsUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateCreatorSettings>>,
+        TError,
+        {data: BodyType<CreatorSettingsUpdate>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateCreatorSettingsMutationOptions(options));
     }
 

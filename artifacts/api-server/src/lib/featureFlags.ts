@@ -180,6 +180,11 @@ export const FEATURES = [
       "Personal invite codes: new users get bonus credits, referrers earn credits per signup (per-plan tuning on the Plans tab).",
   },
   {
+    id: "creatorProgram",
+    label: "Creator Program",
+    description: "Creator applications and commission accrual only; separate program settings must also enable the program. No payouts.",
+  },
+  {
     id: "freeWatermark",
     label: "Plan Watermark",
     description:

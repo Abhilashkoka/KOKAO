@@ -2,6 +2,11 @@ import { db, adminAuditLogsTable } from "@workspace/db";
 import { and, eq, lte, like, sql } from "drizzle-orm";
 
 export type AdminAuditAction =
+  | "creator_review"
+  | "creator_status_change"
+  | "creator_code_change"
+  | "creator_commission_release"
+  | "creator_program_settings_change"
   | "plan_change"
   | "superadmin_grant"
   | "superadmin_revoke"

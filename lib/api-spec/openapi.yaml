@@ -30,6 +30,8 @@ tags:
     description: Connected social accounts.
   - name: admin
     description: Cross-tenant superadmin operations.
+  - name: creator
+    description: Signed-in promoter applications and purchase-based credit code attribution.
   - name: wallet
     description: Prepaid rupee wallet - balance, GST-exclusive recharge, and spend history.
   - name: notifications
@@ -13336,6 +13338,274 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /promoter/apply:
+    post:
+      operationId: promoterApply
+      tags: [creator]
+      summary: Apply as a promoter from the signed-in workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatorApplicationBody" }
+      responses:
+        "201":
+          description: Application submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [creator, code]
+                properties:
+                  creator: { $ref: "#/components/schemas/CreatorAccountView" }
+                  code:
+                    anyOf:
+                      - { $ref: "#/components/schemas/CreatorCodeView" }
+                      - { type: "null" }
+        "400": { description: Invalid application or agreement not accepted }
+        "403": { description: Program disabled }
+        "409": { description: Already applied }
+  /promoter/me:
+    get:
+      operationId: promoterMe
+      summary: Get own promoter account and accrued earnings
+      tags: [creator]
+      responses:
+        "200":
+          description: Own promoter account and accrued earnings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [creator, earnings, codes]
+                properties:
+                  creator: { $ref: "#/components/schemas/CreatorAccountView" }
+                  earnings: { $ref: "#/components/schemas/CreatorEarningsView" }
+                  codes:
+                    type: array
+                    items: { $ref: "#/components/schemas/CreatorCodeView" }
+        "404": { description: No application yet }
+  /promoter/commissions:
+    get:
+      operationId: promoterCommissions
+      summary: List own commissions
+      tags: [creator]
+      parameters:
+        - { name: state, in: query, schema: { $ref: "#/components/schemas/CreatorCommissionState" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+      responses:
+        "200":
+          description: Own commissions only
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commissions]
+                properties:
+                  commissions:
+                    type: array
+                    items: { $ref: "#/components/schemas/CreatorCommissionView" }
+        "404": { description: No application yet }
+  /credits/creator-code:
+    post:
+      operationId: attachCreatorCode
+      summary: Attach a promoter code to the signed-in workspace
+      tags: [creator]
+      description: Attach a promoter code; neither commission nor bonus is awarded until an eligible purchase.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorCodeAttachInput"
+      responses:
+        "200":
+          description: Code attached (no immediate credits)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attached, code, message]
+                properties:
+                  attached: { type: boolean, enum: [true] }
+                  code: { type: string }
+                  message: { type: string }
+        "403": { description: Program disabled }
+        "404": { description: Invalid code }
+        "409": { description: "Own, inactive, expired or already attributed code" }
+  /admin/creators:
+    get:
+      operationId: adminListCreators
+      summary: Review promoter applications
+      tags: [admin]
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/CreatorStatus" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+      responses:
+        "200":
+          description: Promoter applications, superadmin only
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [creators]
+                properties:
+                  creators:
+                    type: array
+                    items: { $ref: "#/components/schemas/CreatorAccountView" }
+        "403": { description: Superadmin required }
+  /admin/creators/{id}/review:
+    post:
+      operationId: adminReviewCreator
+      summary: Approve or reject a promoter application
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorReviewInput"
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [creator, code]
+                properties:
+                  creator: { $ref: "#/components/schemas/CreatorAccountView" }
+                  code:
+                    anyOf:
+                      - { $ref: "#/components/schemas/CreatorCodeView" }
+                      - { type: "null" }
+        "403": { description: Superadmin required }
+        "409": { description: Already reviewed }
+  /admin/creators/{id}/status:
+    post:
+      operationId: adminSetCreatorStatus
+      summary: Change promoter status
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorStatusInput"
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [creator]
+                properties:
+                  creator: { $ref: "#/components/schemas/CreatorAccountView" }
+        "403": { description: Superadmin required }
+  /admin/creators/{id}/codes:
+    post:
+      operationId: adminIssueCreatorCode
+      summary: Issue a promoter code
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorCodeIssueInput"
+      responses:
+        "201":
+          description: Code issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code]
+                properties:
+                  code: { $ref: "#/components/schemas/CreatorCodeView" }
+        "403": { description: Superadmin required }
+  /admin/commissions:
+    get:
+      operationId: adminListCreatorCommissions
+      summary: Review creator commission accruals
+      tags: [admin]
+      parameters:
+        - { name: state, in: query, schema: { $ref: "#/components/schemas/CreatorCommissionState" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+      responses:
+        "200":
+          description: Commission review queue, superadmin only
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commissions]
+                properties:
+                  commissions:
+                    type: array
+                    items: { $ref: "#/components/schemas/CreatorCommissionView" }
+        "403": { description: Superadmin required }
+  /admin/commissions/{id}/release:
+    post:
+      operationId: adminReleaseHeldCommission
+      summary: Release a held commission for normal maturation
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorCommissionReleaseInput"
+      responses:
+        "200":
+          description: Held commission returned to pending maturation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commission]
+                properties:
+                  commission: { $ref: "#/components/schemas/CreatorCommissionView" }
+        "403": { description: Superadmin required }
+        "409": { description: Not held }
+  /admin/creator-program/settings:
+    get:
+      operationId: adminGetCreatorSettings
+      summary: Read creator program settings
+      tags: [admin]
+      responses:
+        "200":
+          description: Current creator settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatorSettingsView" }
+        "403": { description: Superadmin required }
+    put:
+      operationId: adminUpdateCreatorSettings
+      summary: Update creator program settings
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatorSettingsUpdate" }
+      responses:
+        "200":
+          description: Updated creator settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatorSettingsView" }
+        "403": { description: Superadmin required }
+
 components:
   parameters:
     AnalyticsFrom:
@@ -13377,6 +13647,168 @@ components:
         enum: [today, yesterday, last_7d, last_14d, last_30d, last_90d, maximum]
       description: Reporting date range (defaults to last_30d).
   schemas:
+    CreatorCodeAttachInput:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code: { type: string, minLength: 1, maxLength: 80 }
+    CreatorReviewInput:
+      type: object
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision: { type: string, enum: [approved, rejected] }
+        reason: { type: string, minLength: 1, maxLength: 1000 }
+    CreatorStatusInput:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [approved, suspended, closed] }
+        reason: { type: string, minLength: 1, maxLength: 1000 }
+    CreatorCodeIssueInput:
+      type: object
+      additionalProperties: false
+      properties:
+        label: { type: string, minLength: 1, maxLength: 160 }
+        reusePolicy: { type: string, enum: [single_use, multi_use] }
+        maxRedemptions: { type: [integer, "null"], minimum: 1, maximum: 1000000 }
+        expiresAt: { type: [string, "null"], format: date-time }
+    CreatorCommissionReleaseInput:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 1000 }
+    CreatorStatus:
+      type: string
+      enum: [applied, approved, rejected, suspended, closed]
+    CreatorCommissionState:
+      type: string
+      enum: [pending, held, payable, in_payout, paid, reversed, expired]
+    CreatorAccountView:
+      type: object
+      required: [id, tenantId, status, displayName, contactEmail]
+      properties:
+        id: { type: integer }
+        tenantId: { type: integer }
+        status: { $ref: "#/components/schemas/CreatorStatus" }
+        displayName: { type: string }
+        contactEmail: { type: string }
+        phone: { type: [string, "null"] }
+        channels:
+          type: array
+          items: { type: object, additionalProperties: true }
+        appliedAt: { type: string, format: date-time }
+        reviewedAt: { type: [string, "null"], format: date-time }
+        statusReason: { type: [string, "null"] }
+    CreatorCodeView:
+      type: object
+      required: [id, creatorId, code, active]
+      properties:
+        id: { type: integer }
+        creatorId: { type: integer }
+        code: { type: string }
+        label: { type: [string, "null"] }
+        active: { type: boolean }
+        reusePolicy: { type: string, enum: [single_use, multi_use] }
+        maxRedemptions: { type: [integer, "null"] }
+        expiresAt: { type: [string, "null"], format: date-time }
+    CreatorCommissionView:
+      type: object
+      required: [id, creatorId, tenantId, state, commissionPaise, grossPaise]
+      properties:
+        id: { type: integer }
+        creatorId: { type: integer }
+        tenantId: { type: integer }
+        state: { $ref: "#/components/schemas/CreatorCommissionState" }
+        commissionPaise: { type: integer }
+        grossPaise: { type: integer }
+        holdUntil: { type: [string, "null"], format: date-time }
+        expiresAt: { type: [string, "null"], format: date-time }
+        riskScore: { type: integer }
+        riskSignals: { type: array, items: { type: string } }
+    CreatorEarningsView:
+      type: object
+      required: [pendingPaise, heldPaise, payablePaise, paidPaise, reversedPaise, awaitingActivation, inHoldWindow, totalPurchases, grossDrivenPaise]
+      properties:
+        pendingPaise: { type: integer }
+        heldPaise: { type: integer }
+        payablePaise: { type: integer }
+        paidPaise: { type: integer }
+        reversedPaise: { type: integer }
+        awaitingActivation: { type: integer }
+        inHoldWindow: { type: integer }
+        totalPurchases: { type: integer }
+        grossDrivenPaise: { type: integer }
+    CreatorApplicationBody:
+      type: object
+      required: [displayName, agreementAccepted]
+      additionalProperties: false
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        contactEmail: { type: string, format: email, maxLength: 320 }
+        phone: { type: [string, "null"], maxLength: 40 }
+        channels:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [platform, handle]
+            additionalProperties: false
+            properties:
+              platform: { type: string, minLength: 1, maxLength: 60 }
+              handle: { type: string, minLength: 1, maxLength: 160 }
+              url: { type: string, format: uri, maxLength: 2048 }
+              followers: { type: integer, minimum: 0, maximum: 100000000 }
+        vertical: { type: [string, "null"], maxLength: 120 }
+        isRegisteredPractitioner: { type: boolean }
+        agreementAccepted: { type: boolean, enum: [true] }
+    CreatorCommissionSlab:
+      type: object
+      additionalProperties: false
+      required: [minReferrals, commissionBps]
+      properties:
+        minReferrals: { type: integer, minimum: 0, maximum: 1000000 }
+        commissionBps: { type: integer, minimum: 0, maximum: 10000 }
+    CreatorSettingsUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        programEnabled: { type: boolean }
+        commissionSlabs:
+          anyOf:
+            - type: array
+              minItems: 1
+              maxItems: 20
+              description: First threshold 0; each next threshold strictly larger.
+              items: { $ref: "#/components/schemas/CreatorCommissionSlab" }
+            - { type: "null" }
+        buyerBonusBps: { type: integer, minimum: 0, maximum: 10000 }
+        buyerBonusExpiryDays: { type: integer, minimum: 1, maximum: 3650 }
+        holdDays: { type: integer, minimum: 0, maximum: 3650 }
+        consumptionThresholdBps: { type: integer, minimum: 0, maximum: 10000 }
+        reserveBps: { type: integer, minimum: 0, maximum: 10000 }
+        reserveReleaseDays: { type: integer, minimum: 0, maximum: 3650 }
+        minPayoutPaise: { type: integer, minimum: 0, maximum: 2000000000 }
+        earningExpiryDays: { type: integer, minimum: 1, maximum: 3650 }
+        attributionDays: { type: integer, minimum: 1, maximum: 3650 }
+        triggerMode: { type: string, enum: [first_purchase, every_purchase] }
+        payoutCadence: { type: string, enum: [monthly] }
+        tdsRateBps: { type: integer, minimum: 0, maximum: 10000 }
+        autoApproveCreators: { type: boolean }
+        riskHoldThreshold: { type: integer, minimum: 0, maximum: 1000 }
+        newCreatorReviewCount: { type: integer, minimum: 0, maximum: 1000 }
+    CreatorSettingsView:
+      allOf:
+        - { $ref: "#/components/schemas/CreatorSettingsUpdate" }
+        - type: object
+          required: [id, programEnabled, buyerBonusBps, holdDays, consumptionThresholdBps, attributionDays, triggerMode]
+          properties:
+            id: { type: integer }
+            updatedAt: { type: string, format: date-time }
     HealthStatus:
       type: object
       properties:
@@ -16436,6 +16868,11 @@ components:
           enum:
             [
               plan_change,
+              creator_review,
+              creator_status_change,
+              creator_code_change,
+              creator_commission_release,
+              creator_program_settings_change,
               credit_account_correction,
               superadmin_grant,
               superadmin_revoke,

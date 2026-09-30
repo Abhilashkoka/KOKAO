@@ -5,6 +5,318 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+export interface CreatorCodeAttachInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  code: string;
+}
+
+export type CreatorReviewInputDecision = typeof CreatorReviewInputDecision[keyof typeof CreatorReviewInputDecision];
+
+
+export const CreatorReviewInputDecision = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface CreatorReviewInput {
+  decision: CreatorReviewInputDecision;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason?: string;
+}
+
+export type CreatorStatusInputStatus = typeof CreatorStatusInputStatus[keyof typeof CreatorStatusInputStatus];
+
+
+export const CreatorStatusInputStatus = {
+  approved: 'approved',
+  suspended: 'suspended',
+  closed: 'closed',
+} as const;
+
+export interface CreatorStatusInput {
+  status: CreatorStatusInputStatus;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason?: string;
+}
+
+export type CreatorCodeIssueInputReusePolicy = typeof CreatorCodeIssueInputReusePolicy[keyof typeof CreatorCodeIssueInputReusePolicy];
+
+
+export const CreatorCodeIssueInputReusePolicy = {
+  single_use: 'single_use',
+  multi_use: 'multi_use',
+} as const;
+
+export interface CreatorCodeIssueInput {
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  label?: string;
+  reusePolicy?: CreatorCodeIssueInputReusePolicy;
+  /**
+     * @minimum 1
+     * @maximum 1000000
+     * @nullable
+     */
+  maxRedemptions?: number | null;
+  /** @nullable */
+  expiresAt?: string | null;
+}
+
+export interface CreatorCommissionReleaseInput {
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason: string;
+}
+
+export type CreatorStatus = typeof CreatorStatus[keyof typeof CreatorStatus];
+
+
+export const CreatorStatus = {
+  applied: 'applied',
+  approved: 'approved',
+  rejected: 'rejected',
+  suspended: 'suspended',
+  closed: 'closed',
+} as const;
+
+export type CreatorCommissionState = typeof CreatorCommissionState[keyof typeof CreatorCommissionState];
+
+
+export const CreatorCommissionState = {
+  pending: 'pending',
+  held: 'held',
+  payable: 'payable',
+  in_payout: 'in_payout',
+  paid: 'paid',
+  reversed: 'reversed',
+  expired: 'expired',
+} as const;
+
+export type CreatorAccountViewChannelsItem = { [key: string]: unknown };
+
+export interface CreatorAccountView {
+  id: number;
+  tenantId: number;
+  status: CreatorStatus;
+  displayName: string;
+  contactEmail: string;
+  /** @nullable */
+  phone?: string | null;
+  channels?: CreatorAccountViewChannelsItem[];
+  appliedAt?: string;
+  /** @nullable */
+  reviewedAt?: string | null;
+  /** @nullable */
+  statusReason?: string | null;
+}
+
+export type CreatorCodeViewReusePolicy = typeof CreatorCodeViewReusePolicy[keyof typeof CreatorCodeViewReusePolicy];
+
+
+export const CreatorCodeViewReusePolicy = {
+  single_use: 'single_use',
+  multi_use: 'multi_use',
+} as const;
+
+export interface CreatorCodeView {
+  id: number;
+  creatorId: number;
+  code: string;
+  /** @nullable */
+  label?: string | null;
+  active: boolean;
+  reusePolicy?: CreatorCodeViewReusePolicy;
+  /** @nullable */
+  maxRedemptions?: number | null;
+  /** @nullable */
+  expiresAt?: string | null;
+}
+
+export interface CreatorCommissionView {
+  id: number;
+  creatorId: number;
+  tenantId: number;
+  state: CreatorCommissionState;
+  commissionPaise: number;
+  grossPaise: number;
+  /** @nullable */
+  holdUntil?: string | null;
+  /** @nullable */
+  expiresAt?: string | null;
+  riskScore?: number;
+  riskSignals?: string[];
+}
+
+export interface CreatorEarningsView {
+  pendingPaise: number;
+  heldPaise: number;
+  payablePaise: number;
+  paidPaise: number;
+  reversedPaise: number;
+  awaitingActivation: number;
+  inHoldWindow: number;
+  totalPurchases: number;
+  grossDrivenPaise: number;
+}
+
+export type CreatorApplicationBodyChannelsItem = {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  platform: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  handle: string;
+  /** @maxLength 2048 */
+  url?: string;
+  /**
+     * @minimum 0
+     * @maximum 100000000
+     */
+  followers?: number;
+};
+
+export interface CreatorApplicationBody {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  displayName: string;
+  /** @maxLength 320 */
+  contactEmail?: string;
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  phone?: string | null;
+  /** @maxItems 20 */
+  channels?: CreatorApplicationBodyChannelsItem[];
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  vertical?: string | null;
+  isRegisteredPractitioner?: boolean;
+  agreementAccepted: true;
+}
+
+export interface CreatorCommissionSlab {
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  minReferrals: number;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  commissionBps: number;
+}
+
+export type CreatorSettingsUpdateTriggerMode = typeof CreatorSettingsUpdateTriggerMode[keyof typeof CreatorSettingsUpdateTriggerMode];
+
+
+export const CreatorSettingsUpdateTriggerMode = {
+  first_purchase: 'first_purchase',
+  every_purchase: 'every_purchase',
+} as const;
+
+export type CreatorSettingsUpdatePayoutCadence = typeof CreatorSettingsUpdatePayoutCadence[keyof typeof CreatorSettingsUpdatePayoutCadence];
+
+
+export const CreatorSettingsUpdatePayoutCadence = {
+  monthly: 'monthly',
+} as const;
+
+export interface CreatorSettingsUpdate {
+  programEnabled?: boolean;
+  commissionSlabs?: CreatorCommissionSlab[] | null;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  buyerBonusBps?: number;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  buyerBonusExpiryDays?: number;
+  /**
+     * @minimum 0
+     * @maximum 3650
+     */
+  holdDays?: number;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  consumptionThresholdBps?: number;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  reserveBps?: number;
+  /**
+     * @minimum 0
+     * @maximum 3650
+     */
+  reserveReleaseDays?: number;
+  /**
+     * @minimum 0
+     * @maximum 2000000000
+     */
+  minPayoutPaise?: number;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  earningExpiryDays?: number;
+  /**
+     * @minimum 1
+     * @maximum 3650
+     */
+  attributionDays?: number;
+  triggerMode?: CreatorSettingsUpdateTriggerMode;
+  payoutCadence?: CreatorSettingsUpdatePayoutCadence;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  tdsRateBps?: number;
+  autoApproveCreators?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1000
+     */
+  riskHoldThreshold?: number;
+  /**
+     * @minimum 0
+     * @maximum 1000
+     */
+  newCreatorReviewCount?: number;
+}
+
+export type CreatorSettingsView = CreatorSettingsUpdate & {
+  id: number;
+  updatedAt?: string;
+};
+
 export interface HealthStatus {
   status: string;
 }
@@ -2710,6 +3022,11 @@ export type AdminAuditLogAction = typeof AdminAuditLogAction[keyof typeof AdminA
 
 export const AdminAuditLogAction = {
   plan_change: 'plan_change',
+  creator_review: 'creator_review',
+  creator_status_change: 'creator_status_change',
+  creator_code_change: 'creator_code_change',
+  creator_commission_release: 'creator_commission_release',
+  creator_program_settings_change: 'creator_program_settings_change',
   credit_account_correction: 'credit_account_correction',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
@@ -14021,5 +14338,78 @@ export type AdminAdjustTenantWallet200 = {
   balancePaise: number;
   /** The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative. */
   appliedPaise: number;
+};
+
+export type PromoterApply201 = {
+  creator: CreatorAccountView;
+  code: CreatorCodeView | null;
+};
+
+export type PromoterMe200 = {
+  creator: CreatorAccountView;
+  earnings: CreatorEarningsView;
+  codes: CreatorCodeView[];
+};
+
+export type PromoterCommissionsParams = {
+state?: CreatorCommissionState;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+};
+
+export type PromoterCommissions200 = {
+  commissions: CreatorCommissionView[];
+};
+
+export type AttachCreatorCode200 = {
+  attached: true;
+  code: string;
+  message: string;
+};
+
+export type AdminListCreatorsParams = {
+status?: CreatorStatus;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+};
+
+export type AdminListCreators200 = {
+  creators: CreatorAccountView[];
+};
+
+export type AdminReviewCreator200 = {
+  creator: CreatorAccountView;
+  code: CreatorCodeView | null;
+};
+
+export type AdminSetCreatorStatus200 = {
+  creator: CreatorAccountView;
+};
+
+export type AdminIssueCreatorCode201 = {
+  code: CreatorCodeView;
+};
+
+export type AdminListCreatorCommissionsParams = {
+state?: CreatorCommissionState;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+};
+
+export type AdminListCreatorCommissions200 = {
+  commissions: CreatorCommissionView[];
+};
+
+export type AdminReleaseHeldCommission200 = {
+  commission: CreatorCommissionView;
 };
 

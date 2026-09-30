@@ -6030,6 +6030,11 @@ router.post(
  * superadmin grants/revokes), most recent first. Read-only, superadmin-scoped.
  */
 const AUDIT_ACTIONS = new Set([
+  "creator_review",
+  "creator_status_change",
+  "creator_code_change",
+  "creator_commission_release",
+  "creator_program_settings_change",
   "credit_account_correction",
   "plan_change",
   "superadmin_grant",

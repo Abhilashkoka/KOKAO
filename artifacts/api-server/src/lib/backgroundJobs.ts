@@ -11,6 +11,25 @@
  * can await in-flight work via `waitForPendingJobs()`.
  */
 const pending = new Set<Promise<void>>();
+let creatorTimer: ReturnType<typeof setInterval> | undefined;
+
+/** Accrual-only maintenance. No payouts are performed by this worker. */
+export function startCreatorCommissionMaintenance(): void {
+  if (creatorTimer) return;
+  const run = () => {
+    enqueueBackgroundJob(async () => {
+      try {
+        const { matureCreatorCommissions } = await import("./creatorCommissions");
+        await matureCreatorCommissions(200);
+      } catch (err) {
+        const { logger } = await import("./logger");
+        logger.error({ err }, "Creator commission maintenance failed");
+      }
+    });
+  };
+  creatorTimer = setInterval(run, 60 * 60 * 1000);
+  creatorTimer.unref();
+}
 
 let shuttingDown = false;
 
@@ -22,6 +41,8 @@ let shuttingDown = false;
  */
 export function markShutdownStarted(): void {
   shuttingDown = true;
+  if (creatorTimer) clearInterval(creatorTimer);
+  creatorTimer = undefined;
 }
 
 /** Whether graceful shutdown has begun. */

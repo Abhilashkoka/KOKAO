@@ -51,6 +51,7 @@ export * from "./ads";
 export * from "./pushTokens";
 export * from "./promoCodes";
 export * from "./referralAttributions";
+export * from "./creatorProgram";
 export * from "./postMetrics";
 export * from "./campaigns";
 export * from "./gamification";

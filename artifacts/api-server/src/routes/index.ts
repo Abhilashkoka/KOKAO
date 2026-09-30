@@ -57,6 +57,7 @@ import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
 import { requireFeature, requireAnyFeature } from "../lib/featureFlags";
 import videoTemplatesAdminRouter from "./videoTemplatesAdmin";
+import creatorProgramRouter from "./creatorProgram";
 
 const router: IRouter = Router();
 
@@ -219,6 +220,7 @@ router.use(emailSettingsRouter);
 router.use(billingRouter);
 router.use(walletRouter);
 router.use(creditsRouter);
+router.use(creatorProgramRouter);
 router.use(adminRouter);
 router.use(promptKitRouter);
 router.use(promptKitAdminRouter);

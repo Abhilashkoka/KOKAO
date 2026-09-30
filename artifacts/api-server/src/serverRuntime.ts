@@ -107,6 +107,7 @@ export async function startServerRuntime(): Promise<void> {
       logger.error({ err: error }, "Failed to resume Guided Story scene corrections");
     });
     startGuidedStoryCastSweep();
+    void import("./lib/backgroundJobs").then(({ startCreatorCommissionMaintenance }) => startCreatorCommissionMaintenance());
 
     // A freshly started process has no in-flight background jobs, so any content
     // item still stuck on "publishing" is an orphan left behind by a previous

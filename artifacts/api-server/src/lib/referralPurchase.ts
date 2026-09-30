@@ -1,4 +1,4 @@
-import { db, referralAttributionsTable, referralPurchaseGrantsTable, tenantsTable, notificationsTable, type PromoCode } from "@workspace/db";
+import { db, creatorAttributionsTable, referralAttributionsTable, referralPurchaseGrantsTable, tenantsTable, notificationsTable, type PromoCode } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { getFeatureFlags } from "./featureFlags";
@@ -38,6 +38,10 @@ export function pickSlab(slabs: ReferralSlab[], count: number) {
 export async function attachReferralAttribution(tx: Tx, params: {
   tenantId: number; promo: PromoCode; attributionDays: number;
 }): Promise<boolean> {
+  await tx.execute(sql`select pg_advisory_xact_lock(73142, 1)`);
+  const [creator] = await tx.select().from(creatorAttributionsTable)
+    .where(eq(creatorAttributionsTable.tenantId, params.tenantId)).limit(1);
+  if (creator) return false;
   const rows = await tx.insert(referralAttributionsTable).values({
     tenantId: params.tenantId, promoCodeId: params.promo.id,
     code: params.promo.code, ownerTenantId: params.promo.ownerTenantId,
