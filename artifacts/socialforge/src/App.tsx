@@ -10,7 +10,7 @@ import { SchedulePage } from "@/pages/schedule";
 import { BrandKitsPage } from "@/pages/brand-kits";
 import { AccountsPage } from "@/pages/accounts";
 import { SettingsPage } from "@/pages/settings";
-import PromoterPage from "@/pages/promoter";
+import CreatorPortalPage from "@/pages/creator";
 import { HelpPage } from "@/pages/help";
 import { AdminPage } from "@/pages/admin";
 import { AnalyticsPage } from "@/pages/analytics";
@@ -169,6 +169,15 @@ function ProtectedRoute({
   );
 }
 
+function CreatorRoute() {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded || !isSignedIn) {
+    return <Redirect to="/sign-in?redirect_url=%2Fcreator" replace />;
+  }
+  // CreatorPortalPage owns its single CreatorLayout and legal gate.
+  return <CreatorPortalPage />;
+}
+
 /**
  * Signed-in landing: if the user picked a plan on the public pricing page
  * right before signing up, honor it — send them straight to the billing tab,
@@ -244,7 +253,8 @@ function ClerkProviderWithRoutes() {
                 <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
                 <Route path="/ai-styles" component={() => <ProtectedRoute component={PromptCustomizationsPage} />} />
                 <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
-                <Route path="/promoter" component={() => <ProtectedRoute component={PromoterPage} />} />
+                 <Route path="/creator" component={CreatorRoute} />
+                 <Route path="/promoter" component={() => <Redirect to="/creator" replace />} />
                 <Route path="/help" component={() => <ProtectedRoute component={HelpPage} />} />
                 <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
                 <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />

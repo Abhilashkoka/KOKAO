@@ -25,3 +25,9 @@ Refund reconciliation leaves buyer and referral bonus credits untouched by expli
 **Why:** an exported manual batch does not prove whether funds moved; clawing it back without knowing can double-deduct or miss money.
 
 **How to apply:** retain durable refund review records and block affected new batches until resolved. Do not infer bank matches from VPAs, opaque card IDs, or last four digits; compare only identifiers of the same meaning and normalization.
+
+Creator entry uses the same KOKAO account but a creator-only portal, rather than a separate identity system.
+
+**Why:** the user chose a Creator Program login option within KOKAO, with application onboarding for new creators and only creator-related surfaces after creator login.
+
+**How to apply:** keep creator navigation separate from workspace tools and brand onboarding; retain session health and optional privacy choices. Do not create another tenant/account or mark workspace onboarding complete just because a creator joins.

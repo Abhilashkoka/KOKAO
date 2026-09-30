@@ -42,17 +42,17 @@ export default function PromoterPage() {
   if (data.status === "applied") return <State title="Application under review" body={`Submitted ${data.appliedAt ? new Date(data.appliedAt).toLocaleDateString("en-IN") : "recently"}. We'll email you when it's reviewed.`} />;
   if (data.status === "rejected") return <State title="Application not approved" body={data.statusReason || "Your application wasn't approved this time."} />;
   if (data.status !== "approved" && data.status !== "suspended") return <State title="Promoter account unavailable" body="Please contact support." />;
-  return <Dashboard data={data} />;
+  return <PromoterDashboard data={data} />;
 }
 
-function Dashboard({ data }: { data: PromoterMe200 }) {
+export function PromoterDashboard({ data, title = "Promoter" }: { data: PromoterMe200; title?: string }) {
   const { toast } = useToast();
   const suspended = data.status === "suspended";
   const { earnings, commission, terms } = data;
   const code = suspended ? undefined : data.codes[0];
   const next = commission.nextSlabAt;
   return <div className="mx-auto max-w-4xl space-y-5 p-4 sm:p-6">
-    <header><h1 className="text-2xl font-semibold">Promoter</h1><p className="text-sm text-muted-foreground">Your current commission rate is {percent(commission.currentBps)} on qualifying purchases.</p></header>
+    <header><h1 className="text-2xl font-semibold">{title}</h1><p className="text-sm text-muted-foreground">Your current commission rate is {percent(commission.currentBps)} on qualifying purchases.</p></header>
     {suspended && <Card data-testid="promoter-suspended"><CardContent className="py-4">Your account is suspended{data.statusReason ? `: ${data.statusReason}` : "."} Your existing earnings remain visible.</CardContent></Card>}
     {code && <Card className="border-primary/20 bg-primary/[0.03]"><CardContent className="flex items-center gap-3 py-4"><code data-testid="promoter-code" className="flex-1 rounded border border-border bg-background px-4 py-2 text-center text-lg font-semibold tracking-widest">{code.code}</code><Button variant="outline" onClick={() => void navigator.clipboard.writeText(code.code).then(() => toast({ title: "Copied" })).catch(() => toast({ title: "Copy failed", description: code.code }))}>Copy code</Button></CardContent></Card>}
     <div className="grid gap-3 sm:grid-cols-4">{([["Ready to pay", earnings.payable], ["Pending", earnings.pending], ["Paid out", earnings.paid], ["Sales driven", earnings.grossDriven]] as const).map(([label, value]) => <Card key={label}><CardContent className="py-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-lg font-semibold" data-testid={`promoter-stat-${label.toLowerCase().replaceAll(" ", "-")}`}>{money(value)}</p></CardContent></Card>)}</div>
@@ -74,6 +74,10 @@ function CommissionTable() {
   if (rows.isLoading) return <Skeleton className="h-40" />;
   if (rows.isError) return <p role="alert" className="text-sm text-destructive">Couldn't load your commissions. <Button variant="outline" onClick={() => void rows.refetch()}>Try again</Button></p>;
   return <Card><CardHeader><CardTitle className="text-base">Earnings</CardTitle></CardHeader><CardContent>{!rows.data?.length ? <p className="text-sm text-muted-foreground">No earnings yet. Share your code to get started.</p> : <div className="divide-y divide-border">{rows.data.map((row: PromoterCommission) => <div key={row.id} data-testid={`commission-${row.id}`} className="flex justify-between gap-3 py-3"><div><p className="text-sm">{row.workspace}</p><p className="text-xs text-muted-foreground">{new Date(row.purchasedOn).toLocaleDateString("en-IN")} · {money(row.gross)} purchase</p></div><div className="text-right text-sm"><p>{money(row.commission)}</p><p className="text-xs text-muted-foreground">{row.state === "held" ? "Under review" : row.state === "payable" ? "Ready to pay" : row.state.replaceAll("_", " ")}</p></div></div>)}</div>}</CardContent></Card>;
+}
+
+export function PromoterApplyForm() {
+  return <ApplyState />;
 }
 
 function ApplyState() {
