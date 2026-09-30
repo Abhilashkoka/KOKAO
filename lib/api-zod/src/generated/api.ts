@@ -132,6 +132,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "quests": zod.boolean(),
   "streaks": zod.boolean(),
   "referrals": zod.boolean(),
+  "creatorProgram": zod.boolean(),
   "progressMeter": zod.boolean(),
   "calendar": zod.boolean(),
   "postMetrics": zod.boolean(),

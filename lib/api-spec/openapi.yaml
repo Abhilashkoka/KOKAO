@@ -25361,6 +25361,7 @@ components:
           quests,
           streaks,
           referrals,
+          creatorProgram,
           progressMeter,
           calendar,
           postMetrics,
@@ -25436,6 +25437,8 @@ components:
         streaks:
           type: boolean
         referrals:
+          type: boolean
+        creatorProgram:
           type: boolean
         progressMeter:
           type: boolean

@@ -2,7 +2,7 @@
 name: Creator program scope
 description: Supplied Program B boundaries and financial interpretation constraints.
 ---
-Program B was authorized as accrual-only and ships disabled. Dashboard UI, payout execution, payout identities/KYC, and refund-hook wiring were explicitly deferred in the supplied setup.
+Program B was authorized as accrual-only and ships disabled. A subsequent request authorized the promoter dashboard UI and buyer code entry. Payout execution, payout identities/KYC, and refund-hook wiring remain deferred.
 
 **Why:** payout schema placeholders are preparation, not permission to collect sensitive information or send money. Reserve and TDS settings are not a functioning payout implementation.
 

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KOKAO Logo Editor</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Outfit:wght@500;600;700;800&family=Poppins:wght@500;600;700;800&family=Manrope:wght@500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Unbounded:wght@500;600;700;800&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF8F4;--line:#EEE9E2;--mute:#8B8698;--ink:#2E2A3A;--acc:#EFE8FF}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);font-family:Outfit,system-ui,sans-serif;color:var(--ink);padding:32px 16px}
+.wrap{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr 360px;gap:20px}
+@media(max-width:860px){.wrap{grid-template-columns:1fr}}
+h1{font-size:22px;font-weight:700;margin-bottom:4px}.sub{color:var(--mute);font-size:13px;margin-bottom:18px}
+.pv{background:#fff;border:1px solid var(--line);border-radius:20px;height:230px;display:grid;place-items:center;padding:20px;margin-bottom:14px}
+.pv.dark{background:#1C1A24;border-color:#1C1A24}
+.pv svg{max-width:100%;height:auto;max-height:150px}
+.row{display:flex;gap:14px}.row .pv{flex:1;height:150px}.row .pv svg{max-height:70px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px;align-self:start}
+.grp{margin-bottom:18px}.grp h4{font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.chip.on{background:var(--acc);border-color:#CDB4FF}
+.sw{width:12px;height:12px;border-radius:50%;display:inline-block}
+.mark{width:44px;height:44px;padding:6px;border-radius:12px}
+input[type=range]{width:100%;accent-color:#B79BFF}
+label{font-size:13px;display:flex;justify-content:space-between;margin-bottom:4px}
+.acts{display:flex;gap:8px;margin-top:6px}
+.btn{flex:1;border:0;border-radius:12px;padding:10px;font:inherit;font-size:14px;cursor:pointer;background:#CDB4FF;color:#2E2A3A;font-weight:600}
+.btn.alt{background:#EFE8FF}
+.spec{font-size:12px;color:var(--mute);margin-top:10px;line-height:1.5}
+</style></head><body>
+<div class="wrap">
+<div>
+  <h1>KOKAO logo editor</h1>
+  <p class="sub">Mix font, colours and the O. Copy the settings line back to me and I'll finalise.</p>
+  <div class="pv" id="main"></div>
+  <div class="row"><div class="pv dark" id="dark"></div><div class="pv" id="icon" style="flex:.5"></div></div>
+</div>
+<div class="panel">
+  <div class="grp"><h4>Font</h4><div class="chips" id="fonts"></div></div>
+  <div class="grp"><label>Weight <span id="wv"></span></label><input type="range" id="w" min="500" max="800" step="100">
+    <label style="margin-top:10px">K → 1st O <span id="g1v"></span></label><input type="range" id="g1" min="-15" max="25" step="1">
+    <label style="margin-top:10px">1st O → KA <span id="g2v"></span></label><input type="range" id="g2" min="-15" max="25" step="1">
+    <label style="margin-top:10px">KA spacing (K ↔ A) <span id="lv"></span></label><input type="range" id="ls" min="-30" max="30" step="1">
+    <label style="margin-top:10px">A → last O <span id="gv"></span></label><input type="range" id="gp" min="-10" max="20" step="1"></div>
+  <div class="grp"><h4>Colours</h4><div class="chips" id="pals"></div></div>
+  <div class="grp"><h4>The O</h4><div class="chips" id="marks"></div></div>
+  <div class="acts"><button class="btn" onclick="copySpec()">Copy settings</button><button class="btn alt" onclick="dl()">Download SVG</button></div>
+  <p class="spec" id="spec"></p>
+</div>
+</div>
+<script>
+const FONTS=[["Sora",.73],["Outfit",.7],["Poppins",.7],["Manrope",.72],["Space Grotesk",.7],["Unbounded",.73],["Syne",.69]];
+const PALS={
+ "Original":{t:"#14141A",a:"#6D42F0",b:"#6D42F0",d:"#F4F1FA",da:"#B79BFF",db:"#B79BFF"},
+ "Pastel lavender":{t:"#2E2A3A",a:"#B79BFF",b:"#FFB8A0",d:"#F4F1FA",da:"#CDB4FF",db:"#FFC9B5"},
+ "Mint & sky":{t:"#23303A",a:"#8FD6BC",b:"#8CC4F2",d:"#EEF6F4",da:"#A6E3CD",db:"#A9D3F7"},
+ "Peach pop":{t:"#2E2A3A",a:"#FF9E80",b:"#6D42F0",d:"#FFF4EF",da:"#FFB8A0",db:"#CDB4FF"},
+ "Gradient":{t:"#2E2A3A",a:"grad",b:"#FFB8A0",d:"#F4F1FA",da:"grad",db:"#FFC9B5"},
+ "Mono":{t:"#14141A",a:"#14141A",b:"#14141A",d:"#FFFFFF",da:"#FFFFFF",db:"#FFFFFF"}};
+const MARKS=["Ring + dot","Ring + play","Thick ring","Double ring","Aperture","Offset dot"];
+let S={font:"Sora",w:800,ls:-6,pal:"Original",mark:"Ring + dot",gap:0,g1:0,g2:0};
+
+function oMark(cx,cy,R,a,b,id){ // R = outer radius
+ const sw=R*.43,r=R-sw/2,st=a==="grad"?`url(#${id})`:a;
+ const g=a==="grad"?`<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#B79BFF"/><stop offset="1" stop-color="#FFB8A0"/></linearGradient></defs>`:"";
+ const ring=(rr,w)=>`<circle cx="${cx}" cy="${cy}" r="${rr}" fill="none" stroke="${st}" stroke-width="${w}"/>`;
+ const dot=(x,y,rr)=>`<circle cx="${x}" cy="${y}" r="${rr}" fill="${b}"/>`;
+ switch(S.mark){
+  case"Ring + play":{const s=R*.3;return g+ring(r,sw)+`<path d="M${cx-s*.7} ${cy-s} L${cx+s} ${cy} L${cx-s*.7} ${cy+s}Z" fill="${b}" stroke="${b}" stroke-width="${R*.08}" stroke-linejoin="round"/>`}
+  case"Thick ring":{const w=R*.62;return g+ring(R-w/2,w)}
+  case"Double ring":return g+ring(R-R*.1,R*.2)+ring(R*.42,R*.2)+dot(cx,cy,R*.12);
+  case"Aperture":{const c=2*Math.PI*r;return g+`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${st}" stroke-width="${sw}" stroke-dasharray="${c/6-R*.12} ${R*.12}" transform="rotate(-90 ${cx} ${cy})"/>`+dot(cx,cy,R*.22)}
+  case"Offset dot":return g+ring(r,sw)+dot(cx+R*.12,cy-R*.12,R*.22);
+  default:return g+ring(r,sw)+dot(cx,cy,R*.22);}
+}
+function logo(dark){
+ const cap=FONTS.find(f=>f[0]===S.font)[1],fs=120,base=112,p=PALS[S.pal];
+ const m=document.createElementNS("http://www.w3.org/2000/svg","svg");m.style.position="absolute";m.style.visibility="hidden";
+ const tAttr=`font-family="${S.font}, sans-serif" font-weight="${S.w}" font-size="${fs}"`;
+ m.innerHTML=`<text ${tAttr}>K</text><text ${tAttr}>A</text>`;document.body.appendChild(m);
+ const [k,aa]=m.querySelectorAll("text"),wK=k.getBBox().width,wA=aa.getBBox().width;m.remove();
+ const ch=fs*cap,R=ch/2*1.06,cy=base-ch/2,g=fs*.03-2.4,g2=S.gap;
+ const x1=20+wK+g+S.g1+R, xKA=x1+R+g+S.g2, xA=xKA+wK+S.ls, x2=xA+wA+g2+R, W=Math.ceil(x2+R+20);
+ const t=dark?p.d:p.t,a=dark?p.da:p.a,b=dark?p.db:p.b,id=dark?"gd":"gl";
+ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} 150" width="${W}" height="150"><text x="20" y="${base}" ${tAttr} fill="${t}">K</text>${oMark(x1,cy,R,a,b,id+"1")}<text x="${xKA}" y="${base}" ${tAttr} fill="${t}">K</text><text x="${xA}" y="${base}" ${tAttr} fill="${t}">A</text>${oMark(x2,cy,R,a,b,id+"2")}</svg>`;
+}
+function icon(){const p=PALS[S.pal],bg=p.a==="grad"?"#EFE8FF":p.a+"22";
+ return `<svg viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" rx="26" fill="${bg}"/>${oMark(50,50,30,p.a,p.b,"gi")}</svg>`}
+function render(){
+ main.innerHTML=logo(false);dark.innerHTML=logo(true);document.getElementById("icon").innerHTML=icon();
+ wv.textContent=S.w;lv.textContent=S.ls;w.value=S.w;ls.value=S.ls;gp.value=S.gap;gv.textContent=S.gap;g1.value=S.g1;g1v.textContent=S.g1;g2.value=S.g2;g2v.textContent=S.g2;
+ spec.textContent=`Font: ${S.font} ${S.w} · K→O1: ${S.g1} · O1→KA: ${S.g2} · K↔A: ${S.ls} · A→O2: ${S.gap} · Colours: ${S.pal} · O: ${S.mark}`;
+ document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",S[c.dataset.k]===c.dataset.v));
+}
+function chips(el,k,list,deco){el.innerHTML=list.map(v=>`<button class="chip" data-k="${k}" data-v="${v}" ${k==="font"?`style="font-family:'${v}';font-weight:700"`:""}>${deco?deco(v):""}${v}</button>`).join("");
+ el.onclick=e=>{const c=e.target.closest(".chip");if(c){S[k]=c.dataset.v;render()}}}
+chips(fonts,"font",FONTS.map(f=>f[0]));
+chips(pals,"pal",Object.keys(PALS),v=>{const p=PALS[v];const a=p.a==="grad"?"linear-gradient(135deg,#B79BFF,#FFB8A0)":p.a;return `<span class="sw" style="background:${p.t}"></span><span class="sw" style="background:${a}"></span><span class="sw" style="background:${p.b}"></span>`});
+chips(marks,"mark",MARKS);
+w.oninput=()=>{S.w=+w.value;render()};ls.oninput=()=>{S.ls=+ls.value;render()};gp.oninput=()=>{S.gap=+gp.value;render()};g1.oninput=()=>{S.g1=+g1.value;render()};g2.oninput=()=>{S.g2=+g2.value;render()};
+function copySpec(){try{navigator.clipboard.writeText(spec.textContent)}catch(e){}}
+function dl(){try{const u=URL.createObjectURL(new Blob([logo(false)],{type:"image/svg+xml"}));const l=document.createElement("a");l.href=u;l.download="kokao-logo.svg";l.click()}catch(e){}}
+render();document.fonts.ready.then(render);setTimeout(render,800);
+</script>
+</body></html>

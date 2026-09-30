@@ -37,6 +37,7 @@ export interface FeatureFlags {
   quests: boolean;
   streaks: boolean;
   referrals: boolean;
+  creatorProgram: boolean;
   progressMeter: boolean;
   calendar: boolean;
   postMetrics: boolean;

@@ -35,6 +35,7 @@ const ALL_ON: FeatureFlags = {
   quests: true,
   streaks: true,
   referrals: true,
+  creatorProgram: false,
   progressMeter: true,
   calendar: true,
   postMetrics: true,

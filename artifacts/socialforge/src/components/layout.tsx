@@ -52,6 +52,7 @@ const NAV_ITEMS: {
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/ai-styles", label: "AI Styles", icon: Sparkles },
   { href: "/help", label: "Help", icon: LifeBuoy },
+  { href: "/promoter", label: "Promoter", icon: Megaphone, feature: "creatorProgram" },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

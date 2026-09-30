@@ -10,6 +10,7 @@ import { SchedulePage } from "@/pages/schedule";
 import { BrandKitsPage } from "@/pages/brand-kits";
 import { AccountsPage } from "@/pages/accounts";
 import { SettingsPage } from "@/pages/settings";
+import PromoterPage from "@/pages/promoter";
 import { HelpPage } from "@/pages/help";
 import { AdminPage } from "@/pages/admin";
 import { AnalyticsPage } from "@/pages/analytics";
@@ -243,6 +244,7 @@ function ClerkProviderWithRoutes() {
                 <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
                 <Route path="/ai-styles" component={() => <ProtectedRoute component={PromptCustomizationsPage} />} />
                 <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
+                <Route path="/promoter" component={() => <ProtectedRoute component={PromoterPage} />} />
                 <Route path="/help" component={() => <ProtectedRoute component={HelpPage} />} />
                 <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
                 <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />

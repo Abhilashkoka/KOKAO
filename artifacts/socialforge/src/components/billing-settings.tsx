@@ -23,6 +23,7 @@ import {
 import type { Plan } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditUsageCard } from "@/components/credit-balance";
+import { PromoterCodeField } from "@/components/promoter-code-field";
 import { refreshCreditBalance } from "@/lib/refresh-credit-balance";
 import { Button } from "@/components/ui/button";
 import {
@@ -620,6 +621,7 @@ export function BillingSettings() {
         </CardContent>
       </Card>
 
+      <PromoterCodeField />
       <Card className="border-border shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
