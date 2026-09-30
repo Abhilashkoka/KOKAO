@@ -16,6 +16,7 @@ import { LandingTab } from "./landing-tab";
 import { SupportTab } from "./support-tab";
 import { VideoTemplatesTab } from "./video-templates-tab";
 import { LipSyncInsightsTab } from "./lip-sync-insights-tab";
+import { CreatorProgramTab } from "./creator-program-tab";
 
 export { AuditLogCard } from "./audit-tab";
 
@@ -24,6 +25,7 @@ const TAB_IDS = [
   "tenants",
   "plans",
   "promos",
+  "creator-program",
   "credentials",
   "ai",
   "prompt-kit",
@@ -112,6 +114,9 @@ export function AdminPage() {
             <TabsTrigger value="promos" data-testid="tab-promos">
               Promos
             </TabsTrigger>
+            <TabsTrigger value="creator-program" data-testid="tab-creator-program">
+              Creator Program
+            </TabsTrigger>
             <TabsTrigger value="credentials" data-testid="tab-credentials">
               Platform Credentials
             </TabsTrigger>
@@ -154,6 +159,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="promos" className="mt-6">
           <PromosTab />
+        </TabsContent>
+        <TabsContent value="creator-program" className="mt-6">
+          <CreatorProgramTab />
         </TabsContent>
         <TabsContent value="credentials" className="mt-6">
           <CredentialsTab />
