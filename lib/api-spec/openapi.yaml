@@ -15976,6 +15976,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CreditPack"
+        creditPackRates:
+          type: array
+          description: Current base image and standard-video rates for approximate pack allowances.
+          items:
+            $ref: "#/components/schemas/CreditRate"
         history:
           type: array
           items:

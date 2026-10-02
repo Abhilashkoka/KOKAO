@@ -45,6 +45,10 @@ vi.mock("@workspace/api-client-react", async () => {
         subscription: null,
         credits: { captionCredits: 0, imageCredits: 0 },
         creditPacks: mockState.creditPacks,
+        creditPackRates: [
+          { key: "video", unit: "second", credits: 1, active: true },
+          { key: "image", unit: "item", credits: 0.5, active: true },
+        ],
         history: [],
       },
       isLoading: false,
@@ -97,6 +101,7 @@ describe("BillingSettings member request-upgrade error toasts", () => {
     expect(screen.getAllByText("Recommended")).toHaveLength(1);
     expect(screen.getByText("Creator").parentElement?.textContent).toContain("Recommended");
     expect(screen.getByText("Starter").parentElement?.textContent).not.toContain("Recommended");
+    expect(screen.getByText("≈ 4.1 min of standard AI video or 500 images")).toBeTruthy();
   });
 
   it("shows the 'Request sent' confirmation toast when the request succeeds", () => {

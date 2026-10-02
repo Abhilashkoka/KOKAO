@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { creditPackEstimate, CREDIT_PACK_ESTIMATE_NOTE } from "@workspace/social-limits";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { GamificationPlansCard } from "./gamification-plans-card";
 import {
@@ -291,6 +292,7 @@ export function CreditPacksCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: packs, isLoading } = useAdminListCreditPacks();
+  const { data: rateCard } = useAdminGetCreditRates();
   const createPack = useAdminCreateCreditPack();
   const updatePack = useAdminUpdateCreditPack();
   const deletePack = useAdminDeleteCreditPack();
@@ -443,6 +445,12 @@ export function CreditPacksCard() {
                       placeholder="e.g. 350"
                       data-testid="input-pack-credits"
                     />
+                    {creditPackEstimate(Number(draft.credits), rateCard?.rates) && (
+                      <p className="text-sm font-medium" title={CREDIT_PACK_ESTIMATE_NOTE}>
+                        {creditPackEstimate(Number(draft.credits), rateCard?.rates)}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">{CREDIT_PACK_ESTIMATE_NOTE}</p>
                     <p className="text-xs text-muted-foreground">
                       General-purpose credits, including video generation.
                       Generation deducts these only when credit billing is enabled.
@@ -570,6 +578,10 @@ export function CreditPacksCard() {
                         setNewPack((prev) => ({ ...prev, credits: e.target.value }))
                       }
                     />
+                    {creditPackEstimate(Number(newPack.credits), rateCard?.rates) && (
+                      <p className="text-sm font-medium">{creditPackEstimate(Number(newPack.credits), rateCard?.rates)}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">{CREDIT_PACK_ESTIMATE_NOTE}</p>
                     <p className="text-xs text-muted-foreground">
                       Usable for all supported AI operations, including video.
                       Charges follow Credit usage pricing when credit billing is enabled.

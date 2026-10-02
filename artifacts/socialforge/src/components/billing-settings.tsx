@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { creditPackEstimate, CREDIT_PACK_ESTIMATE_NOTE } from "@workspace/social-limits";
 import { readPlanIntent, clearPlanIntent } from "@/lib/planIntent";
 import {
   useGetMe,
@@ -655,6 +656,12 @@ export function BillingSettings() {
                 <div key={pack.id} className={`rounded-lg border p-4 space-y-2 ${pack.recommended ? "border-primary bg-primary/5 ring-1 ring-primary" : ""}`}>
                   {pack.recommended && <Badge>Recommended</Badge>}
                   <div className="font-semibold">{pack.name}</div>
+                  {creditPackEstimate(pack.credits ?? 0, billing.creditPackRates) && (
+                    <div>
+                      <p className="text-sm font-medium">{creditPackEstimate(pack.credits ?? 0, billing.creditPackRates)}</p>
+                      <p className="text-xs text-muted-foreground">{CREDIT_PACK_ESTIMATE_NOTE}</p>
+                    </div>
+                  )}
                   <p className="text-sm text-muted-foreground">
                     {/* A credits pack describes itself by its credits. The
                         caption/image wording is the legacy shape and only

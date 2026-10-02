@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   creditPacks: [] as any[],
   gamificationPlans: [] as any[],
   updatePack: vi.fn(),
+  rateCard: undefined as any,
 }));
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -22,7 +23,7 @@ vi.mock("@workspace/api-client-react", async () => {
       },
       isFetched: true,
     }),
-    useAdminGetCreditRates: () => ({ data: undefined, isLoading: false }),
+    useAdminGetCreditRates: () => ({ data: state.rateCard, isLoading: false }),
     useAdminListCreditPacks: () => ({ data: state.creditPacks, isLoading: false }),
     useAdminUpdateCreditPack: () => ({ mutate: state.updatePack, isPending: false }),
     useAdminListGamificationPlans: () => ({
@@ -84,9 +85,21 @@ beforeEach(() => {
   state.creditPacks = [];
   state.gamificationPlans = [];
   state.updatePack.mockReset();
+  state.rateCard = undefined;
 });
 
 describe("plan limit suggestions", () => {
+  it("updates allowance estimates while editing credits", () => {
+    state.rateCard = { mode: "shadow", creditPricePaise: 2000, rates: [
+      { key: "video", unit: "second", credits: 1, active: true },
+      { key: "image", unit: "item", credits: 0.5, active: true },
+    ] };
+    state.creditPacks = [{ id: 1, name: "Starter", pricePaise: 49900, credits: 120, captionCredits: 0, imageCredits: 0, active: true }];
+    renderTab();
+    expect(screen.getByText("≈ 2 min of standard AI video or 240 images")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("input-pack-credits"), { target: { value: "60" } });
+    expect(screen.getByText("≈ 1 min of standard AI video or 120 images")).toBeTruthy();
+  });
   it("saves the admin recommendation and clears it when hiding the pack", () => {
     state.creditPacks = [{
       id: 1, name: "Starter", pricePaise: 49900, credits: 100,

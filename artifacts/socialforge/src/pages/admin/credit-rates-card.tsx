@@ -6,6 +6,7 @@ import {
   useAdminPlanCreditMigration,
   useAdminRunCreditMigration,
   getAdminGetCreditRatesQueryKey,
+  getBillingGetOverviewQueryKey,
   getAdminGetCreditMeterReportQueryKey,
   getAdminPlanCreditMigrationQueryKey,
 } from "@workspace/api-client-react";
@@ -257,6 +258,7 @@ export function CreditRatesCard({
           setCreditPriceRupees(String(pricePaise / 100));
           toast({ title: "Rate card saved" });
           queryClient.invalidateQueries({ queryKey: getAdminGetCreditRatesQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getBillingGetOverviewQueryKey() });
         },
         onError: (error) =>
           toast({

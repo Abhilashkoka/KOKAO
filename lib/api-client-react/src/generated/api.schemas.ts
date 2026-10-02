@@ -2098,6 +2098,8 @@ export interface BillingOverview {
   credits: CreditBalances;
   balance: CreditBalance;
   creditPacks: CreditPack[];
+  /** Current base image and standard-video rates for approximate pack allowances. */
+  creditPackRates?: CreditRate[];
   history: CreditLedgerEntry[];
 }
 

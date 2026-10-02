@@ -46,6 +46,7 @@ import {
   useCreditBalance,
 } from "@/lib/creditBalance";
 import colors from "@/constants/colors";
+import { creditPackEstimate, CREDIT_PACK_ESTIMATE_NOTE } from "@workspace/social-limits";
 import { fonts } from "@/constants/fonts";
 
 const c = colors.light;
@@ -529,6 +530,12 @@ export default function SettingsScreen() {
                   <View style={{ flex: 1 }}>
                     {pack.recommended ? <Text style={styles.packName}>Recommended</Text> : null}
                     <Text style={styles.packName}>{pack.name}</Text>
+                    {creditPackEstimate(pack.credits ?? 0, overview?.creditPackRates) ? (
+                      <>
+                        <Text style={styles.packDetail}>{creditPackEstimate(pack.credits ?? 0, overview?.creditPackRates)}</Text>
+                        <Text style={styles.packDetail}>{CREDIT_PACK_ESTIMATE_NOTE}</Text>
+                      </>
+                    ) : null}
                     <Text style={styles.packDetail}>
                       {[
                         typeof pack.credits === "number" && pack.credits > 0

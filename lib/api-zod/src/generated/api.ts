@@ -35320,6 +35320,15 @@ export const BillingGetOverviewResponse = zod.object({
   "recommended": zod.boolean().optional().describe('Admin-selected recommendation, not a sales ranking.'),
   "sortOrder": zod.number()
 })),
+  "creditPackRates": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "unit": zod.enum(['item', 'second']),
+  "credits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number(),
+  "notes": zod.string().nullish()
+}).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.')).optional().describe('Current base image and standard-video rates for approximate pack allowances.'),
   "history": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.string(),

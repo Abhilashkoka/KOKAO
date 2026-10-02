@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { listCreditRates } from "../lib/creditRates";
 import {
   db,
   tenantsTable,
@@ -218,6 +219,7 @@ router.get("/billing", async (req: Request, res: Response) => {
         imageCredits: p.imageCredits,
         videoCredits: p.videoCredits,
       })),
+      creditPackRates: (await listCreditRates()).filter((rate) => rate.key === "video" || rate.key === "image"),
       history: history.map((h) => ({
         id: h.id,
         kind: h.kind,

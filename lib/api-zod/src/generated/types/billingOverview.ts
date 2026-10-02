@@ -10,6 +10,7 @@ import type { CreditBalance } from './creditBalance';
 import type { CreditBalances } from './creditBalances';
 import type { CreditLedgerEntry } from './creditLedgerEntry';
 import type { CreditPack } from './creditPack';
+import type { CreditRate } from './creditRate';
 
 export interface BillingOverview {
   /** Whether online payments are set up by the platform admin. */
@@ -24,5 +25,7 @@ export interface BillingOverview {
   credits: CreditBalances;
   balance: CreditBalance;
   creditPacks: CreditPack[];
+  /** Current base image and standard-video rates for approximate pack allowances. */
+  creditPackRates?: CreditRate[];
   history: CreditLedgerEntry[];
 }
