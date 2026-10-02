@@ -788,7 +788,7 @@ async function clearVideoModeFlags(): Promise<void> {
   invalidateFeatureFlagCache();
 }
 
-async function newTenant(plan = "free"): Promise<TestTenant> {
+async function newTenant(plan = "pro"): Promise<TestTenant> {
   const tenant = await createTenant();
   if (plan !== "free") {
     await db.update(tenantsTable).set({ plan }).where(eq(tenantsTable.id, tenant.tenantId));
@@ -797,6 +797,57 @@ async function newTenant(plan = "free"): Promise<TestTenant> {
   actAs(tenant.clerkUserId);
   return tenant;
 }
+
+describe("free-plan stock video mapping", () => {
+  it("blocks AI visuals without creating a funded job", async () => {
+    const tenant = await newTenant("free");
+    const response = await request(app).post("/api/ai/generate-video").send({
+      engine: "text_to_video", prompt: "A forest at sunrise",
+    });
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("FREE_PLAN_STOCK_VIDEO_ONLY");
+    const jobs = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+    expect(jobs).toHaveLength(0);
+  });
+  it("accepts stock video without a visual generation reservation", async () => {
+    const tenant = await newTenant("free");
+    const fundingModule = await import("../lib/meterFunding");
+    const fundingSpy = vi.spyOn(fundingModule, "freezeMeterFunding").mockResolvedValue({
+      tenantId: tenant.tenantId, rail: "credits", mode: "enforce",
+    });
+    try {
+    const response = await request(app).post("/api/ai/generate-video").send({
+      engine: "topic_to_video", visualsSource: "stock",
+      prompt: "A forest at sunrise", reviewStoryboard: false,
+    });
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    const [job] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+    expect(job.options?.freeStockVideo).toBe(true);
+    expect(job.chargedRatePaise).toBe(0);
+    expect(job.walletReservationId).toBeNull();
+    } finally {
+      fundingSpy.mockRestore();
+    }
+  });
+  it("blocks legacy billing instead of silently running uncharged AI narration", async () => {
+    const tenant = await newTenant("free");
+    const fundingModule = await import("../lib/meterFunding");
+    const fundingSpy = vi.spyOn(fundingModule, "freezeMeterFunding").mockResolvedValue({
+      tenantId: tenant.tenantId, rail: "quota", mode: "shadow",
+    });
+    try {
+      const response = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video", visualsSource: "stock", prompt: "A forest at sunrise",
+      });
+      expect(response.status).toBe(503);
+      expect(response.body.code).toBe("FREE_VIDEO_CREDIT_BILLING_REQUIRED");
+    } finally {
+      fundingSpy.mockRestore();
+    }
+  });
+});
 
 /**
  * The route preflights job dependencies before it funds anything, so the test

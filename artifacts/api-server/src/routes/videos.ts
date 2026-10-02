@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { enforceFreeVideoRoutes, isStockOnlyVideo, FREE_VIDEO_MESSAGE, FREE_VIDEO_BILLING_MESSAGE } from "../lib/freeVideoPolicy";
 import { createHash, randomUUID } from "node:crypto";
 import { videoLibraryCopySource } from "../lib/videoLibraryCopySource";
 import {
@@ -734,6 +735,7 @@ function freezeCandidateProvenance(
 }
 
 const router: IRouter = Router();
+router.use(enforceFreeVideoRoutes);
 
 function guidedStorySourceStoryboardReferenceError(
   options: Pick<VideoJobOptions, "guidedStory">,
@@ -12861,10 +12863,22 @@ async function generateVideoHandler(
   // atomically reserved credits (refunded by the job runner on failure).
   // Character story videos cost one unit PER SCENE — every scene is a real
   // keyframe + image-to-video generation.
+  if (tenant.plan === "free") {
+    if (creditSnapshot.rail !== "credits" || creditSnapshot.mode !== "enforce") {
+      res.status(503).json({ error: FREE_VIDEO_BILLING_MESSAGE, code: "FREE_VIDEO_CREDIT_BILLING_REQUIRED" });
+      return;
+    }
+    if (!isStockOnlyVideo(body.engine, options)) {
+      res.status(403).json({ error: FREE_VIDEO_MESSAGE, code: "FREE_PLAN_STOCK_VIDEO_ONLY" });
+      return;
+    }
+    options.freeStockVideo = true;
+    options.reviewStoryboard = false;
+  }
   let units = videoJobUnits(body.engine, options);
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  const walletFunded = creditSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId);
+  const walletFunded = !options.freeStockVideo && creditSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId);
   // Legacy native templates retain their ceiling-funded quota behavior.
   // Hybrid must remain deferred on every rail: only the voiced narration tells
   // us whether its unit belongs to this video hold or was independently settled
@@ -12893,14 +12907,14 @@ async function generateVideoHandler(
     ? "credits"
     : walletFunded
     ? "wallet"
-    : limits.videos === -1 || usage.videos + units <= limits.videos
+    : options.freeStockVideo || limits.videos === -1 || usage.videos + units <= limits.videos
       ? "quota"
       : "credit";
   options.meterFunding = Object.freeze({ ...creditSnapshot, rail: funding });
   const exactReservation = funding === "wallet"
     ? await directVideoReservationPrice(body.engine, options, units).catch(() => null)
     : null;
-  const chargedRatePaise = (await getAiSpendRates()).videoPaise;
+  const chargedRatePaise = options.freeStockVideo ? 0 : (await getAiSpendRates()).videoPaise;
   // The debit and its durable refund owner are one commit. A throw, zero-row
   // CAS, or process failure before commit rolls both back; after commit the
   // queued/failed-job sweep can discover and resolve the job-linked reserve.
@@ -16127,9 +16141,9 @@ router.post(
       res.status(401).json({ error: "Unauthorized" }); return;
     }
     const creditSnapshot = await freezeMeterFunding(req.tenantId);
-    const walletFunded = creditSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId);
+    const walletFunded = !options.freeStockVideo && creditSnapshot.rail !== "credits" && await isWalletFunded(req.tenantId);
     let funding: "quota" | "credit" | "wallet" | "credits" = creditSnapshot.rail === "credits" ? "credits" : walletFunded ? "wallet" : "quota";
-    if (creditSnapshot.rail !== "credits" && !walletFunded) {
+    if (creditSnapshot.rail !== "credits" && !walletFunded && units > 0) {
       const [limits, usage] = await Promise.all([
         getPlanLimits(tenant.plan),
         getUsage(req.tenantId),
@@ -16203,7 +16217,7 @@ router.post(
           walletReservationId: reservation?.id ?? null,
           walletReservedPaise: reservation?.amountPaise ?? null,
           walletReservedUnits: reservation?.units ?? null,
-          chargedRatePaise: await getAiSpendRates().then((rates) => rates.videoPaise),
+          chargedRatePaise: options.freeStockVideo ? 0 : await getAiSpendRates().then((rates) => rates.videoPaise),
         }).returning();
         if (!created) throw new Error("Fresh restart child creation failed.");
         const [retired] = await tx.update(videoGenerationsTable).set({

@@ -717,11 +717,43 @@ const ENGINE_FEATURE: Partial<Record<Engine, FeatureId>> = {
   guided_story: "videoTopicToVideo",
 };
 
+/**
+ * Free workspaces may only submit stock Topic to Video. Strip every
+ * paid-only input so a stale state can never reach the API (which also
+ * rejects them).
+ */
+export function freeStockPayload<T extends VideoGenerateRequest>(
+  isFree: boolean,
+  data: T,
+): T {
+  if (!isFree) return data;
+  return {
+    ...data,
+    engine: "topic_to_video",
+    visualsSource: "stock",
+    planSource: null,
+    styleProfileId: null,
+    referenceImages: undefined,
+    characterId: null,
+    outfitId: null,
+    presetCharacterId: null,
+    presetOutfitDerivativeId: null,
+    presetVoiceId: null,
+    studioLipSync: false,
+    studioLipSyncConsent: undefined,
+    musicPrompt: null,
+    reviewStoryboard: false,
+  };
+}
+
 export function VideoStudioPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const detachFailedGuidedStoryboard = useDiscardVideoStoryboard();
-  const { data: me } = useGetMe();
+  const { data: me, isLoading: meLoading } = useGetMe();
+  // Free workspaces may only create stock-footage Topic to Video. Only an
+  // explicit "free" plan qualifies — a missing profile is never treated as free.
+  const isFreePlan = me?.tenant?.plan === "free";
   const requestUpgrade = useBillingRequestUpgrade();
 
   const [engine, setEngine] = useState<Engine>("text_to_video");
@@ -1303,10 +1335,14 @@ export function VideoStudioPage() {
     () =>
       (Object.keys(ENGINE_META) as Engine[]).filter((candidate) => {
         const feature = ENGINE_FEATURE[candidate];
+        // Free workspaces have exactly one mode, and only while its flag is on.
+        if (isFreePlan && candidate !== "topic_to_video") return false;
         return feature ? flags[feature] : true;
       }),
-    [flags],
+    [flags, isFreePlan],
   );
+  const freeTopicUnavailable =
+    isFreePlan && !availableEngines.includes("topic_to_video");
 
   // Flags can refresh while this page is open. Never leave the form on a mode
   // that has just been disabled; move to the first still-available mode.
@@ -2845,7 +2881,61 @@ export function VideoStudioPage() {
     });
   };
 
+  // Keep free workspaces on the one path they can submit, whatever a template,
+  // draft, saved plan or deep link tried to select.
+  useEffect(() => {
+    if (!isFreePlan) return;
+    // Engine fallback is owned by the availableEngines effect above, which
+    // already only offers topic_to_video on free — no competing setEngine here.
+    // Every setter is guarded so this settles in one pass.
+    if (visuals !== "stock") setVisuals("stock");
+    if (styleProfileId !== null) setStyleProfileId(null);
+    if (reusePlan) setReusePlan(null);
+    if (referenceImages.length > 0) setReferenceImages([]);
+    if (characterId !== null) setCharacterId(null);
+    if (presetCharacterId !== null) setPresetCharacterId(null);
+    if (studioLipSync) setStudioLipSync(false);
+    if (musicPrompt) setMusicPrompt("");
+    if (reviewStoryboard) setReviewStoryboard(false);
+  }, [
+    isFreePlan,
+    visuals,
+    styleProfileId,
+    reusePlan,
+    referenceImages.length,
+    characterId,
+    presetCharacterId,
+    studioLipSync,
+    musicPrompt,
+    reviewStoryboard,
+  ]);
+
   const onGenerate = () => {
+    // Never submit before the plan is known: a free workspace could otherwise
+    // send a paid-only request during the first profile load.
+    if (meLoading) return;
+    if (freeTopicUnavailable) {
+      toast({
+        title: "Video creation is unavailable",
+        description: "Topic to Video is turned off for this workspace right now.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (
+      isFreePlan &&
+      (engine !== "topic_to_video" ||
+        visuals !== "stock" ||
+        selectedTemplate != null ||
+        reusePlan != null)
+    ) {
+      toast({
+        title: "Free plan: stock Topic to Video only",
+        description: "Upgrade to use AI video modes, AI visuals and templates.",
+        variant: "destructive",
+      });
+      return;
+    }
     // Guided Story has its own durable, revision-gated enqueue endpoint. It is
     // intentionally not a VideoGenerateRequest engine and must never enter the
     // ordinary generation payload below.
@@ -2933,7 +3023,7 @@ export function VideoStudioPage() {
 
     generateVideo.mutate(
       {
-        data: {
+        data: freeStockPayload(isFreePlan, {
           engine: payloadEngine,
           planSource,
           prompt: finalPrompt || null,
@@ -3109,7 +3199,7 @@ export function VideoStudioPage() {
                   ({ previewUrl: _previewUrl, ...reference }) => reference,
                 )
               : undefined,
-        } as VideoGenerateWithPreset,
+        } as VideoGenerateWithPreset),
       },
       {
         onSuccess: (job) => {
@@ -3550,7 +3640,7 @@ export function VideoStudioPage() {
   // Nothing renders while the admin has not set a video rate (a 0 estimate is
   // meaningless) or the workspace is not wallet-billed.
   const showWalletEstimate =
-    walletBilling && walletOverview != null && walletUnitPaise > 0;
+    !isFreePlan && walletBilling && walletOverview != null && walletUnitPaise > 0;
   const walletShortfall =
     showWalletEstimate &&
     walletReservationPaise > (walletOverview?.balancePaise ?? 0);
@@ -3734,7 +3824,7 @@ export function VideoStudioPage() {
           >
             <Library className="h-4 w-4 mr-1.5" /> Library
           </Button>
-          <Button
+          {!isFreePlan && <Button
             type="button"
             variant="outline"
             size="sm"
@@ -3742,7 +3832,7 @@ export function VideoStudioPage() {
             data-testid="button-ai-music"
           >
             <Sparkles className="h-4 w-4 mr-1.5" /> AI compose
-          </Button>
+          </Button>}
         </div>
       )}
       <input
@@ -3772,12 +3862,12 @@ export function VideoStudioPage() {
 
       <Tabs value={engine} onValueChange={(v) => changeEngine(v as Engine)}>
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
-          {flags.videoTextToVideo && (
+          {!isFreePlan && flags.videoTextToVideo && (
             <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
               <Sparkles className="h-4 w-4 mr-1.5" /> Text to Video
             </TabsTrigger>
           )}
-          {flags.videoAnimatePhoto && (
+          {!isFreePlan && flags.videoAnimatePhoto && (
             <TabsTrigger
               value="image_to_video"
               data-testid="tab-image-to-video"
@@ -3785,7 +3875,7 @@ export function VideoStudioPage() {
               <ImageIcon className="h-4 w-4 mr-1.5" /> Animate Photo
             </TabsTrigger>
           )}
-          {flags.videoSlideshow && (
+          {!isFreePlan && flags.videoSlideshow && (
             <TabsTrigger value="slideshow" data-testid="tab-slideshow">
               <Images className="h-4 w-4 mr-1.5" /> Slideshow
             </TabsTrigger>
@@ -3798,17 +3888,17 @@ export function VideoStudioPage() {
               <Lightbulb className="h-4 w-4 mr-1.5" /> Topic to Video
             </TabsTrigger>
           )}
-          {flags.videoTopicToVideo && (
+          {!isFreePlan && flags.videoTopicToVideo && (
             <TabsTrigger value="guided_story" data-testid="tab-guided-story">
               <ScrollText className="h-4 w-4 mr-1.5" /> Guided Story
             </TabsTrigger>
           )}
-          {flags.lipSync && (
+          {!isFreePlan && flags.lipSync && (
             <TabsTrigger value="lip_sync" data-testid="tab-lip-sync">
               <UserRound className="h-4 w-4 mr-1.5" /> Spokesperson
             </TabsTrigger>
           )}
-          {flags.lipSync && (
+          {!isFreePlan && flags.lipSync && (
             <TabsTrigger
               value="dialogue_lip_sync"
               data-testid="tab-dialogue-lip-sync"
@@ -3818,6 +3908,35 @@ export function VideoStudioPage() {
           )}
         </TabsList>
       </Tabs>
+
+      {isFreePlan && (
+        <div
+          className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-2"
+          data-testid="notice-free-video-plan"
+        >
+          <span>
+            <span className="font-medium">Free plan:</span>{" "}
+            {freeTopicUnavailable ? (
+              <span data-testid="text-free-video-unavailable">
+                Topic to Video is unavailable right now, so no video can be
+                created on this plan.
+              </span>
+            ) : (
+              <>
+                Topic to Video with stock footage only. Stock visuals are
+                free; the AI script and narration use your credits.
+              </>
+            )}
+          </span>
+          <a
+            href="/settings?tab=billing"
+            className="font-medium text-primary underline underline-offset-4"
+            data-testid="link-free-video-upgrade"
+          >
+            Upgrade for AI video
+          </a>
+        </div>
+      )}
 
       {engine === "guided_story" ? (
         <GuidedStoryWorkflow
@@ -4456,12 +4575,14 @@ export function VideoStudioPage() {
 
             {engine === "topic_to_video" && (
               <div className="space-y-3">
-                <VideoReferenceImages
-                  value={referenceImages}
-                  onChange={setReferenceImages}
-                  uploadFile={uploadFile}
-                  onBlockedChange={setReferenceImagesBlocked}
-                />
+                {!isFreePlan && (
+                  <VideoReferenceImages
+                    value={referenceImages}
+                    onChange={setReferenceImages}
+                    uploadFile={uploadFile}
+                    onBlockedChange={setReferenceImagesBlocked}
+                  />
+                )}
                 {referenceImages.length > 0 && !referenceImagesModeSupported && (
                   <div
                     className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2"
@@ -4473,7 +4594,7 @@ export function VideoStudioPage() {
                       without a curated template or character-render mode. Exact inserts become
                       fitted, uncropped full-frame scenes while narration continues.
                     </p>
-                    {!selectedTemplate && (
+                    {!selectedTemplate && !isFreePlan && (
                       <div className="flex flex-wrap gap-2">
                         <Button
                           type="button"
@@ -4497,7 +4618,7 @@ export function VideoStudioPage() {
                     )}
                   </div>
                 )}
-                {flags.referenceStyles && (
+                {flags.referenceStyles && !isFreePlan && (
                   <section
                     className="rounded-xl border border-border bg-muted/20 p-4 space-y-4"
                     data-testid="video-templates-section"
@@ -4902,21 +5023,25 @@ export function VideoStudioPage() {
                   >
                     Stock footage
                   </ToggleGroupItem>
-                  <ToggleGroupItem value="ai" data-testid="toggle-visuals-ai">
-                    AI imagery
-                  </ToggleGroupItem>
-                  <ToggleGroupItem
-                    value="ai_video"
-                    data-testid="toggle-visuals-ai-video"
-                  >
-                    Animated AI
-                  </ToggleGroupItem>
-                  <ToggleGroupItem
-                    value="character"
-                    data-testid="toggle-visuals-character"
-                  >
-                    Your character
-                  </ToggleGroupItem>
+                  {!isFreePlan && (
+                    <>
+                      <ToggleGroupItem value="ai" data-testid="toggle-visuals-ai">
+                        AI imagery
+                      </ToggleGroupItem>
+                      <ToggleGroupItem
+                        value="ai_video"
+                        data-testid="toggle-visuals-ai-video"
+                      >
+                        Animated AI
+                      </ToggleGroupItem>
+                      <ToggleGroupItem
+                        value="character"
+                        data-testid="toggle-visuals-character"
+                      >
+                        Your character
+                      </ToggleGroupItem>
+                    </>
+                  )}
                 </ToggleGroup>
                 {visuals === "ai" && (
                   <p className="text-xs text-muted-foreground">
@@ -6815,7 +6940,7 @@ export function VideoStudioPage() {
               </div>
             )}
 
-            {(() => {
+            {!isFreePlan && (() => {
               const capability = videoCapabilities?.studioLipSync;
               const compatible =
                 capability?.enabled === true &&
@@ -6895,7 +7020,7 @@ export function VideoStudioPage() {
               );
             })()}
 
-            {storyboardAvailable && (
+            {storyboardAvailable && !isFreePlan && (
               <div className="space-y-2">
                 <Label htmlFor="review-storyboard">Storyboard</Label>
                 <div className="flex items-start gap-3 border border-border rounded-md px-3 py-2">
@@ -7022,6 +7147,8 @@ export function VideoStudioPage() {
                 <Button
                   onClick={onGenerate}
                   disabled={
+                    meLoading ||
+                    freeTopicUnavailable ||
                     (engine === "dialogue_lip_sync"
                       ? generateVideo.isPending || uploading
                       : !canGenerate) ||
@@ -7251,6 +7378,7 @@ export function VideoStudioPage() {
                     <StoryboardReview
                       job={activeJob}
                       storyboard={activeJob.storyboard}
+                      sceneRegenerationAllowed={!isFreePlan}
                     />
                   </DialogContent>
                 </Dialog>
@@ -8187,7 +8315,9 @@ export function VideoStudioPage() {
         <CoverPickerDialog
           open={coverPickerOpen}
           onOpenChange={setCoverPickerOpen}
-          job={activeJob}
+          job={
+            isFreePlan ? { ...activeJob, coverGeneratable: false } : activeJob
+          }
           storageUrl={storageUrl}
           uploadFile={uploadFile}
           onSaved={() => {
@@ -9070,9 +9200,11 @@ function SavedStoryboardProgress({
 function StoryboardReview({
   job,
   storyboard,
+  sceneRegenerationAllowed = true,
 }: {
   job: VideoJob;
   storyboard: VideoStoryboard;
+  sceneRegenerationAllowed?: boolean;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -9360,7 +9492,7 @@ function StoryboardReview({
       narrated,
     );
     const roll = () => {
-      if (!thenRoll) return;
+      if (!thenRoll || !sceneRegenerationAllowed) return;
       setRollingScene(scene.id);
       regenerate.mutate(
         { jobId: job.id, sceneId: scene.id },
@@ -10078,7 +10210,7 @@ function StoryboardReview({
                   </div>
                 )}
                 <div className="flex gap-2 mt-auto">
-                  {!guidedStoryboard && drawn && (
+                  {!guidedStoryboard && drawn && sceneRegenerationAllowed && (
                     <Button
                       size="sm"
                       variant="outline"

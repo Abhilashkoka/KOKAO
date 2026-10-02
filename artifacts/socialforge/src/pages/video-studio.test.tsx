@@ -6293,3 +6293,63 @@ describe("Video Studio voice notes", () => {
     );
   });
 });
+
+describe("Video Studio free plan", () => {
+  it("limits free workspaces to stock Topic to Video", async () => {
+    mockState.me = { tenant: { id: 1, plan: "free" } };
+    mockState.featureFlags = undefined;
+    renderPage();
+    expect(screen.getByTestId("notice-free-video-plan")).toBeTruthy();
+    expect(screen.queryByTestId("tab-text-to-video")).toBeNull();
+    expect(screen.queryByTestId("tab-guided-story")).toBeNull();
+    expect(screen.queryByTestId("tab-lip-sync")).toBeNull();
+    expect(screen.getByTestId("tab-topic-to-video")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("toggle-visuals-stock")).toBeTruthy());
+    expect(screen.queryByTestId("toggle-visuals-ai")).toBeNull();
+    expect(screen.queryByTestId("toggle-visuals-character")).toBeNull();
+    expect(screen.queryByTestId("video-templates-section")).toBeNull();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "Monsoon skincare tips" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data.engine).toBe("topic_to_video");
+    expect(mockState.lastGenerateVars.data.visualsSource).toBe("stock");
+    const data = mockState.lastGenerateVars.data;
+    expect(data.styleProfileId ?? null).toBeNull();
+    expect(data.planSource ?? null).toBeNull();
+    expect(data.referenceImages).toBeUndefined();
+    expect(data.characterId ?? null).toBeNull();
+    expect(data.studioLipSync).toBe(false);
+    expect(data.musicPrompt ?? null).toBeNull();
+    expect(data.reviewStoryboard).toBe(false);
+    expect(screen.queryByTestId("switch-review-storyboard")).toBeNull();
+    expect(screen.queryByTestId("input-reference-images")).toBeNull();
+    expect(screen.queryByTestId("button-ai-music")).toBeNull();
+    mockState.me = undefined;
+  });
+
+  it("blocks free submissions when Topic to Video is flagged off without looping", async () => {
+    mockState.me = { tenant: { id: 1, plan: "free" } };
+    mockState.featureFlags = { videoGen: true, videoTopicToVideo: false, videoTextToVideo: true };
+    mockState.lastGenerateVars = null;
+    renderPage();
+    expect(screen.queryByTestId("tab-text-to-video")).toBeNull();
+    expect(screen.queryByTestId("tab-topic-to-video")).toBeNull();
+    const button = screen.queryByTestId("button-generate-video") as HTMLButtonElement | null;
+    if (button) {
+      expect(button.disabled).toBe(true);
+      fireEvent.click(button);
+    }
+    expect(mockState.lastGenerateVars).toBeNull();
+    mockState.me = undefined;
+    mockState.featureFlags = undefined;
+  });
+
+  it("does not treat a missing profile as free", () => {
+    mockState.me = undefined;
+    renderPage();
+    expect(screen.queryByTestId("notice-free-video-plan")).toBeNull();
+    expect(screen.getByTestId("tab-text-to-video")).toBeTruthy();
+  });
+});

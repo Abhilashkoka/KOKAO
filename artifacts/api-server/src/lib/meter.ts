@@ -1,4 +1,5 @@
 import { db, creditMeterEventsTable } from "@workspace/db";
+import { assertFreeVideoProviderAllowed } from "./freeVideoPolicy";
 import { and, desc, gte, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { creditCostSnapshotFor, getMeterMode, listCreditRates, MILLI } from "./creditRates";
@@ -263,6 +264,7 @@ export async function meter<T>(
   options: MeterOptions = {},
 ): Promise<T> {
   if (!ctx) return fn();
+  await assertFreeVideoProviderAllowed(ctx.tenantId, key, ctx.refKind);
 
   const funding = ctx.funding;
   let mode: MeterMode;

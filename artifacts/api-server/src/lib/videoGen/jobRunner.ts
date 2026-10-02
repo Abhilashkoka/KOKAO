@@ -1,3 +1,4 @@
+import { isFreeVideoTenant, isStockOnlyVideo, FreeVideoPolicyError } from "../freeVideoPolicy";
 import {
   db,
   isPromptVariantKey,
@@ -8537,6 +8538,14 @@ async function executeVideoJob(
 
   try {
     const guidedSnapshot = job.options?.guidedStory;
+    if (job.options?.freeStockVideo &&
+      (job.options.meterFunding?.rail !== "credits" || job.options.meterFunding?.mode !== "enforce")) {
+      throw new VideoJobInputError("Stock video scripts and narration require a credit-funded job.");
+    }
+    if (await isFreeVideoTenant(job.tenantId) &&
+      (!job.options?.freeStockVideo || !isStockOnlyVideo(job.engine, job.options))) {
+      throw new FreeVideoPolicyError();
+    }
     const verificationOnly = isNativeAudioVerificationOnlyRecovery(job.options);
     await validateNativeAudioRecoveryInputs(job);
     if (guidedSnapshot && !verificationOnly) {

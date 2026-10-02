@@ -1,4 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { videoJobFullUnits as fullStockUnits, videoJobUnits as stockUnits } from "./units";
+
+describe("free stock video units", () => {
+  it("charges no visual generation units, including retry reservations", () => {
+    const options = { freeStockVideo: true, visualsSource: "stock" as const, aspectRatio: "9:16" as const };
+    expect(stockUnits("topic_to_video", options)).toBe(0);
+    expect(fullStockUnits("topic_to_video", options)).toBe(0);
+  });
+  it("does not waive paid stock videos or AI visuals", () => {
+    expect(stockUnits("topic_to_video", { visualsSource: "stock", aspectRatio: "9:16" })).toBeGreaterThan(0);
+    expect(stockUnits("text_to_video", { freeStockVideo: true, aspectRatio: "9:16" })).toBeGreaterThan(0);
+  });
+});
 import {
   hybridNarrationIsAggregateOwned,
   hybridNarrationConsumesVideoUnit,

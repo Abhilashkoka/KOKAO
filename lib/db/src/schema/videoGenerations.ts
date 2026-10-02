@@ -228,6 +228,8 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Server-owned: stock visuals are free; only script/voice provider calls are metered. */
+  freeStockVideo?: boolean;
   referenceImagesReviewPending?: boolean;
   referenceImageSelection?: { provider: string; model: string | null; customBaseUrl: string | null; fallbackEnabled: boolean };
   referenceImages?: Array<{

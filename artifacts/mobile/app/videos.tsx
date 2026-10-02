@@ -462,6 +462,9 @@ export default function VideosScreen() {
   // points at the workspace owner; wallet-billed workspaces get wallet copy
   // ("Wallet balance too low") instead of a misleading plan-quota framing.
   const meQuery = useGetMe();
+  // Free workspaces may only create stock-footage Topic to Video (backend
+  // enforces too). Only an explicit "free" plan qualifies.
+  const isFreePlan = meQuery.data?.tenant?.plan === "free";
   const isOwner = meQuery.data?.team ? meQuery.data.team.role === "owner" : true;
   const upgradeRequestsEnabled = featureFlags.data?.upgradeRequests ?? true;
   // walletBilling is declared earlier (near the wallet estimate block) so it
@@ -479,7 +482,11 @@ export default function VideosScreen() {
     setNotice(null);
     setQuotaErr(null);
     generateVideo.mutate(
-      { data: { engine: "text_to_video", prompt: prompt.trim() } },
+      {
+        data: isFreePlan
+          ? { engine: "topic_to_video", visualsSource: "stock", prompt: prompt.trim() }
+          : { engine: "text_to_video", prompt: prompt.trim() },
+      },
       {
         onSuccess: () => {
           setPrompt("");
@@ -610,11 +617,26 @@ export default function VideosScreen() {
     <View style={{ flex: 1, backgroundColor: c.background }}>
       {videoGenEnabled ? (
         <View style={styles.composer}>
-          <Text style={styles.composerTitle}>Text to Video</Text>
+          <Text style={styles.composerTitle}>
+            {isFreePlan ? "Topic to Video" : "Text to Video"}
+          </Text>
+          {isFreePlan ? (
+            <Pressable
+              onPress={() => {
+                if (domain) void Linking.openURL(`https://${domain}/settings?tab=billing`);
+              }}
+              testID="notice-free-video-plan"
+            >
+              <Text style={styles.walletEstimateText}>
+                Free plan: stock-footage Topic to Video only. Stock visuals are free; the AI
+                script and narration use your credits. Tap to upgrade for AI video.
+              </Text>
+            </Pressable>
+          ) : null}
           <TextInput
             value={prompt}
             onChangeText={setPrompt}
-            placeholder="Describe the video you want…"
+            placeholder={isFreePlan ? "Give a topic for your video…" : "Describe the video you want…"}
             placeholderTextColor={c.mutedForeground}
             multiline
             style={styles.composerInput}
@@ -637,7 +659,7 @@ export default function VideosScreen() {
             )}
             <Text style={styles.composerButtonText}>Generate video</Text>
           </Pressable>
-          {showWalletEstimate ? (
+          {showWalletEstimate && !isFreePlan ? (
             <View style={styles.walletEstimateBox}>
               <Text style={styles.walletEstimateText} testID="text-wallet-estimate">
                 {`Estimated wallet cost: \u20B9${(estimatedCostPaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Reserved up front, then settled to the actual cost.`}

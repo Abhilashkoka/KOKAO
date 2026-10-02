@@ -74,6 +74,7 @@ export function hybridRequiredUnits(args: {
  * amount if the job fails.
  */
 export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
+  if (options?.freeStockVideo && engine === "topic_to_video" && options.visualsSource === "stock") return 0;
   if (options?.recovery?.fundedUnits != null) {
     return Math.max(0, Math.trunc(options.recovery.fundedUnits));
   }
@@ -95,6 +96,7 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
  * original operation count from which durable checkpoints are deducted.
  */
 export function videoJobFullUnits(engine: string, options: VideoJobOptions | null): number {
+  if (options?.freeStockVideo && engine === "topic_to_video" && options.visualsSource === "stock") return 0;
   // Each eligible composite scene is a separate provider operation. This is
   // deliberately derived from the frozen plan rather than current storyboard
   // state so recovery cannot bill a newly edited scene.
