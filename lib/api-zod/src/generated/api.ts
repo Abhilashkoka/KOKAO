@@ -17586,8 +17586,7 @@ export const CastGuidedStoryDraftParams = zod.object({
 
 
 
-export const castGuidedStoryDraftBodyAssignmentsMin = 2;
-export const castGuidedStoryDraftBodyAssignmentsMax = 4;
+export const castGuidedStoryDraftBodyAssignmentsMax = 20;
 
 
 
@@ -17604,7 +17603,7 @@ export const CastGuidedStoryDraftBody = zod.object({
   "voiceId": zod.string().min(1),
   "isUserRole": zod.boolean(),
   "consentGranted": zod.boolean().describe('Per-attempt likeness\/voice consent. Must be resubmitted after every cast mutation.')
-})).min(castGuidedStoryDraftBodyAssignmentsMin).max(castGuidedStoryDraftBodyAssignmentsMax)
+})).min(1).max(castGuidedStoryDraftBodyAssignmentsMax)
 })
 
 export const castGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;

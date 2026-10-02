@@ -19788,8 +19788,8 @@ components:
         duplicateAssignmentConfirmed: { type: boolean }
         assignments:
           type: array
-          minItems: 2
-          maxItems: 4
+          minItems: 1
+          maxItems: 20
           items:
             $ref: "#/components/schemas/GuidedStoryCastAssignmentInput"
     GuidedStoryCastRoleApprovalInput:

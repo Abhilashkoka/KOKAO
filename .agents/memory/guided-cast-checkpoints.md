@@ -70,3 +70,9 @@ Progress observation must recover from rate limiting rather than treating every 
 **Why:** A manually scheduled polling effect cancelled itself when a rate-limited request set the query error state. Production could finish its cast while the browser retained the old preparing message.
 
 **How to apply:** Keep polling lifecycle-managed, back off for rate limits, and test the transition from pending work to a complete cast with cleared temporary operations. Polling must never submit paid generation.
+
+Story-decided cast breadth must remain consistent between script output and cast request validation, including automatic worker requests.
+
+**Why:** An approved solo story became permanently stuck because an older cast request contract required multiple characters. Validation failure was also misreported as a missing draft, concealing the cause.
+
+**How to apply:** Test single-role and larger casts through the generated request schema when changing story limits. Reject invalid input separately from tenant-scoped draft lookup; never weaken ownership checks to resolve a misleading not-found error.

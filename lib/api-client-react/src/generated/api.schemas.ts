@@ -5790,8 +5790,8 @@ export interface GuidedStoryCastInput {
   strategy: GuidedStoryCastInputStrategy;
   duplicateAssignmentConfirmed: boolean;
   /**
-     * @minItems 2
-     * @maxItems 4
+     * @minItems 1
+     * @maxItems 20
      */
   assignments: GuidedStoryCastAssignmentInput[];
 }

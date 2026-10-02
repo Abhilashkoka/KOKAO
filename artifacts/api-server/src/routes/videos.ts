@@ -6005,15 +6005,13 @@ router.post(
  */
 async function processGuidedStoryCast(req: Request, res: Response): Promise<void> {
     const parsed = CastGuidedStoryDraftBody.safeParse(req.body);
-    let row = parsed.success
-      ? await loadGuidedDraft(req.tenantId, Number(req.params.draftId))
-      : null;
-    if (!parsed.success || !row) {
-      res
-        .status(row ? 400 : 404)
-        .json({
-          error: row ? "Invalid cast." : "Guided story draft not found.",
-        });
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid cast. Assign one character per script role (1–20 roles)." });
+      return;
+    }
+    let row = await loadGuidedDraft(req.tenantId, Number(req.params.draftId));
+    if (!row) {
+      res.status(404).json({ error: "Guided story draft not found." });
       return;
     }
     const script = row.state.script;
