@@ -5467,9 +5467,11 @@ async function produceVideo(
                 }
                 const scene = board.scenes[sceneIndex];
                 const guidedScene = scene?.guidedStory;
-                if (!guidedScene || guidedScene.roleIds.length === 0) {
+                // End cards and scenery can intentionally have no cast. They
+                // still require the approved backdrop attached below.
+                if (!guidedScene) {
                   throw new VideoJobInputError(
-                    `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen participating cast.`,
+                    `Guided Story scene ${scene?.id ?? sceneIndex + 1} has no frozen scene metadata.`,
                   );
                 }
                 const castByRole = new Map(

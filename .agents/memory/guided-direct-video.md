@@ -11,6 +11,12 @@ Cast size is story-decided, not selected or capped by the product UI. Historical
 
 Legacy marker-absent jobs retain their storyboard preview, approval, and recovery path. Never infer direct mode from missing preview data; use an immutable versioned execution marker.
 
+Character-free scenes (end cards, product shots, scenery) may legitimately have an empty participating-role list. Atlas reference rendering must still attach the frozen approved backdrop, without inventing a cast member.
+
+**Why:** A narrated logo end card failed despite having approved backdrop data because the renderer treated an empty cast as missing metadata.
+
+**How to apply:** Distinguish absent scene metadata from an intentionally empty role list; retain all approvals for nonempty cast and the mandatory backdrop checks. Runner tests with empty casts may enter preview generation, so use the existing preview mock rather than fake image bytes in Sharp.
+
 **Why:** Reinterpreting historical rows would break paid preview recovery. Seedance can accept exact Telugu dialogue instructions yet generate speech in another language, so provider-native capability cannot override the immutable story locale.
 
 **How to apply:** Any Guided enqueue, retry, clone, funding calculation, UI review control, or composition change must branch on the exact execution marker and frozen locale. Native audio is English-only; localized jobs freeze `generateAudio:false`, synthesize approved-language narration, and keep eligible intrinsic lip-sync planning.

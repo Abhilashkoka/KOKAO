@@ -1017,6 +1017,7 @@ vi.mock("../objectStorage", async (importOriginal) => {
 import {
   db,
   videoGenerationsTable,
+  tenantsTable,
   walletBalancesTable,
   walletLedgerTable,
   videoDeliveryBillingManifestsTable,
@@ -5055,9 +5056,17 @@ describe("Guided Story preview-only runner", () => {
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
   });
 
-  it("direct Wan rendering uses approved HTTPS references without Atlas mappings", async () => {
+  it.each([false, true])("direct Wan rendering uses approved HTTPS references without Atlas mappings (cast-free: %s)", async (castFree) => {
     const tenant = await newTenant();
+    await db.update(tenantsTable).set({ plan: "business" }).where(eq(tenantsTable.id, tenant.tenantId));
     const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
+    if (castFree) {
+      state.guidedPreviewGenerationEnabled = true;
+      snapshot.script.scenes[0].roleIds = [];
+      snapshot.script.scenes[0].lines = snapshot.script.scenes[0].lines.map((line: any) => ({
+        ...line, kind: "narration", ownerRoleId: null,
+      }));
+    }
     Object.assign(snapshot.cast[0], {
       referenceSource: "generated",
       requiresAtlasAsset: false,
@@ -5103,10 +5112,12 @@ describe("Guided Story preview-only runner", () => {
     await runVideoGenerationJob(job.id, "quota");
 
     const saved = await readJob(job.id);
-    expect(saved.status, saved.error ?? undefined).toBe("succeeded");
+    expect(saved.status, JSON.stringify(saved.errorHistory)).toBe("succeeded");
     expect(state.guidedAtlasResolvedIds).toEqual([[
-      "https://storage.example/approved-hero-sheet.png",
-      "https://storage.example/approved-hero-outfit.png",
+      ...(castFree ? [] : [
+        "https://storage.example/approved-hero-sheet.png",
+        "https://storage.example/approved-hero-outfit.png",
+      ]),
       expect.stringContaining("/signed/"),
     ]]);
     expect(state.guidedAtlasAssetCalls).toEqual([]);
@@ -5114,6 +5125,7 @@ describe("Guided Story preview-only runner", () => {
 
   it("invalid approved Wan URLs stop before Atlas mappings or paid render", async () => {
     const tenant = await newTenant();
+    await db.update(tenantsTable).set({ plan: "business" }).where(eq(tenantsTable.id, tenant.tenantId));
     const snapshot: any = guidedSnapshot(tenant.tenantId, 1);
     Object.assign(snapshot.cast[0], {
       referenceSource: "generated",
