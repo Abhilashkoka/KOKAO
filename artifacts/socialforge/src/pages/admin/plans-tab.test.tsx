@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   plans: [] as any[],
   creditPacks: [] as any[],
   gamificationPlans: [] as any[],
+  updatePack: vi.fn(),
 }));
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -23,6 +24,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useAdminGetCreditRates: () => ({ data: undefined, isLoading: false }),
     useAdminListCreditPacks: () => ({ data: state.creditPacks, isLoading: false }),
+    useAdminUpdateCreditPack: () => ({ mutate: state.updatePack, isPending: false }),
     useAdminListGamificationPlans: () => ({
       data: state.gamificationPlans,
       isLoading: false,
@@ -81,9 +83,30 @@ beforeEach(() => {
   state.plans = [];
   state.creditPacks = [];
   state.gamificationPlans = [];
+  state.updatePack.mockReset();
 });
 
 describe("plan limit suggestions", () => {
+  it("saves the admin recommendation and clears it when hiding the pack", () => {
+    state.creditPacks = [{
+      id: 1, name: "Starter", pricePaise: 49900, credits: 100,
+      captionCredits: 0, imageCredits: 0, active: true, recommended: false,
+    }];
+    renderTab();
+    fireEvent.click(screen.getByRole("switch", { name: "Recommend Starter" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(state.updatePack).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 1, data: expect.objectContaining({ recommended: true }) }),
+      expect.any(Object),
+    );
+    fireEvent.click(screen.getByRole("switch", { name: "Toggle Starter on sale" }));
+    expect(screen.getByRole("switch", { name: "Recommend Starter" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(state.updatePack).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ active: false, recommended: false }) }),
+      expect.any(Object),
+    );
+  });
   it.each(["quota", "wallet"] as const)(
     "renders the price suggestion for %s plans",
     (billingMode) => {

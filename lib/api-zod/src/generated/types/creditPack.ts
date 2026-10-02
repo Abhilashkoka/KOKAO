@@ -17,5 +17,7 @@ export interface CreditPack {
   /** AI video credits included in this pack. */
   videoCredits?: number;
   active: boolean;
+  /** Admin-selected recommendation, not a sales ranking. */
+  recommended?: boolean;
   sortOrder: number;
 }

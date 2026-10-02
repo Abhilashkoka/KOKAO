@@ -30,4 +30,6 @@ export interface CreditPackInput {
      */
   videoCredits?: number;
   active?: boolean;
+  /** Recommend this active pack, replacing any previous recommendation. */
+  recommended?: boolean;
 }

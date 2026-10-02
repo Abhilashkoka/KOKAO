@@ -129,7 +129,7 @@ export default function SettingsScreen() {
   const me = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
   const creditWallet = useCreditBalance();
   const billing = useBillingGetOverview({
-    query: { queryKey: getBillingGetOverviewQueryKey() },
+    query: { queryKey: getBillingGetOverviewQueryKey(), staleTime: 0, refetchOnMount: "always" },
   });
   const plans = useListPlans({ query: { queryKey: getListPlansQueryKey() } });
   const subscribe = useBillingSubscribe();
@@ -525,8 +525,9 @@ export default function SettingsScreen() {
             {creditPacks.map((pack) => {
               const packBusy = busyId === `pack-${pack.id}`;
               return (
-                <View key={pack.id} style={styles.packRow}>
+                <View key={pack.id} style={[styles.packRow, pack.recommended ? { borderWidth: 2, borderColor: c.foreground, borderRadius: 12, padding: 12 } : undefined]}>
                   <View style={{ flex: 1 }}>
+                    {pack.recommended ? <Text style={styles.packName}>Recommended</Text> : null}
                     <Text style={styles.packName}>{pack.name}</Text>
                     <Text style={styles.packDetail}>
                       {[

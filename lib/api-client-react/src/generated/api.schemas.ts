@@ -1456,6 +1456,8 @@ export interface CreditPack {
   /** AI video credits included in this pack. */
   videoCredits?: number;
   active: boolean;
+  /** Admin-selected recommendation, not a sales ranking. */
+  recommended?: boolean;
   sortOrder: number;
 }
 
@@ -1483,6 +1485,8 @@ export interface CreditPackInput {
      */
   videoCredits?: number;
   active?: boolean;
+  /** Recommend this active pack, replacing any previous recommendation. */
+  recommended?: boolean;
 }
 
 export interface GrantCreditsInput {

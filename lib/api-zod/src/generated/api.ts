@@ -34857,6 +34857,7 @@ export const AdminListCreditPacksResponseItem = zod.object({
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
+  "recommended": zod.boolean().optional().describe('Admin-selected recommendation, not a sales ranking.'),
   "sortOrder": zod.number()
 })
 export const AdminListCreditPacksResponse = zod.array(AdminListCreditPacksResponseItem)
@@ -34886,7 +34887,8 @@ export const AdminCreateCreditPackBody = zod.object({
   "captionCredits": zod.number().min(adminCreateCreditPackBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminCreateCreditPackBodyImageCreditsMin),
   "videoCredits": zod.number().min(adminCreateCreditPackBodyVideoCreditsMin).optional().describe('AI video credits included in this pack (default 0).'),
-  "active": zod.boolean().optional()
+  "active": zod.boolean().optional(),
+  "recommended": zod.boolean().optional().describe('Recommend this active pack, replacing any previous recommendation.')
 })
 
 export const AdminCreateCreditPackResponseItem = zod.object({
@@ -34898,6 +34900,7 @@ export const AdminCreateCreditPackResponseItem = zod.object({
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
+  "recommended": zod.boolean().optional().describe('Admin-selected recommendation, not a sales ranking.'),
   "sortOrder": zod.number()
 })
 export const AdminCreateCreditPackResponse = zod.array(AdminCreateCreditPackResponseItem)
@@ -34931,7 +34934,8 @@ export const AdminUpdateCreditPackBody = zod.object({
   "captionCredits": zod.number().min(adminUpdateCreditPackBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminUpdateCreditPackBodyImageCreditsMin),
   "videoCredits": zod.number().min(adminUpdateCreditPackBodyVideoCreditsMin).optional().describe('AI video credits included in this pack (default 0).'),
-  "active": zod.boolean().optional()
+  "active": zod.boolean().optional(),
+  "recommended": zod.boolean().optional().describe('Recommend this active pack, replacing any previous recommendation.')
 })
 
 export const AdminUpdateCreditPackResponseItem = zod.object({
@@ -34943,6 +34947,7 @@ export const AdminUpdateCreditPackResponseItem = zod.object({
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
+  "recommended": zod.boolean().optional().describe('Admin-selected recommendation, not a sales ranking.'),
   "sortOrder": zod.number()
 })
 export const AdminUpdateCreditPackResponse = zod.array(AdminUpdateCreditPackResponseItem)
@@ -34964,6 +34969,7 @@ export const AdminDeleteCreditPackResponseItem = zod.object({
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
+  "recommended": zod.boolean().optional().describe('Admin-selected recommendation, not a sales ranking.'),
   "sortOrder": zod.number()
 })
 export const AdminDeleteCreditPackResponse = zod.array(AdminDeleteCreditPackResponseItem)
@@ -35311,6 +35317,7 @@ export const BillingGetOverviewResponse = zod.object({
   "imageCredits": zod.number(),
   "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
+  "recommended": zod.boolean().optional().describe('Admin-selected recommendation, not a sales ranking.'),
   "sortOrder": zod.number()
 })),
   "history": zod.array(zod.object({

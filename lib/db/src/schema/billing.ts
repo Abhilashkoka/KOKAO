@@ -65,6 +65,7 @@ export const creditPacksTable = pgTable("credit_packs", {
   imageCredits: integer("image_credits").notNull().default(0),
   videoCredits: integer("video_credits").notNull().default(0),
   active: boolean("active").notNull().default(true),
+  recommended: boolean("recommended").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })

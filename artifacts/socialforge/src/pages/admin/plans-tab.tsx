@@ -273,6 +273,7 @@ interface CreditPackDraft {
   imageCredits: string;
   videoCredits: string;
   active: boolean;
+  recommended: boolean;
 }
 
 const EMPTY_PACK: CreditPackDraft = {
@@ -283,6 +284,7 @@ const EMPTY_PACK: CreditPackDraft = {
   imageCredits: "0",
   videoCredits: "0",
   active: true,
+  recommended: false,
 };
 
 export function CreditPacksCard() {
@@ -312,7 +314,10 @@ export function CreditPacksCard() {
             imageCredits: String(p.imageCredits),
             videoCredits: String(p.videoCredits ?? 0),
             active: p.active,
+            recommended: p.recommended ?? false,
           };
+        } else {
+          next[p.id] = { ...next[p.id]!, recommended: p.recommended ?? false };
         }
       }
       return next;
@@ -360,6 +365,7 @@ export function CreditPacksCard() {
       captionCredits: captions,
       imageCredits: images,
       active: draft.active,
+      recommended: draft.active && draft.recommended,
     };
   };
 
@@ -492,6 +498,19 @@ export function CreditPacksCard() {
                   >
                     Save
                   </Button>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <label htmlFor={`pack-recommended-${p.id}`} className="text-sm font-medium">Recommended</label>
+                      <p className="text-xs text-muted-foreground">Highlight for buyers. Saving replaces the previous recommendation.</p>
+                    </div>
+                    <Switch
+                      id={`pack-recommended-${p.id}`}
+                      checked={draft.active && draft.recommended}
+                      disabled={!draft.active}
+                      onCheckedChange={(on) => setField("recommended", on)}
+                      aria-label={`Recommend ${p.name}`}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -508,6 +527,15 @@ export function CreditPacksCard() {
               ) : (
                 <>
                   <Badge variant="outline">New pack</Badge>
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor="new-pack-recommended" className="text-sm font-medium">Recommended</label>
+                    <Switch
+                      id="new-pack-recommended"
+                      checked={newPack.active && newPack.recommended}
+                      disabled={!newPack.active}
+                      onCheckedChange={(recommended) => setNewPack((prev) => ({ ...prev, recommended }))}
+                    />
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium" htmlFor="new-pack-name">Name</label>
                     <Input

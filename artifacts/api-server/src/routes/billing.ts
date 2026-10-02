@@ -210,6 +210,7 @@ router.get("/billing", async (req: Request, res: Response) => {
       balance,
       creditPacks: packs.map((p) => ({
         id: p.id,
+        recommended: p.active && p.recommended,
         name: p.name,
         pricePaise: p.pricePaise,
         credits: p.credits,

@@ -5114,6 +5114,7 @@ function serializeCreditPack(p: typeof creditPacksTable.$inferSelect) {
     imageCredits: p.imageCredits,
     videoCredits: p.videoCredits,
     active: p.active,
+    recommended: p.recommended,
     sortOrder: p.sortOrder,
   };
 }
@@ -5146,8 +5147,12 @@ router.post("/admin/credit-packs", async (req: Request, res: Response) => {
       .select({ count: sql<number>`count(*)::int` })
       .from(creditPacksTable)
   )[0];
-  const created = (
-    await db
+  const created = await db.transaction(async (tx) => {
+    await tx.execute(sql`LOCK TABLE credit_packs IN SHARE ROW EXCLUSIVE MODE`);
+    const recommended = Boolean(parsed.data.recommended && (parsed.data.active ?? true));
+    if (recommended) await tx.update(creditPacksTable).set({ recommended: false });
+    return (
+    await tx
       .insert(creditPacksTable)
       .values({
         name: parsed.data.name.trim(),
@@ -5157,10 +5162,12 @@ router.post("/admin/credit-packs", async (req: Request, res: Response) => {
         imageCredits: parsed.data.imageCredits,
         videoCredits: parsed.data.videoCredits ?? 0,
         active: parsed.data.active ?? true,
+        recommended,
         sortOrder: count?.count ?? 0,
       })
       .returning()
-  )[0];
+    )[0];
+  });
   try {
     await recordAdminAction({
       action: "credit_pack_change",
@@ -5211,8 +5218,14 @@ router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
     });
     return;
   }
-  const updated = (
-    await db
+  const updated = await db.transaction(async (tx) => {
+    await tx.execute(sql`LOCK TABLE credit_packs IN SHARE ROW EXCLUSIVE MODE`);
+    const [current] = await tx.select().from(creditPacksTable).where(eq(creditPacksTable.id, id));
+    const active = parsed.data.active ?? current.active;
+    const recommended = active && (parsed.data.recommended ?? current.recommended);
+    if (recommended) await tx.update(creditPacksTable).set({ recommended: false });
+    return (
+    await tx
       .update(creditPacksTable)
       .set({
         name: parsed.data.name.trim(),
@@ -5221,12 +5234,14 @@ router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
         captionCredits: parsed.data.captionCredits,
         imageCredits: parsed.data.imageCredits,
         videoCredits: parsed.data.videoCredits ?? previous.videoCredits,
-        active: parsed.data.active ?? previous.active,
+        active,
+        recommended,
         updatedAt: new Date(),
       })
       .where(eq(creditPacksTable.id, id))
       .returning()
-  )[0];
+    )[0];
+  });
   try {
     await recordAdminAction({
       action: "credit_pack_change",
@@ -5265,7 +5280,7 @@ router.delete(
     }
     await db
       .update(creditPacksTable)
-      .set({ active: false, updatedAt: new Date() })
+      .set({ active: false, recommended: false, updatedAt: new Date() })
       .where(eq(creditPacksTable.id, id));
     try {
       await recordAdminAction({

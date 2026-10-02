@@ -15204,6 +15204,9 @@ components:
           description: AI video credits included in this pack.
         active:
           type: boolean
+        recommended:
+          type: boolean
+          description: Admin-selected recommendation, not a sales ranking.
         sortOrder:
           type: integer
     CreditPackInput:
@@ -15234,6 +15237,9 @@ components:
           description: AI video credits included in this pack (default 0).
         active:
           type: boolean
+        recommended:
+          type: boolean
+          description: Recommend this active pack, replacing any previous recommendation.
     GrantCreditsInput:
       type: object
       required: [captionCredits, imageCredits]

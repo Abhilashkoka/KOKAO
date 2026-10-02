@@ -14,6 +14,7 @@ const mockState = {
   toast: vi.fn(),
   requestUpgradeMutate: vi.fn(),
   requestUpgradePending: false,
+  creditPacks: [] as any[],
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -43,7 +44,7 @@ vi.mock("@workspace/api-client-react", async () => {
         plan: "free",
         subscription: null,
         credits: { captionCredits: 0, imageCredits: 0 },
-        creditPacks: [],
+        creditPacks: mockState.creditPacks,
         history: [],
       },
       isLoading: false,
@@ -79,12 +80,24 @@ function fireRequestUpgradeError(err: unknown) {
 
 describe("BillingSettings member request-upgrade error toasts", () => {
   beforeEach(() => {
+    mockState.creditPacks = [];
     mockState.toast = vi.fn();
     mockState.requestUpgradeMutate = vi.fn();
     mockState.requestUpgradePending = false;
   });
 
   afterEach(() => cleanup());
+
+  it("highlights only the admin-recommended credit pack", () => {
+    mockState.creditPacks = [
+      { id: 1, name: "Starter", pricePaise: 49900, credits: 100, recommended: false },
+      { id: 2, name: "Creator", pricePaise: 99900, credits: 250, recommended: true },
+    ];
+    renderCard();
+    expect(screen.getAllByText("Recommended")).toHaveLength(1);
+    expect(screen.getByText("Creator").parentElement?.textContent).toContain("Recommended");
+    expect(screen.getByText("Starter").parentElement?.textContent).not.toContain("Recommended");
+  });
 
   it("shows the 'Request sent' confirmation toast when the request succeeds", () => {
     renderCard();

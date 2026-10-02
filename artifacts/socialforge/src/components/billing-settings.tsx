@@ -92,7 +92,9 @@ function verifyFailureToast(
 export function BillingSettings() {
   const { data: me } = useGetMe();
   const { data: plans } = useListPlans();
-  const { data: billing, isLoading } = useBillingGetOverview();
+  const { data: billing, isLoading } = useBillingGetOverview({
+    query: { queryKey: getBillingGetOverviewQueryKey(), staleTime: 0, refetchOnMount: "always" },
+  });
   const subscribe = useBillingSubscribe();
   const verifySubscription = useBillingVerifySubscription();
   const cancelSubscription = useBillingCancelSubscription();
@@ -650,7 +652,8 @@ export function BillingSettings() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {billing.creditPacks.map((pack) => (
-                <div key={pack.id} className="rounded-lg border p-4 space-y-2">
+                <div key={pack.id} className={`rounded-lg border p-4 space-y-2 ${pack.recommended ? "border-primary bg-primary/5 ring-1 ring-primary" : ""}`}>
+                  {pack.recommended && <Badge>Recommended</Badge>}
                   <div className="font-semibold">{pack.name}</div>
                   <p className="text-sm text-muted-foreground">
                     {/* A credits pack describes itself by its credits. The
