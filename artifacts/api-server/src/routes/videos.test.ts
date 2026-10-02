@@ -1,5 +1,9 @@
 import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { markTestTemplatePayload } from "../lib/videoGen/testTemplateIsolation";
+vi.mock("../lib/videoGen/brandOutro", async importOriginal => ({
+  ...await importOriginal<typeof import("../lib/videoGen/brandOutro")>(),
+  inspectBrandOutroClip: vi.fn(async () => ({ duration: 3, hasAudio: true, sha256: "a".repeat(64) })),
+}));
 import request from "supertest";
 import express, { type Express } from "express";
 import { createHash } from "node:crypto";
@@ -3825,6 +3829,60 @@ describe("guided story route fail-closed regressions", () => {
         .returning()
     )[0]!;
   }
+
+  it.each(["replace", "keep", "append"] as const)("confirms the %s brand ending before funding and freezes the chosen execution", async choice => {
+    const tenant = await newTenant("payg");
+    await grantCredits({ tenantId: tenant.tenantId, captionCredits: 0, imageCredits: 0, videoCredits: 100, kind: "admin_grant", note: "brand ending test" });
+    await grantCreditAccount({ tenantId: tenant.tenantId, credits: 100, kind: "grant_admin" });
+    const kit = (await createKit({ tenantId: tenant.tenantId, plan: "pro", createdBy: tenant.clerkUserId, name: "Brand animation" }))!;
+    const payload = structuredClone(kit.activeVersion!.payload);
+    payload.video_outro = { enabled: true, mode: "upload", preset: "fade", duration_seconds: 3, background_color: "#000000", clip_path: `/objects/${tenant.tenantId}/uploads/outro.mp4` };
+    await db.update(brandKitVersionsTable).set({ jsonPayload: payload }).where(eq(brandKitVersionsTable.id, kit.activeVersion!.id));
+    const wanModel = "alibaba/wan-3.0/reference-to-video";
+    const restorePrice = await installVideoTestPrice(wanModel, "atlascloud");
+    const previousSelection = await getVideoGenSelection();
+    await setStoredVideoGenKey("atlascloud", "test-atlas-token");
+    await setVideoGenSelection({ provider: "atlascloud", textToVideoModel: wanModel, imageToVideoModel: null, enabledModelIds: null });
+    try {
+      const draft = await makeGeneratedWanGuidedDraft(tenant.tenantId);
+      const state = structuredClone(draft.state);
+      state.setup!.brandKitId = kit.id;
+      state.script!.scenes.push({
+        id: "brand-ending", startMs: 2500, endMs: 5000, roleIds: [],
+        visualDirection: "Clean branded KOKAO end card with logo.",
+        lines: [{ id: "ending-narration", startMs: 2500, endMs: 5000, ownerRoleId: null, kind: "narration", text: "Visit our website." }],
+      });
+      state.script!.runtimeSeconds = 5;
+      await db.update(guidedStoryDraftsTable).set({ state }).where(eq(guidedStoryDraftsTable.id, draft.id));
+      const endpoint = `/api/ai/guided-story/drafts/${draft.id}`;
+      const offer = await request(app).get(`${endpoint}/brand-ending`);
+      expect(offer.status, JSON.stringify(offer.body)).toBe(200);
+      expect(offer.body).toMatchObject({ available: true, replaceSceneId: "brand-ending", replacementDurationSeconds: 5.5, appendedDurationSeconds: 8 });
+      const beforeCredits = await getCreditBalances(tenant.tenantId);
+      for (const brandEnding of [undefined, { choice, token: "stale" }]) {
+        const rejected = await request(app).post(`${endpoint}/enqueue`).send({ revision: draft.revision, consentGranted: true, brandEnding });
+        expect(rejected.status, JSON.stringify(rejected.body)).toBe(409);
+        expect(rejected.body.code).toBe("guided_brand_ending_confirmation_required");
+      }
+      expect(await getCreditBalances(tenant.tenantId)).toEqual(beforeCredits);
+      expect(runnerState.calls).toHaveLength(0);
+      const accepted = await request(app).post(`${endpoint}/enqueue`).send({
+        revision: draft.revision, consentGranted: true,
+        brandEnding: { choice, token: offer.body.token },
+      });
+      expect(accepted.status, JSON.stringify(accepted.body)).toBe(201);
+      await waitForPendingJobs();
+      const job = await readJob(accepted.body.id);
+      expect(job.options?.guidedBrandEnding?.choice).toBe(choice);
+      expect(job.options?.guidedStory?.script.scenes).toHaveLength(choice === "replace" ? 1 : 2);
+      expect((job.options as VideoJobOptions & { brandOutro: { enabled: boolean } }).brandOutro.enabled).toBe(choice !== "keep");
+      expect(runnerState.calls).toHaveLength(1);
+    } finally {
+      await setVideoGenSelection(previousSelection);
+      await clearStoredVideoGenKey("atlascloud");
+      await restorePrice();
+    }
+  });
 
   it("rejects invalid references before funding and accepts Wan without Seedance ids", async () => {
     const tenant = await newTenant("payg");

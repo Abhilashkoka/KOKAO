@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   getGetGuidedStoryDraftQueryKey,
   getGetVideoJobQueryKey,
+  getGuidedBrandEnding,
   getListCharactersQueryKey,
   getListGuidedStoryVoicesQueryKey,
   useApproveGuidedStoryDraftScript,
@@ -30,6 +31,7 @@ import {
   useUpdateGuidedStoryDraft,
   type BrandKit,
   type Character,
+  type GuidedBrandEndingOffer,
   type GuidedStoryDraft,
   type GuidedStoryPlatformContract,
   type GuidedStoryScript,
@@ -66,6 +68,10 @@ import {
   CharacterProvenanceRecovery,
   GuidedCharacterProvenanceWarning,
 } from "@/components/character-provenance";
+import {
+  GuidedBrandEndingDialog,
+  type GuidedBrandEndingSelection,
+} from "@/components/guided-brand-ending-dialog";
 
 
 const GENRES = [
@@ -418,6 +424,27 @@ export function GuidedStoryWorkflow({
   };
   const requestUploadUrl = useRequestUploadUrl();
   const draft = draftId === null ? undefined : draftQuery.data;
+  const [brandEndingOffer, setBrandEndingOffer] = useState<GuidedBrandEndingOffer | null>(null);
+  const [brandEndingOpen, setBrandEndingOpen] = useState(false);
+  const [brandEndingChoice, setBrandEndingChoice] = useState<GuidedBrandEndingSelection | null>(null);
+  const [brandEndingError, setBrandEndingError] = useState<string | null>(null);
+  const [brandEndingStale, setBrandEndingStale] = useState(false);
+  const [brandEndingLoading, setBrandEndingLoading] = useState(false);
+  const brandEndingRequestRef = useRef(0);
+  const currentDraftKeyRef = useRef<string>("");
+  currentDraftKeyRef.current = draft ? `${draft.id}:${draft.revision}` : "";
+  const resetBrandEnding = useCallback(() => {
+    brandEndingRequestRef.current += 1;
+    setBrandEndingOpen(false);
+    setBrandEndingOffer(null);
+    setBrandEndingChoice(null);
+    setBrandEndingError(null);
+    setBrandEndingStale(false);
+    setBrandEndingLoading(false);
+  }, []);
+  useEffect(() => {
+    resetBrandEnding();
+  }, [draft?.id, draft?.revision, resetBrandEnding]);
   const refreshedGeneratedCastSettlements = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const [roleId, operation] of Object.entries(
@@ -695,6 +722,94 @@ export function GuidedStoryWorkflow({
         },
       },
     );
+  };
+  const submitEnqueue = (
+    sourceDraft: GuidedStoryDraft,
+    brandEnding?: { choice: GuidedBrandEndingSelection; token: string },
+  ) => {
+    // Caller must already hold the mutation lock.
+    const consentGranted = consent || !attemptConsentRequired;
+    enqueueDraft.mutate(
+      {
+        draftId: sourceDraft.id,
+        data: { revision: sourceDraft.revision, consentGranted, ...(brandEnding ? { brandEnding } : {}) },
+      },
+      {
+        onSuccess: (job) => {
+          if (brandEnding) resetBrandEnding();
+          onJobReady(job.id);
+        },
+        onError: (error) => {
+          const message = apiErrorMessage(error, "Could not start final governed prompt/Higgsfield generation. Please try again.");
+          if (!brandEnding) {
+            setEnqueueError(message);
+            return;
+          }
+          const status = (error as { status?: number } | null)?.status;
+          if (status === 409) {
+            setBrandEndingStale(true);
+            setBrandEndingChoice(null);
+            setBrandEndingError(`${message} The draft or Brand Kit animation changed. Get a fresh offer and choose again.`);
+          } else {
+            setBrandEndingError(message);
+          }
+        },
+        onSettled: releaseMutation,
+      },
+    );
+  };
+  /** Lock must be held on entry; it is released or handed to enqueue. */
+  const requestBrandEndingOffer = async (sourceDraft: GuidedStoryDraft, proceedWhenUnavailable: boolean) => {
+    const requestId = ++brandEndingRequestRef.current;
+    const draftKey = `${sourceDraft.id}:${sourceDraft.revision}`;
+    setBrandEndingLoading(true);
+    setBrandEndingError(null);
+    let offer: GuidedBrandEndingOffer | undefined;
+    try {
+      offer = await getGuidedBrandEnding(sourceDraft.id);
+    } catch (error) {
+      if (requestId !== brandEndingRequestRef.current) { releaseMutation(); return; }
+      setBrandEndingLoading(false);
+      releaseMutation();
+      const message = apiErrorMessage(error, "Could not check the Brand Kit ending. Please try again.");
+      if (brandEndingOpen) { setBrandEndingError(message); setBrandEndingStale(true); }
+      else setEnqueueError(message);
+      return;
+    }
+    if (requestId !== brandEndingRequestRef.current) { releaseMutation(); return; }
+    setBrandEndingLoading(false);
+    if (currentDraftKeyRef.current !== draftKey) {
+      releaseMutation();
+      return;
+    }
+    const malformed =
+      !offer ||
+      typeof offer !== "object" ||
+      typeof offer.available !== "boolean" ||
+      (offer.available &&
+        (typeof offer.token !== "string" || !offer.token || typeof offer.clipPath !== "string" || !offer.clipPath));
+    if (malformed) {
+      releaseMutation();
+      resetBrandEnding();
+      setEnqueueError("Could not check the Brand Kit ending: the server returned an unexpected response. Nothing was queued or charged. Please try again.");
+      return;
+    }
+    if (offer.available === false) {
+      if (proceedWhenUnavailable) {
+        submitEnqueue(sourceDraft);
+        return;
+      }
+      releaseMutation();
+      resetBrandEnding();
+      setEnqueueError("The Brand Kit ending is no longer available. Press generate again to continue without it.");
+      return;
+    }
+    releaseMutation();
+    setBrandEndingOffer(offer);
+    setBrandEndingChoice(null);
+    setBrandEndingStale(false);
+    setBrandEndingError(null);
+    setBrandEndingOpen(true);
   };
   const topicTooShort = topic.trim().length < GUIDED_STORY_TOPIC_MIN;
   const topicTooLong = topic.length > GUIDED_STORY_TOPIC_MAX;
@@ -1073,7 +1188,7 @@ export function GuidedStoryWorkflow({
             </div>
           )}
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending || generateScript.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save & regenerate script" : "Generate script"}</Button>
-        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptRegenerationReason={scriptRegenerationReason} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onRefreshDraft={() => draftQuery.refetch()} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before final generation."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before final generation."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, consentGranted: consent || !attemptConsentRequired } }, { onSuccess: (job) => onJobReady(job.id), onError: (error) => setEnqueueError(apiErrorMessage(error, "Could not start final governed prompt/Higgsfield generation. Please try again.")), onSettled: releaseMutation }); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending} /></>}
+        </> : <>{draft.imageModelSnapshot && <GuidedImageModelLock snapshot={draft.imageModelSnapshot} />}<StoryFlow draft={draft} characters={characters} voices={voices} brandKits={brandKits} studioLipSyncControls={studioLipSyncControls} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} castSaveError={castSaveError} castBusyRole={castBusyRole} castSaving={castDraft.isPending} enqueueError={enqueueError} scriptGenerationError={scriptGenerationError} scriptRegenerationReason={scriptRegenerationReason} scriptApprovalError={scriptApprovalError} translationError={translationError} translatingLineId={translatingLineId} enqueuePending={enqueueDraft.isPending} existingJobId={existingJobId} failedBeforeStoryboard={failedBeforeStoryboard} attemptConsentRequired={attemptConsentRequired} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onDraftChanged={setAuthoritativeDraft} onRefreshDraft={() => draftQuery.refetch()} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; requestScriptGeneration(draft, releaseMutation); }} onSaveScript={saveScript} onRefreshMeaning={refreshMeaning} onApprove={() => { setScriptApprovalError(null); if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setScriptApprovalError(apiErrorMessage(error, "Could not approve this script. Please try again.")), onSettled: releaseMutation }); }} onCast={submitCast} castApprovalsComplete={castApprovalsComplete} pendingCastApprovalRoles={pendingCastApprovalRoles} castApprovalError={castApprovalError} approvingCastRoleId={approvingCastRoleId} onApproveCastRole={(roleId: string) => { setCastApprovalError(null); if (!acquireMutation()) return; setApprovingCastRoleId(roleId); approveCastRole.mutate({ draftId: draft.id, roleId, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setCastApprovalError({ roleId, message: apiErrorMessage(error, "Could not approve these references. Review the role and try again.") }), onSettled: () => { setApprovingCastRoleId(null); releaseMutation(); } }); }} visualChoices={visualChoices} visualSaved={visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))} visualError={visualError} visualUploading={visualUploading} setVisualChoices={setVisualChoices} onUploadVisual={async (kind: "logo" | "background", file: File) => { setVisualError(null); if (!VISUAL_IMAGE_TYPES.includes(file.type)) { setVisualError("Use a PNG, JPEG, or WebP image."); return; } if (file.size > MAX_VISUAL_IMAGE_BYTES) { setVisualError("Image must be 10 MB or smaller."); return; } setVisualUploading(kind); try { const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({ data: { name: file.name, size: file.size, contentType: file.type } }); const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } }); if (!put.ok) throw new Error(`Upload failed (${put.status})`); setVisualChoices((current) => kind === "logo" ? { ...current, logo: { ...current.logo, path: objectPath } } : { ...current, location: { mode: "image", imagePath: objectPath, description: null } }); } catch (error) { setVisualError(apiErrorMessage(error, "Could not upload this image. Please try again.")); } finally { setVisualUploading(null); } }} onSaveVisual={() => { setVisualError(null); if (!acquireMutation()) return; const snapshot = JSON.parse(JSON.stringify(visualChoices)) as VisualChoices; updateDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, visualChoices: snapshot } }, { onSuccess: setAuthoritativeDraft, onError: (error) => setVisualError(apiErrorMessage(error, "Could not save visual choices. Please try again.")), onSettled: releaseMutation }); }} onEnqueue={() => { setEnqueueError(null); if (existingJobId !== null) { onJobReady(existingJobId); return; } if (!castApprovalsComplete) { setEnqueueError(castApprovalInstruction(pendingCastApprovalRoles)); return; } if (attemptConsentRequired && !consent) { setEnqueueError("Confirm permission to use each saved person’s likeness and selected voice for this generation attempt."); return; } if (!guidedStoryBackdropsAreReady(draft)) { setEnqueueError("Approve the default backdrop and every active scene override before final generation."); return; } if (!visualChoicesEqual(visualChoices, normaliseVisualChoices(draft.visualChoices))) { setEnqueueError("Save visual consistency choices before final generation."); return; } if (failedBeforeStoryboard) { setScriptEditorOpen(true); return; } if (!acquireMutation()) return; void requestBrandEndingOffer(draft, true); }} pending={mutationLocked || !!castBusyRole || generateScript.isPending || approveScript.isPending || approveCastRole.isPending || updateDraft.isPending || refreshLineTranslation.isPending || castDraft.isPending || enqueueDraft.isPending || brandEndingLoading} /><GuidedBrandEndingDialog open={brandEndingOpen} offer={brandEndingOffer} choice={brandEndingChoice} onChoiceChange={setBrandEndingChoice} error={brandEndingError} stale={brandEndingStale} loading={brandEndingLoading} pending={enqueueDraft.isPending} onCancel={() => { if (!enqueueDraft.isPending) resetBrandEnding(); }} onRefresh={() => { if (!acquireMutation()) return; void requestBrandEndingOffer(draft, false); }} onConfirm={() => { const offer = brandEndingOffer; const choice = brandEndingChoice; if (!offer?.token || !choice || brandEndingStale) return; if (choice === "replace" && !offer.replaceSceneId) return; if (`${draft.id}:${draft.revision}` !== `${draft.id}:${offer.revision}`) { setBrandEndingStale(true); setBrandEndingError("This draft changed since the offer was made. Get a fresh offer and choose again."); return; } if (!acquireMutation()) return; setBrandEndingError(null); submitEnqueue(draft, { choice, token: offer.token }); }} /></>}
       </CardContent>
     </Card>
   </div>;

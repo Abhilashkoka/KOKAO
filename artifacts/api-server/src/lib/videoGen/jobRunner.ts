@@ -138,7 +138,7 @@ import {
 import { getPlan, getPlanLimits } from "../plans";
 import { generateMusicBed, MUSICGEN_MODEL, musicGenDurationSec } from "./musicGen";
 import { loadVideoBranding } from "./branding";
-import { applyBrandOutro, type BrandOutroSnapshot } from "./brandOutro";
+import { applyBrandOutro, verifyFrozenBrandOutro, type BrandOutroSnapshot } from "./brandOutro";
 import { loadStyleGuidance } from "./referenceAnalyzer";
 import { isFeatureEnabled, videoModeFeature } from "../featureFlags";
 import { verifyRenderedVideo, verifyRepairedVideo, type VideoQaExpectations } from "./qaGate";
@@ -8549,6 +8549,11 @@ async function executeVideoJob(
       throw new FreeVideoPolicyError();
     }
     const verificationOnly = isNativeAudioVerificationOnlyRecovery(job.options);
+    // Final checkpoints already contain the approved ending. Otherwise verify
+    // the upload before spending on any remaining story scenes.
+    if (job.options?.guidedBrandEnding && job.options.renderCheckpoint?.stage !== "final") {
+      await verifyFrozenBrandOutro(frozenBrandOutro(job.options), job.tenantId);
+    }
     await validateNativeAudioRecoveryInputs(job);
     if (guidedSnapshot && !verificationOnly) {
       const referencePreflightError = guidedStoryboardReferenceError(

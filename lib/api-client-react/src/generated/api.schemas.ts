@@ -5466,6 +5466,40 @@ export interface GuidedStoryRevisionInput {
   revision: number;
 }
 
+export type GuidedBrandEndingChoiceChoice = typeof GuidedBrandEndingChoiceChoice[keyof typeof GuidedBrandEndingChoiceChoice];
+
+
+export const GuidedBrandEndingChoiceChoice = {
+  replace: 'replace',
+  keep: 'keep',
+  append: 'append',
+} as const;
+
+export interface GuidedBrandEndingChoice {
+  choice: GuidedBrandEndingChoiceChoice;
+  /** @minLength 1 */
+  token: string;
+}
+
+export interface GuidedBrandEndingOffer {
+  available: boolean;
+  revision: number;
+  token?: string;
+  clipPath?: string;
+  clipDurationSeconds?: number;
+  hasAudio?: boolean;
+  /** @nullable */
+  replaceSceneId?: string | null;
+  /** @nullable */
+  replaceSceneDescription?: string | null;
+  /** @nullable */
+  sceneDurationSeconds?: number | null;
+  storyDurationSeconds?: number;
+  /** @nullable */
+  replacementDurationSeconds?: number | null;
+  appendedDurationSeconds?: number;
+}
+
 export interface GuidedStoryEnqueueInput {
   /** @minimum 1 */
   revision: number;
@@ -5477,6 +5511,7 @@ export interface GuidedStoryEnqueueInput {
   studioLipSync?: boolean;
   /** Fresh authorization for the visible likeness and approved voice. */
   studioLipSyncConsent?: boolean;
+  brandEnding?: GuidedBrandEndingChoice;
 }
 
 export interface GuidedStoryLineTranslationInput {

@@ -297,6 +297,16 @@ export interface VideoJobOptions {
     version: 1;
     mode: "direct_video";
   } | null;
+  /** Explicit per-video approval; never inferred from an empty cast list. */
+  guidedBrandEnding?: {
+    version: 1;
+    choice: "replace" | "keep" | "append";
+    token: string;
+    sceneId: string | null;
+    clipDurationSeconds: number;
+    /** Original approved script, before the confirmed final-scene replacement. */
+    originalScript?: GuidedStoryScript;
+  };
   /**
    * Automatic Guided Story single-speaker finishing. This is frozen when the
    * initial job is funded; it is never inferred for historical rows.

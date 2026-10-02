@@ -153,3 +153,4 @@
 - [Topic reference images](topic-reference-images.md) — distinguish real AI image conditioning from exact fitted inserts; never silently ignore uploads or regenerate screenshot text.
 - [App Walkthrough timing](app-walkthrough-timing.md) — preserving uploaded demo footage requires visual timeline expansion and matching narration cue shifts, not just clip fitting.
 - [Video Library copy](video-library-copy.md) — prefer saved speech over briefs; disclose fallback, protect manual edits, and avoid duplicate paid suggestions.
+- [Guided brand endings](guided-brand-endings.md) — explicit replace/keep/append confirmation; full-scene replacement includes speech, and recovery preserves the chosen animation.

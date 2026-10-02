@@ -242,6 +242,7 @@ import type {
   GrantCharacterLikenessConsentRequest,
   GrantCreditsInput,
   GrantTenantLikenessDeclarationRequest,
+  GuidedBrandEndingOffer,
   GuidedSceneCorrectionRequest,
   GuidedStoryBackdropApprovalInput,
   GuidedStoryBackdropInput,
@@ -18904,6 +18905,83 @@ export const useRejectGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getRejectGuidedStoryReferenceMutationOptions(options));
     }
+
+export const getGetGuidedBrandEndingUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/brand-ending`
+}
+
+/**
+ * @summary Preview a saved brand animation and eligible ending before confirming generation
+ */
+export const getGuidedBrandEnding = async (draftId: number, options?: RequestInit): Promise<GuidedBrandEndingOffer> => {
+
+  return customFetch<GuidedBrandEndingOffer>(getGetGuidedBrandEndingUrl(draftId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGuidedBrandEndingQueryKey = (draftId: number,) => {
+    return [
+    `/api/ai/guided-story/drafts/${draftId}/brand-ending`
+    ] as const;
+    }
+
+
+export const getGetGuidedBrandEndingQueryOptions = <TData = Awaited<ReturnType<typeof getGuidedBrandEnding>>, TError = ErrorType<ErrorEnvelope>>(draftId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGuidedBrandEnding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGuidedBrandEndingQueryKey(draftId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGuidedBrandEnding>>> = ({ signal }) => getGuidedBrandEnding(draftId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: draftId !== null && draftId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGuidedBrandEnding>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGuidedBrandEndingQueryResult = NonNullable<Awaited<ReturnType<typeof getGuidedBrandEnding>>>
+export type GetGuidedBrandEndingQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Preview a saved brand animation and eligible ending before confirming generation
+ */
+
+export function useGetGuidedBrandEnding<TData = Awaited<ReturnType<typeof getGuidedBrandEnding>>, TError = ErrorType<ErrorEnvelope>>(
+ draftId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGuidedBrandEnding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGuidedBrandEndingQueryOptions(draftId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getEnqueueGuidedStoryDraftUrl = (draftId: number,) => {
 

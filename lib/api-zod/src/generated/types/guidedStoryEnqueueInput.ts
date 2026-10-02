@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedBrandEndingChoice } from './guidedBrandEndingChoice';
 
 export interface GuidedStoryEnqueueInput {
   /** @minimum 1 */
@@ -17,4 +18,5 @@ export interface GuidedStoryEnqueueInput {
   studioLipSync?: boolean;
   /** Fresh authorization for the visible likeness and approved voice. */
   studioLipSyncConsent?: boolean;
+  brandEnding?: GuidedBrandEndingChoice;
 }

@@ -12,6 +12,7 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
+const brandEndingState: { offer: any; calls: number; error: unknown } = { offer: { available: false, revision: 0 }, calls: 0, error: null };
 const state: { draft: any; requestedDraftIds: number[]; draftRefetches: number; existingJob: any; created: any; generatedScripts: number; generationError: unknown; generationErrors: unknown[]; cast: any; castError: unknown; approvalError: unknown; castApprovalError: unknown; castApprovalRoles: Record<string, any>; customizationRequest: any; customizationError: unknown; referenceSheetReview: any; retrySheetRequest: any; updated: any; translationRequest: any; translationError: unknown; uploadError: unknown; generatedImageRequest: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   requestedDraftIds: [],
@@ -71,6 +72,7 @@ vi.mock("@workspace/api-client-react", async () => {
     },
   });
   return createApiClientMock({
+    getGuidedBrandEnding: async () => { brandEndingState.calls += 1; if (brandEndingState.error) throw brandEndingState.error; return brandEndingState.offer; },
     getGetGuidedStoryDraftQueryKey: (id: number) => ["guided", id],
     getGetVideoJobQueryKey: (id: number) => ["video-job", id],
     getListCharactersQueryKey: () => ["characters"],
@@ -377,7 +379,7 @@ function renderWorkflow(options: {
   };
 }
 
-beforeEach(() => { vi.useRealTimers(); state.draft = undefined; state.requestedDraftIds = []; state.draftRefetches = 0; state.created = null; state.generatedScripts = 0; state.generationError = null; state.generationErrors = []; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.customizationRequest = null; state.customizationError = null; state.referenceSheetReview = null; state.retrySheetRequest = null; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { brandEndingState.offer = { available: false, revision: 0 }; brandEndingState.calls = 0; brandEndingState.error = null; vi.useRealTimers(); state.draft = undefined; state.requestedDraftIds = []; state.draftRefetches = 0; state.created = null; state.generatedScripts = 0; state.generationError = null; state.generationErrors = []; state.cast = null; state.castError = null; state.approvalError = null; state.castApprovalError = null; state.castApprovalRoles = {}; state.customizationRequest = null; state.customizationError = null; state.referenceSheetReview = null; state.retrySheetRequest = null; state.updated = null; state.translationRequest = null; state.translationError = null; state.uploadError = null; state.generatedImageRequest = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("requires a platform duration from the contract and accepts a supported locale", () => {
@@ -1158,8 +1160,198 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
     await userEvent.click(screen.getByTestId("button-guided-enqueue"));
 
-    expect(state.enqueued).toEqual({ revision: 2, consentGranted: true, subtitles: false });
+    await waitFor(() => expect(state.enqueued).toEqual({ revision: 2, consentGranted: true, subtitles: false }));
+    expect(brandEndingState.calls).toBe(1);
   });
+
+
+  it("asks for a Brand Kit ending choice and enqueues only after explicit confirmation", async () => {
+    brandEndingState.offer = { available: true, revision: 2, token: "tok-1", clipPath: "/objects/outro.mp4", clipDurationSeconds: 4.2, hasAudio: true, replaceSceneId: "s1", replaceSceneDescription: "A desk", sceneDurationSeconds: 15, storyDurationSeconds: 15, replacementDurationSeconds: 4.2, appendedDurationSeconds: 19.2 };
+    const savedCast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved",
+      characterId: index + 1,
+      outfitId: index + 11,
+      brandKitId: null,
+      voiceId: index === 0 ? "alloy" : "echo",
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/99/character-${index}.png`,
+      },
+      outfit: {
+        name: "Approved outfit",
+        description: "Approved wardrobe",
+        referenceImagePath: `/objects/99/outfit-${index}.png`,
+      },
+      voice: {
+        id: index === 0 ? "alloy" : "echo",
+        label: `Voice ${index + 1}`,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: false,
+    }));
+    state.draft = draft({
+      castStrategy: "saved",
+      cast: savedCast,
+      castApprovals: {
+        version: 1,
+        draftRevision: 2,
+        roles: Object.fromEntries(savedCast.map((member) => [
+          member.roleId,
+          {
+            roleId: member.roleId,
+            approvedAt: "2026-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: member.character.referenceImagePath,
+              sha256: "a".repeat(64),
+            },
+            outfit: {
+              referenceImagePath: member.outfit.referenceImagePath,
+              sha256: "b".repeat(64),
+            },
+          },
+        ])),
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    await userEvent.click(screen.getByTestId("checkbox-guided-attempt-consent"));
+    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
+    expect(await screen.findByTestId("dialog-guided-brand-ending")).toBeTruthy();
+    expect(state.enqueued).toBeNull();
+    expect((screen.getByTestId("button-brand-ending-confirm") as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByTestId("radio-brand-ending-replace"));
+    expect(state.enqueued).toBeNull();
+    await userEvent.click(screen.getByTestId("button-brand-ending-confirm"));
+    await waitFor(() => expect(state.enqueued).toEqual({ revision: 2, consentGranted: true, subtitles: false, brandEnding: { choice: "replace", token: "tok-1" } }));
+  });
+
+  it("does not enqueue when the Brand Kit ending dialog is cancelled", async () => {
+    brandEndingState.offer = { available: true, revision: 2, token: "tok-1", clipPath: "/objects/outro.mp4", clipDurationSeconds: 4.2, hasAudio: true, replaceSceneId: "s1", replaceSceneDescription: "A desk", sceneDurationSeconds: 15, storyDurationSeconds: 15, replacementDurationSeconds: 4.2, appendedDurationSeconds: 19.2 };
+    const savedCast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved",
+      characterId: index + 1,
+      outfitId: index + 11,
+      brandKitId: null,
+      voiceId: index === 0 ? "alloy" : "echo",
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/99/character-${index}.png`,
+      },
+      outfit: {
+        name: "Approved outfit",
+        description: "Approved wardrobe",
+        referenceImagePath: `/objects/99/outfit-${index}.png`,
+      },
+      voice: {
+        id: index === 0 ? "alloy" : "echo",
+        label: `Voice ${index + 1}`,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: false,
+    }));
+    state.draft = draft({
+      castStrategy: "saved",
+      cast: savedCast,
+      castApprovals: {
+        version: 1,
+        draftRevision: 2,
+        roles: Object.fromEntries(savedCast.map((member) => [
+          member.roleId,
+          {
+            roleId: member.roleId,
+            approvedAt: "2026-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: member.character.referenceImagePath,
+              sha256: "a".repeat(64),
+            },
+            outfit: {
+              referenceImagePath: member.outfit.referenceImagePath,
+              sha256: "b".repeat(64),
+            },
+          },
+        ])),
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    await userEvent.click(screen.getByTestId("checkbox-guided-attempt-consent"));
+    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
+    await screen.findByTestId("dialog-guided-brand-ending");
+    await userEvent.click(screen.getByTestId("radio-brand-ending-append"));
+    await userEvent.click(screen.getByTestId("button-brand-ending-cancel"));
+    await waitFor(() => expect(screen.queryByTestId("dialog-guided-brand-ending")).toBeNull());
+    expect(state.enqueued).toBeNull();
+    expect((screen.getByTestId("button-guided-enqueue") as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("fails explicitly without enqueueing on an empty Brand Kit ending response", async () => {
+    brandEndingState.offer = undefined;
+    const savedCast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved",
+      characterId: index + 1,
+      outfitId: index + 11,
+      brandKitId: null,
+      voiceId: index === 0 ? "alloy" : "echo",
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/99/character-${index}.png`,
+      },
+      outfit: {
+        name: "Approved outfit",
+        description: "Approved wardrobe",
+        referenceImagePath: `/objects/99/outfit-${index}.png`,
+      },
+      voice: {
+        id: index === 0 ? "alloy" : "echo",
+        label: `Voice ${index + 1}`,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: false,
+      consentGranted: false,
+    }));
+    state.draft = draft({
+      castStrategy: "saved",
+      cast: savedCast,
+      castApprovals: {
+        version: 1,
+        draftRevision: 2,
+        roles: Object.fromEntries(savedCast.map((member) => [
+          member.roleId,
+          {
+            roleId: member.roleId,
+            approvedAt: "2026-01-01T00:00:00.000Z",
+            character: {
+              referenceImagePath: member.character.referenceImagePath,
+              sha256: "a".repeat(64),
+            },
+            outfit: {
+              referenceImagePath: member.outfit.referenceImagePath,
+              sha256: "b".repeat(64),
+            },
+          },
+        ])),
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    await userEvent.click(screen.getByTestId("checkbox-guided-attempt-consent"));
+    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
+    expect((await screen.findByTestId("error-guided-enqueue")).textContent).toMatch(/unexpected response/);
+    expect(screen.queryByTestId("dialog-guided-brand-ending")).toBeNull();
+    expect(state.enqueued).toBeNull();
+    expect(brandEndingState.calls).toBe(1);
+  });
+
 
   it("polls an incomplete automatic cast without submitting cast", async () => {
     vi.useFakeTimers();

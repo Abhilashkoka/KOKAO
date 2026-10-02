@@ -20869,6 +20869,29 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
 
 
 /**
+ * @summary Preview a saved brand animation and eligible ending before confirming generation
+ */
+export const GetGuidedBrandEndingParams = zod.object({
+  "draftId": zod.coerce.number()
+})
+
+export const GetGuidedBrandEndingResponse = zod.object({
+  "available": zod.boolean(),
+  "revision": zod.number(),
+  "token": zod.string().optional(),
+  "clipPath": zod.string().optional(),
+  "clipDurationSeconds": zod.number().optional(),
+  "hasAudio": zod.boolean().optional(),
+  "replaceSceneId": zod.string().nullish(),
+  "replaceSceneDescription": zod.string().nullish(),
+  "sceneDurationSeconds": zod.number().nullish(),
+  "storyDurationSeconds": zod.number().optional(),
+  "replacementDurationSeconds": zod.number().nullish(),
+  "appendedDurationSeconds": zod.number().optional()
+})
+
+
+/**
  * @summary Enqueue through the existing topic-to-video storyboard review and funding pipeline
  */
 export const EnqueueGuidedStoryDraftParams = zod.object({
@@ -20878,12 +20901,17 @@ export const EnqueueGuidedStoryDraftParams = zod.object({
 
 export const enqueueGuidedStoryDraftBodySubtitlesDefault = false;
 
+
 export const EnqueueGuidedStoryDraftBody = zod.object({
   "revision": zod.number().min(1),
   "consentGranted": zod.boolean().describe('Fresh confirmation for this generation attempt when the cast includes saved people or voices.'),
   "subtitles": zod.boolean().default(enqueueGuidedStoryDraftBodySubtitlesDefault).describe('Explicitly opt in to burned-in subtitles for the final Guided Story video.'),
   "studioLipSync": zod.boolean().optional().describe('Explicitly request optional lip-sync for eligible single-speaker scenes.'),
-  "studioLipSyncConsent": zod.boolean().optional().describe('Fresh authorization for the visible likeness and approved voice.')
+  "studioLipSyncConsent": zod.boolean().optional().describe('Fresh authorization for the visible likeness and approved voice.'),
+  "brandEnding": zod.object({
+  "choice": zod.enum(['replace', 'keep', 'append']),
+  "token": zod.string().min(1)
+}).optional()
 })
 
 export const enqueueGuidedStoryDraftResponseReferenceImagesItemIdMax = 80;

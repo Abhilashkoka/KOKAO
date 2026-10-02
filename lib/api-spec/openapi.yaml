@@ -6898,6 +6898,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/brand-ending:
+    get:
+      operationId: getGuidedBrandEnding
+      tags: [ai]
+      summary: Preview a saved brand animation and eligible ending before confirming generation
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Current tenant-owned animation and revision-bound confirmation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedBrandEndingOffer"
+        "404":
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/guided-story/drafts/{draftId}/enqueue:
     parameters:
       - name: draftId
@@ -19492,6 +19515,29 @@ components:
       required: [revision]
       properties:
         revision: { type: integer, minimum: 1 }
+    GuidedBrandEndingChoice:
+      type: object
+      additionalProperties: false
+      required: [choice, token]
+      properties:
+        choice: { type: string, enum: [replace, keep, append] }
+        token: { type: string, minLength: 1 }
+    GuidedBrandEndingOffer:
+      type: object
+      required: [available, revision]
+      properties:
+        available: { type: boolean }
+        revision: { type: integer }
+        token: { type: string }
+        clipPath: { type: string }
+        clipDurationSeconds: { type: number }
+        hasAudio: { type: boolean }
+        replaceSceneId: { type: ["string", "null"] }
+        replaceSceneDescription: { type: ["string", "null"] }
+        sceneDurationSeconds: { type: ["number", "null"] }
+        storyDurationSeconds: { type: number }
+        replacementDurationSeconds: { type: ["number", "null"] }
+        appendedDurationSeconds: { type: number }
     GuidedStoryEnqueueInput:
       type: object
       additionalProperties: false
@@ -19511,6 +19557,8 @@ components:
         studioLipSyncConsent:
           type: boolean
           description: Fresh authorization for the visible likeness and approved voice.
+        brandEnding:
+          $ref: "#/components/schemas/GuidedBrandEndingChoice"
     GuidedStoryLineTranslationInput:
       type: object
       additionalProperties: false

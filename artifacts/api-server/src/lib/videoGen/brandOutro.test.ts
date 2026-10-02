@@ -22,6 +22,7 @@ vi.mock("../objectStorage", () => ({
 import {
   applyBrandOutro, DISABLED_BRAND_OUTRO, validateBrandOutroSettings,
   verifyBrandOutroAssets, resolveBrandOutroSnapshot,
+  inspectBrandOutroClip, verifyFrozenBrandOutro,
 } from "./brandOutro";
 import type { BrandKitPayload } from "@workspace/db";
 
@@ -154,11 +155,19 @@ describe("brand video outro", () => {
         "-c:v", "libvpx-vp9", "-c:a", "libopus", "-shortest", join(dir, "clip.webm")]);
       objects.set(clipPath, { data: readFileSync(join(dir, "clip.webm")), mime: "video/webm" });
       const snapshot = validateBrandOutroSettings({ ...settings, mode: "upload", clip_path: clipPath }, 23, null);
-      const output = await applyBrandOutro(readFileSync(join(dir, "in.mp4")), snapshot, 23);
+      const inspected = await inspectBrandOutroClip(snapshot, 23);
+      expect(inspected.hasAudio).toBe(true);
+      expect(inspected.duration).toBeGreaterThanOrEqual(1.5);
+      const frozen = { ...snapshot, clipSha256: inspected.sha256 };
+      await expect(verifyFrozenBrandOutro(frozen, 23)).resolves.toBeUndefined();
+      const output = await applyBrandOutro(readFileSync(join(dir, "in.mp4")), frozen, 23);
       writeFileSync(join(dir, "out.mp4"), output);
       expect(duration(join(dir, "out.mp4"))).toBeGreaterThan(2.5);
       expect(audioRms(join(dir, "out.mp4"), 0.3)).toBeLessThan(100);
       expect(audioRms(join(dir, "out.mp4"), 1.7)).toBeGreaterThan(100);
+      objects.set(clipPath, { data: Buffer.from("changed clip"), mime: "video/webm" });
+      await expect(verifyFrozenBrandOutro(frozen, 23)).rejects.toThrow("changed");
+      await expect(applyBrandOutro(readFileSync(join(dir, "in.mp4")), frozen, 23)).rejects.toThrow("changed");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

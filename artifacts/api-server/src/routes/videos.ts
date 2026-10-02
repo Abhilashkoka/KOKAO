@@ -241,6 +241,7 @@ import {
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
 import { resolveBrandOutroSnapshot, type BrandOutroSnapshot } from "../lib/videoGen/brandOutro";
+import { applyGuidedBrandEnding, confirmGuidedBrandEnding, loadGuidedBrandEnding, type GuidedBrandEndingApproval } from "../lib/videoGen/guidedBrandEnding";
 import { loadActivePayload } from "../lib/brandKit/service";
 import {
   listElevenLabsPremadeVoices,
@@ -10232,6 +10233,20 @@ router.delete(
   },
 );
 
+router.get("/ai/guided-story/drafts/:draftId/brand-ending", async (req: Request, res: Response) => {
+  const draft = await loadGuidedDraft(req.tenantId, Number(req.params.draftId));
+  if (!draft) {
+    res.status(404).json({ error: "Guided story draft not found." });
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    res.json((await loadGuidedBrandEnding(draft)).offer);
+  } catch {
+    res.status(400).json({ error: "The saved brand animation could not be verified. Re-upload or remove it in the selected Brand Kit before generating." });
+  }
+});
+
 router.post(
   "/ai/guided-story/drafts/:draftId/enqueue",
   async (req: Request, res: Response) => {
@@ -10338,6 +10353,16 @@ router.post(
       res.status(409).json({ error: "This draft has already been enqueued." });
       return;
     }
+    let endingApproval: GuidedBrandEndingApproval | null;
+    try {
+      endingApproval = await confirmGuidedBrandEnding(row, parsed.data.brandEnding);
+    } catch (error) {
+      res.status(409).json({
+        error: error instanceof Error ? error.message : "Review the brand animation before generating.",
+        code: "guided_brand_ending_confirmation_required",
+      });
+      return;
+    }
     const claimed = await saveGuidedState(row, row.revision, {
       ...row.state,
       cast: row.state.cast.map((member) => ({
@@ -10368,6 +10393,7 @@ router.post(
       studioLipSyncConsent: parsed.data.studioLipSyncConsent,
     };
     res.locals.guidedStoryEnqueue = true;
+    res.locals.guidedBrandEndingApproval = endingApproval;
     await generateVideoHandler(req, res);
     if (res.statusCode >= 400) {
       const current = await loadGuidedDraft(req.tenantId, row.id);
@@ -12472,6 +12498,9 @@ async function generateVideoHandler(
   options.brandOutroKitId =
     body.brandKitId ?? guidedDraft?.state.setup?.brandKitId ?? options.brandKitId;
   options.brandOutro = await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
+  if (guidedDraft && res.locals.guidedBrandEndingApproval) {
+    applyGuidedBrandEnding(options, res.locals.guidedBrandEndingApproval);
+  }
 
   let provisionalGuidedJob: VideoGeneration | null = null;
   let guidedStorageEvidenceValid = true;
@@ -13842,7 +13871,12 @@ router.post(
       aspectRatio: sourceOptions.aspectRatio,
       brandKitId: sourceOptions.brandKitId,
       brandOutroKitId: selectedOutroKitId(sourceOptions),
-      brandOutro: await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(sourceOptions)),
+      // A dialogue replay keeps the explicitly approved ending rather than
+      // silently adding a newly enabled/changed kit outro.
+      brandOutro: sourceOptions.guidedBrandEnding
+        ? (sourceOptions as FrozenOutroJobOptions).brandOutro
+        : await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(sourceOptions)),
+      guidedBrandEnding: sourceOptions.guidedBrandEnding ? structuredClone(sourceOptions.guidedBrandEnding) : undefined,
       guidedStory: structuredClone(sourceOptions.guidedStory!),
       resolvedVideoModel: structuredClone(sourceOptions.resolvedVideoModel),
       modelId: sourceOptions.modelId,
@@ -15922,7 +15956,7 @@ function freshRestartOptions(source: VideoGeneration): VideoJobOptions {
   delete options.guidedAtlasBackdropAssets;
   delete options.guidedAtlasBackdropCleanupFences;
   delete options.renderCheckpoint;
-  delete (options as FrozenOutroJobOptions).brandOutro;
+  if (!options.guidedBrandEnding) delete (options as FrozenOutroJobOptions).brandOutro;
   delete options.musicCheckpoint;
   delete options.presenterMusicCheckpoint;
   delete options.presenterBroll;
@@ -16091,8 +16125,10 @@ router.post(
     let options: VideoJobOptions;
     try {
       options = await prepareFreshRestartOptions(initial, req.tenantId);
-      (options as FrozenOutroJobOptions).brandOutro =
-        await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
+      if (!options.guidedBrandEnding) {
+        (options as FrozenOutroJobOptions).brandOutro =
+          await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
+      }
     } catch (error) {
       if (error instanceof VideoModelResolutionError) {
         res.status(400).json({
@@ -16357,8 +16393,10 @@ router.post(
         return;
       }
       const options = structuredClone(source.options!);
-      (options as FrozenOutroJobOptions).brandOutro =
-        await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
+      if (!options.guidedBrandEnding) {
+        (options as FrozenOutroJobOptions).brandOutro =
+          await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
+      }
       delete options.guidedAtlasBackdropAssets;
       delete options.guidedAtlasBackdropCleanupFences;
       options.repair = {

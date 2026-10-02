@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,6 +30,7 @@ function hasVideoContainerSignature(bytes: Buffer, mime: string): boolean {
 }
 
 export interface BrandOutroSnapshot {
+  clipSha256?: string;
   schemaVersion: 1;
   enabled: boolean;
   mode: "preset" | "upload";
@@ -195,6 +197,31 @@ async function readAsset(path: string, tenantId: number, maxBytes: number): Prom
   return bytes;
 }
 
+/** Read only: validate the exact clip the user is about to approve. */
+export async function inspectBrandOutroClip(snapshot: BrandOutroSnapshot, tenantId: number) {
+  if (snapshot.mode !== "upload" || !snapshot.clipPath) throw new Error("An uploaded brand animation is required.");
+  const bytes = await readAsset(snapshot.clipPath, tenantId, MAX_OUTRO_CLIP_BYTES);
+  const dir = await mkdtemp(join(tmpdir(), "brand-ending-probe-"));
+  try {
+    await writeFile(join(dir, "clip"), bytes);
+    const info = await probe(join(dir, "clip"));
+    if (info.duration < 1 || info.duration > 10) throw new Error("Brand animation must be 1–10 seconds long.");
+    return { duration: info.duration, hasAudio: info.hasAudio, sha256: createHash("sha256").update(bytes).digest("hex") };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Check before paid generation as well as composition; do not silently swap an approved clip. */
+export async function verifyFrozenBrandOutro(snapshot: BrandOutroSnapshot | undefined, tenantId: number) {
+  if (!snapshot?.enabled || !snapshot.clipSha256) return;
+  if (!snapshot.clipPath) throw new Error("The approved brand animation is missing.");
+  const bytes = await readAsset(snapshot.clipPath, tenantId, MAX_OUTRO_CLIP_BYTES);
+  if (createHash("sha256").update(bytes).digest("hex") !== snapshot.clipSha256) {
+    throw new Error("The approved brand animation changed. Review it again before starting a new video.");
+  }
+}
+
 /** Append the outro, preserving source audio and adding silence only when a track is absent. */
 export async function applyBrandOutro(input: Buffer, snapshot: BrandOutroSnapshot, tenantId: number): Promise<Buffer> {
   if (!snapshot.enabled) return input;
@@ -209,6 +236,9 @@ export async function applyBrandOutro(input: Buffer, snapshot: BrandOutroSnapsho
     const path = isUpload ? snapshot.clipPath : snapshot.logoPath;
     if (!path) throw new Error("Brand outro asset is missing.");
     const asset = await readAsset(path, tenantId, isUpload ? MAX_OUTRO_CLIP_BYTES : MAX_LOGO_BYTES);
+    if (snapshot.clipSha256 && createHash("sha256").update(asset).digest("hex") !== snapshot.clipSha256) {
+      throw new Error("The approved brand animation changed. Review it again before starting a new video.");
+    }
     await writeFile(join(dir, isUpload ? "outro.webm" : "logo.png"), asset);
     const outro = isUpload ? await probe(join(dir, "outro.webm")) : null;
     if (outro && (outro.duration < 1 || outro.duration > 10)) throw new Error("Outro clip must be 1–10 seconds.");
