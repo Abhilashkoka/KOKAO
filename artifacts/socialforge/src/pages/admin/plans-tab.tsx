@@ -1055,7 +1055,7 @@ function PlansCard() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
-                      Credits / month
+                      {p.id === "free" ? "One-time credits" : "Credits / month"}
                     </label>
                     <Input
                       value={draft.monthlyCredits}

@@ -89,6 +89,16 @@ beforeEach(() => {
 });
 
 describe("plan limit suggestions", () => {
+  it("labels free credits as one-time while paid plans remain monthly", () => {
+    state.plans = [
+      { ...plan("credits"), id: "free", name: "Free", priceInr: 0 },
+      plan("credits"),
+    ];
+    renderTab();
+    expect(screen.getByTestId("input-plan-credits-free").parentElement?.textContent).toContain("One-time credits");
+    expect(screen.getByTestId("input-plan-credits-free").parentElement?.textContent).not.toContain("Credits / month");
+    expect(screen.getByTestId("input-plan-credits-pro").parentElement?.textContent).toContain("Credits / month");
+  });
   it("updates allowance estimates while editing credits", () => {
     state.rateCard = { mode: "shadow", creditPricePaise: 2000, rates: [
       { key: "video", unit: "second", credits: 1, active: true },
