@@ -28,5 +28,6 @@ Signing up is free at https://app.kokao.in/sign-up. Current plans and prices are
 - Sign up: https://app.kokao.in/sign-up
 - Sign in: https://app.kokao.in/sign-in
 
-Everything beyond the landing, pricing and auth pages requires an account.
+The landing, pricing, legal and auth pages are public; app workspace pages require an account.
 - Privacy policy: https://app.kokao.in/privacy
+- Terms and Conditions: https://app.kokao.in/terms — operated by ASMI Enterprises; credit-pack purchases are non-refundable except where required by law; email-confirmed subscription cancellation takes effect for the next upcoming month.

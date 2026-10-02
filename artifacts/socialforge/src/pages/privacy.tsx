@@ -53,7 +53,8 @@ export function PrivacyPage() {
         className="py-8 border-t text-center text-sm opacity-70"
         style={{ borderColor: `${site.color_ink}14` }}
       >
-        {content.footer.text}
+        <Link href="/terms" className="underline underline-offset-4">Terms and Conditions</Link>
+        <p className="mt-3">{content.footer.text}</p>
       </footer>
     </div>
   );

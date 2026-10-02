@@ -34,6 +34,7 @@
 - [Prepaid wallet billing](prepaid-wallet.md) — reserve-before-generate, settle/refund on every terminal path; GST added once at order creation, split trusted from order notes.
 - [Credit pack recommendation](credit-pack-recommendation.md) — user chose an admin-curated “Recommended” pack, not automatic sales-based popularity.
 - [Free plan media](free-plan-media.md) — free keeps AI posts/images; video visuals are stock-only, with script/narration billed separately.
+- [Owner-approved payment terms](legal-policy.md) — non-refundable credit packs; email-confirmed subscription cancellation for the next upcoming month.
 - [Durable wallet settlement](wallet-settlement-retries.md) — successful-work retries are refund barriers; serialize enqueue/refund and make ledger settlement idempotent.
 - [Razorpay billing invariants](razorpay-billing.md) — re-fetch canonical paid order/subscription; ledger stores clamped deltas that reconcile balance.
 - [Drizzle ANY(array) binding](drizzle-any-array-binding.md) — raw sql`= ANY(${jsArray})` fails at runtime; use inArray or sql.join IN-lists; mocked tests won't catch it.

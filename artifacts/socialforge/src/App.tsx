@@ -1,6 +1,7 @@
 import { AppLayout } from "@/components/layout";
 import { LandingPage } from "@/pages/landing";
 import { PrivacyPage } from "@/pages/privacy";
+import { TermsPage } from "@/pages/terms";
 import { DashboardPage } from "@/pages/dashboard";
 import { SignInPage, SignUpPage } from "@/pages/auth";
 import { StudioPage } from "@/pages/studio";
@@ -237,6 +238,7 @@ function ClerkProviderWithRoutes() {
                 <Route path="/pricing" component={PricingPage} />
                 {/* Public CMS-managed privacy policy. */}
                 <Route path="/privacy" component={PrivacyPage} />
+                <Route path="/terms" component={TermsPage} />
 
                 <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
                 {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}

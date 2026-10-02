@@ -385,7 +385,11 @@ export function LandingPage() {
               {faq.items.map((item) => (
                 <div key={item.q}>
                   <h3 className="text-xl font-semibold mb-2">{item.q}</h3>
-                  <p className="opacity-75 text-lg leading-relaxed">{item.a}</p>
+                  <p className="opacity-75 text-lg leading-relaxed">
+                    {item.a === "Anytime, in one click, no emails to support. Your content and brand profile stay exportable."
+                      ? DEFAULT_LANDING.faq.items.find(entry => entry.q === "Can I cancel anytime?")?.a
+                      : item.a}
+                  </p>
                 </div>
               ))}
             </div>
@@ -421,11 +425,14 @@ export function LandingPage() {
         <div className="flex items-center justify-center mb-4">
           <BrandMark site={site} />
         </div>
-        <p className="flex items-center justify-center gap-5 mb-3 font-semibold opacity-80">
+        <p className="flex flex-wrap items-center justify-center gap-5 mb-3 px-4 font-semibold opacity-80">
           <Link href="/pricing" className="hover:opacity-100 underline underline-offset-4">
             Pricing
           </Link>
-          {footer.links.map((l) => (
+          <Link href="/terms" className="hover:opacity-100 underline underline-offset-4">
+            Terms and Conditions
+          </Link>
+          {footer.links.filter((l) => l.href !== "/terms" && !/^terms\b/i.test(l.label.trim())).map((l) => (
             <CmsLink key={l.label} href={l.href} className="hover:opacity-100 underline underline-offset-4">
               {l.label}
             </CmsLink>
