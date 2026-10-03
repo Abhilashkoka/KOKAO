@@ -501,3 +501,17 @@ mtime_ms = 1790272521873
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/9c73055c-797f-43fc-be24-46f6e623bf5b/3d6c455b-2ae3-4ab4-a189-df40c2b2bd43"
 storage_version_token = "1790272534945245"
 content_type = "image/png"
+
+[[outputs]]
+id = "muJ6eui7wqt1zP8r7pRNq"
+uri = "file://attached_assets/generated_videos/doctor-brand-reel/kokao-doctor-brand-reel.mp4"
+type = "video"
+title = "A doctor’s brand video in a few minutes"
+description = "30-second vertical 1080p Wan 3.0 concept reel with audio. One generation, no stitched clips. AI-generated interface, text and logo contain inaccuracies; review before publishing."
+logical_id = "b50b65c5-a695-4f6d-b45a-0b2f85654242"
+content_hash = "sha256:c464229aa01ceb3e6ae2e06f63f3a51329eb62f2f221d0c8b088624d1923fc3d"
+size = 57870055
+mtime_ms = 1791031211333
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/b50b65c5-a695-4f6d-b45a-0b2f85654242/051738f1-3e63-451f-a7a3-0c097f997719"
+storage_version_token = "1791031261343678"
+content_type = "video/mp4"
