@@ -20,3 +20,9 @@ Character-free scenes (end cards, product shots, scenery) may legitimately have 
 **Why:** Reinterpreting historical rows would break paid preview recovery. Seedance can accept exact Telugu dialogue instructions yet generate speech in another language, so provider-native capability cannot override the immutable story locale.
 
 **How to apply:** Any Guided enqueue, retry, clone, funding calculation, UI review control, or composition change must branch on the exact execution marker and frozen locale. Native audio is English-only; localized jobs freeze `generateAudio:false`, synthesize approved-language narration, and keep eligible intrinsic lip-sync planning.
+
+Character-free staging does not imply character-free embedded media: an end card can request a still from the preceding reel while listing no visible cast.
+
+**Why:** Production output retained the approved doctor in earlier footage but invented a different doctor inside the final reel thumbnail when the end card received only a backdrop reference.
+
+**How to apply:** When diagnosing consistency, inspect embedded screens/thumbnails and their reference dependencies separately from on-screen cast. A reliable correction should reuse actual preceding footage for a requested reel still, rather than ask a cast-free generation to invent it.
