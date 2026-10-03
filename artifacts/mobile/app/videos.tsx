@@ -336,6 +336,12 @@ function JobCard({
         </View>
       ) : null}
 
+      {playable ? (
+        <Text style={{ color: c.mutedForeground, fontSize: 13, lineHeight: 19, marginTop: 10 }} testID={`video-quality-notice-${job.id}`}>
+          AI-generated videos may not be perfect every time and can contain visual or audio glitches. Please review each video before downloading, sharing, or publishing.
+        </Text>
+      ) : null}
+
       {job.status === "failed" && job.error ? (
         <Text style={styles.errorText}>{job.error}</Text>
       ) : null}
@@ -642,6 +648,9 @@ export default function VideosScreen() {
             style={styles.composerInput}
             testID="input-video-brief"
           />
+          <Text style={{ color: c.mutedForeground, fontSize: 13, lineHeight: 19, marginBottom: 10 }} testID="video-generation-quality-notice">
+            AI-generated videos may not be perfect every time and can contain visual or audio glitches. Please review each video before downloading, sharing, or publishing.
+          </Text>
           <Pressable
             onPress={handleGenerate}
             disabled={!prompt.trim() || generateVideo.isPending}

@@ -3858,6 +3858,9 @@ export function VideoStudioPage() {
         <p className="text-muted-foreground mt-1">
           Turn ideas and photos into scroll-stopping videos.
         </p>
+        <p className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground" data-testid="video-generation-quality-notice">
+          AI-generated videos may not be perfect every time and can contain visual or audio glitches. Please review each video before downloading, sharing, or publishing.
+        </p>
       </div>
 
       <Tabs value={engine} onValueChange={(v) => changeEngine(v as Engine)}>
@@ -7426,6 +7429,9 @@ export function VideoStudioPage() {
                   }`}
                   data-testid="video-preview"
                 />
+                <p className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground" data-testid="video-result-quality-notice">
+                  AI-generated videos may not be perfect every time and can contain visual or audio glitches. Please review each video before downloading, sharing, or publishing.
+                </p>
                 <div className="space-y-0.5">
                   <p
                     className="text-xs text-muted-foreground"
