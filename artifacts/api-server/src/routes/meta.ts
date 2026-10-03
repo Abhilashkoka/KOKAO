@@ -5,6 +5,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db, contentItemsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { createInstagramContainer } from "../lib/instagramContainer";
 import {
   GRAPH_BASE,
   getTenantCredentials,
@@ -628,9 +629,9 @@ async function attemptInstagramPublish(
     caption,
     access_token: pageToken,
   });
-  const createRes = await platformFetch(
+  const createRes = await createInstagramContainer(
     `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media`,
-    { method: "POST", body: createForm },
+    createForm,
   );
   const createJson = (await createRes.json()) as {
     id?: string;

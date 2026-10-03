@@ -3,6 +3,13 @@ name: Instagram publish retry classification
 description: How transient vs definitive Instagram publish failures are classified for the bounded auto-retry.
 ---
 
+Container creation uses a longer bounded timeout than generic social calls, and creation timeouts may retry; they cannot publish a post. Do not extend this rule to media_publish.
+
+**Why:** A production Instagram publish stopped on the generic six-second deadline during container creation, before any publish request. The generic fail-fast timeout rule exists for synchronous shutdown draining, but Instagram preparation runs as a background job.
+
+**How to apply:** Keep preparation retries bounded and keep final-write timeout handling conservative; a lost media_publish response is ambiguous and must not trigger a blind repost.
+
+
 # Instagram publish auto-retry
 
 The background Instagram publish flow (`routes/meta.ts` `runInstagramPublish`) wraps a single-attempt `attemptInstagramPublish` in a bounded retry loop (`IG_PUBLISH_RETRY`, exported/mutable so tests can shrink it). Only transient failures are retried with exponential backoff; the item flips to "failed" only after retries are exhausted or on a definitive error.
