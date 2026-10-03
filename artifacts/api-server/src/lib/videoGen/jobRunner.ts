@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
+import { validateGuidedFootageReuse } from "./guidedFootageReuse";
 import { getUsage, recordUsage } from "../usage";
 import {
   usageAccountingParams,
@@ -4301,7 +4302,12 @@ async function produceVideo(
         const approval = activeRoleId
           ? options.guidedStory!.castApprovals?.roles[activeRoleId]
           : null;
-        const approvedCharacterInput =
+        const reusedFootage = options.guidedFootageReuse?.scenes.some(item => item.sceneId === scene.id);
+        const reuseBackdrop = reusedFootage
+          ? effectiveGuidedBackdrop(options.guidedStory!, scene.guidedStory?.scriptSceneId ?? scene.id)?.reference?.imagePath
+          : null;
+        const approvedCharacterInput = reuseBackdrop ??
+          (
           primary?.outfit?.referenceImagePath &&
           approval?.outfit?.referenceImagePath === primary.outfit.referenceImagePath
             ? primary.outfit.referenceImagePath
@@ -4309,7 +4315,7 @@ async function produceVideo(
                 approval?.character.referenceImagePath ===
                   primary.character.referenceImagePath
               ? primary.character.referenceImagePath
-              : null;
+              : null);
         if (
           options.resolvedVideoModel?.provider !== "atlascloud" &&
           !approvedCharacterInput
@@ -5453,6 +5459,7 @@ async function produceVideo(
         seed: options.seed ?? null,
         modelOptions: model,
         guidedStory: options.guidedStory ?? null,
+        guidedFootageReuse: options.guidedFootageReuse,
         resolveGuidedAtlasAssetIds:
           options.resolvedVideoModel?.provider === "atlascloud" &&
           isAtlasReferenceModel(options.resolvedVideoModel.model) &&
@@ -8556,6 +8563,9 @@ async function executeVideoJob(
     }
     await validateNativeAudioRecoveryInputs(job);
     if (guidedSnapshot && !verificationOnly) {
+      if (job.options?.guidedFootageReuse) {
+        validateGuidedFootageReuse(job.options.guidedFootageReuse, guidedSnapshot.script.scenes.map(scene => scene.id));
+      }
       const referencePreflightError = guidedStoryboardReferenceError(
         job.options ?? {},
         job.storyboard,

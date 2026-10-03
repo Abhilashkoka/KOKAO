@@ -26,3 +26,9 @@ Character-free staging does not imply character-free embedded media: an end card
 **Why:** Production output retained the approved doctor in earlier footage but invented a different doctor inside the final reel thumbnail when the end card received only a backdrop reference.
 
 **How to apply:** When diagnosing consistency, inspect embedded screens/thumbnails and their reference dependencies separately from on-screen cast. A reliable correction should reuse actual preceding footage for a requested reel still, rather than ask a cast-free generation to invent it.
+
+Freeze explicit finished-reel reuse decisions at new enqueue, after brand-ending replacement. Do not infer them on historical recovery. Native scene audio remains useful even when the corresponding model-generated preview pixels are replaced; externally narrated local replays need no target video-provider call.
+
+**Why:** Reusing complete raw checkpoints must not restore invented thumbnails, while treating native narration as discarded work would incorrectly refund delivered audio. Legacy recovery must not silently change approved outputs.
+
+**How to apply:** Resolve footage dependencies in story order before final assembly; retain raw checkpoints for retries and preserve the target narration, never the source clip's audio. End cards use literal approved text/uploaded logos and a real frame, not another AI depiction of the doctor.

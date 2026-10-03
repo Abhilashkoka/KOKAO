@@ -1,3 +1,4 @@
+import { composeGuidedFootageReuse, validateGuidedFootageReuse } from "../guidedFootageReuse";
 import {
   db,
   tenantsTable,
@@ -1812,6 +1813,7 @@ export async function renderTopicStoryboard(params: {
   modelOptions?: ResolvedModelOptions;
   /** Frozen Guided Story snapshot used to assemble model-specific prompts. */
   guidedStory?: VideoJobOptions["guidedStory"] | null;
+  guidedFootageReuse?: VideoJobOptions["guidedFootageReuse"];
   /** Exact-marker direct Guided flow: native clip audio, no narration/TTS. */
   directNativeAudio?: boolean;
   /** Verification-only recovery must fail closed instead of regenerating a missing clip. */
@@ -1851,6 +1853,9 @@ export async function renderTopicStoryboard(params: {
       : AI_BROLL_TOTAL_DEADLINE_MS;
   if (board.scenes.length === 0) {
     throw new VideoGenProviderError("This storyboard has no scenes.");
+  }
+  if (params.guidedFootageReuse) {
+    validateGuidedFootageReuse(params.guidedFootageReuse, board.scenes.map(scene => scene.id));
   }
   // Topic videos are cut against a recording; the other engines voice nothing
   // and carry a null narration, so they never reach this renderer.
@@ -2016,7 +2021,8 @@ export async function renderTopicStoryboard(params: {
     params.onStage?.("Animating your storyboard");
     const animated = await animateBrollStills({
       images: stills as Buffer[],
-      ...(references.length ? { exactInserts } : {}),
+      exactInserts: board.scenes.map((scene, index) => exactInserts[index] ||
+        (!nativeAudio && !!params.guidedFootageReuse?.scenes.some(item => item.sceneId === scene.id))),
       visuals: seedancePrompts?.map((prompt, index) => prompt ?? board.scenes[index]!.visual) ??
         board.scenes.map((scene) => scene.visual),
       scenes,
@@ -2076,6 +2082,12 @@ export async function renderTopicStoryboard(params: {
   }
 
   params.onStage?.("Composing the video");
+  clips = await composeGuidedFootageReuse({
+    plan: params.guidedFootageReuse,
+    sceneIds: board.scenes.map(scene => scene.id),
+    clips,
+    load: params.load,
+  });
   const composedSceneMap = characterMode || animatedBroll ? sceneMap : gate ? gate.scenes : sceneMap;
   const composedDurationSec = nativeAudio
     ? composedSceneMap.reduce(

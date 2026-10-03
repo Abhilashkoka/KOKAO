@@ -242,6 +242,7 @@ import {
 import { loadVideoBranding } from "../lib/videoGen/branding";
 import { resolveBrandOutroSnapshot, type BrandOutroSnapshot } from "../lib/videoGen/brandOutro";
 import { applyGuidedBrandEnding, confirmGuidedBrandEnding, loadGuidedBrandEnding, type GuidedBrandEndingApproval } from "../lib/videoGen/guidedBrandEnding";
+import { planGuidedFootageReuse } from "../lib/videoGen/guidedFootageReuse";
 import { loadActivePayload } from "../lib/brandKit/service";
 import {
   listElevenLabsPremadeVoices,
@@ -12500,6 +12501,14 @@ async function generateVideoHandler(
   options.brandOutro = await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
   if (guidedDraft && res.locals.guidedBrandEndingApproval) {
     applyGuidedBrandEnding(options, res.locals.guidedBrandEndingApproval);
+  }
+  if (guidedDraft) {
+    try {
+      options.guidedFootageReuse = planGuidedFootageReuse(options.guidedStory);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Review the story's reel-preview scenes." });
+      return;
+    }
   }
 
   let provisionalGuidedJob: VideoGeneration | null = null;

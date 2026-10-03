@@ -107,6 +107,19 @@ describe("spoken character video units", () => {
 });
 
 describe("Guided Story direct-render funding", () => {
+  it("does not reserve video calls for local footage reuse with external narration", () => {
+    const options = {
+      aspectRatio: "9:16",
+      guidedStory: { script: { scenes: [{ id: "source" }, { id: "reel" }, { id: "card" }] } },
+      guidedStoryRenderFlow: { version: 1, mode: "direct_video" },
+      guidedFootageReuse: { version: 1, scenes: [{ sceneId: "reel" }, { sceneId: "card" }] },
+      resolvedVideoModel: { generateAudio: false },
+    } as any;
+    expect(videoJobFullUnits("topic_to_video", options)).toBe(1);
+    options.resolvedVideoModel.generateAudio = true;
+    // Native narration still uses the target provider clip's soundtrack.
+    expect(videoJobFullUnits("topic_to_video", options)).toBe(3);
+  });
   const guidedStory = {
     script: { scenes: [{ id: "s1" }, { id: "s2" }] },
   } as any;

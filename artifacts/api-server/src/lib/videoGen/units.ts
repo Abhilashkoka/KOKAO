@@ -124,7 +124,11 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
       // provider. Approved cast/backdrop assets are inputs, not separately
       // generated storyboard previews.
       return studioLipSyncUnits + guidedIntrinsicUnits + (
-        options.guidedStory.script.scenes.length *
+        (options.guidedStory.script.scenes.length -
+          (options.resolvedVideoModel?.generateAudio === false
+            ? options.guidedStory.script.scenes.filter(scene =>
+                options.guidedFootageReuse?.scenes.some(item => item.sceneId === scene.id)).length
+            : 0)) *
         videoModelMultiplier(options.modelId)
       );
     }

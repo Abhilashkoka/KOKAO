@@ -297,6 +297,18 @@ export interface VideoJobOptions {
     version: 1;
     mode: "direct_video";
   } | null;
+  /** Frozen, backwards-only footage dependencies. Absent on historical jobs. */
+  guidedFootageReuse?: {
+    version: 1;
+    scenes: Array<{
+      sceneId: string;
+      sourceSceneId: string;
+      kind: "reel" | "end_card";
+      title: string;
+      website: string | null;
+      logoPath: string | null;
+    }>;
+  };
   /** Explicit per-video approval; never inferred from an empty cast list. */
   guidedBrandEnding?: {
     version: 1;

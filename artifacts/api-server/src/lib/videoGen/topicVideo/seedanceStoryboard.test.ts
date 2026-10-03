@@ -7,6 +7,14 @@ const renderState = vi.hoisted(() => ({
   animate: [] as Array<Record<string, unknown>>,
   compose: [] as Array<Record<string, unknown>>,
 }));
+vi.mock("../guidedFootageReuse", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../guidedFootageReuse")>();
+  return {
+    ...actual,
+    composeGuidedFootageReuse: vi.fn(async (params: Parameters<typeof actual.composeGuidedFootageReuse>[0]) =>
+      params.plan?.scenes.length ? [Buffer.from("source"), Buffer.from("exact-reused-footage")] : params.clips),
+  };
+});
 
 vi.mock("./aiBroll", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./aiBroll")>();
@@ -163,6 +171,36 @@ const modelOptions = {
 beforeEach(() => {
   renderState.animate.length = 0;
   renderState.compose.length = 0;
+});
+
+describe("Guided footage reuse renderer integration", () => {
+  it.each([true, false])("composites exact footage before final assembly (native audio=%s)", async (nativeAudio) => {
+    const board = storyboard();
+    board.scenes.push({ ...board.scenes[0], id: "scene-2", guidedStory: { scriptSceneId: "scene-2" } });
+    const plan = { version: 1 as const, scenes: [{
+      sceneId: "scene-2", sourceSceneId: "scene-1", kind: "reel" as const,
+      title: "Story", website: null, logoPath: null,
+    }] };
+    await renderTopicStoryboard({
+      storyboard: board as never, aspectRatio: "9:16", subtitles: false,
+      directNativeAudio: nativeAudio, guidedFootageReuse: plan,
+      load: async () => Buffer.from("saved-input"),
+    });
+    expect(renderState.animate[0].exactInserts).toEqual([false, !nativeAudio]);
+    expect(renderState.compose[0].clips).toEqual([Buffer.from("source"), Buffer.from("exact-reused-footage")]);
+    expect(renderState.compose[0].nativeAudio).toBe(nativeAudio);
+  });
+  it("rejects a lost dependency before any provider work", async () => {
+    await expect(renderTopicStoryboard({
+      storyboard: storyboard() as never, aspectRatio: "9:16", subtitles: false,
+      guidedFootageReuse: { version: 1, scenes: [{
+        sceneId: "scene-1", sourceSceneId: "missing", kind: "reel",
+        title: "Story", website: null, logoPath: null,
+      }] },
+      load: vi.fn(),
+    })).rejects.toThrow("no longer match");
+    expect(renderState.animate).toHaveLength(0);
+  });
 });
 
 describe("uploaded references in approved topic storyboards", () => {
