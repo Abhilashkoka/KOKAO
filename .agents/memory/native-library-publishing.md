@@ -4,6 +4,12 @@ description: Review snapshots and provider commit uncertainty for native video p
 ---
 Native Library publishing must never fall back to caption-only or thumbnail-only posting. Review freezes destination-specific copy and audience settings before enqueue; schedules use that snapshot even if Library copy later changes.
 
+Normalize incompatible Meta audio once before enqueue, preserving the picture and original Library file; freeze a separate compatible object in the upload snapshot.
+
+**Why:** Instagram fetches an object URL while Facebook uploads bytes with resumable offsets. Local-only conversion would still send Instagram the original audio, and conversion during retries could invalidate Facebook offsets.
+
+**How to apply:** both destinations must consume the same persisted derivative throughout the upload; never regenerate it after a provider upload begins.
+
 **Why:** uploads are asynchronous, and losing the final response does not prove that no post was created. Recreating an upload blindly risks duplicate public posts.
 
 **How to apply:** persist create/commit fences before provider writes, resume by exact upload/container IDs, and distinguish processing from confirmed publication. Definitive or ambiguous outcomes require checking the destination before starting a fresh Library item. Reconnect resumes the existing checkpoint rather than creating a replacement upload.

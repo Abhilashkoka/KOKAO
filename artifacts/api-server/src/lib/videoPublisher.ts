@@ -33,9 +33,9 @@ export async function enqueueVideoPublish(tenantId: number, id: number, platform
   try {
     const auth = await videoPublishAuth(tenantId, platform);
     const path = snapshot?.videoPath ?? item.videoPath;
-    const staged = await stageVideo(path, tenantId, platform);
+    const staged = await stageVideo(path, tenantId, platform, true);
     await staged.cleanup();
-    await db.insert(videoPublishesTable).values({ tenantId, contentItemId: id, platform, videoPath: path, metadata: metadata!, accountId: auth.accountId }).onConflictDoNothing();
+    await db.insert(videoPublishesTable).values({ tenantId, contentItemId: id, platform, videoPath: staged.videoPath ?? path, metadata: metadata!, accountId: auth.accountId }).onConflictDoNothing();
     await db.update(contentItemsTable).set({ status: "publishing", platform, failureReason: null, updatedAt: new Date() }).where(and(eq(contentItemsTable.id, id), eq(contentItemsTable.tenantId, tenantId)));
     return { ok: true, pending: true, postId: null, permalink: null };
   } catch (error) {
