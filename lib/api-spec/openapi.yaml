@@ -20406,10 +20406,77 @@ components:
           minimum: 2
           maximum: 6
           default: 3.5
+    DirectedVideoAsset:
+      type: object
+      required: [objectPath, startSec, endSec, placement]
+      properties:
+        objectPath:
+          type: string
+          maxLength: 500
+        startSec:
+          type: number
+          minimum: 0
+        endSec:
+          type: number
+          minimum: 0.1
+        placement:
+          type: string
+          enum: [full_frame, corner]
+      additionalProperties: false
+    DirectedVideoOverlay:
+      type: object
+      required: [text, startSec, endSec]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 160
+        startSec:
+          type: number
+          minimum: 0
+        endSec:
+          type: number
+          minimum: 0.1
+      additionalProperties: false
+    DirectedVideoInput:
+      type: object
+      additionalProperties: false
+      properties:
+        brandingInstructions:
+          type: string
+          maxLength: 3000
+        fictionalCharacter:
+          type: string
+          maxLength: 1500
+          description: Optional fictional character description when no saved character is selected.
+        ending:
+          type: string
+          enum: [none, logo, animation]
+          default: none
+          description: Explicit opt-in to a deterministic Brand Kit logo ending or configured logo animation, appended after the generated sequence.
+        brandImage:
+          type: string
+          enum: [none, primary, secondary, icon_mark]
+          default: none
+          description: Explicit opt-in to overlay a Brand Kit image in the corner.
+        assets:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/DirectedVideoAsset"
+          description: Optional tenant-owned PNG/JPEG/WebP images or MP4/WebM recordings, fitted without cropping at exact times after generation.
+        overlays:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/DirectedVideoOverlay"
+          description: Exact text rendered after generation, never entrusted to the video model.
     VideoGenerateRequest:
       type: object
       required: [engine]
       properties:
+        directedVideo:
+          $ref: "#/components/schemas/DirectedVideoInput"
         referenceImages:
           type: array
           maxItems: 6

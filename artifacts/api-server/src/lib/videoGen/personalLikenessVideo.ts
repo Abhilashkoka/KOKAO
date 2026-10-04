@@ -147,7 +147,7 @@ export async function freezePersonalLikenessVideoConsent(input: {
   model: string;
   character: Character;
   outfit: CharacterOutfit;
-  member: GuidedStoryCastSnapshot;
+  member: Pick<GuidedStoryCastSnapshot, "personalLikenessVideo" | "provenanceEvidenceRefs">;
   approval: Approval;
   characterSha256: string;
   outfitSha256: string;

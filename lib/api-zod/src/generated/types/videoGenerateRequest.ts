@@ -7,6 +7,7 @@
  */
 import type { CharacterDialogueInput } from './characterDialogueInput';
 import type { Cinematography } from './cinematography';
+import type { DirectedVideoInput } from './directedVideoInput';
 import type { LocalizedDubTrackInput } from './localizedDubTrackInput';
 import type { ScreenDemoRequest } from './screenDemoRequest';
 import type { ScriptVariant } from './scriptVariant';
@@ -23,6 +24,7 @@ import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
 import type { VideoReferenceImage } from './videoReferenceImage';
 
 export interface VideoGenerateRequest {
+  directedVideo?: DirectedVideoInput;
   /**
      * Tenant-owned PNG/JPEG/WebP uploads, at most 10 MB each. Separate from saved character references.
      * @maxItems 6

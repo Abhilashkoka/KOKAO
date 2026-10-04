@@ -1701,7 +1701,9 @@ function serializeVideoJob(
     // prompt and its clamped length — so derive from those, never job.prompt,
     // or the shown text could diverge from what was actually sent.
     aiPrompt:
-      job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
+      job.options?.directedVideo?.compiledPrompt
+        ? compiledClipPrompt(job.options.directedVideo.compiledPrompt, job.options.durationSec ?? 5)
+        : job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
     sourceImagePaths: job.sourceImagePaths ?? [],
     aspectRatio: job.options?.aspectRatio ?? "9:16",
     guidedReferenceContext: job.options?.guidedStory
@@ -10438,6 +10440,24 @@ async function generateVideoHandler(
     return;
   }
   let body = parsed.data;
+  if (body.directedVideo) {
+    try {
+      const { validateDirectedInput } = await import("../lib/videoGen/directedVideo");
+      validateDirectedInput(req.body.directedVideo, body.durationSec ?? 5);
+      if (body.engine !== "text_to_video") throw new Error("KOKAO direction is available in Text to Video only.");
+      if (body.shotCount !== undefined && body.shotCount !== 1) throw new Error("Directed video uses one generation, not separate shots.");
+      if (body.reviewStoryboard === true) throw new Error("Directed video does not use separate storyboard generation.");
+      if (!body.modelId) throw new Error("Choose a compatible Wan 3.0 model for directed video.");
+      if ((body.directedVideo.brandingInstructions || body.brandKitId ||
+          (body.directedVideo.ending && body.directedVideo.ending !== "none") ||
+          (body.directedVideo.brandImage && body.directedVideo.brandImage !== "none")) &&
+          !(await isFeatureEnabled("brandVideo"))) throw new Error("Video branding is currently disabled.");
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid direction settings." });
+      return;
+    }
+    body = { ...body, shotCount: 1, reviewStoryboard: false };
+  }
   let uploadedReferences: Awaited<ReturnType<typeof freezeReferenceImages>> | undefined;
   if (body.referenceImages?.length) {
     if (body.engine !== "topic_to_video" ||
@@ -11090,7 +11110,7 @@ async function generateVideoHandler(
     // mode, animate a generated keyframe — so they are image-to-video jobs
     // whatever their engine name says.
     const mode: "text" | "image" =
-      body.engine === "text_to_video" &&
+      body.directedVideo ? "text" : body.engine === "text_to_video" &&
       body.characterId == null &&
       requestedPresetId == null
         ? "text"
@@ -11462,7 +11482,7 @@ async function generateVideoHandler(
     });
     return;
   }
-  if (body.engine === "text_to_video" && characterId != null && body.modelId) {
+  if (body.engine === "text_to_video" && !body.directedVideo && characterId != null && body.modelId) {
     const picked = findVideoModel(body.modelId);
     if (!picked || !supportsMode(picked, "image")) {
       res.status(400).json({
@@ -12401,7 +12421,7 @@ async function generateVideoHandler(
   // Resolve mutable platform defaults into the immutable provider/model
   // contract before quota, credits, or wallet funds are touched.
   const resolvedMode: "text" | "image" | null =
-    body.engine === "image_to_video"
+    body.directedVideo ? "text" : body.engine === "image_to_video"
       ? "image"
       : body.engine === "text_to_video"
         ? characterId != null || requestedPresetId != null
@@ -12496,9 +12516,31 @@ async function generateVideoHandler(
   }
 
   // Freeze the selected active kit before provisional creation or funding.
+  if (body.directedVideo) {
+    try {
+      const { freezeDirectedVideo, freezeDirectedCast } = await import("../lib/videoGen/directedVideo");
+      const model = options.resolvedVideoModel;
+      const wantedMode = options.characterId ? "reference-to-video" : "text-to-video";
+      if (!model || model.provider !== "atlascloud" ||
+          !new RegExp(`^alibaba/wan-3\\.0(?:-prime)?/${wantedMode}$`).test(model.model)) {
+        throw new Error(`Choose Wan 3.0 ${options.characterId ? "Reference" : "Text-to-Video"} for this directed video.`);
+      }
+      if (model.durationSec !== (body.durationSec ?? 5)) throw new Error("The model must support the exact requested duration.");
+      const frozen = await freezeDirectedVideo(req.body.directedVideo, req.tenantId, model.durationSec, body.brandKitId);
+      options.directedVideo = frozen.directed;
+      options.brandKitId = body.brandKitId ?? null;
+      options.brandOutro = frozen.outro;
+      options.shotCount = 1;
+      options.reviewStoryboard = false;
+      await freezeDirectedCast(options, req.tenantId);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Could not prepare directed video." });
+      return;
+    }
+  }
   options.brandOutroKitId =
     body.brandKitId ?? guidedDraft?.state.setup?.brandKitId ?? options.brandKitId;
-  options.brandOutro = await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
+  if (!options.directedVideo) options.brandOutro = await resolveBrandOutroSnapshot(req.tenantId, selectedOutroKitId(options));
   if (guidedDraft && res.locals.guidedBrandEndingApproval) {
     applyGuidedBrandEnding(options, res.locals.guidedBrandEndingApproval);
   }

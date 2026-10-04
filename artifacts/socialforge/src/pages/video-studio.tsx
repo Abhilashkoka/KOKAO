@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DirectedVideoPanel } from "@/components/directed-video-panel";
+import {
+  buildDirectedVideoPayload,
+  directedBlockReason,
+  directedBrandOptions,
+  directedCastRestriction,
+  emptyDirectedDraft,
+  isDirectedCompatibleModel,
+  type DirectedDraft,
+} from "@/components/directed-video";
 import {
   useGenerateVideo,
   useRestartVideoJobFresh,
@@ -649,6 +659,8 @@ const STAGE_PROGRESS: Record<string, number> = {
   "Getting started": 8,
   "Preparing your photos": 20,
   "Writing the script": 18,
+  "Directing your video": 18,
+  "Applying your brand assets": 92,
   "Voicing the narration": 32,
   "Finding the right footage": 48,
   "Creating AI imagery": 48,
@@ -825,6 +837,10 @@ export function VideoStudioPage() {
   const [presetLanguage, setPresetLanguage] = useState("en");
   /** A cast can be a tenant character or a stable platform preset. */
   const hasSelectedCast = characterId !== null || presetCharacterId !== null;
+  const [directedDraft, setDirectedDraft] = useState<DirectedDraft>(
+    emptyDirectedDraft,
+  );
+  const directedOn = engine === "text_to_video" && directedDraft.enabled;
 
   // Model choice. Null is the deliberate "mode-specific admin default"
   // sentinel; the server resolves and freezes its exact provider/model before
@@ -841,13 +857,23 @@ export function VideoStudioPage() {
   // A model only appears once it can serve this engine: text_to_video without
   // a character is the only prompt-only mode; everything else animates a
   // frame, so it needs an image-capable model.
+  // Directed cast uses Wan 3.0 reference models, which are text-mode entries.
   const modelMode: "text" | "image" =
-    engine === "text_to_video" && !hasSelectedCast ? "text" : "image";
+    directedOn || (engine === "text_to_video" && !hasSelectedCast)
+      ? "text"
+      : "image";
   const modelCatalog = videoModels as StudioVideoModelList | undefined;
   const availableModels = useMemo(
     () =>
-      (modelCatalog?.models ?? []).filter((m) => m.modes.includes(modelMode)),
-    [modelCatalog, modelMode],
+      (modelCatalog?.models ?? []).filter(
+        (m) =>
+          directedOn
+            ? // Reference models are text-mode catalog entries; directed cast
+              // uses them instead of I2V, so mode filtering is by id here.
+              isDirectedCompatibleModel(m.id, hasSelectedCast)
+            : m.modes.includes(modelMode),
+      ),
+    [modelCatalog, modelMode, directedOn, hasSelectedCast],
   );
   const defaultModel =
     modelCatalog?.defaults?.[modelMode] ??
@@ -863,6 +889,12 @@ export function VideoStudioPage() {
       ) ?? null
     : null;
   const selectedModel = availableModels.find((m) => m.id === modelId) ?? null;
+  // Directed mode never relies on the admin default: once the user opts in,
+  // a compatible model is pinned (and re-pinned if cast changes the mode).
+  useEffect(() => {
+    if (directedOn && !modelId && availableModels.length > 0)
+      setModelId(availableModels[0].id);
+  }, [directedOn, modelId, availableModels]);
   // Picking a model narrows every dependent control to what it can render.
   // A stale selection (switching from a 5/10s model to an 8s-only one) is
   // corrected here rather than being silently snapped at render time.
@@ -1385,8 +1417,29 @@ export function VideoStudioPage() {
       refetchOnMount: "always",
       refetchInterval: engine === "guided_story" ? 3_000 : false,
     },
-  });
+  });  const directedCastBlock = directedOn
+    ? directedCastRestriction(
+        characterId === null
+          ? null
+          : (characters as StudioCharacter[] | undefined)?.find(
+              (c) => Number(c.id) === characterId && !isSharedCharacter(c),
+            ),
+      )
+    : null;
+
   const { data: brandKits } = useListBrandKits();
+  const { data: directedKit, isLoading: directedKitLoading } = useGetBrandKit(
+    brandKitId ?? 0,
+    {
+      query: {
+        enabled: directedOn && brandKitId !== null,
+        queryKey: getGetBrandKitQueryKey(brandKitId ?? 0),
+      },
+    },
+  );
+  const directedBrand = directedBrandOptions(
+    directedOn && brandKitId !== null ? directedKit : null,
+  );
   // Saved lip-sync base videos live on the selected kit's active payload.
   const { data: lipSyncKit } = useGetBrandKit(brandKitId ?? 0, {
     query: {
@@ -2326,6 +2379,17 @@ export function VideoStudioPage() {
 
   const generateBlockReason = (() => {
     if (generateVideo.isPending || uploading) return null;
+    if (directedOn) {
+      const reason = directedBlockReason(directedDraft, {
+        durationSec,
+        hasCompatibleModel: availableModels.length > 0,
+        castRestriction: directedCastBlock,
+        modelSelected: selectedModel !== null,
+        brandKitId,
+        brand: directedBrand,
+      });
+      if (reason) return reason;
+    }
     if (studioLipSyncEligible && studioLipSync && !studioLipSyncConsent) {
       return "Confirm consent for lip-sync before generating the video.";
     }
@@ -3116,7 +3180,9 @@ export function VideoStudioPage() {
               ? wardrobeNotes.trim()
               : null,
           brandKitId:
-            isCharacterDialogue
+            directedOn
+              ? brandKitId
+              : isCharacterDialogue
               ? selectedCharacterDialogueVoice?.brandKitId ?? null
               : engine === "topic_to_video" ||
             engine === "lip_sync" ||
@@ -3186,10 +3252,14 @@ export function VideoStudioPage() {
               }
             : null,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
-          shotCount: engine === "text_to_video" ? shotCount : 1,
+          shotCount: engine === "text_to_video" && !directedOn ? shotCount : 1,
+          directedVideo: directedOn
+            ? buildDirectedVideoPayload(directedDraft, { hasSelectedCast })
+            : null,
           // Every engine reviews except topic mode's stock branch, whose
           // visuals are searched rather than prompted.
-          reviewStoryboard: storyboardAvailable ? reviewStoryboard : false,
+          reviewStoryboard:
+            storyboardAvailable && !directedOn ? reviewStoryboard : false,
           // Carried for every engine so the render half writes with the same
           // rules the draft was written under.
           scriptVariant: scriptVariant ?? null,
@@ -5803,6 +5873,43 @@ export function VideoStudioPage() {
               />
             )}
 
+            {engine === "text_to_video" && (
+              <DirectedVideoPanel
+                draft={directedDraft}
+                onChange={setDirectedDraft}
+                onToggle={(enabled) => {
+                  setDirectedDraft((d) => ({ ...d, enabled }));
+                  if (enabled) {
+                    setShotCount(1);
+                    setReviewStoryboard(false);
+                    if (modelId && !isDirectedCompatibleModel(modelId, hasSelectedCast))
+                      setModelId(null);
+                    setGenerateAudio(true);
+                  }
+                }}
+                durationSec={durationSec}
+                hasSelectedCast={hasSelectedCast}
+                hasCompatibleModel={availableModels.length > 0}
+                castRestriction={directedCastBlock}
+                brandKits={brandKits}
+                brandKitId={brandKitId}
+                onBrandKitChange={(id) => {
+                  setBrandKitId(id);
+                  // A new kit has different logos: ask again explicitly.
+                  setDirectedDraft((d) => ({
+                    ...d,
+                    ending: "none",
+                    brandImage: "none",
+                  }));
+                }}
+                brand={directedBrand}
+                brandLoading={directedKitLoading}
+                uploadFile={uploadFile}
+                onUploadStart={beginUpload}
+                onUploadEnd={finishUpload}
+              />
+            )}
+
             {needsPhotos && (
               <div className="space-y-3">
                 <Label>
@@ -6855,7 +6962,7 @@ export function VideoStudioPage() {
               </div>
             )}
 
-            {engine === "text_to_video" && (
+            {engine === "text_to_video" && !directedOn && (
               <div className="space-y-2">
                 <Label htmlFor="shot-count">Shots</Label>
                 <Select
@@ -7023,7 +7130,7 @@ export function VideoStudioPage() {
               );
             })()}
 
-            {storyboardAvailable && !isFreePlan && (
+            {storyboardAvailable && !isFreePlan && !directedOn && (
               <div className="space-y-2">
                 <Label htmlFor="review-storyboard">Storyboard</Label>
                 <div className="flex items-start gap-3 border border-border rounded-md px-3 py-2">

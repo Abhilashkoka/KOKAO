@@ -7808,6 +7808,85 @@ export interface ScreenDemoRequest {
   endCard?: null | ScreenDemoEndCard;
 }
 
+export type DirectedVideoAssetPlacement = typeof DirectedVideoAssetPlacement[keyof typeof DirectedVideoAssetPlacement];
+
+
+export const DirectedVideoAssetPlacement = {
+  full_frame: 'full_frame',
+  corner: 'corner',
+} as const;
+
+export interface DirectedVideoAsset {
+  /** @maxLength 500 */
+  objectPath: string;
+  /** @minimum 0 */
+  startSec: number;
+  /** @minimum 0.1 */
+  endSec: number;
+  placement: DirectedVideoAssetPlacement;
+}
+
+export interface DirectedVideoOverlay {
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  text: string;
+  /** @minimum 0 */
+  startSec: number;
+  /** @minimum 0.1 */
+  endSec: number;
+}
+
+/**
+ * Explicit opt-in to a deterministic Brand Kit logo ending or configured logo animation, appended after the generated sequence.
+ */
+export type DirectedVideoInputEnding = typeof DirectedVideoInputEnding[keyof typeof DirectedVideoInputEnding];
+
+
+export const DirectedVideoInputEnding = {
+  none: 'none',
+  logo: 'logo',
+  animation: 'animation',
+} as const;
+
+/**
+ * Explicit opt-in to overlay a Brand Kit image in the corner.
+ */
+export type DirectedVideoInputBrandImage = typeof DirectedVideoInputBrandImage[keyof typeof DirectedVideoInputBrandImage];
+
+
+export const DirectedVideoInputBrandImage = {
+  none: 'none',
+  primary: 'primary',
+  secondary: 'secondary',
+  icon_mark: 'icon_mark',
+} as const;
+
+export interface DirectedVideoInput {
+  /** @maxLength 3000 */
+  brandingInstructions?: string;
+  /**
+     * Optional fictional character description when no saved character is selected.
+     * @maxLength 1500
+     */
+  fictionalCharacter?: string;
+  /** Explicit opt-in to a deterministic Brand Kit logo ending or configured logo animation, appended after the generated sequence. */
+  ending?: DirectedVideoInputEnding;
+  /** Explicit opt-in to overlay a Brand Kit image in the corner. */
+  brandImage?: DirectedVideoInputBrandImage;
+  /**
+     * Optional tenant-owned PNG/JPEG/WebP images or MP4/WebM recordings, fitted without cropping at exact times after generation.
+     * @maxItems 3
+     */
+  assets?: DirectedVideoAsset[];
+  /**
+     * Exact text rendered after generation, never entrusted to the video model.
+     * @maxItems 5
+     */
+  overlays?: DirectedVideoOverlay[];
+}
+
 export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
 
 
@@ -7953,6 +8032,7 @@ export const ScriptVariant = {
 } as const;
 
 export interface VideoGenerateRequest {
+  directedVideo?: DirectedVideoInput;
   /**
      * Tenant-owned PNG/JPEG/WebP uploads, at most 10 MB each. Separate from saved character references.
      * @maxItems 6

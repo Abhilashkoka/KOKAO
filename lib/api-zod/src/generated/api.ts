@@ -14477,6 +14477,28 @@ export const CancelImageJobResponse = zod.object({
  * Video generation is long-running, so this endpoint validates the request, reserves funding (monthly quota first, then a video credit), creates the job, and returns immediately. Poll GET /ai/video-jobs/{jobId} until status is succeeded or failed.
  * @summary Start a video generation job (AI or photo slideshow)
  */
+export const generateVideoBodyDirectedVideoBrandingInstructionsMax = 3000;
+
+export const generateVideoBodyDirectedVideoFictionalCharacterMax = 1500;
+
+export const generateVideoBodyDirectedVideoEndingDefault = `none`;
+export const generateVideoBodyDirectedVideoBrandImageDefault = `none`;
+export const generateVideoBodyDirectedVideoAssetsItemObjectPathMax = 500;
+
+export const generateVideoBodyDirectedVideoAssetsItemStartSecMin = 0;
+
+export const generateVideoBodyDirectedVideoAssetsItemEndSecMin = 0.1;
+
+export const generateVideoBodyDirectedVideoAssetsMax = 3;
+
+export const generateVideoBodyDirectedVideoOverlaysItemTextMax = 160;
+
+export const generateVideoBodyDirectedVideoOverlaysItemStartSecMin = 0;
+
+export const generateVideoBodyDirectedVideoOverlaysItemEndSecMin = 0.1;
+
+export const generateVideoBodyDirectedVideoOverlaysMax = 5;
+
 export const generateVideoBodyReferenceImagesItemIdMax = 80;
 
 export const generateVideoBodyReferenceImagesItemLabelMax = 120;
@@ -14558,6 +14580,23 @@ export const generateVideoBodyWardrobeNotesMax = 500;
 export const generateVideoBodyReviewStoryboardDefault = true;
 
 export const GenerateVideoBody = zod.object({
+  "directedVideo": zod.object({
+  "brandingInstructions": zod.string().max(generateVideoBodyDirectedVideoBrandingInstructionsMax).optional(),
+  "fictionalCharacter": zod.string().max(generateVideoBodyDirectedVideoFictionalCharacterMax).optional().describe('Optional fictional character description when no saved character is selected.'),
+  "ending": zod.enum(['none', 'logo', 'animation']).default(generateVideoBodyDirectedVideoEndingDefault).describe('Explicit opt-in to a deterministic Brand Kit logo ending or configured logo animation, appended after the generated sequence.'),
+  "brandImage": zod.enum(['none', 'primary', 'secondary', 'icon_mark']).default(generateVideoBodyDirectedVideoBrandImageDefault).describe('Explicit opt-in to overlay a Brand Kit image in the corner.'),
+  "assets": zod.array(zod.object({
+  "objectPath": zod.string().max(generateVideoBodyDirectedVideoAssetsItemObjectPathMax),
+  "startSec": zod.number().min(generateVideoBodyDirectedVideoAssetsItemStartSecMin),
+  "endSec": zod.number().min(generateVideoBodyDirectedVideoAssetsItemEndSecMin),
+  "placement": zod.enum(['full_frame', 'corner'])
+})).max(generateVideoBodyDirectedVideoAssetsMax).optional().describe('Optional tenant-owned PNG\/JPEG\/WebP images or MP4\/WebM recordings, fitted without cropping at exact times after generation.'),
+  "overlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(generateVideoBodyDirectedVideoOverlaysItemTextMax),
+  "startSec": zod.number().min(generateVideoBodyDirectedVideoOverlaysItemStartSecMin),
+  "endSec": zod.number().min(generateVideoBodyDirectedVideoOverlaysItemEndSecMin)
+})).max(generateVideoBodyDirectedVideoOverlaysMax).optional().describe('Exact text rendered after generation, never entrusted to the video model.')
+}).optional(),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(generateVideoBodyReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(generateVideoBodyReferenceImagesItemLabelMax),

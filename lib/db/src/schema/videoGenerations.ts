@@ -17,6 +17,7 @@ import type {
   GuidedStoryImageModelSnapshot,
   GuidedStoryBillingReceipt,
   GuidedStoryProvenanceEvidence,
+  PersonalLikenessVideoSnapshot,
 } from "./guidedStories";
 
 /**
@@ -839,6 +840,29 @@ export interface VideoJobOptions {
    * editor cannot add or remove shots afterwards. */
 
   shotCount?: number;
+  /** Opt-in single-provider-generation direction, frozen before dispatch. */
+  directedVideo?: {
+    version: 1;
+    brandingInstructions: string;
+    fictionalCharacter: string;
+    ending: "none" | "logo" | "animation";
+    brandImage: "none" | "primary" | "secondary" | "icon_mark";
+    assets: Array<{
+      objectPath: string; startSec: number; endSec: number;
+      placement: "full_frame" | "corner"; sha256: string;
+    }>;
+    overlays: Array<{ text: string; startSec: number; endSec: number }>;
+    brandContext: string;
+    compiledPrompt?: string;
+    castReferences?: Array<{ objectPath: string; sha256: string }>;
+    castApproval?: {
+      characterId: number; outfitId: number;
+      referenceSheetPath: string; referenceSheetSha256: string;
+      outfitPath: string; outfitSha256: string;
+      portraitPath: string; portraitSha256: string;
+      personalLikeness?: PersonalLikenessVideoSnapshot | null;
+    };
+  } | null;
   /** Slideshow: seconds each photo is on screen. */
 
   slideDurationSec?: number;

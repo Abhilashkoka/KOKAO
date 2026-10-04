@@ -1,5 +1,6 @@
 - [Guided job continuity](guided-job-continuity.md) — submission keeps the story visible and focuses its job; failures return with actionable correction guidance.
 - [Video quality notice](video-quality-notice.md) — inform users that AI videos may contain glitches, before generation and alongside completed outputs.
+- [Directed Text to Video](directed-text-video.md) — optional single-generation stories; exact assets and logo endings are explicit opt-ins, not invented brand imagery.
 - [Stale servers after merges](stale-servers-after-merge.md) — EADDRINUSE can leave older compiled servers serving previews while managed logs show only duplicate startup failures.
 - [Social publishing](social-publishing.md) — no connector; LinkedIn uses manual OAuth/Posts API; Connect Account is record-only; dedicated routes publish.
 - [Credential encryption keys](credential-encryption-keys.md) — encrypt with dedicated key, DECRYPT dual-read (dedicated then SESSION_SECRET) so enabling the key never bricks stored creds.

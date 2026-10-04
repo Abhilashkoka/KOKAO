@@ -2620,6 +2620,11 @@ async function produceVideo(
   // resolution / quality / audio flags it understands. With no picked model
   // every field is a pass-through and the job behaves exactly as before.
   const model = resolveModelOptions(options, 5);
+  if (options.directedVideo) {
+    const { verifyDirectedAssets } = await import("./directedVideo");
+    // Must check exact inputs again on retries, before any provider work.
+    await verifyDirectedAssets(options.directedVideo, job.tenantId);
+  }
   const raw = options.renderCheckpoint;
   if (
     raw?.stage === "provider_raw" &&
@@ -2693,6 +2698,40 @@ async function produceVideo(
       await setJob(job.id, { storyboard });
       return renderApprovedClipStoryboard(job, options, storyboard, aspectRatio, onStage);
     }
+  }
+
+  if (job.engine === "text_to_video" && options.directedVideo) {
+    const { compileDirectedPrompt, directedCastUrls } = await import("./directedVideo");
+    const directed = options.directedVideo;
+    const music = await resolveMusic(job, options, options.durationSec ?? 5, onStage);
+    const references = await directedCastUrls(directed, job.tenantId,
+      (bytes, mime) => uploadToStorage(job.tenantId, bytes, mime));
+    if (options.characterId && !references.length) throw new VideoGenProviderError("The selected character has no approved references.");
+    if (!directed.compiledPrompt) {
+      onStage("Directing your video");
+      const prompt = await compileDirectedPrompt({
+        brief: job.prompt ?? "", directed, duration: model.durationSec,
+        nativeAudio: model.generateAudio === true, hasCast: references.length > 0,
+        meterContext: videoMeterContext(job, "text_to_video"),
+        motion: motionPresetClause(options.motionPreset, options.cinematography) ?? "",
+      });
+      directed.compiledPrompt = prompt;
+      await setJob(job.id, { options });
+    }
+    onStage("Generating the video");
+    const result = await generateVideo({
+      mode: "text", prompt: directed.compiledPrompt, aspectRatio, ...model,
+      ...(references.length ? { assetIds: references } : {}),
+      seed: options.seed ?? null,
+      operationKey: "text_to_video", meterCtx: videoMeterContext(job, "text_to_video"),
+    });
+    const event = await checkpointProviderRender(job, result, "text_to_video", result.effectiveDurationSec ?? model.durationSec);
+    const normalized = await normalizeVideo(result.buffer, aspectRatio, model.resolution);
+    return {
+      buffer: music ? await mixMusicIntoVideo(normalized, music) : normalized,
+      provider: result.provider, model: result.model, providerEvents: [event],
+      qa: { minDurationSec: 0.5, label: "directed video" },
+    };
   }
 
   if (job.engine === "text_to_video") {
@@ -8804,6 +8843,11 @@ async function executeVideoJob(
     // The outro is local finishing, after every speech/lip-sync gate and before
     // watermark, upload, and poster extraction. A final checkpoint is already
     // finished, so a retry may never append it a second time.
+    if (!savedFinal && job.options?.directedVideo) {
+      const { finishDirectedVideo } = await import("./directedVideo");
+      await setJob(job.id, { stage: "Applying your brand assets" });
+      buffer = await finishDirectedVideo(buffer, job.options.directedVideo, job.tenantId);
+    }
     buffer = await appendFrozenBrandOutro(buffer, frozenBrandOutro(job.options), job.tenantId, savedFinal);
     if (!savedFinal && frozenBrandOutro(job.options)?.enabled) {
       clipDurationSec = (await verifyRenderedVideo(buffer, {

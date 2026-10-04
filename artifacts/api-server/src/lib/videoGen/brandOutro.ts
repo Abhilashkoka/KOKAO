@@ -31,6 +31,7 @@ function hasVideoContainerSignature(bytes: Buffer, mime: string): boolean {
 
 export interface BrandOutroSnapshot {
   clipSha256?: string;
+  logoSha256?: string;
   schemaVersion: 1;
   enabled: boolean;
   mode: "preset" | "upload";
@@ -214,6 +215,11 @@ export async function inspectBrandOutroClip(snapshot: BrandOutroSnapshot, tenant
 
 /** Check before paid generation as well as composition; do not silently swap an approved clip. */
 export async function verifyFrozenBrandOutro(snapshot: BrandOutroSnapshot | undefined, tenantId: number) {
+  if (snapshot?.enabled && snapshot.logoSha256) {
+    if (!snapshot.logoPath) throw new Error("The approved brand logo is missing.");
+    const bytes = await readAsset(snapshot.logoPath, tenantId, MAX_LOGO_BYTES);
+    if (createHash("sha256").update(bytes).digest("hex") !== snapshot.logoSha256) throw new Error("The approved brand logo changed. Review it before starting a new video.");
+  }
   if (!snapshot?.enabled || !snapshot.clipSha256) return;
   if (!snapshot.clipPath) throw new Error("The approved brand animation is missing.");
   const bytes = await readAsset(snapshot.clipPath, tenantId, MAX_OUTRO_CLIP_BYTES);
@@ -225,6 +231,7 @@ export async function verifyFrozenBrandOutro(snapshot: BrandOutroSnapshot | unde
 /** Append the outro, preserving source audio and adding silence only when a track is absent. */
 export async function applyBrandOutro(input: Buffer, snapshot: BrandOutroSnapshot, tenantId: number): Promise<Buffer> {
   if (!snapshot.enabled) return input;
+  await verifyFrozenBrandOutro(snapshot, tenantId);
   const dir = await mkdtemp(join(tmpdir(), "brand-outro-render-"));
   try {
     await writeFile(join(dir, "source.mp4"), input);
