@@ -10,6 +10,9 @@
   "include": ["src"],
   "references": [
     {
+      "path": "../../lib/video-director"
+    },
+    {
       "path": "../../lib/db"
     },
     {

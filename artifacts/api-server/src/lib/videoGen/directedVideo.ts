@@ -23,6 +23,20 @@ const exec = promisify(execFile);
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
 
+/** Server-owned capability check; client model filtering is guidance only. */
+export function validateDirectedModel(
+  model: { provider: string; model: string; durationSec: number } | null | undefined,
+  hasSelectedCast: boolean,
+  requestedDuration: number,
+) {
+  const wantedMode = hasSelectedCast ? "reference-to-video" : "text-to-video";
+  if (!model || model.provider !== "atlascloud" ||
+      !new RegExp(`^alibaba/wan-3\\.0(?:-prime)?/${wantedMode}$`).test(model.model)) {
+    throw new Error(`Choose Wan 3.0 ${hasSelectedCast ? "Reference" : "Text-to-Video"} for this directed video.`);
+  }
+  if (model.durationSec !== requestedDuration) throw new Error("The model must support the exact requested duration.");
+}
+
 export function validateDirectedInput(raw: unknown, duration: number) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid directed video settings.");
   const value = raw as Record<string, unknown>;

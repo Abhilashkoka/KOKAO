@@ -12518,14 +12518,10 @@ async function generateVideoHandler(
   // Freeze the selected active kit before provisional creation or funding.
   if (body.directedVideo) {
     try {
-      const { freezeDirectedVideo, freezeDirectedCast } = await import("../lib/videoGen/directedVideo");
+      const { freezeDirectedVideo, freezeDirectedCast, validateDirectedModel } = await import("../lib/videoGen/directedVideo");
       const model = options.resolvedVideoModel;
-      const wantedMode = options.characterId ? "reference-to-video" : "text-to-video";
-      if (!model || model.provider !== "atlascloud" ||
-          !new RegExp(`^alibaba/wan-3\\.0(?:-prime)?/${wantedMode}$`).test(model.model)) {
-        throw new Error(`Choose Wan 3.0 ${options.characterId ? "Reference" : "Text-to-Video"} for this directed video.`);
-      }
-      if (model.durationSec !== (body.durationSec ?? 5)) throw new Error("The model must support the exact requested duration.");
+      validateDirectedModel(model, !!options.characterId, body.durationSec ?? 5);
+      if (!model) throw new Error("Choose a compatible Wan 3.0 model for directed video.");
       const frozen = await freezeDirectedVideo(req.body.directedVideo, req.tenantId, model.durationSec, body.brandKitId);
       options.directedVideo = frozen.directed;
       options.brandKitId = body.brandKitId ?? null;

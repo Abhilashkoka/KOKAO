@@ -266,6 +266,9 @@ importers:
       '@types/supertest':
         specifier: ^7.2.0
         version: 7.2.0
+      '@workspace/video-director':
+        specifier: workspace:*
+        version: link:../../lib/video-director
       esbuild:
         specifier: 0.28.1
         version: 0.28.1
