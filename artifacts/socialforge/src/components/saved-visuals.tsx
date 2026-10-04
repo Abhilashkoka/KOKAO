@@ -250,7 +250,7 @@ function AddSavedImageDialog({
   );
 }
 
-function CharactersCard() {
+export function CharactersCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: characters, isLoading } = useListCharacters();
@@ -266,6 +266,7 @@ function CharactersCard() {
   // Video Studio but cannot be deleted or counted against this tenant cap.
   const items = (characters ?? []).filter((character) => typeof character.id === "number");
   const atCap = items.length >= MAX_CHARACTERS;
+  const limitMessage = `You have ${items.length} saved characters. The limit is ${MAX_CHARACTERS}. Remove ${items.length - MAX_CHARACTERS + 1} to add a new character.`;
 
   const handleSave = async (
     name: string,
@@ -372,13 +373,23 @@ function CharactersCard() {
           type="button"
           variant="outline"
           size="sm"
-          disabled={atCap}
-          title={atCap ? `Limit of ${MAX_CHARACTERS} reached — delete one to add another.` : undefined}
-          onClick={() => setAddOpen(true)}
+          aria-describedby={atCap ? "character-limit-message" : undefined}
+          onClick={() => {
+            if (atCap) {
+              toast({ title: "Character limit reached", description: limitMessage });
+              return;
+            }
+            setAddOpen(true);
+          }}
           data-testid="button-add-character"
         >
           <Upload className="h-4 w-4 mr-2" /> Add character
         </Button>
+        {atCap && (
+          <p id="character-limit-message" role="status" className="text-sm text-destructive">
+            {limitMessage} Existing characters are kept.
+          </p>
+        )}
         <AddSavedImageDialog
           requireLikenessAttestation
           open={addOpen}
