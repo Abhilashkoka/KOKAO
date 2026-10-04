@@ -8,3 +8,9 @@ The user wants a topic or detailed brief turned automatically into a complete si
 **Why:** A successful 30-second Wan concept reel showed that short multi-shot storytelling does not require separate scene images and stitched video clips. It also produced inaccurate lettering and a modified logo, so exact brand reproduction must use supplied assets and local composition.
 
 **How to apply:** Keep this separate from the legacy scene renderer. One video-model request does not prohibit explicit, local overlays or an opted-in appended brand ending; disclose their duration and recording-audio treatment. Freeze prompts, references, consent, branding and asset hashes before dispatch. Never weaken existing personal-likeness approvals or treat provider-specific verification as transferable.
+
+For director activation, the user said: “Enable Wan 3.0” and “also use the current model settings do not use seedance.”
+
+**Why:** The user's existing Wan 3.0 Prime defaults should be preserved, not replaced with Seedance based on an inconsistent model allowlist.
+
+**How to apply:** Keep director choices on the configured Wan Prime family. Do not introduce Seedance as its default or fallback.
