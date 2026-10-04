@@ -22,6 +22,7 @@ import type { VideoJobRecovery } from './videoJobRecovery';
 import type { VideoJobRepair } from './videoJobRepair';
 import type { VideoJobResolvedVideoModel } from './videoJobResolvedVideoModel';
 import type { VideoJobStatus } from './videoJobStatus';
+import type { VideoJobStoryboardRejection } from './videoJobStoryboardRejection';
 import type { VideoJobStudioLipSync } from './videoJobStudioLipSync';
 import type { VideoReferenceImage } from './videoReferenceImage';
 import type { VideoStoryboard } from './videoStoryboard';
@@ -104,6 +105,8 @@ export interface VideoJob {
   guidedStoryRecoveryUnavailable: boolean;
   /** True after the user dismisses an unavailable recovery; history remains visible for audit. */
   guidedStoryRecoveryDismissed: boolean;
+  /** @nullable */
+  storyboardRejection?: VideoJobStoryboardRejection;
   /**
      * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
      * @nullable

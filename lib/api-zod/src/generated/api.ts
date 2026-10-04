@@ -16082,6 +16082,13 @@ export const GenerateVideoResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -22373,6 +22380,13 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -23003,6 +23017,13 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -23598,6 +23619,13 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -24204,6 +24232,13 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -24895,6 +24930,13 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -25880,6 +25922,13 @@ export const ListVideoJobsResponseItem = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -26467,6 +26516,13 @@ export const GetVideoJobResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -27054,6 +27110,13 @@ export const CancelVideoJobResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -27645,6 +27708,13 @@ export const RetryVideoJobResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -28232,6 +28302,13 @@ export const RestartVideoJobFreshResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -28823,6 +28900,13 @@ export const RepairVideoJobResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -29437,6 +29521,13 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -30036,6 +30127,13 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -30624,6 +30722,13 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -31224,6 +31329,13 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -31811,6 +31923,13 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -32398,6 +32517,13 @@ export const CancelGuidedStoryPreviewRenderResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -32989,6 +33115,13 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -33367,6 +33500,603 @@ export const ApproveVideoStoryboardResponse = zod.object({
 
 
 /**
+ * @summary Reject a failed or completed video and delete characters unused by other stories
+ */
+export const RejectVideoStoryboardParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const RejectVideoStoryboardBody = zod.object({
+  "confirmDeleteUnusedCharacters": zod.literal(true)
+})
+
+export const rejectVideoStoryboardResponseReferenceImagesItemIdMax = 80;
+
+export const rejectVideoStoryboardResponseReferenceImagesItemLabelMax = 120;
+
+
+export const rejectVideoStoryboardResponseReferenceImagesItemInstructionsMax = 2000;
+
+export const rejectVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax = 80;
+
+export const rejectVideoStoryboardResponseReferenceImagesItemSceneNumbersMax = 80;
+
+export const rejectVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin = 0;
+
+export const rejectVideoStoryboardResponseStudioLipSyncSceneCountMin = 0;
+
+export const rejectVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin = 0;
+
+
+export const rejectVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
+export const rejectVideoStoryboardResponseUnitsMin = 0;
+
+export const rejectVideoStoryboardResponseRequiredUnitsMin = 0;
+
+export const rejectVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
+
+export const rejectVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
+export const rejectVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin = 0;
+
+
+
+
+
+export const rejectVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin = 0;
+
+export const rejectVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin = 0;
+
+
+export const rejectVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin = 0;
+
+export const rejectVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin = 0;
+
+
+export const rejectVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin = 0;
+
+
+export const rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin = 0;
+
+export const rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin = 0;
+
+
+export const rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin = 0;
+
+export const rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin = 0;
+
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const rejectVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 1000;
+
+
+
+export const RejectVideoStoryboardResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
+  "referenceImages": zod.array(zod.object({
+  "id": zod.string().min(1).max(rejectVideoStoryboardResponseReferenceImagesItemIdMax),
+  "label": zod.string().min(1).max(rejectVideoStoryboardResponseReferenceImagesItemLabelMax),
+  "objectPath": zod.string().min(1),
+  "instructions": zod.string().max(rejectVideoStoryboardResponseReferenceImagesItemInstructionsMax),
+  "mode": zod.enum(['visual_reference', 'exact_insert']),
+  "sceneNumbers": zod.array(zod.number().min(1).max(rejectVideoStoryboardResponseReferenceImagesItemSceneNumbersItemMax)).max(rejectVideoStoryboardResponseReferenceImagesItemSceneNumbersMax).optional().describe('One-based scene assignments; omitted or empty assigns automatically.')
+})).optional().describe('Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes.'),
+  "id": zod.number(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']).describe('Persisted funding rail; historical rows without a rail serialize as quota.'),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "guidedReferenceContext": zod.object({
+  "draftId": zod.number(),
+  "revision": zod.number(),
+  "operations": zod.record(zod.string(), zod.object({
+  "revision": zod.number(),
+  "operationKey": zod.string(),
+  "kind": zod.enum(['character', 'outfit']),
+  "state": zod.enum(['queued', 'running', 'ready_to_review', 'failed', 'outcome_unknown']),
+  "characterId": zod.number().nullish(),
+  "outfitId": zod.number().nullish(),
+  "error": zod.string().nullish(),
+  "updatedAt": zod.coerce.date()
+})).optional()
+}).nullable().describe('Revision identity for the compatibility Guided Story reference API.'),
+  "modelId": zod.string().nullable().describe('The catalog model explicitly picked, or null when the mode-specific admin default was resolved.'),
+  "resolvedVideoModel": zod.object({
+  "version": zod.number(),
+  "source": zod.enum(['explicit', 'default']),
+  "mode": zod.enum(['text', 'image']),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "catalogModelId": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "permittedDurationSec": zod.array(zod.number()).optional().describe('Every scene\/provider-call duration priced before this job was funded.'),
+  "durationPolicy": zod.enum(['exact', 'nearest']).optional().describe('Composite scenes use nearest; equal-distance ties choose the shorter duration.'),
+  "resolution": zod.string().nullable(),
+  "quality": zod.string().nullable(),
+  "generateAudio": zod.boolean().nullable(),
+  "supportsEndFrame": zod.boolean()
+}).nullable().describe('Immutable provider\/model execution contract frozen before funding.'),
+  "studioLipSync": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "estimatedAdditionalPaise": zod.number().min(rejectVideoStoryboardResponseStudioLipSyncEstimatedAdditionalPaiseMin),
+  "sceneCount": zod.number().min(rejectVideoStoryboardResponseStudioLipSyncSceneCountMin),
+  "skippedSceneCount": zod.number().min(rejectVideoStoryboardResponseStudioLipSyncSkippedSceneCountMin).optional().describe('Scenes the provider refused, which ship as unsynced base footage. Greater than zero means the finished video is only partly lip-synced.'),
+  "state": zod.enum(['prepared', 'provider_succeeded', 'complete'])
+}).nullish().describe('Server-resolved optional finishing snapshot; null when not requested.'),
+  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+  "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
+  "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
+  "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
+  "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
+  "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
+  "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
+  "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(rejectVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "units": zod.number().min(rejectVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(rejectVideoStoryboardResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
+  "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
+  "repair": zod.union([zod.null(),zod.object({
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reason": zod.enum(['narration', 'music', 'captions', 'scene_timing', 'audio_visual'])
+})]).describe('Local repair lineage and mismatch reason; null for original jobs.'),
+  "guidedPreviewRender": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'running', 'cancel_requested', 'cancelled', 'succeeded', 'failed']),
+  "total": zod.number().min(rejectVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin),
+  "completed": zod.number().min(rejectVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin),
+  "error": zod.string().nullable(),
+  "retryable": zod.boolean().describe('True when another click will claim a new attempt for remaining previews.'),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "guidedStoryDialogueReplay": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "sourceJobId": zod.number(),
+  "sourceStoryboardFingerprint": zod.string(),
+  "locale": zod.literal("te"),
+  "subtitles": zod.boolean(),
+  "confirmedAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
+  "sceneId": zod.string(),
+  "lineId": zod.string(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().describe('Exact approved Telugu source text; it is never translated or rewritten.'),
+  "startMs": zod.number().min(rejectVideoStoryboardResponseGuidedStoryDialogueReplayTwoLinesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "speaker": zod.union([zod.object({
+  "type": zod.literal("role"),
+  "roleId": zod.string(),
+  "identity": zod.object({
+  "name": zod.string(),
+  "characterDescription": zod.string(),
+  "outfitDescription": zod.string().nullable(),
+  "characterReferencePath": zod.string(),
+  "outfitReferencePath": zod.string()
+}),
+  "voice": zod.object({
+  "provider": zod.literal("elevenlabs"),
+  "providerVoiceId": zod.string().min(1)
+})
+}),zod.object({
+  "type": zod.literal("offscreen"),
+  "roleId": zod.null(),
+  "voice": zod.null()
+})]),
+  "preview": zod.object({
+  "path": zod.string(),
+  "inputFingerprint": zod.string()
+}),
+  "backdrop": zod.object({
+  "path": zod.string(),
+  "fingerprint": zod.string()
+})
+})).min(1),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(rejectVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(rejectVideoStoryboardResponseGuidedStoryDialogueReplayTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+})
+})]).describe('Immutable reviewed dialogue replay snapshot, or null when this is not a Guided Story replay child.'),
+  "dialogueReplayOperation": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(rejectVideoStoryboardResponseDialogueReplayOperationTwoEstimatesDurationSecondsMin),
+  "units": zod.number().min(rejectVideoStoryboardResponseDialogueReplayOperationTwoEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(rejectVideoStoryboardResponseDialogueReplayOperationTwoCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Aggregate replay progress without per-line asset checkpoints, or null when this is not a Guided Story replay child.'),
+  "chargedRatePaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "spendPaise": zod.number().nullish().describe('Deprecated user-facing money field. Always null; retained for wire compatibility while provider and rupee accounting stays internal.'),
+  "totalCreditsUsed": zod.number().nullish().describe('Actual credits debited for the delivered video and its accepted script, image, character, reference, and video operations, net of applied refunds. Derived from tenant-scoped signed credit ledger receipts and frozen delivery membership. Null before delivery, for legacy\/incomplete attribution, or while a refund is pending.'),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
+  "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "durationBounds": zod.object({
+  "minSec": zod.number(),
+  "maxSec": zod.number()
+}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "dialogueReplayCheckpoint": zod.union([zod.null(),zod.object({
+  "version": zod.number(),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'synthesizing', 'composing', 'succeeded', 'failed', 'outcome_unknown']),
+  "estimates": zod.object({
+  "lineCount": zod.number().min(1),
+  "durationSeconds": zod.number().min(rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesDurationSecondsMin),
+  "units": zod.number().min(rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneEstimatesUnitsMin).describe('Estimated product units reserved on confirmation.')
+}),
+  "totalLines": zod.number().min(1),
+  "completedLines": zod.number().min(rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoOneCompletedLinesMin),
+  "currentLineId": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "lines": zod.array(zod.object({
+  "lineId": zod.string(),
+  "audioPath": zod.string(),
+  "durationMs": zod.number().min(rejectVideoStoryboardResponseStoryboardOneDialogueReplayCheckpointTwoTwoLinesItemDurationMsMin),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "eventId": zod.string().optional()
+}))
+}))]).optional().describe('Durable Telugu dialogue replay progress on a replay child storyboard. Absent or null on the immutable source job and all unrelated video jobs.'),
+  "scenes": zod.array(zod.object({
+  "referenceImageIds": zod.array(zod.string()).optional().describe('Frozen uploaded reference assignments for this scene.'),
+  "guidedStory": zod.object({
+  "scriptSceneId": zod.string(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "roleIds": zod.array(zod.string()),
+  "lineOwnership": zod.array(zod.object({
+  "lineId": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string().optional(),
+  "romanizedPronunciation": zod.string().nullish(),
+  "englishTranslation": zod.string().nullish(),
+  "startMs": zod.number(),
+  "endMs": zod.number()
+})),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "characterName": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "referenceImagePath": zod.string().nullable(),
+  "outfitReferenceImagePath": zod.string().nullable(),
+  "voiceProvider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+})),
+  "inconsistencyFlags": zod.array(zod.string()),
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet', 'credits']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
+}).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat, story animation, or the tenant\'s screen recording (App Walkthrough).'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal('screen_demo'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
+  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
+  "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_started', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "localizedResult": zod.union([zod.object({
+  "locale": zod.enum(['te', 'ta', 'hi']).describe('Target locale that was spoken and burned in.'),
+  "voiceMode": zod.enum(['stock', 'brand_voice', 'source_voice']).describe('Voice mode that was used.'),
+  "provider": zod.string().nullish().describe('TTS provider that synthesised the track (null for source_voice path).'),
+  "model": zod.string().nullish().describe('TTS model used (null for source_voice path).'),
+  "finalCues": zod.array(zod.object({
+  "index": zod.number(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "text": zod.string()
+})).describe('Final cue list as burned into the video. Text may differ from the approved track when source_voice dubbing was used.'),
+  "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
+  "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
+}).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(rejectVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(rejectVideoStoryboardResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Abandon a paused storyboard or detach a failed Guided Story attempt
  */
 export const DiscardVideoStoryboardParams = zod.object({
@@ -33575,6 +34305,13 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -34161,6 +34898,13 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),
@@ -34864,6 +35608,13 @@ export const SetVideoCoverResponse = zod.object({
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
   "guidedStoryRecoveryUnavailable": zod.boolean().describe('True after the server confirms this failed Guided Story can no longer reopen an editable draft or storyboard.'),
   "guidedStoryRecoveryDismissed": zod.boolean().describe('True after the user dismisses an unavailable recovery; history remains visible for audit.'),
+  "storyboardRejection": zod.object({
+  "rejectedAt": zod.coerce.date(),
+  "removedCharacterCount": zod.number(),
+  "preservedCharacterCount": zod.number(),
+  "cleanupState": zod.enum(['pending', 'complete']),
+  "cleanupMessage": zod.string().nullable()
+}).nullish(),
   "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
   "thumbnailPath": zod.string().nullish().describe('The video\'s cover image. Set by the renderer on success, and replaceable afterwards via PATCH \/ai\/video-jobs\/{jobId}\/cover.'),
   "coverGeneratable": zod.boolean().optional().describe('Whether purpose-made covers can be generated for this video. True for completed videos. Character videos anchor generation to their locked identity and wardrobe; other modules use their topic and first scene.'),

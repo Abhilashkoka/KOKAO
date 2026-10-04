@@ -10,6 +10,7 @@ import { videoJobUnits } from "./units";
 import { enqueueBackgroundJob } from "../backgroundJobs";
 import { cleanupGuidedAtlasBackdropAssets, runVideoGenerationJob } from "./jobRunner";
 import { VIDEO_PROCESS_INSTANCE_ID } from "./processInstance";
+import { sweepRejectedStoryboards } from "./storyboardRejection";
 
 /**
  * Periodic settling for video_generations rows that will never settle
@@ -419,6 +420,7 @@ async function sweepOnce(): Promise<void> {
   await sweepExpiredStoryboards();
   await sweepStuckVideoJobs();
   await sweepGuidedAtlasBackdropAssets();
+  await sweepRejectedStoryboards();
 }
 
 let sweepTimer: NodeJS.Timeout | null = null;

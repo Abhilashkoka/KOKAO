@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { enforceFreeVideoRoutes, isStockOnlyVideo, FREE_VIDEO_MESSAGE, FREE_VIDEO_BILLING_MESSAGE } from "../lib/freeVideoPolicy";
 import { createHash, randomUUID } from "node:crypto";
 import { videoLibraryCopySource } from "../lib/videoLibraryCopySource";
+import { rejectStoryboard, cleanupRejectedStoryboard, publicStoryboardRejection, StoryboardRejectionError } from "../lib/videoGen/storyboardRejection";
 import {
   db,
   aiModelPricesTable,
@@ -744,6 +745,33 @@ function freezeCandidateProvenance(
 }
 
 const router: IRouter = Router();
+// Rejection is a terminal user decision, not a generation failure to recover.
+router.use("/ai/video-jobs/:jobId", async (req, res, next) => {
+  if (req.method === "GET" || req.path === "/storyboard/reject") { next(); return; }
+  const job = await loadJob(req);
+  if (job?.options?.storyboardRejection) {
+    res.status(409).json({ error: "This storyboard was rejected and its unused characters were removed. Start a new story instead.", code: "storyboard_rejected" });
+    return;
+  }
+  next();
+});
+router.post("/ai/video-jobs/:jobId/storyboard/reject", async (req, res) => {
+  if (req.body?.confirmDeleteUnusedCharacters !== true ||
+      Object.keys(req.body ?? {}).some((key) => key !== "confirmDeleteUnusedCharacters")) {
+    res.status(400).json({ error: "Confirm that rejecting this video permanently deletes unused characters and outfits." });
+    return;
+  }
+  const jobId = Number(req.params.jobId);
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) { res.status(400).json({ error: "Invalid video id." }); return; }
+  try {
+    const job = await rejectStoryboard(req.tenantId, jobId);
+    enqueueBackgroundJob(() => cleanupRejectedStoryboard(job.id));
+    res.json(serializeVideoJob(job));
+  } catch (error) {
+    if (error instanceof StoryboardRejectionError) { res.status(error.status).json({ error: error.message }); return; }
+    throw error;
+  }
+});
 router.use(enforceFreeVideoRoutes);
 
 function guidedStorySourceStoryboardReferenceError(
@@ -1700,6 +1728,7 @@ function serializeVideoJob(
     id: job.id,
     engine: job.engine,
     status: job.status,
+    storyboardRejection: publicStoryboardRejection(job.options?.storyboardRejection),
     funding: job.funding ?? "quota",
     prompt: job.prompt ?? null,
     // Transparency: the exact prompt the video model receives. Storyboard
@@ -1800,7 +1829,7 @@ function serializeVideoJob(
       job.walletReservedUnits ??
       videoJobUnits(job.engine, job.options),
     retryable:
-      retryableOverride ??
+      job.options?.storyboardRejection ? false : retryableOverride ??
       (job.status === "failed" &&
         RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
         (!requiresFreshRestartAfterNativeAudioFailure(job) ||
@@ -1829,7 +1858,7 @@ function serializeVideoJob(
           }
         : null,
     freshRestart: job.options?.freshRestart ?? null,
-    repairable: isVideoRepairable(job) && !lineage?.hasRepairChild,
+    repairable: !job.options?.storyboardRejection && isVideoRepairable(job) && !lineage?.hasRepairChild,
     repair: job.options?.repair
       ? {
           chainId: job.options.repair.chainId,
@@ -2896,6 +2925,16 @@ async function saveGuidedState(
           .for("update")
       )[0] ?? null;
     if (!current || current.revision !== revision) return null;
+    // A library selection may have been read before another request rejected
+    // its last story. Recheck under this draft lock rather than saving stale IDs.
+    const selectedIds = [...new Set(state.cast.map((member) => member.characterId)
+      .filter((id): id is number => typeof id === "number" && id > 0))];
+    if (selectedIds.length) {
+      const available = await tx.select({ id: charactersTable.id }).from(charactersTable)
+        .where(and(eq(charactersTable.tenantId, row.tenantId), inArray(charactersTable.id, selectedIds)))
+        .for("key share");
+      if (available.length !== selectedIds.length) return null;
+    }
     let nextState = preserveConcurrentGuidedLineTranslations(
       current.state,
       state,
@@ -15108,6 +15147,7 @@ router.post(
         )[0] ?? null;
       if (
         !source ||
+        source.options?.storyboardRejection ||
         source.status !== "failed" ||
         !RECOVERABLE_VIDEO_ENGINES.has(source.engine)
       )
@@ -16446,7 +16486,7 @@ router.post(
           eq(videoGenerationsTable.id, sourceId),
           eq(videoGenerationsTable.tenantId, req.tenantId),
         )).limit(1).for("update"))[0];
-        if (!source || source.status !== "failed") {
+        if (!source || source.options?.storyboardRejection || source.status !== "failed") {
           rejection = "transition";
           return;
         }

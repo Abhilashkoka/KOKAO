@@ -263,6 +263,30 @@ export interface FrozenSemanticReview {
   }>;
 }
 export interface VideoJobOptions {
+  /** Durable rejection tombstone and provider cleanup outbox. Never copied into a new attempt. */
+  storyboardRejection?: {
+    version: 1;
+    rejectedAt: string;
+    removedCharacterIds: number[];
+    preservedCharacterIds: number[];
+    cleanup: {
+      state: "pending" | "complete";
+      assets: Array<{
+        provider: "atlascloud" | "byteplus";
+        libraryRecordId?: number | null;
+        assetId?: string | null;
+        characterId: number;
+        outfitId?: number;
+        submitFencedAt?: string | null;
+        done?: boolean;
+      }>;
+      attempts: number;
+      nextAttemptAt: string;
+      leaseToken?: string | null;
+      leaseExpiresAt?: string | null;
+      message: string | null;
+    };
+  } | null;
   /** Server-owned: stock visuals are free; only script/voice provider calls are metered. */
   freeStockVideo?: boolean;
   referenceImagesReviewPending?: boolean;

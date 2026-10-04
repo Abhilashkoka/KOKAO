@@ -6666,6 +6666,14 @@ export const VideoJobStudioLipSyncState = {
   complete: 'complete',
 } as const;
 
+export type VideoJobStoryboardRejectionCleanupState = typeof VideoJobStoryboardRejectionCleanupState[keyof typeof VideoJobStoryboardRejectionCleanupState];
+
+
+export const VideoJobStoryboardRejectionCleanupState = {
+  pending: 'pending',
+  complete: 'complete',
+} as const;
+
 export type VideoJobErrorHistoryItemScope = typeof VideoJobErrorHistoryItemScope[keyof typeof VideoJobErrorHistoryItemScope];
 
 
@@ -7551,6 +7559,18 @@ export type VideoJobStudioLipSync = {
   state: VideoJobStudioLipSyncState;
 } | null;
 
+/**
+ * @nullable
+ */
+export type VideoJobStoryboardRejection = {
+  rejectedAt: string;
+  removedCharacterCount: number;
+  preservedCharacterCount: number;
+  cleanupState: VideoJobStoryboardRejectionCleanupState;
+  /** @nullable */
+  cleanupMessage: string | null;
+} | null;
+
 export type VideoJobErrorHistoryItem = {
   jobId: number;
   jobNumber: number;
@@ -7724,6 +7744,8 @@ export interface VideoJob {
   guidedStoryRecoveryUnavailable: boolean;
   /** True after the user dismisses an unavailable recovery; history remains visible for audit. */
   guidedStoryRecoveryDismissed: boolean;
+  /** @nullable */
+  storyboardRejection?: VideoJobStoryboardRejection;
   /**
      * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
      * @nullable
@@ -8762,6 +8784,10 @@ export interface InsertStoryboardSceneRequest {
      * @maxLength 1000
      */
   visual?: string;
+}
+
+export interface StoryboardRejectionRequest {
+  confirmDeleteUnusedCharacters: true;
 }
 
 export type RepairVideoRequestReason = typeof RepairVideoRequestReason[keyof typeof RepairVideoRequestReason];

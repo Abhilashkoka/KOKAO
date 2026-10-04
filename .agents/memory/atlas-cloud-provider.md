@@ -49,7 +49,7 @@ Only AI-generated fictional characters may enter the Atlas Seedance Asset Librar
 
 **Why:** Atlas Seedance real-human references require authorized assets, but its public API does not expose a KOKAO-compatible liveness/right-verification flow. Wan has a different media-reference contract; BytePlus verification does not transfer to either Atlas contract.
 
-**How to apply:** Freeze provenance and provider-specific asset requirements in job snapshots, then re-check active tenant ownership at dispatch. Missing/deleted mappings fail closed. Routine local deletion requires an affirmative Atlas GET 404; compensation may attempt numeric-ID DELETE, but unsupported/ambiguous cleanup remains fenced.
+**How to apply:** Freeze provenance and provider-specific asset requirements in job snapshots, then re-check active tenant ownership at dispatch. Missing/deleted mappings fail closed. Direct character deletion uses affirmative Atlas GET 404; explicit storyboard rejection may delete local unused characters after atomically retaining their provider cleanup handles. Deferred cleanup waits for terminal predictions, uses numeric-ID DELETE and verifies GET 404; unsupported/ambiguous cleanup stays pending, never falsely complete.
 
 Guided-created fictional cast uses immutable creation evidence, while each consuming draft independently proves current membership and approvals. Create a numbered attempt before registration, but register before funding; lock final evidence validation and funding in one transaction.
 

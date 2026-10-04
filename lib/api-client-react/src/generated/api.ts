@@ -441,6 +441,7 @@ import type {
   SpokespersonScriptRequest,
   SpokespersonScriptResult,
   StockVoicePreviewRequest,
+  StoryboardRejectionRequest,
   StudioLipSyncAnalytics,
   SummarizeUrlRequest,
   SummarizeUrlResult,
@@ -21194,6 +21195,77 @@ export const useApproveVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getApproveVideoStoryboardMutationOptions(options));
+    }
+
+export const getRejectVideoStoryboardUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/reject`
+}
+
+/**
+ * @summary Reject a failed or completed video and delete characters unused by other stories
+ */
+export const rejectVideoStoryboard = async (jobId: number,
+    storyboardRejectionRequest: StoryboardRejectionRequest, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getRejectVideoStoryboardUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(storyboardRejectionRequest)
+  }
+);}
+
+
+
+
+export const getRejectVideoStoryboardMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectVideoStoryboard>>, TError,{jobId: number;data: BodyType<StoryboardRejectionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectVideoStoryboard>>, TError,{jobId: number;data: BodyType<StoryboardRejectionRequest>}, TContext> => {
+
+const mutationKey = ['rejectVideoStoryboard'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectVideoStoryboard>>, {jobId: number;data: BodyType<StoryboardRejectionRequest>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  rejectVideoStoryboard(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RejectVideoStoryboardMutationResult = NonNullable<Awaited<ReturnType<typeof rejectVideoStoryboard>>>
+    export type RejectVideoStoryboardMutationBody = BodyType<StoryboardRejectionRequest>
+    export type RejectVideoStoryboardMutationError = ErrorType<void>
+
+    /**
+ * @summary Reject a failed or completed video and delete characters unused by other stories
+ */
+export const useRejectVideoStoryboard = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectVideoStoryboard>>, TError,{jobId: number;data: BodyType<StoryboardRejectionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rejectVideoStoryboard>>,
+        TError,
+        {jobId: number;data: BodyType<StoryboardRejectionRequest>},
+        TContext
+      > => {
+      return useMutation(getRejectVideoStoryboardMutationOptions(options));
     }
 
 export const getDiscardVideoStoryboardUrl = (jobId: number,) => {

@@ -33,6 +33,7 @@ import {
   type PresetCharacter,
   useListFeatureFlags,
   useListVideoJobs,
+  useRejectVideoStoryboard,
   useWalletGetOverview,
   useWalletRecharge,
   useWalletVerifyRecharge,
@@ -60,7 +61,7 @@ import {
 } from "@/components/QuotaInfoSheet";
 
 import { ContentImage } from "@/components/ContentImage";
-import { Badge, EmptyState, ErrorState, Skeleton } from "@/components/ui";
+import { Badge, Button, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { haptic } from "@/lib/haptics";
@@ -286,6 +287,10 @@ function JobCard({
   onUseAsBrief: (text: string) => void;
 }) {
   const badge = statusBadge(job.status);
+  const reject = useRejectVideoStoryboard();
+  const queryClient = useQueryClient();
+  const [confirmRejection, setConfirmRejection] = useState(false);
+  const [rejectionError, setRejectionError] = useState<string | null>(null);
   const running = job.status === "queued" || job.status === "processing";
   const playable = job.status === "succeeded" && !!job.videoPath;
   const title =
@@ -368,7 +373,38 @@ function JobCard({
         </Text>
       ) : null}
 
-      {job.status === "failed" && job.error ? (
+      {job.storyboardRejection ? (
+        <Text style={{ color: c.mutedForeground, marginTop: 12 }}>
+          Storyboard rejected. {job.storyboardRejection.removedCharacterCount} unused character(s) and their outfits removed.
+          {job.storyboardRejection.preservedCharacterCount > 0 ? ` ${job.storyboardRejection.preservedCharacterCount} shared or active character(s) kept.` : ""}
+          {job.storyboardRejection.cleanupState === "complete" ? " Provider cleanup complete." : ` ${job.storyboardRejection.cleanupMessage ?? "Provider cleanup is pending and retries automatically."}`}
+        </Text>
+      ) : ["failed", "succeeded"].includes(job.status) ? (
+        <View style={{ gap: 10, marginTop: 12 }}>
+          {confirmRejection ? <>
+            <Text style={{ color: c.foreground }}>
+              Permanently delete every character and outfit used only by this story, including existing library characters?
+              Shared characters are kept. This story cannot be retried. The video and existing charges stay unchanged.
+              Atlas cleanup runs automatically and waits for active provider tasks.
+            </Text>
+            <Button title={reject.isPending ? "Rejecting…" : "Reject and delete characters"} variant="destructive"
+              disabled={reject.isPending} onPress={() => reject.mutate({
+                jobId: job.id, data: { confirmDeleteUnusedCharacters: true },
+              }, {
+                onSuccess: () => {
+                  setConfirmRejection(false);
+                  void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+                  void queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
+                },
+                onError: () => setRejectionError("Could not reject the storyboard. Please try again after active work finishes."),
+              })} />
+            <Button title="Keep storyboard" variant="outline" disabled={reject.isPending} onPress={() => setConfirmRejection(false)} />
+            {rejectionError && <Text style={styles.errorText}>{rejectionError}</Text>}
+          </> : <Button title="Reject and delete unused characters" variant="outline"
+            onPress={() => { setRejectionError(null); setConfirmRejection(true); }} />}
+        </View>
+      ) : null}
+      {!job.storyboardRejection && job.status === "failed" && job.error ? (
         <Text style={styles.errorText}>{job.error}</Text>
       ) : null}
       {job.status === "awaiting_review" ? (
@@ -436,7 +472,7 @@ export default function VideosScreen() {
       // video show up without the user leaving and reopening the screen.
       refetchInterval: (query) =>
         query.state.data?.some(
-          (job) => job.status === "queued" || job.status === "processing",
+          (job) => job.status === "queued" || job.status === "processing" || job.storyboardRejection?.cleanupState === "pending",
         )
           ? 5000
           : false,

@@ -1504,7 +1504,8 @@ async function setJob(
   await db
     .update(videoGenerationsTable)
     .set(values)
-    .where(eq(videoGenerationsTable.id, jobId));
+    .where(and(eq(videoGenerationsTable.id, jobId),
+      sql`${videoGenerationsTable.options}->'storyboardRejection' IS NULL OR ${videoGenerationsTable.options}->'storyboardRejection' = 'null'::jsonb`));
 }
 
 export function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
@@ -1555,7 +1556,7 @@ export function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
         })
           .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
         if (!row?.options) throw new Error("Video job disappeared before Atlas Cloud submit.");
-        if (row.status !== "processing") {
+        if (row.options.storyboardRejection || row.status !== "processing") {
           throw new Error("Video job is no longer running before provider submission.");
         }
         const cleanupClaimed = Object.values(row.options.guidedAtlasBackdropAssets ?? {}).some(

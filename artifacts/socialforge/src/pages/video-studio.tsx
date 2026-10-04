@@ -213,6 +213,7 @@ import {
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { ComplianceFindingsList } from "@/components/brand-compliance";
+import { StoryboardRejectionControl } from "@/components/storyboard-rejection";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
@@ -7673,7 +7674,8 @@ export function VideoStudioPage() {
                 )}
               </div>
             )}
-            {canReplayGuidedStoryDialogue && (
+            <StoryboardRejectionControl job={activeJob} />
+            {!activeJob.storyboardRejection && canReplayGuidedStoryDialogue && (
               <Button
                 variant="outline"
                 disabled={previewReplay.isPending}
@@ -7707,7 +7709,7 @@ export function VideoStudioPage() {
                 Replay as native dialogue
               </Button>
             )}
-            {activeJob.status === "failed" && activeJob.repair && (
+            {!activeJob.storyboardRejection && activeJob.status === "failed" && activeJob.repair && (
               <div className="space-y-3">
                 <div className="flex items-start gap-3 text-destructive">
                   <XCircle className="h-5 w-5 mt-0.5 shrink-0" />
@@ -7789,7 +7791,7 @@ export function VideoStudioPage() {
                   storyboard={activeJob.storyboard}
                 />
               )}
-            {activeJob.status === "failed" && !activeJob.repair && (
+            {!activeJob.storyboardRejection && activeJob.status === "failed" && !activeJob.repair && (
               <div className="space-y-3">
                 <div className="flex items-start gap-3 text-destructive">
                   <XCircle className="h-5 w-5 mt-0.5 shrink-0" />
