@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DirectedVideoPanel } from "@/components/directed-video-panel";
+import { CoverStudioDialog } from "@/components/cover-studio-dialog";
 import {
   buildDirectedVideoPayload,
   directedBlockReason,
@@ -7609,7 +7610,7 @@ export function VideoStudioPage() {
                     onClick={() => setCoverPickerOpen(true)}
                     data-testid="button-choose-cover"
                   >
-                    <ImageIcon className="h-4 w-4 mr-2" /> Cover
+                    <ImageIcon className="h-4 w-4 mr-2" /> {flags.coverStudio ? "Make cover" : "Cover"}
                   </Button>
                   {(activeJob.currentVideoPath ?? activeJob.videoPath) && (
                     <Button variant="outline" asChild>
@@ -8454,6 +8455,8 @@ export function VideoStudioPage() {
 
       {activeJob && (
         <CoverPickerDialog
+          key={activeJob.id}
+          coverStudioEnabled={flags.coverStudio}
           open={coverPickerOpen}
           onOpenChange={setCoverPickerOpen}
           job={
@@ -13713,20 +13716,22 @@ export function mergeCoverCandidates(
  * because it only changes generated covers: an extracted frame is whatever
  * shape the video is, and no crop makes a 9:16 frame into a usable 16:9 cover.
  */
-function CoverPickerDialog({
+export function CoverPickerDialog({
   open,
   onOpenChange,
   job,
   storageUrl,
   uploadFile,
   onSaved,
+  coverStudioEnabled = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  job: { id: number; thumbnailPath?: string | null; aspectRatio?: string | null; coverGeneratable?: boolean };
+  job: { id: number; thumbnailPath?: string | null; aspectRatio?: string | null; coverGeneratable?: boolean; prompt?: string | null; savedContentItemId?: number | null };
   storageUrl: (path?: string | null) => string | undefined;
   uploadFile: (file: File) => Promise<string>;
   onSaved: () => void;
+  coverStudioEnabled?: boolean;
 }) {
   const { toast } = useToast();
   const listCandidates = useListVideoCoverCandidates();
@@ -13738,6 +13743,9 @@ function CoverPickerDialog({
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const requestedFor = useRef<number | null>(null);
+  const [editorSource, setEditorSource] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!open) {
@@ -13780,6 +13788,7 @@ function CoverPickerDialog({
   const busy = listCandidates.isPending || generateCovers.isPending || uploading;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
@@ -13787,6 +13796,7 @@ function CoverPickerDialog({
           <DialogDescription>
             The image shown in your library and wherever this video is posted,
             before anyone presses play.
+            {coverStudioEnabled && " Select a frame, then choose Make cover to add editorial text and styling. Editorial covers are 4:5."}
           </DialogDescription>
         </DialogHeader>
 
@@ -13835,6 +13845,13 @@ function CoverPickerDialog({
         )}
 
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+          {coverStudioEnabled && (
+            <Button variant="outline" disabled={!selected || busy || setCover.isPending}
+              onClick={() => { setEditorSource(selected); setEditorOpen(true); }}
+              data-testid="button-make-video-cover">
+              <Sparkles className="h-4 w-4 mr-2" /> Make cover
+            </Button>
+          )}
           {job.coverGeneratable && (
             <>
               <Select value={aspect} onValueChange={setAspect}>
@@ -13939,6 +13956,7 @@ function CoverPickerDialog({
                 {
                   onSuccess: () => {
                     toast({ title: "Cover updated" });
+                    void queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
                     onSaved();
                     onOpenChange(false);
                   },
@@ -13958,12 +13976,28 @@ function CoverPickerDialog({
                 <RippleSpinner className="mr-2 h-4 w-4" /> Saving…
               </>
             ) : (
-              "Use this cover"
+              "Save cover"
             )}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {coverStudioEnabled && editorSource && (
+      <CoverStudioDialog
+        open={open && editorOpen}
+        onOpenChange={setEditorOpen}
+        imagePath={editorSource}
+        topic={job.prompt ?? ""}
+        contentId={job.savedContentItemId ?? undefined}
+        onApply={(result) => {
+          setItems(prev => mergeCoverCandidates(prev, [{ path: result.imagePath, source: "upload" }]));
+          setSelected(result.imagePath);
+          setEditorSource(result.imagePath);
+          toast({ title: "Cover ready", description: "Choose Save cover to update this video and its Library thumbnail." });
+        }}
+      />
+    )}
+    </>
   );
 }
 
