@@ -6076,6 +6076,7 @@ const AUDIT_ACTIONS = new Set([
   "credit_grant",
   "promo_code_change",
   "support_request_resolved",
+  "video_publish_resolution",
   "textgen_provider_change",
   "custom_ai_provider_change",
   "textgen_key_change",

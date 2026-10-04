@@ -56,6 +56,7 @@ import { isInteractiveTarget } from "@/lib/utils";
 import { VideoDownloadButton } from "@/components/video-download-button";
 import { formatVideoLibraryCopy, videoLibraryCopyPrompt, VIDEO_COPY_SOURCE_LABELS } from "@/lib/videoLibraryCopy";
 import { LibraryVideoPublishStatus } from "@/components/video-publish-status";
+import { VideoPublishSupport } from "@/components/video-publish-support";
 import { defaultVideoMetadata, utf8Bytes, VIDEO_FAILED_GUIDANCE, YOUTUBE_TITLE_MAX, YOUTUBE_DESCRIPTION_MAX } from "@/lib/videoPublish";
 import type { VideoPublishMetadata } from "@workspace/api-client-react";
 
@@ -796,6 +797,8 @@ export function LibraryPage() {
           <p className="text-muted-foreground text-lg mt-1">Manage your generated captions and images.</p>
         </div>
       </div>
+
+      <VideoPublishSupport />
 
       {items.length === 0 ? (
         <div className="text-center py-20 bg-muted/30 rounded-2xl border border-border border-dashed">

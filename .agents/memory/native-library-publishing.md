@@ -15,3 +15,15 @@ Keep attempt scheduling timestamps separate from checkpoint timestamps. Explicit
 Schedule editing/removal is refused after processing starts or while its destination has an active upload, including permission-paused work.
 
 **Why:** removing a calendar entry cannot cancel an already accepted remote write; reporting successful cancellation while a reconnect later publishes would be misleading.
+
+Support inspection must remain separate from resumable publish drivers: even an
+apparently harmless driver invocation can dispatch a commit. Manual outcomes
+require owner destination confirmation and an audit write in the same transaction,
+serialized against the publisher. A negative outcome must retain the upload's
+dedupe record rather than enable another automatic attempt.
+
+**Why:** resolving uncertainty is not permission to publish again; a failed audit
+must not leave an unaccountable manual status change.
+
+**How to apply:** inspect exact provider IDs with GET-only calls, never probe a
+resumable session by uploading bytes, and leave reviewed metadata immutable.

@@ -47,6 +47,51 @@ tags:
   - name: prompt-kit
     description: Governed prompt templates - cases, versions, reviews, playground, and user customizations.
 paths:
+  /video-publish-support:
+    get:
+      operationId: listVideoPublishSupport
+      tags: [content]
+      parameters:
+        - { name: tenantId, in: query, schema: { type: integer }, description: Superadmin-only workspace override. }
+      responses:
+        "200":
+          description: Up to 100 most recent failed or uncertain uploads, owner or verified superadmin only.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VideoPublishSupportRecord" }
+  /video-publish-support/{tenantId}/{id}/reconcile:
+    post:
+      operationId: reconcileVideoPublishSupport
+      tags: [content]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: tenantId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Read-only exact-ID provider observation. Does not change local status or upload media.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoPublishObservation" }
+  /video-publish-support/{tenantId}/{id}/resolve:
+    post:
+      operationId: resolveVideoPublishSupport
+      tags: [content]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: tenantId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VideoPublishResolutionInput" }
+      responses:
+        "200":
+          description: Audited manual outcome; never recreates an upload.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoPublishSupportRecord" }
   /video-publish-capabilities:
     get:
       operationId: getVideoPublishCapabilities
@@ -14036,6 +14081,35 @@ components:
         enum: [today, yesterday, last_7d, last_14d, last_30d, last_90d, maximum]
       description: Reporting date range (defaults to last_30d).
   schemas:
+    VideoPublishSupportRecord:
+      type: object
+      required: [id, tenantId, contentItemId, platform, state, externalId, containerId, accountId, hasSession, metadata, updatedAt, lastAttemptAt]
+      properties:
+        id: { type: integer }
+        tenantId: { type: integer }
+        contentItemId: { type: integer }
+        platform: { type: string }
+        state: { type: string }
+        externalId: { type: [string, "null"] }
+        containerId: { type: [string, "null"] }
+        accountId: { type: [string, "null"] }
+        hasSession: { type: boolean }
+        metadata: { $ref: "#/components/schemas/VideoPublishMetadata" }
+        updatedAt: { type: string, format: date-time }
+        lastAttemptAt: { type: string, format: date-time }
+    VideoPublishObservation:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { type: string, enum: [published, failed, unresolved] }
+    VideoPublishResolutionInput:
+      type: object
+      additionalProperties: false
+      required: [expectedUpdatedAt, outcome, ownerCheckedDestination]
+      properties:
+        expectedUpdatedAt: { type: string, format: date-time }
+        outcome: { type: string, enum: [published, failed] }
+        ownerCheckedDestination: { type: boolean, enum: [true] }
     VideoPublishCapability:
       type: object
       required: [available, guidance]

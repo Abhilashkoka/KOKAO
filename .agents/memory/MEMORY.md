@@ -8,7 +8,7 @@
 - [Meta credential framework](meta-credential-framework.md) — encrypted app-level + per-tenant FB/IG creds, auto-tested & masked; Meta secrets go in headers/body never URLs.
 - [Testing lessons](testing-index.md) — API/DB harnesses, frontend mocks, Expo authentication, provider mocking, modal exits and test placement.
 - [X (Twitter) publishing](twitter-publishing.md) — OAuth 2.0 PKCE connect + bearer-token publish; legacy OAuth 1.0a tokens prompt reconnect; no retest endpoint.
-- [OpenAPI zod body name collision](openapi-zod-body-name-collision.md) — never name a request-body schema `<PascalOperationId>Body`; it dup-exports in the api-zod barrel and breaks codegen (TS2308).
+- [OpenAPI Zod name collisions](openapi-zod-body-name-collision.md) — operation-shaped body names and mixed path/query Params exports can collide in the generated barrel (TS2308).
 - [Brand Kit module](brand-kit-module.md) — session-scoped routes avoid IDOR; edits create deep-cloned versioned JSON; keep OpenAPI and routes in lockstep.
 - [Connection sweep](connection-sweep.md) — periodic in-process reverify of all tenants' social connections; force=false so REVERIFY_STALE_MS rate-limits; LinkedIn reverify now shared in lib.
 - [Dead-connection e2e seeding](dead-connection-e2e-seeding.md) — seed dead FB/IG/LinkedIn respecting reverify staleness and LinkedIn timestamp expiry so Accounts shows reconnect prompts.

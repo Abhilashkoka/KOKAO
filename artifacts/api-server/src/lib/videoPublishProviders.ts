@@ -13,6 +13,29 @@ export class VideoPermissionError extends Error {}
 export class VideoDefinitiveError extends Error {}
 export class VideoAmbiguousError extends Error {}
 
+/** Support probes are GET-only. Never call a driver here: drivers can commit uploads. */
+export async function inspectVideoUpload(row: VideoUpload, token: string): Promise<"published" | "failed" | "unresolved"> {
+  const id = row.externalId ?? (row.platform === "instagram" ? row.containerId : null);
+  if (!id) return "unresolved";
+  const headers = { Authorization: `Bearer ${token}` };
+  if (row.platform === "youtube") {
+    const data = await json(await platformFetch(`https://www.googleapis.com/youtube/v3/videos?part=status,processingDetails&id=${encodeURIComponent(id)}`, { headers, redirect: "error" }));
+    const video = data.items?.find((item: any) => item.id === id);
+    if (!video) return "unresolved";
+    if (["failed", "terminated"].includes(video.processingDetails?.processingStatus) || ["failed", "rejected", "deleted"].includes(video.status?.uploadStatus)) return "failed";
+    return video.processingDetails?.processingStatus === "succeeded" || video.status?.uploadStatus === "processed" ? "published" : "unresolved";
+  }
+  const fields = row.platform === "facebook" ? "status" : row.externalId ? "id" : "status_code";
+  const data = await json(await platformFetch(`${GRAPH_BASE}/${encodeURIComponent(id)}?fields=${fields}`, { headers, redirect: "error" }));
+  if (row.platform === "instagram") {
+    if (row.externalId ? data.id === id : data.status_code === "PUBLISHED") return "published";
+    return ["ERROR", "EXPIRED"].includes(data.status_code) ? "failed" : "unresolved";
+  }
+  const status = data.status;
+  if (status?.publishing_phase?.status === "completed" || status?.publishing_phase?.publish_status === "published") return "published";
+  return ["error", "expired", "upload_failed"].includes(status?.video_status) || [status?.processing_phase, status?.publishing_phase, status?.uploading_phase].some(p => p?.status === "error") ? "failed" : "unresolved";
+}
+
 async function json(response: Response, permissionRejected?: () => Promise<void>): Promise<any> {
   const body: any = await response.json().catch(() => ({}));
   const code = Number(body.error?.code);

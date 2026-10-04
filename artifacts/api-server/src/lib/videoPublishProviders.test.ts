@@ -4,7 +4,7 @@ vi.mock("./videoPublishMedia", () => ({ stageVideo: vi.fn(async () => ({ size: 1
 vi.mock("./objectStorage", () => ({ ObjectStorageService: class { getSignedDownloadURL = vi.fn(async () => "https://storage.example/signed"); } }));
 vi.mock("./secretCrypto", () => ({ encryptJson: JSON.stringify, decryptJson: JSON.parse }));
 import { platformFetch } from "./platformFetch";
-import { driveInstagram, driveFacebook, driveYoutube, validateYoutubeSession, youtubeResumeOffset, type VideoUpload } from "./videoPublishProviders";
+import { driveInstagram, driveFacebook, driveYoutube, inspectVideoUpload, validateYoutubeSession, youtubeResumeOffset, type VideoUpload } from "./videoPublishProviders";
 import { validateVideoMetadata } from "./videoPublishValidation";
 const fetchMock = vi.mocked(platformFetch);
 const row = (patch: Partial<VideoUpload> = {}): VideoUpload => ({
@@ -15,6 +15,32 @@ const row = (patch: Partial<VideoUpload> = {}): VideoUpload => ({
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 beforeEach(() => vi.clearAllMocks());
 describe("native video provider contracts", () => {
+  it.each([
+    ["youtube", { items: [{ id: "exact", status: { uploadStatus: "processed" } }] }, "published"],
+    ["youtube", { items: [{ id: "different", status: { uploadStatus: "processed" } }] }, "unresolved"],
+    ["facebook", { status: { publishing_phase: { status: "completed" } } }, "published"],
+    ["facebook", { status: { video_status: "ready" } }, "unresolved"],
+    ["instagram", { id: "exact" }, "published"],
+  ])("support inspection for %s only reads the exact ID", async (platform, body, expected) => {
+    fetchMock.mockResolvedValueOnce(response(body));
+    expect(await inspectVideoUpload(row({ platform: String(platform), externalId: "exact", state: "attention" }), "t")).toBe(expected);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain("exact");
+    expect(options?.method ?? "GET").toBe("GET");
+    expect(options?.redirect).toBe("error");
+    expect(options?.body).toBeUndefined();
+  });
+  it("does not probe encrypted YouTube sessions or create anything without exact IDs", async () => {
+    expect(await inspectVideoUpload(row({ platform: "youtube", encryptedSession: "secret" }), "t")).toBe("unresolved");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it.each([["PUBLISHED", "published"], ["FINISHED", "unresolved"], ["ERROR", "failed"], ["EXPIRED", "failed"]])("reads Instagram container %s without committing", async (status_code, expected) => {
+    fetchMock.mockResolvedValueOnce(response({ status_code }));
+    expect(await inspectVideoUpload(row({ containerId: "container", state: "attention" }), "t")).toBe(expected);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toContain("/container?fields=status_code");
+  });
   it.each(["instagram", "facebook", "youtube"])("restores a rejected %s create for reconnect without weakening timeout fences", async platform => {
     const upload = row({ platform });
     const save = vi.fn(async (patch: Partial<VideoUpload>) => { Object.assign(upload, patch); });

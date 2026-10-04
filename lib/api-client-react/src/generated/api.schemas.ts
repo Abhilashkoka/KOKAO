@@ -5,11 +5,6 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-export interface VideoPublishCapability {
-  available: boolean;
-  guidance: string;
-}
-
 export type VideoPublishMetadataDestination = typeof VideoPublishMetadataDestination[keyof typeof VideoPublishMetadataDestination];
 
 
@@ -48,6 +43,56 @@ export interface VideoPublishMetadata {
   description: string;
   privacy: VideoPublishMetadataPrivacy;
   madeForKids: boolean;
+}
+
+export interface VideoPublishSupportRecord {
+  id: number;
+  tenantId: number;
+  contentItemId: number;
+  platform: string;
+  state: string;
+  /** @nullable */
+  externalId: string | null;
+  /** @nullable */
+  containerId: string | null;
+  /** @nullable */
+  accountId: string | null;
+  hasSession: boolean;
+  metadata: VideoPublishMetadata;
+  updatedAt: string;
+  lastAttemptAt: string;
+}
+
+export type VideoPublishObservationOutcome = typeof VideoPublishObservationOutcome[keyof typeof VideoPublishObservationOutcome];
+
+
+export const VideoPublishObservationOutcome = {
+  published: 'published',
+  failed: 'failed',
+  unresolved: 'unresolved',
+} as const;
+
+export interface VideoPublishObservation {
+  outcome: VideoPublishObservationOutcome;
+}
+
+export type VideoPublishResolutionInputOutcome = typeof VideoPublishResolutionInputOutcome[keyof typeof VideoPublishResolutionInputOutcome];
+
+
+export const VideoPublishResolutionInputOutcome = {
+  published: 'published',
+  failed: 'failed',
+} as const;
+
+export interface VideoPublishResolutionInput {
+  expectedUpdatedAt: string;
+  outcome: VideoPublishResolutionInputOutcome;
+  ownerCheckedDestination: true;
+}
+
+export interface VideoPublishCapability {
+  available: boolean;
+  guidance: string;
 }
 
 export interface VideoPublishResult {
@@ -14410,6 +14455,13 @@ export const AdsDatePresetParameter = {
   last_90d: 'last_90d',
   maximum: 'maximum',
 } as const;
+
+export type ListVideoPublishSupportParams = {
+/**
+ * Superadmin-only workspace override.
+ */
+tenantId?: number;
+};
 
 export type GetVideoPublishCapabilities200 = {[key: string]: VideoPublishCapability};
 

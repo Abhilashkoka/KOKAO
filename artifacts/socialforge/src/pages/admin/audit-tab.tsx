@@ -59,6 +59,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   promo_code_change: "Promo code changed",
   credit_account_correction: "Purchased credits corrected",
   support_request_resolved: "Support request resolved",
+  video_publish_resolution: "Video publishing resolved",
   ai_spend_settings_change: "AI spend rates changed",
   signup_credit_settings_change: "Signup credits changed",
   ai_cost_change: "AI cost pricing changed",

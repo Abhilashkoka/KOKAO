@@ -26,3 +26,13 @@ inline request body, so avoiding that literal name in the YAML alone is insuffic
 
 **How to apply:** Prefer a distinctly named `Input` or `Request` component and a
 `$ref` for new object request bodies, then check the shared-library build.
+
+Operations combining path and query parameters can also collide on
+`<PascalOperationId>Params` between generated Zod and TypeScript exports.
+
+**Why:** the current generator gives path validation and query parameter types
+the same exported name when both are present.
+
+**How to apply:** when adding workspace-scoped action endpoints, prefer putting
+both workspace and resource identifiers in the path, with server-side scope
+authorization. Verify the generated library build, not just successful Orval output.

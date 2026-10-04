@@ -46,6 +46,7 @@ export type AdminAuditAction =
   | "seat_request_approve"
   | "seat_request_deny"
   | "support_request_resolved"
+  | "video_publish_resolution"
   | "credit_pack_change"
   | "credit_rates_change"
   | "credit_account_grant"

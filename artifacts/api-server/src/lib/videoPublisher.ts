@@ -43,17 +43,17 @@ export async function enqueueVideoPublish(tenantId: number, id: number, platform
   }
 }
 
-async function finishUpload(row: VideoUpload) {
+export async function finishUpload(row: VideoUpload, executor: Pick<typeof db, "update"> = db) {
   if (!["published", "failed", "attention"].includes(row.state)) return;
   if (row.state === "published") {
-    await db.update(contentItemsTable).set({ publishedPlatforms: mergePublishedPlatform(row.platform as "youtube" | "facebook" | "instagram", { postId: row.externalId, permalink: row.permalink }) }).where(and(eq(contentItemsTable.id, row.contentItemId), eq(contentItemsTable.tenantId, row.tenantId)));
+    await executor.update(contentItemsTable).set({ publishedPlatforms: mergePublishedPlatform(row.platform as "youtube" | "facebook" | "instagram", { postId: row.externalId, permalink: row.permalink }) }).where(and(eq(contentItemsTable.id, row.contentItemId), eq(contentItemsTable.tenantId, row.tenantId)));
   }
-  await db.update(contentItemsTable).set({
+  await executor.update(contentItemsTable).set({
     status: row.state === "published" ? "published" : "failed", failureReason: row.error, updatedAt: new Date(),
     ...(row.state === "published" ? { postId: row.externalId, permalink: row.permalink } : {}),
   }).where(and(eq(contentItemsTable.id, row.contentItemId), eq(contentItemsTable.tenantId, row.tenantId)));
   // A cancelled/deleted schedule is never resurrected.
-  await db.update(scheduledPostsTable).set({ status: row.state === "published" ? "published" : "failed", failureReason: row.error, updatedAt: new Date() }).where(and(
+  await executor.update(scheduledPostsTable).set({ status: row.state === "published" ? "published" : "failed", failureReason: row.error, updatedAt: new Date() }).where(and(
     eq(scheduledPostsTable.contentItemId, row.contentItemId), eq(scheduledPostsTable.tenantId, row.tenantId),
     eq(scheduledPostsTable.platform, row.platform), eq(scheduledPostsTable.status, "processing"),
   ));

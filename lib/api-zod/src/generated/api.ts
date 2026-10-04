@@ -8,6 +8,90 @@
 import * as zod from 'zod';
 
 
+export const ListVideoPublishSupportQueryParams = zod.object({
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only workspace override.')
+})
+
+export const listVideoPublishSupportResponseMetadataTitleMax = 200;
+
+export const listVideoPublishSupportResponseMetadataDescriptionMax = 5000;
+
+
+
+export const ListVideoPublishSupportResponseItem = zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "contentItemId": zod.number(),
+  "platform": zod.string(),
+  "state": zod.string(),
+  "externalId": zod.string().nullable(),
+  "containerId": zod.string().nullable(),
+  "accountId": zod.string().nullable(),
+  "hasSession": zod.boolean(),
+  "metadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(listVideoPublishSupportResponseMetadataTitleMax),
+  "description": zod.string().max(listVideoPublishSupportResponseMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}),
+  "updatedAt": zod.coerce.date(),
+  "lastAttemptAt": zod.coerce.date()
+})
+export const ListVideoPublishSupportResponse = zod.array(ListVideoPublishSupportResponseItem)
+
+
+export const ReconcileVideoPublishSupportParams = zod.object({
+  "id": zod.coerce.number(),
+  "tenantId": zod.coerce.number()
+})
+
+export const ReconcileVideoPublishSupportResponse = zod.object({
+  "outcome": zod.enum(['published', 'failed', 'unresolved'])
+})
+
+
+export const ResolveVideoPublishSupportParams = zod.object({
+  "id": zod.coerce.number(),
+  "tenantId": zod.coerce.number()
+})
+
+export const ResolveVideoPublishSupportBody = zod.object({
+  "expectedUpdatedAt": zod.coerce.date(),
+  "outcome": zod.enum(['published', 'failed']),
+  "ownerCheckedDestination": zod.literal(true)
+})
+
+export const resolveVideoPublishSupportResponseMetadataTitleMax = 200;
+
+export const resolveVideoPublishSupportResponseMetadataDescriptionMax = 5000;
+
+
+
+export const ResolveVideoPublishSupportResponse = zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "contentItemId": zod.number(),
+  "platform": zod.string(),
+  "state": zod.string(),
+  "externalId": zod.string().nullable(),
+  "containerId": zod.string().nullable(),
+  "accountId": zod.string().nullable(),
+  "hasSession": zod.boolean(),
+  "metadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(resolveVideoPublishSupportResponseMetadataTitleMax),
+  "description": zod.string().max(resolveVideoPublishSupportResponseMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}),
+  "updatedAt": zod.coerce.date(),
+  "lastAttemptAt": zod.coerce.date()
+})
+
+
 export const GetVideoPublishCapabilitiesResponse = zod.record(zod.string(), zod.object({
   "available": zod.boolean(),
   "guidance": zod.string()

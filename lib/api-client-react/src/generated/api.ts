@@ -309,6 +309,7 @@ import type {
   ListPromoterPayoutsParams,
   ListPromptCasesParams,
   ListPromptTemplatesParams,
+  ListVideoPublishSupportParams,
   LocalizeScriptInput,
   LocalizeScriptResult,
   MarkPromoterPayoutFailed200,
@@ -505,7 +506,10 @@ import type {
   VideoModelList,
   VideoModelPricingSyncResult,
   VideoModelPricingView,
+  VideoPublishObservation,
+  VideoPublishResolutionInput,
   VideoPublishResult,
+  VideoPublishSupportRecord,
   VideoStyleProfile,
   VideoWalletReconciliationReport,
   VisualAsset,
@@ -559,6 +563,217 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getListVideoPublishSupportUrl = (params?: ListVideoPublishSupportParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/video-publish-support?${stringifiedParams}` : `/api/video-publish-support`
+}
+
+export const listVideoPublishSupport = async (params?: ListVideoPublishSupportParams, options?: RequestInit): Promise<VideoPublishSupportRecord[]> => {
+
+  return customFetch<VideoPublishSupportRecord[]>(getListVideoPublishSupportUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVideoPublishSupportQueryKey = (params?: ListVideoPublishSupportParams,) => {
+    return [
+    `/api/video-publish-support`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListVideoPublishSupportQueryOptions = <TData = Awaited<ReturnType<typeof listVideoPublishSupport>>, TError = ErrorType<unknown>>(params?: ListVideoPublishSupportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoPublishSupport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVideoPublishSupportQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoPublishSupport>>> = ({ signal }) => listVideoPublishSupport(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoPublishSupport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVideoPublishSupportQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoPublishSupport>>>
+export type ListVideoPublishSupportQueryError = ErrorType<unknown>
+
+
+
+export function useListVideoPublishSupport<TData = Awaited<ReturnType<typeof listVideoPublishSupport>>, TError = ErrorType<unknown>>(
+ params?: ListVideoPublishSupportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoPublishSupport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVideoPublishSupportQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReconcileVideoPublishSupportUrl = (tenantId: number,
+    id: number,) => {
+
+
+
+
+  return `/api/video-publish-support/${tenantId}/${id}/reconcile`
+}
+
+export const reconcileVideoPublishSupport = async (tenantId: number,
+    id: number, options?: RequestInit): Promise<VideoPublishObservation> => {
+
+  return customFetch<VideoPublishObservation>(getReconcileVideoPublishSupportUrl(tenantId,id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getReconcileVideoPublishSupportMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcileVideoPublishSupport>>, TError,{tenantId: number;id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reconcileVideoPublishSupport>>, TError,{tenantId: number;id: number}, TContext> => {
+
+const mutationKey = ['reconcileVideoPublishSupport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reconcileVideoPublishSupport>>, {tenantId: number;id: number}> = (props) => {
+          const {tenantId,id} = props ?? {};
+
+          return  reconcileVideoPublishSupport(tenantId,id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReconcileVideoPublishSupportMutationResult = NonNullable<Awaited<ReturnType<typeof reconcileVideoPublishSupport>>>
+
+    export type ReconcileVideoPublishSupportMutationError = ErrorType<unknown>
+
+    export const useReconcileVideoPublishSupport = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcileVideoPublishSupport>>, TError,{tenantId: number;id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reconcileVideoPublishSupport>>,
+        TError,
+        {tenantId: number;id: number},
+        TContext
+      > => {
+      return useMutation(getReconcileVideoPublishSupportMutationOptions(options));
+    }
+
+export const getResolveVideoPublishSupportUrl = (tenantId: number,
+    id: number,) => {
+
+
+
+
+  return `/api/video-publish-support/${tenantId}/${id}/resolve`
+}
+
+export const resolveVideoPublishSupport = async (tenantId: number,
+    id: number,
+    videoPublishResolutionInput: VideoPublishResolutionInput, options?: RequestInit): Promise<VideoPublishSupportRecord> => {
+
+  return customFetch<VideoPublishSupportRecord>(getResolveVideoPublishSupportUrl(tenantId,id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoPublishResolutionInput)
+  }
+);}
+
+
+
+
+export const getResolveVideoPublishSupportMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveVideoPublishSupport>>, TError,{tenantId: number;id: number;data: BodyType<VideoPublishResolutionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resolveVideoPublishSupport>>, TError,{tenantId: number;id: number;data: BodyType<VideoPublishResolutionInput>}, TContext> => {
+
+const mutationKey = ['resolveVideoPublishSupport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveVideoPublishSupport>>, {tenantId: number;id: number;data: BodyType<VideoPublishResolutionInput>}> = (props) => {
+          const {tenantId,id,data} = props ?? {};
+
+          return  resolveVideoPublishSupport(tenantId,id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResolveVideoPublishSupportMutationResult = NonNullable<Awaited<ReturnType<typeof resolveVideoPublishSupport>>>
+    export type ResolveVideoPublishSupportMutationBody = BodyType<VideoPublishResolutionInput>
+    export type ResolveVideoPublishSupportMutationError = ErrorType<unknown>
+
+    export const useResolveVideoPublishSupport = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveVideoPublishSupport>>, TError,{tenantId: number;id: number;data: BodyType<VideoPublishResolutionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resolveVideoPublishSupport>>,
+        TError,
+        {tenantId: number;id: number;data: BodyType<VideoPublishResolutionInput>},
+        TContext
+      > => {
+      return useMutation(getResolveVideoPublishSupportMutationOptions(options));
+    }
 
 export const getGetVideoPublishCapabilitiesUrl = () => {
 
