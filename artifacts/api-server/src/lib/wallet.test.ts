@@ -2005,7 +2005,9 @@ describe("approved targeted reserve-only reconciliation", () => {
         })
         .from(videoGenerationsTable)
         .where(inArray(videoGenerationsTable.id, [fixture.first.id, fixture.retry.id]));
-      expect(jobs.sort((a, b) => a.id - b.id).map((job) => job.spendPaise)).toEqual([1_800, 3_600]);
+      // The fixture inserts concurrently, so generated IDs do not imply order.
+      expect(jobs.find((job) => job.id === fixture.first.id)?.spendPaise).toBe(1_800);
+      expect(jobs.find((job) => job.id === fixture.retry.id)?.spendPaise).toBe(3_600);
       expect(jobs.every((job) => job.funding === "wallet")).toBe(true);
       expect(jobs.map((job) => job.walletReservationId).sort()).toEqual(
         [fixture.first.walletReservationId, fixture.retry.walletReservationId].sort(),

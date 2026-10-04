@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CreateCharacterLikenessAttestation } from "@workspace/api-client-react";
 import {
   CharacterCreationAttestation,
@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useToast } from "@/hooks/use-toast";
@@ -99,26 +100,40 @@ function SavedImageTile({
   onDelete,
   deleting,
   testId,
+  onPreview,
 }: {
   name: string;
   imagePath: string;
   onDelete: () => void;
   deleting: boolean;
   testId: string;
+  onPreview?: (trigger: HTMLButtonElement) => void;
 }) {
   return (
     <div className="relative group w-24" data-testid={testId}>
-      <img
+      {onPreview ? (
+        <button
+          type="button"
+          aria-label={`Preview ${name}`}
+          aria-haspopup="dialog"
+          onClick={(event) => onPreview(event.currentTarget)}
+          className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <img src={`/api/storage${imagePath}`} alt={name} className="h-24 w-24 object-cover rounded-lg border border-border" />
+        </button>
+      ) : <img
         src={`/api/storage${imagePath}`}
         alt={name}
         className="h-24 w-24 object-cover rounded-lg border border-border"
-      />
+      />}
       <button
         type="button"
         aria-label={`Delete ${name}`}
         onClick={onDelete}
         disabled={deleting}
-        className="absolute -top-2 -right-2 bg-background border border-border rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        className={onPreview
+          ? "absolute -top-2 -right-2 bg-background border border-border rounded-full p-2 opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          : "absolute -top-2 -right-2 bg-background border border-border rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"}
       >
         {deleting ? <RippleSpinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
       </button>
@@ -260,11 +275,19 @@ export function CharactersCard() {
   const { upload, uploading } = useImageUpload();
   const [addOpen, setAddOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const deletionInFlight = useRef(false);
+  const [previewId, setPreviewId] = useState<number | null>(null);
+  const previewTrigger = useRef<HTMLButtonElement | null>(null);
+  const addTrigger = useRef<HTMLButtonElement | null>(null);
 
   // The Video Studio list now also includes shared preset characters. This
   // library manages only tenant-owned uploads; presets are selectable in
   // Video Studio but cannot be deleted or counted against this tenant cap.
   const items = (characters ?? []).filter((character) => typeof character.id === "number");
+  const previewCharacter = items.find((character) => character.id === previewId);
+  useEffect(() => {
+    if (characters && previewId !== null && !previewCharacter) setPreviewId(null);
+  }, [characters, previewId, previewCharacter]);
   const atCap = items.length >= MAX_CHARACTERS;
   const limitMessage = `You have ${items.length} saved characters. The limit is ${MAX_CHARACTERS}. Remove ${items.length - MAX_CHARACTERS + 1} to add a new character.`;
 
@@ -320,13 +343,20 @@ export function CharactersCard() {
   };
 
   const handleDelete = async (id: number) => {
+    if (deletionInFlight.current || !items.some((character) => character.id === id)) return;
+    deletionInFlight.current = true;
     setDeletingId(id);
     try {
       await deleteCharacter.mutateAsync({ characterId: id });
+      // The thumbnail may still be mounted until the refetch completes.
+      // Never restore focus to a control that is about to disappear.
+      if (previewId === id) previewTrigger.current = null;
+      setPreviewId((current) => current === id ? null : current);
       await queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
     } catch (err) {
       toast({ title: "Could not delete", description: errText(err), variant: "destructive" });
     } finally {
+      deletionInFlight.current = false;
       setDeletingId(null);
     }
   };
@@ -355,6 +385,11 @@ export function CharactersCard() {
                 key={c.id}
                 name={c.name}
                 imagePath={c.referenceImagePath}
+                onPreview={(trigger) => {
+                  if (typeof c.id !== "number") return;
+                  previewTrigger.current = trigger;
+                  setPreviewId(c.id);
+                }}
                 onDelete={() => {
                   // `items` excludes presets; keep the runtime guard here so
                   // a malformed mixed list cannot issue a delete for a stable
@@ -370,6 +405,7 @@ export function CharactersCard() {
           <p className="text-sm text-muted-foreground">No characters yet.</p>
         )}
         <Button
+          ref={addTrigger}
           type="button"
           variant="outline"
           size="sm"
@@ -404,6 +440,43 @@ export function CharactersCard() {
           onSave={(name, file, attestation) => void handleSave(name, file, attestation)}
           onVerify={(name, file, attestation) => void handleVerify(name, file, attestation)}
         />
+        <Dialog open={!!previewCharacter} onOpenChange={(open) => { if (!open) setPreviewId(null); }}>
+          <DialogContent
+            className="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl flex-col overflow-y-auto rounded-lg p-4 sm:p-6"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              const trigger = previewTrigger.current;
+              (trigger?.isConnected ? trigger : addTrigger.current)?.focus();
+            }}
+          >
+            <DialogHeader className="shrink-0 pr-6">
+              <DialogTitle className="break-words">{previewCharacter?.name}</DialogTitle>
+              <DialogDescription>Full saved character image.</DialogDescription>
+            </DialogHeader>
+            {previewCharacter && (
+              <img
+                src={`/api/storage${previewCharacter.referenceImagePath}`}
+                alt={previewCharacter.name}
+                className="min-h-0 w-full flex-1 object-contain"
+                style={{ maxHeight: "calc(100dvh - 16rem)" }}
+              />
+            )}
+            <DialogFooter className="shrink-0 gap-2">
+              <Button type="button" variant="outline" onClick={() => setPreviewId(null)}>Close preview</Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deletingId !== null}
+                onClick={() => {
+                  if (typeof previewCharacter?.id === "number") void handleDelete(previewCharacter.id);
+                }}
+              >
+                {deletingId === previewId && <RippleSpinner className="mr-2 h-4 w-4" />}
+                {deletingId === previewId ? "Deleting…" : "Delete character"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

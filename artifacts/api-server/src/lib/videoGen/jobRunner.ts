@@ -1497,7 +1497,7 @@ async function objectExists(objectPath: string, tenantId: number): Promise<boole
   }
 }
 
-async function setJob(
+export async function setJob(
   jobId: number,
   values: Partial<typeof videoGenerationsTable.$inferInsert>,
 ): Promise<void> {
@@ -1505,7 +1505,7 @@ async function setJob(
     .update(videoGenerationsTable)
     .set(values)
     .where(and(eq(videoGenerationsTable.id, jobId),
-      sql`${videoGenerationsTable.options}->'storyboardRejection' IS NULL OR ${videoGenerationsTable.options}->'storyboardRejection' = 'null'::jsonb`));
+      sql`(${videoGenerationsTable.options}->'storyboardRejection' IS NULL OR ${videoGenerationsTable.options}->'storyboardRejection' = 'null'::jsonb)`));
 }
 
 export function providerTaskStoreForJob(jobId: number): VideoProviderTaskStore {
