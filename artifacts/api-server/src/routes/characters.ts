@@ -290,7 +290,7 @@ export function characterVisualQaErrorMessage(
 }
 
 /** Per-tenant cap: characters are curated identities, not a media library. */
-export const MAX_CHARACTERS = 30;
+export const MAX_CHARACTERS = 50;
 
 /**
  * Characters: reusable, tenant-scoped identities for the Video Studio.

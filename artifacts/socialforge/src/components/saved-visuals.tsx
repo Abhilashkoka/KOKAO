@@ -35,7 +35,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useFeatureFlags } from "@/lib/features";
 import { Upload, Trash2, Users, Images } from "lucide-react";
 
-export const MAX_CHARACTERS = 30;
+export const MAX_CHARACTERS = 50;
 export const MAX_VISUAL_ASSETS = 7;
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];

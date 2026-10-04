@@ -13,17 +13,17 @@ vi.mock("@/lib/features", () => ({ useFeatureFlags: () => ({ flags: {} }) }));
 import { CharactersCard } from "./saved-visuals";
 afterEach(() => { cleanup(); state.toast.mockClear(); });
 describe("Add character", () => {
-  it("opens the upload dialog when below the limit", () => {
-    state.characters = [];
+  it.each([0, 46, 49])("opens the upload dialog with %i saved characters", (count) => {
+    state.characters = Array.from({ length: count }, (_, i) => ({ id: i + 1, name: `Character ${i}`, referenceImagePath: "/objects/example" }));
     render(<CharactersCard />);
     fireEvent.click(screen.getByTestId("button-add-character"));
     expect(screen.getByRole("dialog").textContent).toContain("Add a character");
     expect(screen.getByTestId("button-saved-visual-file")).toBeTruthy();
   });
-  it("explains the over-limit restriction on screen and when clicked", () => {
-    state.characters = Array.from({ length: 46 }, (_, i) => ({ id: i + 1, name: `Character ${i}`, referenceImagePath: "/objects/example" }));
+  it.each([50, 51])("explains the restriction with %i saved characters", (count) => {
+    state.characters = Array.from({ length: count }, (_, i) => ({ id: i + 1, name: `Character ${i}`, referenceImagePath: "/objects/example" }));
     render(<CharactersCard />);
-    expect(screen.getByRole("status").textContent).toContain("Remove 17");
+    expect(screen.getByRole("status").textContent).toContain(`Remove ${count - 49}`);
     fireEvent.click(screen.getByTestId("button-add-character"));
     expect(state.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Character limit reached" }));
     expect(screen.queryByRole("dialog")).toBeNull();
