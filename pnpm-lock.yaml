@@ -453,6 +453,9 @@ importers:
       '@workspace/studio-presets':
         specifier: workspace:*
         version: link:../../lib/studio-presets
+      '@workspace/video-director':
+        specifier: workspace:*
+        version: link:../../lib/video-director
       babel-plugin-react-compiler:
         specifier: ^19.0.0-beta-e993439-20250117
         version: 19.0.0-beta-ebf51a3-20250411
@@ -916,6 +919,9 @@ importers:
       '@workspace/studio-presets':
         specifier: workspace:*
         version: link:../../lib/studio-presets
+      '@workspace/video-director':
+        specifier: workspace:*
+        version: link:../../lib/video-director
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -1108,6 +1114,15 @@ importers:
         version: 4.1.9(@types/node@25.9.4)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.22.4)(yaml@2.9.0)
 
   lib/studio-presets: {}
+
+  lib/video-director:
+    devDependencies:
+      '@workspace/api-client-react':
+        specifier: workspace:*
+        version: link:../api-client-react
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@25.9.4)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.22.4)(yaml@2.9.0)
 
 packages:
 

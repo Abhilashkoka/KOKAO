@@ -4,6 +4,9 @@
   "files": [],
   "references": [
     {
+      "path": "./lib/video-director"
+    },
+    {
       "path": "./lib/db"
     },
     {

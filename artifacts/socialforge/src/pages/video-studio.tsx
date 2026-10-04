@@ -5,6 +5,7 @@ import {
   directedBlockReason,
   directedBrandOptions,
   directedCastRestriction,
+  directedDurationFor,
   emptyDirectedDraft,
   isDirectedCompatibleModel,
   type DirectedDraft,
@@ -906,9 +907,7 @@ export function VideoStudioPage() {
     if (!selectedModel) return;
     if (!selectedModel.durations.includes(durationSec)) {
       setDurationSec(
-        selectedModel.durations.reduce((best, d) =>
-          Math.abs(d - durationSec) < Math.abs(best - durationSec) ? d : best,
-        ),
+        directedDurationFor(selectedModel.durations, durationSec),
       );
     }
     if (

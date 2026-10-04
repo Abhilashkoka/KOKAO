@@ -20,3 +20,9 @@ Mobile direction consumes existing approved character sheets and outfits; their 
 **Why:** The requested mobile director rollout explicitly excludes rebuilding those editors and must preserve existing personal-likeness consent.
 
 **How to apply:** Reuse the existing consent UI and server validation. A character-selection control must not imply that missing approvals or provider-specific permission have been granted.
+
+Share director UX rules between clients, but do not make client acceptance authoritative on the server.
+
+**Why:** Identical briefs should receive consistent client guidance, while ownership, consent and current provider capabilities require trusted server checks.
+
+**How to apply:** Changes to common limits and payload rules should cover both clients with contract tests; keep native upload transport and mobile approval-state consumption outside the common rule layer.

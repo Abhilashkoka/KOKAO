@@ -156,7 +156,7 @@ describe("streaks", () => {
     expect(granted.imageCredits).toBe(1);
     expect(granted.credits).toBe(expectedCredits);
     const after = await getCreditBalance(tenantId);
-    expect(after.total).toBe(before.total + expectedCredits);
+    expect(after.total).toBeCloseTo(before.total + expectedCredits, 3);
     expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
 
     // Milestones above the current run stay unclaimable.

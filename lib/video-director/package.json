@@ -1,0 +1,12 @@
+{
+  "name": "@workspace/video-director",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run" },
+  "devDependencies": {
+    "@workspace/api-client-react": "workspace:*",
+    "vitest": "^4.1.9"
+  }
+}
