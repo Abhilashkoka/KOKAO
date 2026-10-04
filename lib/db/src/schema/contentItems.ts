@@ -8,6 +8,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import type { VideoPublishMetadata } from "./videoPublishes";
 
 /**
  * Snapshot of a LinkedIn overflow-comment sequence that did not fully post.
@@ -74,6 +75,7 @@ export const contentItemsTable = pgTable("content_items", {
   // videoThumbnailPath is the poster frame used by grids and previews.
   videoPath: text("video_path"),
   videoThumbnailPath: text("video_thumbnail_path"),
+  videoPublishMetadata: jsonb("video_publish_metadata").$type<VideoPublishMetadata>(),
   // Present only for carousel items: ordered slides with copy + per-slide
   // image. When set (and images exist), LinkedIn publishes render the slides
   // as a multi-page PDF document instead of a single image.

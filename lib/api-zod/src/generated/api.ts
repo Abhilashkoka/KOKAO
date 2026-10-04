@@ -8,6 +8,37 @@
 import * as zod from 'zod';
 
 
+export const GetVideoPublishCapabilitiesResponse = zod.record(zod.string(), zod.object({
+  "available": zod.boolean(),
+  "guidance": zod.string()
+}))
+
+
+export const PublishLibraryVideoParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PublishLibraryVideoResponse = zod.object({
+  "platform": zod.string(),
+  "state": zod.string(),
+  "error": zod.string().nullish(),
+  "permalink": zod.string().nullish()
+})
+
+
+export const ListVideoPublishesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListVideoPublishesResponseItem = zod.object({
+  "platform": zod.string(),
+  "state": zod.string(),
+  "error": zod.string().nullish(),
+  "permalink": zod.string().nullish()
+})
+export const ListVideoPublishesResponse = zod.array(ListVideoPublishesResponseItem)
+
+
 /**
  * @summary Get sanitized provider diagnostics for a video job
  */
@@ -14995,7 +15026,21 @@ export const DismissFirstPostNudgeResponse = zod.object({
 /**
  * @summary List content items
  */
+export const listContentResponseVideoPublishMetadataTitleMax = 200;
+
+export const listContentResponseVideoPublishMetadataDescriptionMax = 5000;
+
+
+
 export const ListContentResponseItem = zod.object({
+  "videoPublishMetadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(listContentResponseVideoPublishMetadataTitleMax),
+  "description": zod.string().max(listContentResponseVideoPublishMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}).optional(),
   "id": zod.number(),
   "title": zod.string(),
   "caption": zod.string(),
@@ -15060,7 +15105,21 @@ export const CreateContentBody = zod.object({
   "campaignId": zod.number().nullish()
 })
 
+export const createContentResponseVideoPublishMetadataTitleMax = 200;
+
+export const createContentResponseVideoPublishMetadataDescriptionMax = 5000;
+
+
+
 export const CreateContentResponse = zod.object({
+  "videoPublishMetadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(createContentResponseVideoPublishMetadataTitleMax),
+  "description": zod.string().max(createContentResponseVideoPublishMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}).optional(),
   "id": zod.number(),
   "title": zod.string(),
   "caption": zod.string(),
@@ -15104,7 +15163,21 @@ export const GetContentParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const getContentResponseVideoPublishMetadataTitleMax = 200;
+
+export const getContentResponseVideoPublishMetadataDescriptionMax = 5000;
+
+
+
 export const GetContentResponse = zod.object({
+  "videoPublishMetadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(getContentResponseVideoPublishMetadataTitleMax),
+  "description": zod.string().max(getContentResponseVideoPublishMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}).optional(),
   "id": zod.number(),
   "title": zod.string(),
   "caption": zod.string(),
@@ -15148,10 +15221,22 @@ export const UpdateContentParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const updateContentBodyVideoPublishMetadataTitleMax = 200;
+
+export const updateContentBodyVideoPublishMetadataDescriptionMax = 5000;
+
 
 
 
 export const UpdateContentBody = zod.object({
+  "videoPublishMetadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(updateContentBodyVideoPublishMetadataTitleMax),
+  "description": zod.string().max(updateContentBodyVideoPublishMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}).optional(),
   "title": zod.string().min(1).optional(),
   "caption": zod.string().optional(),
   "imagePath": zod.string().nullish(),
@@ -15173,7 +15258,21 @@ export const UpdateContentBody = zod.object({
   "campaignId": zod.number().nullish().describe('Set to attach the item to a campaign; null to detach.')
 })
 
+export const updateContentResponseVideoPublishMetadataTitleMax = 200;
+
+export const updateContentResponseVideoPublishMetadataDescriptionMax = 5000;
+
+
+
 export const UpdateContentResponse = zod.object({
+  "videoPublishMetadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(updateContentResponseVideoPublishMetadataTitleMax),
+  "description": zod.string().max(updateContentResponseVideoPublishMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}).optional(),
   "id": zod.number(),
   "title": zod.string(),
   "caption": zod.string(),
@@ -35313,7 +35412,21 @@ export const SaveVideoToLibraryBody = zod.object({
   "brandKitId": zod.number().nullish()
 })
 
+export const saveVideoToLibraryResponseVideoPublishMetadataTitleMax = 200;
+
+export const saveVideoToLibraryResponseVideoPublishMetadataDescriptionMax = 5000;
+
+
+
 export const SaveVideoToLibraryResponse = zod.object({
+  "videoPublishMetadata": zod.object({
+  "destination": zod.enum(['instagram', 'facebook', 'youtube']),
+  "format": zod.enum(['reel', 'video']),
+  "title": zod.string().min(1).max(saveVideoToLibraryResponseVideoPublishMetadataTitleMax),
+  "description": zod.string().max(saveVideoToLibraryResponseVideoPublishMetadataDescriptionMax),
+  "privacy": zod.enum(['public', 'private', 'unlisted']),
+  "madeForKids": zod.boolean()
+}).optional(),
   "id": zod.number(),
   "title": zod.string(),
   "caption": zod.string(),
@@ -37333,6 +37446,8 @@ export const GetYoutubeAuthUrlResponse = zod.object({
  * @summary Whether a YouTube channel is connected
  */
 export const GetYoutubeStatusResponse = zod.object({
+  "canUpload": zod.boolean().optional(),
+  "uploadGuidance": zod.string().optional(),
   "connected": zod.boolean(),
   "accountName": zod.string().nullish(),
   "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
@@ -37345,6 +37460,8 @@ export const GetYoutubeStatusResponse = zod.object({
  * @summary Disconnect YouTube, clearing the stored OAuth tokens and channel
  */
 export const DisconnectYoutubeResponse = zod.object({
+  "canUpload": zod.boolean().optional(),
+  "uploadGuidance": zod.string().optional(),
   "connected": zod.boolean(),
   "accountName": zod.string().nullish(),
   "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
@@ -37357,6 +37474,8 @@ export const DisconnectYoutubeResponse = zod.object({
  * @summary Re-check the stored YouTube connection; flags it if no longer valid
  */
 export const RetestYoutubeResponse = zod.object({
+  "canUpload": zod.boolean().optional(),
+  "uploadGuidance": zod.string().optional(),
   "connected": zod.boolean(),
   "accountName": zod.string().nullish(),
   "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),

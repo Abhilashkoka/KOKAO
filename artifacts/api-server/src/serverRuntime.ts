@@ -6,6 +6,7 @@ import {
 } from "./routes/videos";
 import { logger } from "./lib/logger";
 import { recoverStuckPublishingItems } from "./lib/recoverStuckPublishes";
+import { startVideoPublisher, stopVideoPublisher } from "./lib/videoPublisher";
 import { createShutdownHandler } from "./lib/shutdown";
 import { startConnectionSweep, stopConnectionSweep } from "./lib/connectionSweep";
 import { startFxRateSweep, stopFxRateSweep } from "./lib/fxRateSweep";
@@ -180,6 +181,7 @@ export async function startServerRuntime(): Promise<void> {
     // Periodically publish scheduled posts whose time has arrived, using the
     // same per-platform publish cores as the manual publish endpoints.
     startScheduledPublisher();
+    startVideoPublisher();
 
     // Periodically resolve delayed Expo push receipts (deleting tokens whose
     // receipts report DeviceNotRegistered) and prune tokens whose device
@@ -218,6 +220,7 @@ export async function startServerRuntime(): Promise<void> {
     process.on(signal, () => {
       stopConnectionSweep();
       stopScheduledPublisher();
+      stopVideoPublisher();
       stopPushTokenMaintenance();
       stopPostMetricsSweep();
       stopImageJobSweep();

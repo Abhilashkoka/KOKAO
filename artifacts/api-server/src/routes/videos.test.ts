@@ -13013,6 +13013,7 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
   ])("detaches a failed Guided Story %s and resets attempt consent", async (_label, withVisualChoices) => {
     const tenant = await newTenant("pro");
     actAs(tenant.clerkUserId);
+    const savedCharacter = await seedCharacter(tenant.tenantId);
     const approvedHash = "a".repeat(64);
     const characterReferenceImagePath = "/objects/test/character.png";
     const outfitReferenceImagePath = "/objects/test/outfit.png";
@@ -13031,8 +13032,8 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
       cast: [{
         roleId: "hero",
         source: "saved",
-        characterId: 1,
-        outfitId: 1,
+        characterId: savedCharacter.characterId,
+        outfitId: savedCharacter.outfitId,
         brandKitId: null,
         voiceId: "stock:alloy",
         character: {

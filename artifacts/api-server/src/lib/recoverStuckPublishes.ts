@@ -20,7 +20,7 @@
  * before the crash. "failed" surfaces the item in the UI so the user can retry.
  */
 import { db, contentItemsTable } from "@workspace/db";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { notifyPublishInterrupted } from "./notifications";
 
@@ -62,6 +62,7 @@ export async function recoverStuckPublishingItems(
         and(
           eq(contentItemsTable.status, "publishing"),
           lt(contentItemsTable.updatedAt, cutoff),
+          sql`NOT EXISTS (SELECT 1 FROM video_publishes vp WHERE vp.content_item_id = ${contentItemsTable.id})`,
         ),
       )
       .returning({

@@ -7,6 +7,8 @@
  */
 
 export interface YoutubeStatus {
+  canUpload?: boolean;
+  uploadGuidance?: string;
   connected: boolean;
   /** @nullable */
   accountName?: string | null;

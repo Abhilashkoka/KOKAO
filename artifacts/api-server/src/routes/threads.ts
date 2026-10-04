@@ -625,6 +625,7 @@ export async function publishThreadsCore(
   if (!item) {
     return { ok: false, errorStatus: 404, error: "Not found" };
   }
+  if (item.videoPath) return { ok: false, errorStatus: 400, error: "Native video publishing is supported only on Instagram Reels, Facebook Reels and YouTube. No text or thumbnail fallback is allowed." };
 
   let account = await getThreadsAccount(tenantId);
   if (account?.accessToken && account.verifyStatus !== "failed") {

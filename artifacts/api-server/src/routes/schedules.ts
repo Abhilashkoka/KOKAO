@@ -1,13 +1,22 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, scheduledPostsTable, contentItemsTable } from "@workspace/db";
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, ne, sql } from "drizzle-orm";
 import { CreateScheduleBody, UpdateScheduleBody } from "@workspace/api-zod";
 import { serializeSchedule } from "../lib/serializers";
 import { recordTasteSignal } from "../lib/tasteMemory";
 import { retryScheduledPostNow } from "../lib/scheduledPublisher";
 import { checkContentItemCompliance } from "../lib/compliance/content";
+import { validateVideoMetadata } from "../lib/videoPublishValidation";
+import { videoPublishAuth } from "../lib/videoPublishAuth";
 
 const router: IRouter = Router();
+const PROCESSING_SCHEDULE_MESSAGE = "Publishing has already started. This schedule cannot be changed or removed safely. Check the upload in the Content Library and the destination account; it may continue after reconnecting.";
+
+async function unavailableSchedule(req: Request, res: Response, id: number) {
+  const [existing] = await db.select({ id: scheduledPostsTable.id }).from(scheduledPostsTable)
+    .where(and(eq(scheduledPostsTable.id, id), eq(scheduledPostsTable.tenantId, req.tenantId))).limit(1);
+  res.status(existing ? 409 : 404).json({ error: existing ? PROCESSING_SCHEDULE_MESSAGE : "Not found" });
+}
 
 router.param("id", (req, res, next, value) => {
   const id = Number(value);
@@ -50,7 +59,16 @@ router.post("/schedules", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Content item not found" });
     return;
   }
-  const compliance = await checkContentItemCompliance(req.tenantId, content.id);
+  const compliance = await checkContentItemCompliance(req.tenantId, content.id,
+    content.videoPath && content.videoPublishMetadata
+      ? { title: content.videoPublishMetadata.title, caption: content.videoPublishMetadata.description }
+      : undefined);
+  if (content.videoPath) {
+    const invalid = validateVideoMetadata(parsed.data.platform, content.videoPublishMetadata);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
+    try { await videoPublishAuth(req.tenantId, parsed.data.platform); }
+    catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : "Verify publishing access first." }); return; }
+  }
   if (!compliance.ok) {
     res.status(compliance.errorStatus).json({
       error: compliance.error,
@@ -67,6 +85,7 @@ router.post("/schedules", async (req: Request, res: Response) => {
         tenantId: req.tenantId,
         contentItemId: parsed.data.contentItemId,
         platform: parsed.data.platform,
+        videoSnapshot: content.videoPath && content.videoPublishMetadata ? { videoPath: content.videoPath, metadata: content.videoPublishMetadata } : null,
         scheduledAt: new Date(parsed.data.scheduledAt),
       })
       .returning()
@@ -96,6 +115,12 @@ router.patch("/schedules/:id", async (req: Request, res: Response) => {
     return;
   }
   const { scheduledAt, ...rest } = parsed.data;
+  if (rest.platform) {
+    const [existing] = await db.select().from(scheduledPostsTable).where(and(eq(scheduledPostsTable.id, id), eq(scheduledPostsTable.tenantId, req.tenantId))).limit(1);
+    if (existing?.videoSnapshot && existing.videoSnapshot.metadata.destination !== rest.platform) {
+      res.status(400).json({ error: "The video review is saved for a different destination. Create a new reviewed schedule from the Content Library." }); return;
+    }
+  }
   const updated = (
     await db
       .update(scheduledPostsTable)
@@ -105,12 +130,14 @@ router.patch("/schedules/:id", async (req: Request, res: Response) => {
         updatedAt: new Date(),
       })
       .where(
-        and(eq(scheduledPostsTable.id, id), eq(scheduledPostsTable.tenantId, req.tenantId)),
+        and(eq(scheduledPostsTable.id, id), eq(scheduledPostsTable.tenantId, req.tenantId),
+          ne(scheduledPostsTable.status, "processing"),
+          sql`NOT EXISTS (SELECT 1 FROM video_publishes vp WHERE vp.content_item_id = ${scheduledPostsTable.contentItemId} AND vp.platform = ${scheduledPostsTable.platform} AND vp.state IN ('queued','creating','uploading','processing','committing'))`),
       )
       .returning()
   )[0];
   if (!updated) {
-    res.status(404).json({ error: "Not found" });
+    await unavailableSchedule(req, res, id);
     return;
   }
   res.json(serializeSchedule(updated));
@@ -148,12 +175,14 @@ router.delete("/schedules/:id", async (req: Request, res: Response) => {
     await db
       .delete(scheduledPostsTable)
       .where(
-        and(eq(scheduledPostsTable.id, id), eq(scheduledPostsTable.tenantId, req.tenantId)),
+        and(eq(scheduledPostsTable.id, id), eq(scheduledPostsTable.tenantId, req.tenantId),
+          ne(scheduledPostsTable.status, "processing"),
+          sql`NOT EXISTS (SELECT 1 FROM video_publishes vp WHERE vp.content_item_id = ${scheduledPostsTable.contentItemId} AND vp.platform = ${scheduledPostsTable.platform} AND vp.state IN ('queued','creating','uploading','processing','committing'))`),
       )
       .returning()
   )[0];
   if (!deleted) {
-    res.status(404).json({ error: "Not found" });
+    await unavailableSchedule(req, res, id);
     return;
   }
   res.status(204).end();

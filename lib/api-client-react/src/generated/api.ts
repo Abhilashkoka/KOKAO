@@ -239,6 +239,7 @@ import type {
   GetReliabilityAnalyticsParams,
   GetRevenueAnalyticsParams,
   GetStudioLipSyncAnalyticsParams,
+  GetVideoPublishCapabilities200,
   GoogleAdCustomerChoice,
   GoogleAdsAppCredentialInput,
   GoogleAdsAppCredentialStatus,
@@ -504,6 +505,7 @@ import type {
   VideoModelList,
   VideoModelPricingSyncResult,
   VideoModelPricingView,
+  VideoPublishResult,
   VideoStyleProfile,
   VideoWalletReconciliationReport,
   VisualAsset,
@@ -557,6 +559,212 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetVideoPublishCapabilitiesUrl = () => {
+
+
+
+
+  return `/api/video-publish-capabilities`
+}
+
+export const getVideoPublishCapabilities = async ( options?: RequestInit): Promise<GetVideoPublishCapabilities200> => {
+
+  return customFetch<GetVideoPublishCapabilities200>(getGetVideoPublishCapabilitiesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVideoPublishCapabilitiesQueryKey = () => {
+    return [
+    `/api/video-publish-capabilities`
+    ] as const;
+    }
+
+
+export const getGetVideoPublishCapabilitiesQueryOptions = <TData = Awaited<ReturnType<typeof getVideoPublishCapabilities>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoPublishCapabilities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVideoPublishCapabilitiesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVideoPublishCapabilities>>> = ({ signal }) => getVideoPublishCapabilities({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVideoPublishCapabilities>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVideoPublishCapabilitiesQueryResult = NonNullable<Awaited<ReturnType<typeof getVideoPublishCapabilities>>>
+export type GetVideoPublishCapabilitiesQueryError = ErrorType<unknown>
+
+
+
+export function useGetVideoPublishCapabilities<TData = Awaited<ReturnType<typeof getVideoPublishCapabilities>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoPublishCapabilities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVideoPublishCapabilitiesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPublishLibraryVideoUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/publish-video`
+}
+
+export const publishLibraryVideo = async (id: number, options?: RequestInit): Promise<VideoPublishResult> => {
+
+  return customFetch<VideoPublishResult>(getPublishLibraryVideoUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPublishLibraryVideoMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishLibraryVideo>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishLibraryVideo>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['publishLibraryVideo'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishLibraryVideo>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  publishLibraryVideo(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishLibraryVideoMutationResult = NonNullable<Awaited<ReturnType<typeof publishLibraryVideo>>>
+
+    export type PublishLibraryVideoMutationError = ErrorType<void>
+
+    export const usePublishLibraryVideo = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishLibraryVideo>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof publishLibraryVideo>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPublishLibraryVideoMutationOptions(options));
+    }
+
+export const getListVideoPublishesUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/video-publishes`
+}
+
+export const listVideoPublishes = async (id: number, options?: RequestInit): Promise<VideoPublishResult[]> => {
+
+  return customFetch<VideoPublishResult[]>(getListVideoPublishesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVideoPublishesQueryKey = (id: number,) => {
+    return [
+    `/api/content/${id}/video-publishes`
+    ] as const;
+    }
+
+
+export const getListVideoPublishesQueryOptions = <TData = Awaited<ReturnType<typeof listVideoPublishes>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoPublishes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVideoPublishesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoPublishes>>> = ({ signal }) => listVideoPublishes(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoPublishes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVideoPublishesQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoPublishes>>>
+export type ListVideoPublishesQueryError = ErrorType<void>
+
+
+
+export function useListVideoPublishes<TData = Awaited<ReturnType<typeof listVideoPublishes>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoPublishes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVideoPublishesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetAdminVideoJobDiagnosticsUrl = (jobId: number,) => {
 

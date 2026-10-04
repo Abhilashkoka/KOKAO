@@ -1,4 +1,5 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import type { VideoPublishMetadata } from "./videoPublishes";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -7,6 +8,7 @@ export const scheduledPostsTable = pgTable("scheduled_posts", {
   tenantId: integer("tenant_id").notNull(),
   contentItemId: integer("content_item_id").notNull(),
   platform: text("platform").notNull(),
+  videoSnapshot: jsonb("video_snapshot").$type<{ videoPath: string; metadata: VideoPublishMetadata }>(),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
   status: text("status").notNull().default("pending"),
   failureReason: text("failure_reason"),

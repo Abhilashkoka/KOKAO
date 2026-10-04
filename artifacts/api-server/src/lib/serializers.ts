@@ -28,6 +28,7 @@ export function serializeContent(c: ContentItem) {
     imagePrompt: c.imagePrompt ?? null,
     videoPath: c.videoPath ?? null,
     videoThumbnailPath: c.videoThumbnailPath ?? null,
+    videoPublishMetadata: c.videoPublishMetadata ?? undefined,
     carouselSlides: c.carouselSlides ?? null,
     imageLayers: c.imageLayers ?? null,
     platform: c.platform,

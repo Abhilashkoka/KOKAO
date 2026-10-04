@@ -845,6 +845,7 @@ export async function publishLinkedinCore(
   if (!item) {
     return { ok: false, errorStatus: 404, error: "Not found" };
   }
+  if (item.videoPath) return { ok: false, errorStatus: 400, error: "Native video publishing is supported only on Instagram Reels, Facebook Reels and YouTube. No text or thumbnail fallback is allowed." };
 
   let account = await getLinkedinAccount(tenantId);
   // Re-check the token against LinkedIn right before publishing so a

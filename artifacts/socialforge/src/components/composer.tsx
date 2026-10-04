@@ -22,6 +22,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Send } from "lucide-react";
 import { QuickPublishPanel } from "@/components/studio-quick-publish";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { VideoPublishPanel } from "@/components/video-publish-panel";
+import type { VideoPublishMetadata } from "@workspace/api-client-react";
 
 /**
  * The composer: one sheet that takes a library item to published (or
@@ -41,6 +43,8 @@ export interface ComposerItem {
   videoThumbnailPath?: string | null;
   /** The item's primary platform; preselected when nothing is remembered. */
   platform?: string;
+  /** Saved, reviewed native video publish settings. */
+  videoPublishMetadata?: VideoPublishMetadata | null;
 }
 
 export function ComposerSheet({
@@ -139,6 +143,10 @@ export function ComposerSheet({
               </div>
             )}
 
+            {item.videoPath ? (
+              <VideoPublishPanel item={item} platformLive={platformLive} onDone={() => onOpenChange(false)} />
+            ) : (
+            <>
             <div className="space-y-1.5">
               <Label htmlFor="composer-caption">Caption</Label>
               <Textarea
@@ -160,7 +168,10 @@ export function ComposerSheet({
               rememberSelection
               onPublished={() => onOpenChange(false)}
               onScheduled={() => onOpenChange(false)}
+              hasVideo={false}
             />
+            </>
+            )}
           </>
         )}
       </SheetContent>

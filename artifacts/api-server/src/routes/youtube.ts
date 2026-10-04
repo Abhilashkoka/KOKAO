@@ -16,7 +16,7 @@ import { platformFetch } from "../lib/platformFetch";
 
 const router: IRouter = Router();
 
-const OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+const OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload";
 const AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CHANNELS_URL =
@@ -61,7 +61,7 @@ async function getYoutubeAccount(tenantId: number) {
 type YoutubeAccount = NonNullable<Awaited<ReturnType<typeof getYoutubeAccount>>>;
 
 /** Encrypted per-tenant blob kept alongside the connection row. */
-type YoutubeStoredCreds = { refreshToken: string };
+type YoutubeStoredCreds = { refreshToken: string; scopes?: string[] };
 
 function readStoredRefreshToken(account: YoutubeAccount): string | null {
   if (!account.encryptedCredentials) return null;
@@ -170,6 +170,7 @@ youtubeCallbackRouter.get(
         access_token?: string;
         refresh_token?: string;
         expires_in?: number;
+        scope?: string;
         error?: string;
       };
       if (!tokenRes.ok || !tokenJson.access_token) {
@@ -219,7 +220,9 @@ youtubeCallbackRouter.get(
         fail("no_refresh_token");
         return;
       }
-      const encryptedCredentials = encryptJson({ refreshToken });
+      // Missing scope evidence never upgrades a legacy read-only connection.
+      const scopes = (tokenJson.scope ?? "").split(/\s+/).filter(Boolean);
+      const encryptedCredentials = encryptJson({ refreshToken, scopes });
 
       const now = new Date();
       if (existing) {
@@ -274,7 +277,16 @@ function serializeStatus(
   const hasCreds = !!account && !!account.encryptedCredentials;
   const connected = hasCreds && account!.verifyStatus !== "failed";
   const expired = hasCreds && !connected;
+  let scopes: string[] = [];
+  try {
+    scopes = account?.encryptedCredentials ? decryptJson<YoutubeStoredCreds>(account.encryptedCredentials).scopes ?? [] : [];
+  } catch { /* unreadable credentials cannot authorize uploads */ }
+  const canUpload = configured && connected && scopes.includes("https://www.googleapis.com/auth/youtube.upload");
   return {
+    canUpload,
+    uploadGuidance: !configured ? "Ask an administrator to configure Google OAuth credentials and enable the YouTube Data API."
+      : !canUpload ? "Reconnect YouTube on Accounts and grant video upload permission. Read-only connections cannot upload."
+      : "Uploads from unaudited Google API projects may be restricted to private viewing.",
     connected,
     accountName: connected ? account!.accountName : null,
     configured,

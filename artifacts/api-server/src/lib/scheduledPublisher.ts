@@ -26,7 +26,7 @@
  * write may have landed before the crash.
  */
 import { db, scheduledPostsTable, contentItemsTable, tenantsTable } from "@workspace/db";
-import { and, eq, lte, lt } from "drizzle-orm";
+import { and, eq, lte, lt, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { tryAcquireResendLock } from "./resendLock";
 import { isShuttingDown } from "./backgroundJobs";
@@ -40,6 +40,7 @@ import { publishFacebookCore, publishInstagramCore } from "../routes/meta";
 import { publishLinkedinCore } from "../routes/linkedin";
 import { publishTwitterCore } from "../routes/twitter";
 import { publishThreadsCore } from "../routes/threads";
+import { enqueueVideoPublish } from "./videoPublisher";
 
 /** How often the executor looks for due scheduled posts. */
 export const SCHEDULED_PUBLISH_INTERVAL_MS = 60 * 1000;
@@ -101,6 +102,7 @@ const PLATFORM_CORES: Record<string, PublishCore> = {
   linkedin: publishLinkedinCore,
   twitter: publishTwitterCore,
   threads: publishThreadsCore,
+  youtube: (tenantId, id) => enqueueVideoPublish(tenantId, id, "youtube"),
 };
 
 let timer: NodeJS.Timeout | null = null;
@@ -176,6 +178,7 @@ async function publishOneScheduledPost(row: {
   contentItemId: number;
   platform: string;
   retryCount: number;
+  videoSnapshot?: typeof scheduledPostsTable.$inferSelect.videoSnapshot;
 }): Promise<number> {
   const logCtx = {
     scheduledPostId: row.id,
@@ -206,7 +209,9 @@ async function publishOneScheduledPost(row: {
 
     let outcome: PublishOutcome;
     try {
-      outcome = await core(row.tenantId, row.contentItemId);
+      outcome = row.videoSnapshot
+        ? await enqueueVideoPublish(row.tenantId, row.contentItemId, row.platform, row.videoSnapshot)
+        : await core(row.tenantId, row.contentItemId);
     } finally {
       release();
     }
@@ -232,6 +237,7 @@ async function publishOneScheduledPost(row: {
       };
     }
 
+    if (outcome.ok && outcome.pending) return 0;
     await finishSchedule(row, outcome);
     return 1;
   } catch (err) {
@@ -377,7 +383,9 @@ export async function retryScheduledPostNow(
 
   let outcome: PublishOutcome;
   try {
-    outcome = await core(claimed.tenantId, claimed.contentItemId);
+    outcome = claimed.videoSnapshot
+      ? await enqueueVideoPublish(claimed.tenantId, claimed.contentItemId, claimed.platform, claimed.videoSnapshot)
+      : await core(claimed.tenantId, claimed.contentItemId);
   } catch (err) {
     logger.error(
       { err, scheduledPostId: claimed.id, tenantId, platform: claimed.platform },
@@ -392,6 +400,7 @@ export async function retryScheduledPostNow(
     release();
   }
 
+  if (outcome.ok && outcome.pending) return { ok: true };
   await finishSchedule(claimed, outcome);
   if (outcome.ok) return { ok: true };
   return { ok: false, status: outcome.errorStatus, error: outcome.error };
@@ -510,6 +519,8 @@ async function recoverStuckProcessing(): Promise<void> {
         and(
           eq(scheduledPostsTable.status, "processing"),
           lt(scheduledPostsTable.updatedAt, cutoff),
+          sql`${scheduledPostsTable.videoSnapshot} IS NULL`,
+          sql`NOT EXISTS (SELECT 1 FROM video_publishes vp WHERE vp.content_item_id = ${scheduledPostsTable.contentItemId} AND vp.platform = ${scheduledPostsTable.platform})`,
         ),
       )
       .returning({

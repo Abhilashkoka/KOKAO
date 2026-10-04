@@ -5,6 +5,60 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+export interface VideoPublishCapability {
+  available: boolean;
+  guidance: string;
+}
+
+export type VideoPublishMetadataDestination = typeof VideoPublishMetadataDestination[keyof typeof VideoPublishMetadataDestination];
+
+
+export const VideoPublishMetadataDestination = {
+  instagram: 'instagram',
+  facebook: 'facebook',
+  youtube: 'youtube',
+} as const;
+
+export type VideoPublishMetadataFormat = typeof VideoPublishMetadataFormat[keyof typeof VideoPublishMetadataFormat];
+
+
+export const VideoPublishMetadataFormat = {
+  reel: 'reel',
+  video: 'video',
+} as const;
+
+export type VideoPublishMetadataPrivacy = typeof VideoPublishMetadataPrivacy[keyof typeof VideoPublishMetadataPrivacy];
+
+
+export const VideoPublishMetadataPrivacy = {
+  public: 'public',
+  private: 'private',
+  unlisted: 'unlisted',
+} as const;
+
+export interface VideoPublishMetadata {
+  destination: VideoPublishMetadataDestination;
+  format: VideoPublishMetadataFormat;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /** @maxLength 5000 */
+  description: string;
+  privacy: VideoPublishMetadataPrivacy;
+  madeForKids: boolean;
+}
+
+export interface VideoPublishResult {
+  platform: string;
+  state: string;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  permalink?: string | null;
+}
+
 export interface CreatorPayoutExportInput {
   /**
      * @minItems 1
@@ -4483,6 +4537,8 @@ export interface YoutubeAuthUrlResult {
 }
 
 export interface YoutubeStatus {
+  canUpload?: boolean;
+  uploadGuidance?: string;
   connected: boolean;
   /** @nullable */
   accountName?: string | null;
@@ -4677,6 +4733,7 @@ export interface CarouselSlide {
 }
 
 export interface ContentItem {
+  videoPublishMetadata?: VideoPublishMetadata;
   id: number;
   title: string;
   caption: string;
@@ -4780,6 +4837,7 @@ export const ContentUpdateStatus = {
 export type ContentUpdateImageLayers = { [key: string]: unknown } | null;
 
 export interface ContentUpdate {
+  videoPublishMetadata?: VideoPublishMetadata;
   /** @minLength 1 */
   title?: string;
   caption?: string;
@@ -14352,6 +14410,8 @@ export const AdsDatePresetParameter = {
   last_90d: 'last_90d',
   maximum: 'maximum',
 } as const;
+
+export type GetVideoPublishCapabilities200 = {[key: string]: VideoPublishCapability};
 
 export type GetAdminVideoJobDiagnostics200ErrorHistoryItem = { [key: string]: unknown };
 

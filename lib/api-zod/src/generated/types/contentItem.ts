@@ -8,8 +8,10 @@
 import type { CarouselSlide } from './carouselSlide';
 import type { ContentItemImageLayers } from './contentItemImageLayers';
 import type { ContentItemPublishedPlatforms } from './contentItemPublishedPlatforms';
+import type { VideoPublishMetadata } from './videoPublishMetadata';
 
 export interface ContentItem {
+  videoPublishMetadata?: VideoPublishMetadata;
   id: number;
   title: string;
   caption: string;

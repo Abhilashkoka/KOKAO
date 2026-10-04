@@ -1,4 +1,5 @@
 import { mergePublishedPlatform } from "../lib/publishedPlatforms";
+import { enqueueVideoPublish } from "../lib/videoPublisher";
 import { contentPublishBlock } from "../lib/compliance/content";
 import { recordTasteSignalFromContent } from "../lib/tasteMemory";
 import { buildPostText } from "../lib/postText";
@@ -887,12 +888,13 @@ export async function publishFacebookCore(
   tenantId: number,
   id: number,
 ): Promise<PublishOutcome> {
-  const complianceBlock = await contentPublishBlock(tenantId, id);
-  if (complianceBlock) return complianceBlock;
     const item = await loadContentItem(id, tenantId);
     if (!item) {
       return { ok: false, errorStatus: 404, error: "Not found" };
     }
+    if (item.videoPath) return enqueueVideoPublish(tenantId, id, "facebook");
+    const complianceBlock = await contentPublishBlock(tenantId, id);
+    if (complianceBlock) return complianceBlock;
 
     // Re-check the stored token against Meta right before publishing so an
     // expired/revoked token is caught here (and flipped to "failed") instead of
@@ -1073,7 +1075,7 @@ router.post(
     try {
       const outcome = await publishFacebookCore(req.tenantId, id);
       if (outcome.ok) {
-        res.json({ postId: outcome.postId ?? "", permalink: outcome.permalink });
+        res.status(outcome.pending ? 202 : 200).json({ postId: outcome.postId ?? "", permalink: outcome.permalink, ...(outcome.pending ? { status: "publishing" } : {}) });
       } else {
         res.status(outcome.errorStatus).json({ error: outcome.error });
       }
@@ -1170,6 +1172,8 @@ export async function publishInstagramCore(
   tenantId: number,
   id: number,
 ): Promise<PublishOutcome> {
+  const videoItem = await loadContentItem(id, tenantId);
+  if (videoItem?.videoPath) return enqueueVideoPublish(tenantId, id, "instagram");
   const complianceBlock = await contentPublishBlock(tenantId, id);
   if (complianceBlock) return complianceBlock;
   const prep = await prepareInstagramPublish(tenantId, id);
@@ -1201,6 +1205,13 @@ router.post(
     }
     let lockHandedOffToJob = false;
     try {
+    const videoItem = await loadContentItem(id, req.tenantId);
+    if (videoItem?.videoPath) {
+      const outcome = await enqueueVideoPublish(req.tenantId, id, "instagram");
+      if (!outcome.ok) res.status(outcome.errorStatus).json({ error: outcome.error });
+      else res.status(202).json({ status: outcome.pending ? "publishing" : "published", permalink: outcome.permalink });
+      return;
+    }
     const prep = await prepareInstagramPublish(req.tenantId, id);
     if (!prep.ok) {
       res.status(prep.errorStatus).json({ error: prep.error });

@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import { requireTenant } from "../middlewares/requireTenant";
 import credentialsRouter from "../routes/credentials";
 import metaRouter from "../routes/meta";
+import videoPublishingRouter from "../routes/videoPublishing";
 import linkedinRouter, { linkedinCallbackRouter } from "../routes/linkedin";
 import twitterRouter, { twitterCallbackRouter } from "../routes/twitter";
 import threadsRouter, { threadsCallbackRouter } from "../routes/threads";
@@ -58,6 +59,7 @@ export function createTestApp(): Express {
     requireTenant,
     credentialsRouter,
     metaRouter,
+    videoPublishingRouter,
     linkedinRouter,
     twitterRouter,
     threadsRouter,

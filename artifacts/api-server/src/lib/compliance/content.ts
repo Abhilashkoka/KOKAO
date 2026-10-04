@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { contentItemsTable, db, type ContentItem } from "@workspace/db";
 import type { ComplianceText } from "./check";
 import { ComplianceConfigError, ComplianceUnavailableError } from "./errors";
@@ -29,6 +30,7 @@ export type ContentComplianceResult =
 export async function checkContentItemCompliance(
   tenantId: number,
   contentItemId: number,
+  outgoing?: { title: string; caption: string },
 ): Promise<ContentComplianceResult> {
   const item = (
     await db.select().from(contentItemsTable)
@@ -40,9 +42,11 @@ export async function checkContentItemCompliance(
     const frozen = await resolveJobCompliance(tenantId, item.brandKitId ?? null);
     const report = await checkTextsWithAiReview({
       tenantId,
-      items: contentItemComplianceTexts(item),
+      items: contentItemComplianceTexts(outgoing ? { ...outgoing, imagePrompt: null, carouselSlides: null } : item),
       frozen,
-      operationKey: `content:${item.id}:${item.updatedAt?.getTime?.() ?? 0}`,
+      operationKey: outgoing
+        ? `content-video:${item.id}:${createHash("sha256").update(JSON.stringify(outgoing)).digest("hex")}`
+        : `content:${item.id}:${item.updatedAt?.getTime?.() ?? 0}`,
     });
     const blocking = report?.findings.filter((f) => f.severity === "block") ?? [];
     if (report && blocking.length > 0) {
@@ -65,7 +69,8 @@ export async function checkContentItemCompliance(
 export async function contentPublishBlock(
   tenantId: number,
   contentItemId: number,
+  outgoing?: { title: string; caption: string },
 ): Promise<{ ok: false; errorStatus: number; error: string } | null> {
-  const result = await checkContentItemCompliance(tenantId, contentItemId);
+  const result = await checkContentItemCompliance(tenantId, contentItemId, outgoing);
   return result.ok ? null : { ok: false, errorStatus: result.errorStatus, error: result.error };
 }

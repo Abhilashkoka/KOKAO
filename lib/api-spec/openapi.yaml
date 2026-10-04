@@ -47,6 +47,61 @@ tags:
   - name: prompt-kit
     description: Governed prompt templates - cases, versions, reviews, playground, and user customizations.
 paths:
+  /video-publish-capabilities:
+    get:
+      operationId: getVideoPublishCapabilities
+      tags: [content]
+      responses:
+        "200":
+          description: Verified upload permissions, not merely account connection.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/VideoPublishCapability"
+  /content/{id}/publish-video:
+    post:
+      operationId: publishLibraryVideo
+      tags: [content]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "202":
+          description: Upload queued or already being processed; not necessarily published.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoPublishResult"
+        "400":
+          description: Review settings, media or account authorization required.
+        "404":
+          description: Video not found.
+        "409":
+          description: Upload already active or requires manual reconciliation.
+  /content/{id}/video-publishes:
+    get:
+      operationId: listVideoPublishes
+      tags: [content]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Safe upload outcomes, without credentials or resumable session URLs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoPublishResult"
+        "404":
+          description: Video not found.
   /admin/video-jobs/{jobId}/diagnostics:
     get:
       summary: Get sanitized provider diagnostics for a video job
@@ -13981,6 +14036,31 @@ components:
         enum: [today, yesterday, last_7d, last_14d, last_30d, last_90d, maximum]
       description: Reporting date range (defaults to last_30d).
   schemas:
+    VideoPublishCapability:
+      type: object
+      required: [available, guidance]
+      properties:
+        available: { type: boolean }
+        guidance: { type: string }
+    VideoPublishMetadata:
+      type: object
+      additionalProperties: false
+      required: [destination, format, title, description, privacy, madeForKids]
+      properties:
+        destination: { type: string, enum: [instagram, facebook, youtube] }
+        format: { type: string, enum: [reel, video] }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        privacy: { type: string, enum: [public, private, unlisted] }
+        madeForKids: { type: boolean }
+    VideoPublishResult:
+      type: object
+      required: [platform, state]
+      properties:
+        platform: { type: string }
+        state: { type: string }
+        error: { type: ["string", "null"] }
+        permalink: { type: ["string", "null"] }
     CreatorPayoutExportInput:
       type: object
       additionalProperties: false
@@ -18555,6 +18635,10 @@ components:
       type: object
       required: [connected, configured, redirectUri]
       properties:
+        canUpload:
+          type: boolean
+        uploadGuidance:
+          type: string
         connected:
           type: boolean
         accountName:
@@ -18778,6 +18862,8 @@ components:
         - createdAt
         - updatedAt
       properties:
+        videoPublishMetadata:
+          $ref: "#/components/schemas/VideoPublishMetadata"
         id:
           type: integer
         title:
@@ -18907,6 +18993,8 @@ components:
     ContentUpdate:
       type: object
       properties:
+        videoPublishMetadata:
+          $ref: "#/components/schemas/VideoPublishMetadata"
         title:
           type: string
           minLength: 1

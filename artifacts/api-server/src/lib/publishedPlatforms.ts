@@ -10,6 +10,7 @@ import { contentItemsTable } from "@workspace/db";
  */
 export type PublishablePlatform =
   | "facebook"
+  | "youtube"
   | "instagram"
   | "linkedin"
   | "twitter"

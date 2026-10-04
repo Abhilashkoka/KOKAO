@@ -54,7 +54,10 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useWalletBilling, quotaLimitDescription } from "@/lib/quotaCopy";
 import { isInteractiveTarget } from "@/lib/utils";
 import { VideoDownloadButton } from "@/components/video-download-button";
-import { formatVideoLibraryCopy, videoLibraryCopyPrompt } from "@/lib/videoLibraryCopy";
+import { formatVideoLibraryCopy, videoLibraryCopyPrompt, VIDEO_COPY_SOURCE_LABELS } from "@/lib/videoLibraryCopy";
+import { LibraryVideoPublishStatus } from "@/components/video-publish-status";
+import { defaultVideoMetadata, utf8Bytes, VIDEO_FAILED_GUIDANCE, YOUTUBE_TITLE_MAX, YOUTUBE_DESCRIPTION_MAX } from "@/lib/videoPublish";
+import type { VideoPublishMetadata } from "@workspace/api-client-react";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "Instagram",
@@ -63,6 +66,8 @@ const PLATFORM_NAMES: Record<string, string> = {
   linkedin: "LinkedIn",
   threads: "Threads",
 };
+
+const VIDEO_COPY_NAMES: Record<string, string> = { ...PLATFORM_NAMES, youtube: "YouTube" };
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent({
@@ -94,7 +99,11 @@ export function LibraryPage() {
   const [editPlatform, setEditPlatform] = useState("instagram");
   const [videoCopyBusy, setVideoCopyBusy] = useState(false);
   const videoCopyInFlight = useRef(false);
-  const [videoCopyPreview, setVideoCopyPreview] = useState<{ title: string; caption: string; platform: string } | null>(null);
+  const [videoCopyPreview, setVideoCopyPreview] = useState<{ title: string; caption: string; platform: string; sourceType: keyof typeof VIDEO_COPY_SOURCE_LABELS } | null>(null);
+  // Copy target for video items: any post platform, or YouTube (title +
+  // description saved into the item's reviewed video publish metadata).
+  const [videoCopyTarget, setVideoCopyTarget] = useState("instagram");
+  const [editVideoMeta, setEditVideoMeta] = useState<VideoPublishMetadata | null>(null);
   const videoCopyRequest = useRef(0);
   const editItemRef = useRef<any | null>(null);
   editItemRef.current = editItem;
@@ -361,16 +370,17 @@ export function LibraryPage() {
   };
 
   // Resolve the retry target for a failed item from its platform. Unknown or
-  // missing platforms fall back to Instagram (the historical behavior).
+  // missing platforms have NO retry target; there is no Instagram fallback.
   const retryTargetFor = (item: any) =>
-    retryTargets[item?.platform as string] ?? retryTargets.instagram;
+    retryTargets[item?.platform as string] ?? null;
 
   // One-click retry for a failed publish. Re-uses the publish endpoint for
   // the platform the item failed on, which flips the item back through the
   // normal publish flow; the card then updates via the polling above.
   const handleRetry = (item: any) => {
     const target = retryTargetFor(item);
-    const platformKey = retryTargets[item?.platform as string] ? item.platform : "instagram";
+    if (!target || item?.videoPath) return;
+    const platformKey = item.platform as string;
     const guardKey = `retry:${item.id}`;
     if (publishInFlightRef.current.has(guardKey)) return;
     publishInFlightRef.current.add(guardKey);
@@ -593,6 +603,8 @@ export function LibraryPage() {
     setEditImageB64(null);
     setEditImageLayers(item.imageLayers ?? null);
     setEditCampaignId(item.campaignId ?? null);
+    setEditVideoMeta(item.videoPublishMetadata ?? null);
+    setVideoCopyTarget(item.videoPublishMetadata?.destination === "youtube" ? "youtube" : item.platform || "instagram");
   };
 
   // Deep link from notifications: /library?item=<id> opens that post's edit
@@ -644,6 +656,11 @@ export function LibraryPage() {
         imagePrompt: editImagePrompt,
         imageLayers: editImageLayers,
         campaignId: editCampaignId,
+        // Title/caption are the single source of truth; keep the saved video
+        // review in sync so the composer never shows stale copy.
+        ...(editItem.videoPath && editVideoMeta
+          ? { videoPublishMetadata: { ...editVideoMeta, title: editTitle, description: editCaption } }
+          : {}),
       }
     }, {
       onSuccess: () => {
@@ -706,7 +723,7 @@ export function LibraryPage() {
     if (!editItem?.videoPath || videoCopyBusy || videoCopyInFlight.current) return;
     videoCopyInFlight.current = true;
     const id = editItem.id;
-    const platform = editPlatform;
+    const platform = videoCopyTarget;
     const request = ++videoCopyRequest.current;
     setVideoCopyBusy(true);
     setVideoCopyPreview(null);
@@ -724,7 +741,7 @@ export function LibraryPage() {
       });
       if (videoCopyRequest.current !== request || editItemRef.current?.id !== id) return;
       const copy = formatVideoLibraryCopy(result, platform);
-      setVideoCopyPreview({ ...copy, platform });
+      setVideoCopyPreview({ ...copy, platform, sourceType: source.sourceType });
       toast({ title: "Video copy ready to review", description: "Nothing has been replaced. Review and apply, then save changes." });
     } catch (error) {
       if (videoCopyRequest.current === request && editItemRef.current?.id === id) {
@@ -947,6 +964,7 @@ export function LibraryPage() {
                       videoPath: item.videoPath ?? null,
                       videoThumbnailPath: item.videoThumbnailPath ?? null,
                       platform: item.platform,
+                      videoPublishMetadata: item.videoPublishMetadata ?? null,
                     })
                   }
                   data-testid={`button-composer-${item.id}`}
@@ -954,6 +972,12 @@ export function LibraryPage() {
                   <Send className="h-3.5 w-3.5 mr-1.5" /> Publish / Schedule
                 </Button>
                 )}
+                {item.videoPath && <LibraryVideoPublishStatus itemId={item.id} />}
+                {item.videoPath ? (
+                  <p className="text-xs" data-testid={`text-video-destinations-${item.id}`}>
+                    Videos publish as an Instagram Reel, public Facebook Reel or YouTube upload from Publish / Schedule.
+                  </p>
+                ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {([
                     { key: "facebook", label: "Facebook", Icon: Facebook, ready: fbReady, open: () => setPublishItem(item), title: fbReady ? "Publish to Facebook" : "Connect and verify your Facebook Page on the Accounts page first." },
@@ -1000,9 +1024,16 @@ export function LibraryPage() {
                       );
                     })}
                 </div>
+                )}
                 <div className="flex justify-end items-center gap-2">
-                  {item.status === 'failed' && (() => {
+                  {item.status === 'failed' && item.videoPath && (
+                    <span className="text-xs text-destructive" title={VIDEO_FAILED_GUIDANCE} data-testid={`text-video-failed-${item.id}`}>
+                      Cannot resubmit. Fix the video and save a new item.
+                    </span>
+                  )}
+                  {item.status === 'failed' && !item.videoPath && (() => {
                     const target = retryTargetFor(item);
+                    if (!target) return null;
                     const missingImage = target.needsImage && !item.imagePath;
                     return (
                       <Button
@@ -1100,7 +1131,12 @@ export function LibraryPage() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Title</label>
-              <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} />
+              <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} maxLength={editItem?.videoPath && editVideoMeta?.destination === "youtube" ? YOUTUBE_TITLE_MAX : undefined} data-testid="input-edit-title" />
+              {editItem?.videoPath && editVideoMeta?.destination === "youtube" && (
+                <p className="text-xs text-muted-foreground" data-testid="text-edit-youtube-limits">
+                  Used as the YouTube title ({editTitle.length}/{YOUTUBE_TITLE_MAX}); the caption below is the description ({utf8Bytes(editCaption)}/{YOUTUBE_DESCRIPTION_MAX} bytes). Audience and privacy are chosen in Publish / Schedule.
+                </p>
+              )}
             </div>
             {flags.campaigns && (
               <div className="space-y-2">
@@ -1126,6 +1162,19 @@ export function LibraryPage() {
                 <label className="text-sm font-medium">Caption</label>
                 <div className="flex flex-wrap gap-2 justify-end">
                 {editItem?.videoPath && (
+                  <Select value={videoCopyTarget} disabled={videoCopyBusy} onValueChange={(t) => { setVideoCopyTarget(t); setVideoCopyPreview(null); }}>
+                    <SelectTrigger className="h-7 w-auto text-xs" data-testid="select-video-copy-target">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(PLATFORM_NAMES).map((p) => (
+                        <SelectItem key={p} value={p}>{PLATFORM_NAMES[p]}</SelectItem>
+                      ))}
+                      <SelectItem value="youtube">YouTube</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                {editItem?.videoPath && (
                   <Button type="button" size="sm" variant="default" onClick={handleVideoCopy}
                     disabled={videoCopyBusy || generateCaption.isPending} data-testid="button-generate-video-copy">
                     {videoCopyBusy ? <RippleSpinner className="h-3 w-3 mr-1" /> : <Wand2 className="h-3 w-3 mr-1" />}
@@ -1150,18 +1199,30 @@ export function LibraryPage() {
                 </div>
               </div>
               {editItem?.videoPath && (
-                <p className="text-xs text-muted-foreground">Uses the saved script or narration (or the original brief if no script exists). Generates a title, caption and hashtags for {PLATFORM_NAMES[editPlatform] ?? editPlatform}. Uses one caption generation from your plan or credits{walletBilling ? captionWallet?.rates?.captionPaise ? `; wallet estimate ₹${(captionWallet.rates.captionPaise / 100).toFixed(2)} (actual cost may vary)` : "; wallet charged at the configured caption rate" : ""}. Review before replacing your edits.</p>
+                <p className="text-xs text-muted-foreground">Uses the saved script or narration (or the original brief if no script exists). Generates a title, {videoCopyTarget === "youtube" ? "description" : "caption"} and hashtags for {VIDEO_COPY_NAMES[videoCopyTarget] ?? videoCopyTarget}. Generating never publishes anything. Uses one caption generation from your plan or credits{walletBilling ? captionWallet?.rates?.captionPaise ? `; wallet estimate ₹${(captionWallet.rates.captionPaise / 100).toFixed(2)} (actual cost may vary)` : "; wallet charged at the configured caption rate" : ""}. Review before replacing your edits.</p>
               )}
               {videoCopyPreview && (
                 <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3" data-testid="video-copy-preview">
-                  <p className="text-sm font-semibold">Review generated copy for {PLATFORM_NAMES[videoCopyPreview.platform]}</p>
-                  <Input aria-label="Generated title" value={videoCopyPreview.title} maxLength={200}
+                  <p className="text-sm font-semibold">Review generated copy for {VIDEO_COPY_NAMES[videoCopyPreview.platform]}</p>
+                  <p className="text-xs text-muted-foreground" data-testid="text-video-copy-source">Source: {VIDEO_COPY_SOURCE_LABELS[videoCopyPreview.sourceType] ?? videoCopyPreview.sourceType}</p>
+                  <Input aria-label="Generated title" value={videoCopyPreview.title} maxLength={videoCopyPreview.platform === "youtube" ? YOUTUBE_TITLE_MAX : 200}
                     onChange={(event) => setVideoCopyPreview({ ...videoCopyPreview, title: event.target.value })} />
                   <Textarea aria-label="Generated caption and hashtags" value={videoCopyPreview.caption} rows={5}
                     onChange={(event) => setVideoCopyPreview({ ...videoCopyPreview, caption: event.target.value })} />
                   <div className="flex gap-2">
-                    <Button type="button" size="sm" disabled={videoCopyPreview.platform !== editPlatform || !videoCopyPreview.title.trim()}
-                      onClick={() => { setEditTitle(videoCopyPreview.title.trim()); setEditCaption(videoCopyPreview.caption.trim()); setVideoCopyPreview(null); }}
+                    <Button type="button" size="sm" disabled={videoCopyPreview.platform !== videoCopyTarget || !videoCopyPreview.title.trim()}
+                      onClick={() => {
+                        const title = videoCopyPreview.title.trim();
+                        const caption = videoCopyPreview.caption.trim();
+                        setEditTitle(title);
+                        setEditCaption(caption);
+                        if (videoCopyPreview.platform === "youtube" && editVideoMeta?.destination !== "youtube") {
+                          // Only records the destination. Audience and privacy are
+                          // always chosen explicitly in Publish / Schedule.
+                          setEditVideoMeta(defaultVideoMetadata("youtube", title, caption));
+                        }
+                        setVideoCopyPreview(null);
+                      }}
                       data-testid="button-apply-video-copy">Use this copy</Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => setVideoCopyPreview(null)}>Keep mine</Button>
                   </div>

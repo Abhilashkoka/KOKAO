@@ -148,6 +148,7 @@
 - [Topic reference images](topic-reference-images.md) — distinguish real AI image conditioning from exact fitted inserts; never silently ignore uploads or regenerate screenshot text.
 - [App Walkthrough timing](app-walkthrough-timing.md) — preserving uploaded demo footage requires visual timeline expansion and matching narration cue shifts, not just clip fitting.
 - [Video Library copy](video-library-copy.md) — prefer saved speech over briefs; disclose fallback, protect manual edits, and avoid duplicate paid suggestions.
+- [Native Library publishing](native-library-publishing.md) — freeze reviewed metadata; reconcile exact upload IDs and never fall back to text or thumbnails.
 - [Guided brand endings](guided-brand-endings.md) — explicit replace/keep/append confirmation; full-scene replacement includes speech, and recovery preserves the chosen animation.
 - [Professional video compliance](professional-video-compliance.md) — requested Brand Kit rules apply during scripting and scene planning, with review before video generation, not after.
 - [Storyboard rejection cleanup](storyboard-rejection-cleanup.md) — rejecting failed or completed storyboards must clean up associated characters, not require separate Atlas console deletion.

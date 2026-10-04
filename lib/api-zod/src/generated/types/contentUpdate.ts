@@ -8,8 +8,10 @@
 import type { CarouselSlide } from './carouselSlide';
 import type { ContentUpdateImageLayers } from './contentUpdateImageLayers';
 import type { ContentUpdateStatus } from './contentUpdateStatus';
+import type { VideoPublishMetadata } from './videoPublishMetadata';
 
 export interface ContentUpdate {
+  videoPublishMetadata?: VideoPublishMetadata;
   /** @minLength 1 */
   title?: string;
   caption?: string;

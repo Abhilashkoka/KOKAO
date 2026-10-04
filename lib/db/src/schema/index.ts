@@ -65,3 +65,4 @@ export * from "./invoices";
 export * from "./supportRequests";
 export * from "./creditRates";
 export * from "./creditAccounts";
+export * from "./videoPublishes";

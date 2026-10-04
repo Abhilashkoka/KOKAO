@@ -5,6 +5,7 @@ import { videoLibraryCopySource } from "../lib/videoLibraryCopySource";
 import { CreateContentBody, UpdateContentBody } from "@workspace/api-zod";
 import { serializeContent } from "../lib/serializers";
 import { recordTasteSignal } from "../lib/tasteMemory";
+import { validateVideoMetadata } from "../lib/videoPublishValidation";
 
 const router: IRouter = Router();
 
@@ -158,6 +159,10 @@ router.patch("/content/:id", async (req: Request, res: Response) => {
     return;
   }
   const layersError = invalidImageLayers(parsed.data);
+  if (parsed.data.videoPublishMetadata) {
+    const invalid = validateVideoMetadata(parsed.data.videoPublishMetadata.destination, parsed.data.videoPublishMetadata);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
+  }
   if (layersError) {
     res.status(400).json({ error: layersError });
     return;

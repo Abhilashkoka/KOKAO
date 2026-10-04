@@ -80,6 +80,12 @@ interface QuickPublishPanelProps {
    * platform posts the same text). Return false to abort the action.
    */
   beforeAction?: () => Promise<boolean>;
+  /**
+   * Whether the item is a video. Videos never go through these text/image
+   * publishers: every destination is blocked and the user is pointed at the
+   * Library video review, which handles native Reels and YouTube uploads.
+   */
+  hasVideo?: boolean;
   /** Remember the selection in this browser and prefill it next time. */
   rememberSelection?: boolean;
 }
@@ -101,6 +107,7 @@ export function QuickPublishPanel({
   hasImage,
   beforeAction,
   rememberSelection,
+  hasVideo,
 }: QuickPublishPanelProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -188,6 +195,14 @@ export function QuickPublishPanel({
         `Threads: over the limit — will post as a chain of ${chunkOnWhitespace(caption, THREADS_MAX_LENGTH).length} posts.`,
       );
     }
+  }
+
+  if (hasVideo) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="text-quick-publish-video-blocked">
+        Videos publish natively as an Instagram Reel, a public Facebook Reel or a YouTube upload. Open the item in the Library and use Publish / Schedule to review it.
+      </p>
+    );
   }
 
   if (livePlatforms.length === 0) {

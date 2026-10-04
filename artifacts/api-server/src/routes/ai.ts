@@ -639,10 +639,11 @@ async function buildCaptionSystemPrompt(
   const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
   constraints.push(...(await textComplianceConstraints(tenantId, data.brandKitId ?? null)));
   if (data.videoCopy) {
-    const budget = ({ instagram: 2200, twitter: 280, threads: 500, linkedin: 3000, facebook: 5000 } as Record<string, number>)[platform];
+    const budget = ({ instagram: 2200, twitter: 280, threads: 500, linkedin: 3000, facebook: 5000, youtube: 5000 } as Record<string, number>)[platform];
     const hashtags = platform === "instagram" ? "3-5" : platform === "twitter" || platform === "threads" ? "1-3" : "3-5";
     constraints.push(
       "This is VIDEO copy. The supplied source is saved script/narration or a creator brief, not a video inspection. Never claim you watched the footage or invent a depicted scene.",
+      platform === "youtube" ? "Write a YouTube title of at most 100 characters and a relevant video description. Do not promise Shorts classification." : "Write a short social title.",
       `Write a complete caption INCLUDING all hashtags within ${budget ?? 2200} characters. Give ${hashtags} relevant hashtags TOTAL, including any already written inline in the caption. Instagram must NEVER exceed 5 hashtags.`,
     );
   }
@@ -825,6 +826,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
         threads: 500,
         linkedin: 3000,
         facebook: 5000,
+        youtube: 5000,
       } as Record<string, number>)[platform];
       const hashtagMaximum = platform === "twitter" || platform === "threads" ? 3 : 5;
       const invalidHashtags = hashtags.some((tag) => !/^[\p{L}\p{N}_]+$/u.test(tag.replace(/^#+/, "").trim()));
@@ -840,7 +842,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       const complete = caption.trim() + (hashtags.length ? `\n\n${hashtags.map((tag) => `#${tag}`).join(" ")}` : "");
       const hashtagCount = inlineTags.length + hashtags.length;
       const missingPlatformHashtag = (platform === "twitter" || platform === "threads") && hashtagCount < 1;
-      if (!maximum || !title.trim() || title.trim().length > 200 || invalidHashtags || inlineTags.length !== captionTags.size || missingPlatformHashtag || hashtagCount > hashtagMaximum || complete.length > maximum) {
+      if (!maximum || !title.trim() || title.trim().length > (platform === "youtube" ? 100 : 200) || invalidHashtags || inlineTags.length !== captionTags.size || missingPlatformHashtag || hashtagCount > hashtagMaximum || (platform === "youtube" ? Buffer.byteLength(complete, "utf8") : complete.length) > maximum) {
         await releaseFunding(req, captionFunding, "caption");
         res.status(422).json({
           error: !maximum ? "Select a supported platform." :

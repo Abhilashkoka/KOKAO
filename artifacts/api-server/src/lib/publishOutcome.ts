@@ -45,6 +45,8 @@ export function isTransientPlatformStatus(status: number): boolean {
 export type PublishOutcome =
   | {
       ok: true;
+      /** Native upload accepted; publication is not yet confirmed. */
+      pending?: boolean;
       postId: string | null;
       permalink: string | null;
       /** Non-fatal follow-up problem (e.g. a thread/comment chain broke after
