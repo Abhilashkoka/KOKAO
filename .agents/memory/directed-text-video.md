@@ -14,3 +14,9 @@ For director activation, the user said: “Enable Wan 3.0” and “also use the
 **Why:** The user's existing Wan 3.0 Prime defaults should be preserved, not replaced with Seedance based on an inconsistent model allowlist.
 
 **How to apply:** Keep director choices on the configured Wan Prime family. Do not introduce Seedance as its default or fallback.
+
+Mobile direction consumes existing approved character sheets and outfits; their approval editors are a separate scope.
+
+**Why:** The requested mobile director rollout explicitly excludes rebuilding those editors and must preserve existing personal-likeness consent.
+
+**How to apply:** Reuse the existing consent UI and server validation. A character-selection control must not imply that missing approvals or provider-specific permission have been granted.

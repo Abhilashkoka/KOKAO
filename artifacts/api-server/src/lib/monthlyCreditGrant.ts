@@ -53,10 +53,11 @@ export async function monthlyCreditsForPlan(planId: string): Promise<number> {
     .where(eq(planSettingsTable.id, planId))
     .limit(1);
   if (row && Number.isFinite(row.monthlyCredits)) return Math.max(0, row.monthlyCredits);
-  // A plan with no override row falls back to the catalog, whose built-in
-  // defaults carry no allowance until a superadmin sets one.
+  // A known plan without an override may use its built-in catalog allowance.
   const plan = await getPlan(planId).catch(() => null);
-  return Math.max(0, plan?.monthlyCredits ?? 0);
+  // getPlan falls back to Free for display. A missing billing plan must not
+  // inherit another plan's allowance.
+  return plan?.id === planId ? Math.max(0, plan.monthlyCredits ?? 0) : 0;
 }
 
 export interface GrantMonthlyCreditsInput {

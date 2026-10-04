@@ -1507,7 +1507,7 @@ describe("GET/PUT /admin/notification-policies — global notification policy", 
 
       const res = await request(app).get("/api/admin/notification-policies");
       expect(res.status).toBe(200);
-      expect(res.body[0]).toMatchObject({
+      expect(res.body.find((entry: { type: string }) => entry.type === TYPE)).toMatchObject({
         type: TYPE,
         enabled: false,
         emailPolicy: "off",
@@ -1535,7 +1535,7 @@ describe("GET/PUT /admin/notification-policies — global notification policy", 
         });
       expect(put.status).toBe(200);
       // The PUT response returns the folded list with the new values.
-      expect(put.body[0]).toMatchObject({
+      expect(put.body.find((entry: { type: string }) => entry.type === TYPE)).toMatchObject({
         type: TYPE,
         enabled: false,
         emailPolicy: "forced",
@@ -1549,7 +1549,7 @@ describe("GET/PUT /admin/notification-policies — global notification policy", 
 
       const get = await request(app).get("/api/admin/notification-policies");
       expect(get.status).toBe(200);
-      expect(get.body[0]).toMatchObject({
+      expect(get.body.find((entry: { type: string }) => entry.type === TYPE)).toMatchObject({
         type: TYPE,
         enabled: false,
         emailPolicy: "forced",

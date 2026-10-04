@@ -1063,9 +1063,13 @@ import { waitForPendingJobs } from "../backgroundJobs";
 import { CueOverrunError } from "../localization/dub";
 
 const createdTenants: TestTenant[] = [];
+vi.mock("../plans", async importOriginal => {
+  const actual = await importOriginal<typeof import("../plans")>();
+  return { ...actual, getPlanLimits: async (id: string) => structuredClone(actual.DEFAULT_PLANS.find(p => p.id === id)!.limits) };
+});
 
 async function newTenant(): Promise<TestTenant> {
-  const tenant = await createTenant();
+  const tenant = await createTenant({ plan: "pro" });
   createdTenants.push(tenant);
   return tenant;
 }
@@ -1392,6 +1396,7 @@ describe("Guided Story native synchronized audio", () => {
   it("keeps the existing Replicate path for models without native synchronized audio", async () => {
     const tenant = await newTenant();
     const options = intrinsicOptions("replicate", "wan-video/wan-2.5-i2v", false);
+    options.renderedTimeline = { version: 1, scenes: [{ sceneId: "topic-s1", startSec: 0, endSec: 4 }] };
     options.guidedStoryIntrinsicLipSync!.checkpoint = {
       state: "prepared",
       basePath: `/objects/${tenant.tenantId}/uploads/base.mp4`,
@@ -4594,7 +4599,7 @@ describe("Guided Story preview-only runner", () => {
     expect(resumedSaved.status, resumedSaved.error ?? undefined).toBe("succeeded");
     expect(resumedSaved.videoPath).toBeTruthy();
     expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
-    expect(state.asrCalls).toBe(2);
+    expect(state.asrCalls).toBe(1);
     expect(state.deliveryReconciliations).toEqual([]);
     expect(state.usage).toHaveLength(usageBeforeRecovery);
 
@@ -4611,7 +4616,7 @@ describe("Guided Story preview-only runner", () => {
       await runVideoGenerationJob(invalid.id, "quota");
       expect((await readJob(invalid.id)).status, invalidContract).toBe("failed");
       expect(state.topicCheckpointed).toHaveLength(providerCallsAfterFirstRender);
-      expect(state.asrCalls).toBe(2);
+      expect(state.asrCalls).toBe(1);
       expect(state.dialogueSpeech).toHaveLength(speechCallsBefore);
       expect(state.usage).toHaveLength(usageBeforeRecovery);
     }

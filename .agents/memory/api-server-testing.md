@@ -5,6 +5,9 @@ description: Durable decisions for writing tests in artifacts/api-server.
 
 # API server test harness (durable decisions)
 
+- Quota-focused tests must pin plan configuration independently of saved admin edits, while retaining real reservation/debit checks. Use paid-plan fixtures for AI video and unique provider-asset IDs.
+  **Why:** Real development plans can be archived or repriced, and provider asset uniqueness spans tenants; stale assumptions produce unrelated billing and ownership failures.
+  **How to apply:** Keep Free-policy tests explicitly Free, isolate the catalog boundary for legacy quota tests, and never change production rules to accommodate a fixture.
 - **Integration tests hit the REAL dev Postgres DB, not a mock DB.** drizzle's fluent query builder
   isn't worth mocking; real-DB tests are the only faithful proof of tenant isolation. Always clean up
   rows you create, and snapshot+restore any GLOBALLY-unique row (e.g. the single `app_credentials`

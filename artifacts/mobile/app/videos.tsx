@@ -9,6 +9,7 @@ import {
   Linking,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -18,7 +19,18 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   cancelVideoJob,
   useGenerateVideo,
+  useGetBrandKit,
   useGetMe,
+  useListBrandKits,
+  useListCharacters,
+  useListVideoModels,
+  useRequestUploadUrl,
+  getGetBrandKitQueryKey,
+  getListCharactersQueryKey,
+  getListBrandKitsQueryKey,
+  getListVideoModelsQueryKey,
+  type Character,
+  type PresetCharacter,
   useListFeatureFlags,
   useListVideoJobs,
   useWalletGetOverview,
@@ -53,6 +65,20 @@ import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { haptic } from "@/lib/haptics";
 import { formatVideoCreditsUsed } from "@/lib/videoSpend";
+import { DirectedVideoPanel } from "@/components/DirectedVideoPanel";
+import {
+  buildDirectedGenerateRequest,
+  directedApprovedOutfitId,
+  directedBlockReason,
+  directedBrandOptions,
+  directedCastReadiness,
+  directedCompatibleModels,
+  directedDurationFor,
+  emptyDirectedDraft,
+  type DirectedCastSelection,
+  type DirectedDraft,
+} from "@/lib/directedVideo";
+import { pickDirectedFiles, uploadDirectedFile } from "@/lib/directedUpload";
 
 const c = colors.light;
 const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -411,30 +437,11 @@ export default function VideosScreen() {
     query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
   });
 
-  // ---- Estimated wallet cost (wallet-billed workspaces only) ----
-  // Mirror the web Video Studio: wallet overview carries the per-unit video
-  // rate (fee included) and the live balance; both are needed to price the job
-  // before a 402 would hit. Mobile only exposes text_to_video, which is always
-  // 1 unit, so estimatedUnits is fixed here.
-  //
-  // walletBilling is declared here (rather than near the 402 copy below) so it
-  // is in scope for showWalletEstimate. Both hooks are order-stable.
+  // Wallet overview carries the reservation rate and live balance.
   const walletBilling = useWalletBilling();
   const walletOverview = useWalletGetOverview({
     query: { queryKey: getWalletGetOverviewQueryKey(), staleTime: 60_000 },
   });
-  // Mobile only generates text_to_video with a single shot — 1 unit.
-  const estimatedUnits = 1;
-  const walletUnitPaise = walletOverview.data?.rates?.videoPaise ?? 0;
-  const estimatedCostPaise = walletUnitPaise * estimatedUnits;
-  // Nothing renders when the admin hasn't set a video rate (0 estimate is
-  // meaningless) or the workspace isn't wallet-billed.
-  const showWalletEstimate = useMemo(
-    () => walletBilling && walletOverview.data != null && walletUnitPaise > 0,
-    [walletBilling, walletOverview.data, walletUnitPaise],
-  );
-  const walletShortfall =
-    showWalletEstimate && estimatedCostPaise > (walletOverview.data?.balancePaise ?? 0);
 
   const jobs = jobsQuery.data;
 
@@ -472,6 +479,97 @@ export default function VideosScreen() {
   // enforces too). Only an explicit "free" plan qualifies.
   const isFreePlan = meQuery.data?.tenant?.plan === "free";
   const isOwner = meQuery.data?.team ? meQuery.data.team.role === "owner" : true;
+
+  // ---- Optional KOKAO direction (mirrors web DirectedVideoPanel) ----
+  const [directedDraft, setDirectedDraft] = useState<DirectedDraft>(emptyDirectedDraft);
+  const [directedModelId, setDirectedModelId] = useState<string | null>(null);
+  const [directedDuration, setDirectedDuration] = useState(5);
+  const [directedCast, setDirectedCast] = useState<DirectedCastSelection>({ kind: "none" });
+  const [directedBrandKitId, setDirectedBrandKitId] = useState<number | null>(null);
+  const [directedUploads, setDirectedUploads] = useState(0);
+  const directedOn = !isFreePlan && directedDraft.enabled;
+  const requestUpload = useRequestUploadUrl();
+  const videoModelsQuery = useListVideoModels({
+    query: {
+      queryKey: getListVideoModelsQueryKey(),
+      staleTime: 5 * 60 * 1000,
+      enabled: directedOn,
+    },
+  });
+  const charactersQuery = useListCharacters({
+    query: { queryKey: getListCharactersQueryKey(), enabled: directedOn, staleTime: 0, refetchOnMount: "always", refetchInterval: directedOn ? 10_000 : false },
+  });
+  const brandKitsQuery = useListBrandKits(undefined, {
+    query: { queryKey: getListBrandKitsQueryKey(), enabled: directedOn },
+  });
+  const directedKitQuery = useGetBrandKit(directedBrandKitId ?? 0, {
+    query: {
+      queryKey: getGetBrandKitQueryKey(directedBrandKitId ?? 0),
+      enabled: directedOn && directedBrandKitId !== null,
+    },
+  });
+  const savedCharacters = useMemo(
+    () =>
+      (charactersQuery.data ?? []).filter(
+        (item): item is Character => typeof item.id === "number" && "referenceSource" in item,
+      ),
+    [charactersQuery.data],
+  );
+  const presetCharacters = useMemo(
+    () =>
+      (charactersQuery.data ?? []).filter(
+        (item): item is PresetCharacter => (item as PresetCharacter).source === "preset",
+      ),
+    [charactersQuery.data],
+  );
+  const directedHasCast = directedCast.kind !== "none";
+  const directedModels = useMemo(
+    () => directedCompatibleModels(videoModelsQuery.data?.models, directedHasCast),
+    [videoModelsQuery.data, directedHasCast],
+  );
+  // Preserve the configured Wan default when it is compatible with this cast.
+  const modelMode = directedHasCast ? "image" : "text";
+  const configuredDefault = videoModelsQuery.data?.defaults?.[modelMode];
+  const defaultDirectedModel = directedModels.find((m) =>
+    m.provider === configuredDefault?.provider &&
+    m.providerModels[modelMode] === configuredDefault?.model);
+  const effectiveModel =
+    directedModels.find((m) => m.id === directedModelId) ?? defaultDirectedModel ?? directedModels[0] ?? null;
+  const effectiveDuration = directedDurationFor(effectiveModel?.durations, directedDuration);
+  const selectedSavedCast =
+    directedCast.kind === "saved"
+      ? savedCharacters.find((ch) => directedCast.kind === "saved" && ch.id === directedCast.characterId) ?? null
+      : null;
+  const missingCast =
+    (directedCast.kind === "saved" && !selectedSavedCast) ||
+    (directedCast.kind === "preset" && !presetCharacters.some((p) => p.id === directedCast.presetCharacterId));
+  const directedCastBlock = directedOn
+    ? missingCast ? "The selected character is unavailable. Choose another character."
+      : directedCastReadiness(selectedSavedCast)
+    : null;
+  const directedBrand = directedBrandOptions(
+    directedOn && directedBrandKitId !== null ? directedKitQuery.data : null,
+  );
+  const directedReason = directedOn
+    ? directedBlockReason(directedDraft, {
+        durationSec: effectiveDuration,
+        hasCompatibleModel: directedModels.length > 0,
+        castRestriction: directedCastBlock,
+        modelSelected: !!effectiveModel,
+        brandKitId: directedBrandKitId,
+        brand: directedBrand,
+      })
+    : null;
+  const directedBlocked = directedOn && (!!directedReason || directedUploads > 0);
+  // One generation may reserve multiple units for the selected model.
+  const estimatedUnits = directedOn ? effectiveModel?.unitMultiplier ?? 1 : 1;
+  const walletUnitPaise = walletOverview.data?.rates?.videoPaise ?? 0;
+  const estimatedCostPaise = walletUnitPaise * estimatedUnits;
+  const showWalletEstimate =
+    walletBilling && walletOverview.data != null && walletUnitPaise > 0 &&
+    (!directedOn || effectiveModel !== null);
+  const walletShortfall =
+    showWalletEstimate && estimatedCostPaise > (walletOverview.data?.balancePaise ?? 0);
   const upgradeRequestsEnabled = featureFlags.data?.upgradeRequests ?? true;
   // walletBilling is declared earlier (near the wallet estimate block) so it
   // can also be referenced there; nothing changes about how 402 copy uses it.
@@ -483,19 +581,33 @@ export default function VideosScreen() {
       : quotaErrorMessage(quotaErr, { isOwner, upgradeRequestsEnabled, walletBilling });
 
   const handleGenerate = () => {
-    if (!prompt.trim() || generateVideo.isPending) return;
+    if (!prompt.trim() || generateVideo.isPending || directedBlocked) return;
     haptic();
     setNotice(null);
     setQuotaErr(null);
+    const data =
+      directedOn && effectiveModel
+        ? buildDirectedGenerateRequest({
+            prompt,
+            draft: directedDraft,
+            modelId: effectiveModel.id,
+            durationSec: effectiveDuration,
+            cast:
+              directedCast.kind === "saved"
+                ? { ...directedCast, outfitId: directedApprovedOutfitId(selectedSavedCast) }
+                : directedCast,
+            brandKitId: directedBrandKitId,
+            canGenerateAudio: effectiveModel.canGenerateAudio,
+          })
+        : isFreePlan
+          ? { engine: "topic_to_video" as const, visualsSource: "stock" as const, prompt: prompt.trim() }
+          : { engine: "text_to_video" as const, prompt: prompt.trim() };
     generateVideo.mutate(
-      {
-        data: isFreePlan
-          ? { engine: "topic_to_video", visualsSource: "stock", prompt: prompt.trim() }
-          : { engine: "text_to_video", prompt: prompt.trim() },
-      },
+      { data },
       {
         onSuccess: () => {
           setPrompt("");
+          if (directedOn) setDirectedDraft(emptyDirectedDraft());
           setNotice("Video queued — it will show up below with its progress.");
           void jobsQuery.refetch();
         },
@@ -622,6 +734,13 @@ export default function VideosScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       {videoGenEnabled ? (
+        <ScrollView
+          style={directedOn ? styles.composerScroll : styles.composerScrollIdle}
+          scrollEnabled={directedOn}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+          testID="scroll-video-composer"
+        >
         <View style={styles.composer}>
           <Text style={styles.composerTitle}>
             {isFreePlan ? "Topic to Video" : "Text to Video"}
@@ -651,12 +770,53 @@ export default function VideosScreen() {
           <Text style={{ color: c.mutedForeground, fontSize: 13, lineHeight: 19, marginBottom: 10 }} testID="video-generation-quality-notice">
             AI-generated videos may not be perfect every time and can contain visual or audio glitches. Please review each video before downloading, sharing, or publishing.
           </Text>
+          {!isFreePlan ? (
+            <DirectedVideoPanel
+              draft={directedDraft}
+              onChange={setDirectedDraft}
+              onToggle={(enabled) => setDirectedDraft((d) => ({ ...d, enabled }))}
+              models={directedModels}
+              modelsLoading={videoModelsQuery.isLoading}
+              modelId={effectiveModel?.id ?? null}
+              onModelChange={setDirectedModelId}
+              durationSec={effectiveDuration}
+              onDurationChange={setDirectedDuration}
+              savedCharacters={savedCharacters}
+              presetCharacters={presetCharacters}
+              cast={directedCast}
+              onCastChange={(cast) => {
+                setDirectedCast(cast);
+                // Cast switches text/reference mode; re-pin a compatible model.
+                setDirectedModelId(null);
+              }}
+              onCreateCharacter={() => {
+                void import("expo-router").then(({ router }) => router.push("/characters"));
+              }}
+              castRestriction={directedCastBlock}
+              brandKits={brandKitsQuery.data}
+              brandKitId={directedBrandKitId}
+              onBrandKitChange={(id) => {
+                setDirectedBrandKitId(id);
+                // A new kit has different logos: ask again explicitly.
+                setDirectedDraft((d) => ({ ...d, ending: "none", brandImage: "none" }));
+              }}
+              brand={directedBrand}
+              brandLoading={directedKitQuery.isLoading}
+              pickFiles={pickDirectedFiles}
+              uploadFile={(file) =>
+                uploadDirectedFile(file, (body) => requestUpload.mutateAsync({ data: body }))
+              }
+              onUploadStart={() => setDirectedUploads((n) => n + 1)}
+              onUploadEnd={() => setDirectedUploads((n) => Math.max(0, n - 1))}
+              blockReason={directedReason}
+            />
+          ) : null}
           <Pressable
             onPress={handleGenerate}
-            disabled={!prompt.trim() || generateVideo.isPending}
+            disabled={!prompt.trim() || generateVideo.isPending || directedBlocked}
             style={({ pressed }) => [
               styles.composerButton,
-              (!prompt.trim() || generateVideo.isPending) && { opacity: 0.5 },
+              (!prompt.trim() || generateVideo.isPending || directedBlocked) && { opacity: 0.5 },
               pressed && { opacity: 0.8 },
             ]}
             testID="button-generate-video"
@@ -725,6 +885,7 @@ export default function VideosScreen() {
             />
           ) : null}
         </View>
+        </ScrollView>
       ) : null}
       <QuotaInfoSheet
         visible={quotaSheetOpen}
@@ -732,6 +893,16 @@ export default function VideosScreen() {
         isOwner={isOwner}
         upgradeRequestsEnabled={upgradeRequestsEnabled}
       />
+      {notice ? (
+        <Pressable
+          onPress={() => setNotice(null)}
+          style={styles.noticeBanner}
+          testID="banner-video-cancel-notice"
+          accessibilityRole="alert"
+        >
+          <Text style={styles.noticeText}>{notice}</Text>
+        </Pressable>
+      ) : null}
       {jobsQuery.isLoading ? (
         <View style={{ padding: 20, gap: 12 }}>
           <Skeleton height={92} />
@@ -752,17 +923,6 @@ export default function VideosScreen() {
       ) : (
         <FlatList
           ref={listRef}
-          ListHeaderComponent={
-            notice ? (
-              <Pressable
-                onPress={() => setNotice(null)}
-                style={styles.noticeBanner}
-                testID="banner-video-cancel-notice"
-              >
-                <Text style={styles.noticeText}>{notice}</Text>
-              </Pressable>
-            ) : null
-          }
           data={jobs}
           keyExtractor={(job) => String(job.id)}
           contentContainerStyle={{ padding: 20, gap: 12, paddingBottom: 40 }}
@@ -880,6 +1040,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: c.border,
   },
+  composerScroll: { flexGrow: 0, maxHeight: "70%" },
+  composerScrollIdle: { flexGrow: 0 },
   composerTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
   composerInput: {
     minHeight: 64,

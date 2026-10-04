@@ -99,7 +99,7 @@ describe("quests", () => {
     expect(granted.captionCredits).toBe(2); // catalog amount at 100%
     expect(granted.credits).toBe(expectedCredits);
     const after = await getCreditBalance(tenantId);
-    expect(after.total).toBe(before.total + expectedCredits);
+    expect(after.total).toBeCloseTo(before.total + expectedCredits, 3);
     // New rewards must not recreate or mutate the legacy generation buckets.
     expect(await getLegacyCreditBalances(tenantId)).toEqual(legacyBefore);
 

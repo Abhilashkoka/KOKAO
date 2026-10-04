@@ -43,7 +43,7 @@ it("creates a general-purpose pack with independent price and credits and refres
   fireEvent.click(screen.getByText("Create pack"));
   expect(state.create.mock.calls[0][0].data).toEqual({
     name: "SUPER", pricePaise: 200000, credits: 300,
-    captionCredits: 0, imageCredits: 0, active: true,
+    captionCredits: 0, imageCredits: 0, active: true, recommended: false,
   });
   state.create.mock.calls[0][1].onSuccess();
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["getBillingGetOverviewQueryKey"] });

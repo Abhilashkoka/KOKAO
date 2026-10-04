@@ -54,7 +54,7 @@ function creditsContext(operationKey: string) {
 }
 
 beforeAll(async () => {
-  const t = await createTenant();
+  const t = await createTenant({ plan: "pro" });
   tenantId = t.tenantId;
   await setMeterMode("shadow");
 });

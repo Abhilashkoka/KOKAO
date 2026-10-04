@@ -7545,7 +7545,7 @@ export function VideoStudioPage() {
                     data-testid="text-video-credits-used"
                   >
                     {activeJob.totalCreditsUsed == null
-                      ? "Credits used: uwhy are credit calculations unavailable?\nnavailable"
+                      ? "Credits used: unavailable"
                       : `Total credits used: ${activeJob.totalCreditsUsed.toLocaleString(
                           "en-IN",
                           { maximumFractionDigits: 3 },

@@ -18,7 +18,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@workspace/db", () => ({
-  db: { insert: () => ({ values: mocks.events }) },
+  db: {
+    insert: () => ({ values: mocks.events }),
+    select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ plan: "pro" }] }) }) }),
+  },
+  tenantsTable: { id: "id", plan: "plan" },
   creditMeterEventsTable: {},
 }));
 vi.mock("../../logger", () => ({ logger: { warn: vi.fn() } }));

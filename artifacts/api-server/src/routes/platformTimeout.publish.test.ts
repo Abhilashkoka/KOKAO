@@ -288,10 +288,14 @@ describe("hung platform call surfaces as a failed post (bounded timeout)", () =>
 });
 
 describe("Instagram: hung platform call in the BACKGROUND publish job", () => {
-  it("a never-responding Graph API flips the item to failed with the timeout reason, without burning the retry/backoff schedule", async () => {
+  it("a never-responding media_publish flips the item to failed without retrying a potentially committed post", async () => {
     // Instagram needs an image; the signed-URL mint talks to the storage
     // sidecar (not a platform), so stub it — the hang belongs to the Graph
-    // media-create call itself.
+    // final media_publish call itself. Container creation has its own longer,
+    // retryable timeout because it cannot publish a post.
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(Response.json({ id: "CONTAINER_TIMEOUT" }))
+      .mockResolvedValueOnce(Response.json({ status_code: "FINISHED" }));
     const signedUrlSpy = vi
       .spyOn(ObjectStorageService.prototype, "getSignedDownloadURL")
       .mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
@@ -331,7 +335,8 @@ describe("Instagram: hung platform call in the BACKGROUND publish job", () => {
       // non-retryable): exactly one hung Graph call, no duplicate-post probe,
       // no backoff sleeps. With the 3-attempt schedule (2s + 4s backoff) an
       // erroneous retry loop would blow far past this bound.
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+      expect(String(vi.mocked(global.fetch).mock.calls[2][0])).toContain("/media_publish");
       expect(elapsed).toBeLessThan(REQUEST_BOUND_MS);
       expect(elapsed).toBeLessThan(SHUTDOWN_DRAIN_TIMEOUT_MS);
 

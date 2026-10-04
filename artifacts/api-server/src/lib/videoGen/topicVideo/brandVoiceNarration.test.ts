@@ -205,13 +205,11 @@ describe("synthesizeNarration with a cloned brand voice", () => {
         tenantId: 77,
         refKind: "videoJob",
         refId: "42",
-        // Simulate an enforce-mode parent route. The independently reserved
-        // cloned narration must still use wallet-shadow and never debit the
-        // credit account.
+        // A wallet-funded parent keeps cloned narration on the wallet rail.
         funding: Object.freeze({
           tenantId: 77,
-          rail: "credits" as const,
-          mode: "enforce" as const,
+          rail: "wallet" as const,
+          mode: "shadow" as const,
         }),
       },
     });

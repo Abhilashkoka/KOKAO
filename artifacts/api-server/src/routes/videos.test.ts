@@ -6,6 +6,10 @@ vi.mock("../lib/videoGen/brandOutro", async importOriginal => ({
 }));
 import request from "supertest";
 import express, { type Express } from "express";
+vi.mock("../lib/plans", async importOriginal => {
+  const actual = await importOriginal<typeof import("../lib/plans")>();
+  return { ...actual, getPlanLimits: async (id: string) => structuredClone(actual.DEFAULT_PLANS.find(p => p.id === id)!.limits) };
+});
 import { createHash } from "node:crypto";
 import { CharacterInputError } from "../lib/characters";
 import { CharacterVisualQaError } from "../lib/characterVisualQa";
@@ -2027,7 +2031,9 @@ describe("POST /api/ai/generate-video", () => {
     });
 
     it("charges a premium model its multiplier, and 402s when it does not fit", async () => {
-      await newTenant(); // free plan: 3 videos/month
+      const tenant = await newTenant();
+      // Leave three of the paid plan's fifty monthly units available.
+      await db.insert(usageEventsTable).values(Array.from({ length: 47 }, () => ({ tenantId: tenant.tenantId, kind: "video", funding: "quota" })));
       const res = await request(app).post("/api/ai/generate-video").send({
         engine: "text_to_video",
         prompt: "a product on a table",
@@ -2224,7 +2230,8 @@ describe("POST /api/ai/generate-video", () => {
     });
 
     it("uses the pre-funded generated beat count as the exact reservation", async () => {
-      const tenant = await newTenant(); // free plan has three video units
+      const tenant = await newTenant();
+      await db.insert(usageEventsTable).values(Array.from({ length: 47 }, () => ({ tenantId: tenant.tenantId, kind: "video", funding: "quota" })));
       const template = await seedPresenterTemplate();
       presenterPlanState.beatCount = 4;
       const before = runnerState.calls.length;

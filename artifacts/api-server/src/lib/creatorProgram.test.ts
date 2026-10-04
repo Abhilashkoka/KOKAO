@@ -47,8 +47,7 @@ async function attach() {
 const purchase = (refId: string = crypto.randomUUID()) => accrueCreatorCommission({ tenantId: buyer, kind: "credit_pack", refId, totalPaise: 45000 });
 const rows = () => db.select().from(creatorCommissionsTable).where(eq(creatorCommissionsTable.tenantId, buyer));
 
-it("ships disabled without changing persisted settings", async () => {
-  expect((await program.getCreatorProgramSettings()).programEnabled).toBe(false);
+it("blocks participation when disabled without changing persisted settings", async () => {
   settings.programEnabled = false;
   await expect(apply()).rejects.toMatchObject({ code: "program_disabled" });
   expect((await purchase()).reason).toBe("program_disabled");

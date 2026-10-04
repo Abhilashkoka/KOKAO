@@ -39,7 +39,7 @@ export interface TestTenant {
 }
 
 export async function createTenant(
-  opts: { isSuperadmin?: boolean; email?: string | null } = {},
+  opts: { isSuperadmin?: boolean; email?: string | null; plan?: string } = {},
 ): Promise<TestTenant> {
   const clerkUserId = `test_${randomUUID()}`;
   const email = opts.email ?? null;
@@ -49,6 +49,7 @@ export async function createTenant(
       clerkUserId,
       email,
       name: "Test Workspace",
+      ...(opts.plan ? { plan: opts.plan } : {}),
       isSuperadmin: opts.isSuperadmin ?? false,
     })
     .returning();

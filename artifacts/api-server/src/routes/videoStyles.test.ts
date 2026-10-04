@@ -1,6 +1,10 @@
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
+vi.mock("../lib/plans", async importOriginal => {
+  const actual = await importOriginal<typeof import("../lib/plans")>();
+  return { ...actual, getPlanLimits: async (id: string) => structuredClone(actual.DEFAULT_PLANS.find(p => p.id === id)!.limits) };
+});
 import { HISTORICAL_PRESENTER_MARKER_VALUE, TEST_TEMPLATE_MARKER_KEY, markTestTemplatePayload } from "../lib/videoGen/testTemplateIsolation";
 
 vi.mock("@clerk/express", async () => {

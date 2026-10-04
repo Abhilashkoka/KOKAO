@@ -1,6 +1,11 @@
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
+// Exercise real quota accounting against fixed plan limits, not operator edits.
+vi.mock("../lib/plans", async importOriginal => {
+  const actual = await importOriginal<typeof import("../lib/plans")>();
+  return { ...actual, getPlanLimits: async (id: string) => structuredClone(actual.DEFAULT_PLANS.find(p => p.id === id)!.limits) };
+});
 
 vi.mock("@clerk/express", async () => {
   const { authState } = await import("../test/authState");
@@ -1399,7 +1404,7 @@ describe("list + delete", () => {
         likenessAttestation: uploadedLikenessAttestation,
       });
     await db.update(characterOutfitsTable).set({
-      atlasAssetId: "atlas-foreign-owned",
+      atlasAssetId: `atlas-foreign-owned-${otherChar.body.id}`,
       atlasAssetStatus: "Active",
     }).where(eq(characterOutfitsTable.characterId, otherChar.body.id));
 
@@ -1460,29 +1465,31 @@ describe("list + delete", () => {
       .send({ name: "Coat", description: "navy coat", protectedRegion });
     const coat = withOutfit.body.outfits.find((outfit: { name: string }) => outfit.name === "Coat");
     const defaultOutfit = withOutfit.body.outfits.find((outfit: { isDefault: boolean }) => outfit.isDefault);
+    const defaultLibraryId = 20_000_000 + defaultOutfit.id;
+    const coatLibraryId = 20_000_000 + coat.id;
     await db.update(characterOutfitsTable).set({
-      atlasAssetLibraryId: 2094548,
-      atlasAssetReferenceId: "asset-2026-default",
-      atlasAssetId: "asset-2026-default",
+      atlasAssetLibraryId: defaultLibraryId,
+      atlasAssetReferenceId: `asset-default-${defaultOutfit.id}`,
+      atlasAssetId: `asset-default-${defaultOutfit.id}`,
       atlasAssetStatus: "Failed",
     }).where(eq(characterOutfitsTable.id, defaultOutfit.id));
     await db.update(characterOutfitsTable).set({
-      atlasAssetLibraryId: 2094549,
-      atlasAssetReferenceId: "asset-2026-coat",
-      atlasAssetId: "asset-2026-coat",
+      atlasAssetLibraryId: coatLibraryId,
+      atlasAssetReferenceId: `asset-coat-${coat.id}`,
+      atlasAssetId: `asset-coat-${coat.id}`,
       atlasAssetStatus: "Active",
     }).where(eq(characterOutfitsTable.id, coat.id));
     atlasState.outcomes.set(
-      2094548,
+      defaultLibraryId,
       Object.assign(new Error("not found"), { status: 404 }),
     );
-    atlasState.outcomes.set(2094549, { status: "Active" });
+    atlasState.outcomes.set(coatLibraryId, { status: "Active" });
 
     const response = await request(app).delete(`/api/characters/${created.body.id}`);
 
     expect(response.status).toBe(409);
     expect(new Set(atlasState.getCalls)).toEqual(
-      new Set([2094548, 2094549]),
+      new Set([defaultLibraryId, coatLibraryId]),
     );
     expect(await db.select().from(charactersTable)
       .where(eq(charactersTable.id, created.body.id))).toHaveLength(1);

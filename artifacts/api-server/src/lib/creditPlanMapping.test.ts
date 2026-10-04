@@ -154,9 +154,8 @@ describe("plan allowances", () => {
   });
 
   it("is zero for a plan nobody has set an allowance on", async () => {
-    // The built-in catalog carries no allowance on purpose: what a plan should
-    // be worth depends on the rate card, so it is a superadmin's decision.
-    expect(await monthlyCreditsForPlan("free")).toBe(0);
+    // Never inherit the operator-configured Free allowance for a missing plan.
+    expect(await monthlyCreditsForPlan("missing-test-plan")).toBe(0);
   });
 });
 

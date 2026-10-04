@@ -40,7 +40,7 @@ function creditsContext(operationKey: string) {
 }
 
 beforeAll(async () => {
-  tenantId = (await createTenant()).tenantId;
+  tenantId = (await createTenant({ plan: "pro" })).tenantId;
 });
 
 afterAll(async () => {
