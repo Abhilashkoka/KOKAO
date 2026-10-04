@@ -129,7 +129,25 @@ export interface BrandVideoOutro {
   clip_path: string | null;
 }
 
+export type ComplianceProfession = "medical" | "chartered_accountant";
+export interface BrandComplianceFacts {
+  practitioner_name: string;
+  registration_number: string;
+  registering_body: string;
+  qualifications: string[];
+  services: string[];
+  practice_address: string;
+  verified_claims: string[];
+}
+export interface BrandCompliance {
+  profession: ComplianceProfession | "none";
+  source: "auto" | "manual";
+  confirmed_at: string | null;
+  facts: BrandComplianceFacts;
+  extra_negative_terms: string[];
+}
 export interface BrandKitPayload {
+  compliance?: BrandCompliance | null;
   identity: {
     brand_name: string;
     brand_slug: string;

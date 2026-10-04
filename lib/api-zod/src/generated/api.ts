@@ -8481,6 +8481,30 @@ export const listBrandKitsResponseActiveVersionOnePayloadBaseVideosItemLabelMax 
 
 export const listBrandKitsResponseActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const listBrandKitsResponseActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const listBrandKitsResponseActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -8640,6 +8664,21 @@ export const ListBrandKitsResponseItem = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(listBrandKitsResponseActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(listBrandKitsResponseActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -8671,6 +8710,30 @@ export const createBrandKitBodyPayloadOneBaseVideosItemLabelMax = 120;
 
 
 export const createBrandKitBodyPayloadOneBaseVideosMax = 12;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsPractitionerNameMax = 200;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsRegistrationNumberMax = 120;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsRegisteringBodyMax = 200;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsQualificationsItemMax = 200;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsQualificationsMax = 30;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsServicesItemMax = 200;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsServicesMax = 50;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsPracticeAddressMax = 500;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const createBrandKitBodyPayloadOneComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const createBrandKitBodyPayloadOneComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const createBrandKitBodyPayloadOneComplianceOneExtraNegativeTermsMax = 200;
 
 export const createBrandKitBodyPayloadOneVideoOutroDurationSecondsDefault = 3;
 export const createBrandKitBodyPayloadOneVideoOutroDurationSecondsMin = 2;
@@ -8820,6 +8883,21 @@ export const CreateBrandKitBody = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(createBrandKitBodyPayloadOneBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(createBrandKitBodyPayloadOneComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(createBrandKitBodyPayloadOneComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(createBrandKitBodyPayloadOneComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(createBrandKitBodyPayloadOneComplianceOneFactsQualificationsItemMax)).max(createBrandKitBodyPayloadOneComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(createBrandKitBodyPayloadOneComplianceOneFactsServicesItemMax)).max(createBrandKitBodyPayloadOneComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(createBrandKitBodyPayloadOneComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(createBrandKitBodyPayloadOneComplianceOneFactsVerifiedClaimsItemMax)).max(createBrandKitBodyPayloadOneComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(createBrandKitBodyPayloadOneComplianceOneExtraNegativeTermsItemMax)).max(createBrandKitBodyPayloadOneComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -8842,6 +8920,30 @@ export const createBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabel
 
 export const createBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const createBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -8858,6 +8960,30 @@ export const createBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax 
 
 
 export const createBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const createBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const createBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -9018,6 +9144,21 @@ export const CreateBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(createBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(createBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -9174,6 +9315,21 @@ export const CreateBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(createBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(createBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -9198,6 +9354,132 @@ export const CreateBrandKitResponse = zod.object({
 
 
 /**
+ * @summary List the profession compliance rule packs (NMC, ICAI)
+ */
+export const ListComplianceRulePacksResponseItem = zod.object({
+  "id": zod.string(),
+  "version": zod.string(),
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "label": zod.string(),
+  "regulator": zod.string(),
+  "summary": zod.string(),
+  "sources": zod.array(zod.object({
+  "title": zod.string(),
+  "url": zod.string().nullable(),
+  "note": zod.string().nullable()
+})),
+  "rules": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "source": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "instruction": zod.string(),
+  "fields": zod.array(zod.enum(['spoken', 'on_screen', 'visual', 'caption']))
+})),
+  "visualNegatives": zod.array(zod.string())
+})
+export const ListComplianceRulePacksResponse = zod.array(ListComplianceRulePacksResponseItem)
+
+
+/**
+ * @summary Detect a regulated profession from Business/Industry
+ */
+export const detectComplianceProfessionBodyIndustryMax = 500;
+
+export const detectComplianceProfessionBodyDescriptionMax = 4000;
+
+
+
+export const DetectComplianceProfessionBody = zod.object({
+  "industry": zod.string().max(detectComplianceProfessionBodyIndustryMax),
+  "description": zod.string().max(detectComplianceProfessionBodyDescriptionMax).nullish()
+})
+
+export const DetectComplianceProfessionResponse = zod.object({
+  "profession": zod.union([zod.literal('medical'),zod.literal('chartered_accountant'),zod.literal(null)]).nullable()
+})
+
+
+/**
+ * @summary Run the profession negative list over a piece of text
+ */
+export const checkComplianceTextBodyTextMax = 20000;
+
+export const checkComplianceTextBodyIndustryMax = 500;
+
+export const checkComplianceTextBodyRestrictedTermsItemMax = 120;
+
+export const checkComplianceTextBodyRestrictedTermsMax = 500;
+
+export const checkComplianceTextBodyComplianceOneFactsPractitionerNameMax = 200;
+
+export const checkComplianceTextBodyComplianceOneFactsRegistrationNumberMax = 120;
+
+export const checkComplianceTextBodyComplianceOneFactsRegisteringBodyMax = 200;
+
+export const checkComplianceTextBodyComplianceOneFactsQualificationsItemMax = 200;
+
+export const checkComplianceTextBodyComplianceOneFactsQualificationsMax = 30;
+
+export const checkComplianceTextBodyComplianceOneFactsServicesItemMax = 200;
+
+export const checkComplianceTextBodyComplianceOneFactsServicesMax = 50;
+
+export const checkComplianceTextBodyComplianceOneFactsPracticeAddressMax = 500;
+
+export const checkComplianceTextBodyComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const checkComplianceTextBodyComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const checkComplianceTextBodyComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const checkComplianceTextBodyComplianceOneExtraNegativeTermsMax = 200;
+
+
+
+export const CheckComplianceTextBody = zod.object({
+  "text": zod.string().min(1).max(checkComplianceTextBodyTextMax),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']).optional(),
+  "brandKitId": zod.number().nullish(),
+  "industry": zod.string().max(checkComplianceTextBodyIndustryMax).nullish(),
+  "restrictedTerms": zod.array(zod.string().max(checkComplianceTextBodyRestrictedTermsItemMax)).max(checkComplianceTextBodyRestrictedTermsMax).optional(),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(checkComplianceTextBodyComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(checkComplianceTextBodyComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(checkComplianceTextBodyComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(checkComplianceTextBodyComplianceOneFactsQualificationsItemMax)).max(checkComplianceTextBodyComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(checkComplianceTextBodyComplianceOneFactsServicesItemMax)).max(checkComplianceTextBodyComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(checkComplianceTextBodyComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(checkComplianceTextBodyComplianceOneFactsVerifiedClaimsItemMax)).max(checkComplianceTextBodyComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(checkComplianceTextBodyComplianceOneExtraNegativeTermsItemMax)).max(checkComplianceTextBodyComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional()
+})
+
+export const CheckComplianceTextResponse = zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+
+
+/**
  * @summary Resolve which brand kit applies to a request
  */
 export const ResolveBrandSelectionBody = zod.object({
@@ -9219,6 +9501,30 @@ export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBase
 
 export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -9235,6 +9541,30 @@ export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadB
 
 
 export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBaseVideosMax = 12;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
@@ -9398,6 +9728,21 @@ export const ResolveBrandSelectionResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -9563,6 +9908,21 @@ export const ResolveBrandSelectionResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -9600,6 +9960,30 @@ export const draftBrandKitResponsePayloadBaseVideosItemLabelMax = 120;
 
 
 export const draftBrandKitResponsePayloadBaseVideosMax = 12;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsServicesMax = 50;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const draftBrandKitResponsePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const draftBrandKitResponsePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const draftBrandKitResponsePayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const draftBrandKitResponsePayloadVideoOutroDurationSecondsDefault = 3;
 export const draftBrandKitResponsePayloadVideoOutroDurationSecondsMin = 2;
@@ -9745,6 +10129,21 @@ export const DraftBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(draftBrandKitResponsePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(draftBrandKitResponsePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(draftBrandKitResponsePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(draftBrandKitResponsePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(draftBrandKitResponsePayloadComplianceOneFactsQualificationsItemMax)).max(draftBrandKitResponsePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(draftBrandKitResponsePayloadComplianceOneFactsServicesItemMax)).max(draftBrandKitResponsePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(draftBrandKitResponsePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(draftBrandKitResponsePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(draftBrandKitResponsePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(draftBrandKitResponsePayloadComplianceOneExtraNegativeTermsItemMax)).max(draftBrandKitResponsePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -9776,6 +10175,30 @@ export const getBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax
 
 export const getBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const getBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -9792,6 +10215,30 @@ export const getBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 1
 
 
 export const getBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const getBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const getBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -9952,6 +10399,21 @@ export const GetBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(getBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(getBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -10108,6 +10570,21 @@ export const GetBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(getBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(getBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -10158,6 +10635,30 @@ export const updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabel
 
 export const updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const updateBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -10174,6 +10675,30 @@ export const updateBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax 
 
 
 export const updateBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const updateBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -10334,6 +10859,21 @@ export const UpdateBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(updateBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -10490,6 +11030,21 @@ export const UpdateBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(updateBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(updateBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -10540,6 +11095,30 @@ export const listBrandKitVersionsResponsePayloadBaseVideosItemLabelMax = 120;
 
 
 export const listBrandKitVersionsResponsePayloadBaseVideosMax = 12;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsServicesMax = 50;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const listBrandKitVersionsResponsePayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsDefault = 3;
 export const listBrandKitVersionsResponsePayloadVideoOutroDurationSecondsMin = 2;
@@ -10691,6 +11270,21 @@ export const ListBrandKitVersionsResponseItem = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(listBrandKitVersionsResponsePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneFactsQualificationsItemMax)).max(listBrandKitVersionsResponsePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneFactsServicesItemMax)).max(listBrandKitVersionsResponsePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(listBrandKitVersionsResponsePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(listBrandKitVersionsResponsePayloadComplianceOneExtraNegativeTermsItemMax)).max(listBrandKitVersionsResponsePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -10722,6 +11316,30 @@ export const createBrandKitVersionBodyPayloadBaseVideosItemLabelMax = 120;
 
 
 export const createBrandKitVersionBodyPayloadBaseVideosMax = 12;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsServicesMax = 50;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const createBrandKitVersionBodyPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const createBrandKitVersionBodyPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const createBrandKitVersionBodyPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const createBrandKitVersionBodyPayloadVideoOutroDurationSecondsDefault = 3;
 export const createBrandKitVersionBodyPayloadVideoOutroDurationSecondsMin = 2;
@@ -10867,6 +11485,21 @@ export const CreateBrandKitVersionBody = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(createBrandKitVersionBodyPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(createBrandKitVersionBodyPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(createBrandKitVersionBodyPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(createBrandKitVersionBodyPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(createBrandKitVersionBodyPayloadComplianceOneFactsQualificationsItemMax)).max(createBrandKitVersionBodyPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(createBrandKitVersionBodyPayloadComplianceOneFactsServicesItemMax)).max(createBrandKitVersionBodyPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(createBrandKitVersionBodyPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(createBrandKitVersionBodyPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(createBrandKitVersionBodyPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(createBrandKitVersionBodyPayloadComplianceOneExtraNegativeTermsItemMax)).max(createBrandKitVersionBodyPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -10893,6 +11526,30 @@ export const createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosIt
 
 export const createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const createBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -10909,6 +11566,30 @@ export const createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItemLa
 
 
 export const createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const createBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -11069,6 +11750,21 @@ export const CreateBrandKitVersionResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(createBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -11225,6 +11921,21 @@ export const CreateBrandKitVersionResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(createBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -11270,6 +11981,30 @@ export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideos
 
 export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const activateBrandKitVersionResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -11286,6 +12021,30 @@ export const activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItem
 
 
 export const activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const activateBrandKitVersionResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -11446,6 +12205,21 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -11602,6 +12376,21 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(activateBrandKitVersionResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -11643,6 +12432,30 @@ export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemL
 
 export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const setDefaultBrandKitResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -11659,6 +12472,30 @@ export const setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabel
 
 
 export const setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const setDefaultBrandKitResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -11819,6 +12656,21 @@ export const SetDefaultBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -11975,6 +12827,21 @@ export const SetDefaultBrandKitResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(setDefaultBrandKitResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -12170,6 +13037,30 @@ export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLabe
 
 export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const cloneBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -12186,6 +13077,30 @@ export const cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMax
 
 
 export const cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const cloneBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -12346,6 +13261,21 @@ export const CloneBrandVoiceResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -12502,6 +13432,21 @@ export const CloneBrandVoiceResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(cloneBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -12551,6 +13496,30 @@ export const selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLab
 
 export const selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const selectBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -12567,6 +13536,30 @@ export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMa
 
 
 export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const selectBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -12727,6 +13720,21 @@ export const SelectBrandVoiceResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(selectBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -12883,6 +13891,21 @@ export const SelectBrandVoiceResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(selectBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -12926,6 +13949,30 @@ export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosIt
 
 export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -12942,6 +13989,30 @@ export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosItemLa
 
 
 export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -13102,6 +14173,21 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -13258,6 +14344,21 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -13355,6 +14456,30 @@ export const removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLab
 
 export const removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
 
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax = 30;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax = 200;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax = 50;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax = 200;
+
 export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsDefault = 3;
 export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMin = 2;
 export const removeBrandVoiceResponseOneActiveVersionOnePayloadVideoOutroDurationSecondsMax = 5;
@@ -13371,6 +14496,30 @@ export const removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMa
 
 
 export const removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax = 200;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax = 120;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax = 200;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax = 200;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax = 30;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax = 200;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax = 50;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax = 500;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax = 300;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax = 30;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax = 120;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax = 200;
 
 export const removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsDefault = 3;
 export const removeBrandVoiceResponseTwoVersionsItemPayloadVideoOutroDurationSecondsMin = 2;
@@ -13531,6 +14680,21 @@ export const RemoveBrandVoiceResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsItemMax)).max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesItemMax)).max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsItemMax)).max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsItemMax)).max(removeBrandVoiceResponseOneActiveVersionOnePayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -13687,6 +14851,21 @@ export const RemoveBrandVoiceResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.'),
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant', 'none']),
+  "source": zod.enum(['auto', 'manual']),
+  "confirmed_at": zod.string().nullable(),
+  "facts": zod.object({
+  "practitioner_name": zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPractitionerNameMax),
+  "registration_number": zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegistrationNumberMax),
+  "registering_body": zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsRegisteringBodyMax),
+  "qualifications": zod.array(zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsItemMax)).max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsQualificationsMax),
+  "services": zod.array(zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesItemMax)).max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsServicesMax),
+  "practice_address": zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsPracticeAddressMax),
+  "verified_claims": zod.array(zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsItemMax)).max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneFactsVerifiedClaimsMax)
+}),
+  "extra_negative_terms": zod.array(zod.string().max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsItemMax)).max(removeBrandVoiceResponseTwoVersionsItemPayloadComplianceOneExtraNegativeTermsMax)
+}),zod.null()]).optional().describe('Profession profile; absent or null means auto-detect.'),
   "video_outro": zod.object({
   "enabled": zod.boolean(),
   "mode": zod.enum(['preset', 'upload']),
@@ -14795,6 +15974,29 @@ export const generateVideoResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const GenerateVideoResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(generateVideoResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(generateVideoResponseReferenceImagesItemLabelMax),
@@ -21056,6 +22258,29 @@ export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneTopicMax = 1
 
 
 export const EnqueueGuidedStoryDraftResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(enqueueGuidedStoryDraftResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(enqueueGuidedStoryDraftResponseReferenceImagesItemLabelMax),
@@ -21656,6 +22881,29 @@ export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneTopi
 
 
 export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(finalizeGuidedStoryJobReferenceResponseReferenceImagesItemLabelMax),
@@ -22221,6 +23469,29 @@ export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneT
 
 
 export const StartGuidedStoryReferenceOperationResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(startGuidedStoryReferenceOperationResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(startGuidedStoryReferenceOperationResponseReferenceImagesItemLabelMax),
@@ -22797,6 +24068,29 @@ export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefO
 
 
 export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(completeGuidedStoryReferenceOperationResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(completeGuidedStoryReferenceOperationResponseReferenceImagesItemLabelMax),
@@ -23458,6 +24752,29 @@ export const confirmGuidedStoryDialogueReplayResponseOperationCompletedLinesMin 
 
 export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "job": zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(confirmGuidedStoryDialogueReplayResponseJobReferenceImagesItemLabelMax),
@@ -24389,6 +25706,29 @@ export const listVideoJobsResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const ListVideoJobsResponseItem = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(listVideoJobsResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(listVideoJobsResponseReferenceImagesItemLabelMax),
@@ -24946,6 +26286,29 @@ export const getVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const GetVideoJobResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(getVideoJobResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(getVideoJobResponseReferenceImagesItemLabelMax),
@@ -25503,6 +26866,29 @@ export const cancelVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const CancelVideoJobResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(cancelVideoJobResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(cancelVideoJobResponseReferenceImagesItemLabelMax),
@@ -26060,6 +27446,29 @@ export const retryVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const RetryVideoJobResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(retryVideoJobResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(retryVideoJobResponseReferenceImagesItemLabelMax),
@@ -26617,6 +28026,29 @@ export const restartVideoJobFreshResponseResolvedCreativeBriefOneTopicMax = 1000
 
 
 export const RestartVideoJobFreshResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(restartVideoJobFreshResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(restartVideoJobFreshResponseReferenceImagesItemLabelMax),
@@ -27178,6 +28610,29 @@ export const repairVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const RepairVideoJobResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(repairVideoJobResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(repairVideoJobResponseReferenceImagesItemLabelMax),
@@ -27762,6 +29217,29 @@ export const updateVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 100
 
 
 export const UpdateVideoStoryboardResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(updateVideoStoryboardResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(updateVideoStoryboardResponseReferenceImagesItemLabelMax),
@@ -28331,6 +29809,29 @@ export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneTopicMax 
 
 
 export const InsertVideoStoryboardSceneResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(insertVideoStoryboardSceneResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(insertVideoStoryboardSceneResponseReferenceImagesItemLabelMax),
@@ -28889,6 +30390,29 @@ export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneTop
 
 
 export const RegenerateStoryboardScenePreviewResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseReferenceImagesItemLabelMax),
@@ -29459,6 +30983,29 @@ export const correctGuidedStorySceneResponseResolvedCreativeBriefOneTopicMax = 1
 
 
 export const CorrectGuidedStorySceneResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(correctGuidedStorySceneResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(correctGuidedStorySceneResponseReferenceImagesItemLabelMax),
@@ -30016,6 +31563,29 @@ export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneTop
 
 
 export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(renderMissingGuidedStoryPreviewsResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(renderMissingGuidedStoryPreviewsResponseReferenceImagesItemLabelMax),
@@ -30573,6 +32143,29 @@ export const cancelGuidedStoryPreviewRenderResponseResolvedCreativeBriefOneTopic
 
 
 export const CancelGuidedStoryPreviewRenderResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(cancelGuidedStoryPreviewRenderResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(cancelGuidedStoryPreviewRenderResponseReferenceImagesItemLabelMax),
@@ -31027,6 +32620,10 @@ export const ApproveVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const ApproveVideoStoryboardBody = zod.object({
+  "acknowledgeComplianceReview": zod.boolean().optional()
+})
+
 export const approveVideoStoryboardResponseReferenceImagesItemIdMax = 80;
 
 export const approveVideoStoryboardResponseReferenceImagesItemLabelMax = 120;
@@ -31130,6 +32727,29 @@ export const approveVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 10
 
 
 export const ApproveVideoStoryboardResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(approveVideoStoryboardResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(approveVideoStoryboardResponseReferenceImagesItemLabelMax),
@@ -31686,6 +33306,29 @@ export const discardVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 10
 
 
 export const DiscardVideoStoryboardResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(discardVideoStoryboardResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(discardVideoStoryboardResponseReferenceImagesItemLabelMax),
@@ -32242,6 +33885,29 @@ export const dismissUnrecoverableVideoStoryboardResponseResolvedCreativeBriefOne
 
 
 export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(dismissUnrecoverableVideoStoryboardResponseReferenceImagesItemLabelMax),
@@ -32915,6 +34581,29 @@ export const setVideoCoverResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 export const SetVideoCoverResponse = zod.object({
+  "compliance": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "reviewAcknowledgedAt": zod.string().nullable(),
+  "report": zod.union([zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number()
+}),zod.null()])
+}),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
   "id": zod.string().min(1).max(setVideoCoverResponseReferenceImagesItemIdMax),
   "label": zod.string().min(1).max(setVideoCoverResponseReferenceImagesItemLabelMax),

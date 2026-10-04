@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/dialog";
 import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play, ScrollText, Copy, Check, Square, AudioLines } from "lucide-react";
 import { SavedVisualsSection } from "@/components/saved-visuals";
+import { BrandComplianceSection } from "@/components/brand-compliance";
 import {
   BrandOutroSection,
   normalizeVideoOutro,
@@ -2844,10 +2845,13 @@ export function BrandKitsPage() {
           </DialogHeader>
           {draft && (
             <Tabs defaultValue="identity" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="identity">Identity</TabsTrigger>
                 <TabsTrigger value="voice">Voice</TabsTrigger>
                 <TabsTrigger value="colors">Colors</TabsTrigger>
+                <TabsTrigger value="compliance" data-testid="tab-compliance">
+                  Compliance
+                </TabsTrigger>
               </TabsList>
 
               <div className="max-h-[55vh] overflow-y-auto px-1 py-4">
@@ -3110,6 +3114,16 @@ export function BrandKitsPage() {
                       placeholder="e.g. warm tones, lifestyle, minimal"
                     />
                   </div>
+                </TabsContent>
+
+                <TabsContent value="compliance" className="space-y-4 mt-0">
+                  <BrandComplianceSection
+                    kitId={editKit?.id ?? null}
+                    draft={draft}
+                    onChange={(next) =>
+                      patchDraft((p) => ({ ...p, compliance: next }))
+                    }
+                  />
                 </TabsContent>
 
                 <TabsContent value="colors" className="space-y-5 mt-0">

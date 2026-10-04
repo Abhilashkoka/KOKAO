@@ -4786,6 +4786,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/compliance/rule-packs:
+    get:
+      operationId: listComplianceRulePacks
+      tags: [brand-kits]
+      summary: List the profession compliance rule packs (NMC, ICAI)
+      responses:
+        "200":
+          description: Rule packs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ComplianceRulePack"
+  /brand-kits/compliance/detect:
+    post:
+      operationId: detectComplianceProfession
+      tags: [brand-kits]
+      summary: Detect a regulated profession from Business/Industry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DetectComplianceProfessionInput"
+      responses:
+        "200":
+          description: Detected profession (null = not regulated)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceDetectResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/compliance/check:
+    post:
+      operationId: checkComplianceText
+      tags: [brand-kits]
+      summary: Run the profession negative list over a piece of text
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckComplianceTextInput"
+      responses:
+        "200":
+          description: Report, or null when no regulated profession applies
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ComplianceReport"
+                  - type: "null"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Brand kit not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-kits/resolve-selection:
     post:
       operationId: resolveBrandSelection
@@ -7931,6 +8001,12 @@ paths:
         Returns immediately with status processing; poll the job as usual.
         Nothing is charged here — the reservation was taken when the job was
         created.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveVideoStoryboardInput"
       responses:
         "202":
           description: Rendering resumed
@@ -14254,7 +14330,10 @@ components:
           description: >-
             Optional machine-readable error code. Currently
             "already_complete" on resend endpoints when there is nothing left
-            to resend (e.g. a concurrent resend already posted everything).
+            to resend (e.g. a concurrent resend already posted everything), and
+            "compliance_blocked" / "compliance_review_required" on video
+            requests checked against an NMC / ICAI rule pack (the body then
+            also carries a "compliance" ComplianceReport).
         provider:
           type: ["string", "null"]
           description: Safe provider identifier for configuration failures.
@@ -17741,6 +17820,11 @@ components:
               preset_voice:
                 type: ["string", "null"]
                 description: Stock narration voice used when voice_mode is preset.
+        compliance:
+          oneOf:
+            - $ref: "#/components/schemas/BrandCompliance"
+            - type: "null"
+          description: Profession profile; absent or null means auto-detect.
         video_outro:
           type: ["object", "null"]
           description: Reusable final slate. Absent or null means disabled for legacy kits.
@@ -17752,6 +17836,166 @@ components:
             duration_seconds: { type: number, minimum: 2, maximum: 5, default: 3 }
             background_color: { type: string, pattern: '^#[0-9a-fA-F]{6}$', default: '#000000' }
             clip_path: { type: ["string", "null"] }
+    BrandCompliance:
+      type: object
+      required: [profession, source, confirmed_at, facts, extra_negative_terms]
+      properties:
+        profession:
+          type: string
+          enum: [medical, chartered_accountant, none]
+        source:
+          type: string
+          enum: [auto, manual]
+        confirmed_at: { type: ["string", "null"] }
+        facts:
+          $ref: "#/components/schemas/BrandComplianceFacts"
+        extra_negative_terms:
+          type: array
+          maxItems: 200
+          items: { type: string, maxLength: 120 }
+    BrandComplianceFacts:
+      type: object
+      required: [practitioner_name, registration_number, registering_body, qualifications, services, practice_address, verified_claims]
+      properties:
+        practitioner_name: { type: string, maxLength: 200 }
+        registration_number: { type: string, maxLength: 120 }
+        registering_body: { type: string, maxLength: 200 }
+        qualifications:
+          type: array
+          maxItems: 30
+          items: { type: string, maxLength: 200 }
+        services:
+          type: array
+          maxItems: 50
+          items: { type: string, maxLength: 200 }
+        practice_address: { type: string, maxLength: 500 }
+        verified_claims:
+          type: array
+          maxItems: 30
+          items: { type: string, maxLength: 300 }
+    ComplianceFinding:
+      type: object
+      required: [ruleId, title, severity, source, field, location, match, excerpt]
+      properties:
+        ruleId: { type: string }
+        title: { type: string }
+        severity:
+          type: string
+          enum: [block, review]
+        source: { type: string }
+        field:
+          type: string
+          enum: [spoken, on_screen, visual, caption]
+        location: { type: string }
+        match: { type: string }
+        excerpt: { type: string }
+    ComplianceReport:
+      type: object
+      required: [profession, packId, packVersion, findings, blocking, review]
+      properties:
+        profession:
+          type: string
+          enum: [medical, chartered_accountant]
+        packId: { type: string }
+        packVersion: { type: string }
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComplianceFinding"
+        blocking: { type: integer }
+        review: { type: integer }
+    ComplianceRulePack:
+      type: object
+      required: [id, version, profession, label, regulator, summary, sources, rules, visualNegatives]
+      properties:
+        id: { type: string }
+        version: { type: string }
+        profession:
+          type: string
+          enum: [medical, chartered_accountant]
+        label: { type: string }
+        regulator: { type: string }
+        summary: { type: string }
+        sources:
+          type: array
+          items:
+            type: object
+            required: [title, url, note]
+            properties:
+              title: { type: string }
+              url: { type: ["string", "null"] }
+              note: { type: ["string", "null"] }
+        rules:
+          type: array
+          items:
+            type: object
+            required: [id, title, source, severity, instruction, fields]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              source: { type: string }
+              severity:
+                type: string
+                enum: [block, review]
+              instruction: { type: string }
+              fields:
+                type: array
+                items:
+                  type: string
+                  enum: [spoken, on_screen, visual, caption]
+        visualNegatives:
+          type: array
+          items: { type: string }
+    VideoJobCompliance:
+      type: object
+      required: [profession, packId, packVersion, reviewAcknowledgedAt, report]
+      properties:
+        profession:
+          type: string
+          enum: [medical, chartered_accountant]
+        packId: { type: string }
+        packVersion: { type: string }
+        reviewAcknowledgedAt: { type: ["string", "null"] }
+        report:
+          oneOf:
+            - $ref: "#/components/schemas/ComplianceReport"
+            - type: "null"
+    DetectComplianceProfessionInput:
+      type: object
+      required: [industry]
+      properties:
+        industry: { type: string, maxLength: 500 }
+        description: { type: ["string", "null"], maxLength: 4000 }
+    ComplianceDetectResult:
+      type: object
+      required: [profession]
+      properties:
+        profession:
+          type: ["string", "null"]
+          enum: [medical, chartered_accountant, null]
+    CheckComplianceTextInput:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 20000 }
+        field:
+          type: string
+          enum: [spoken, on_screen, visual, caption]
+        brandKitId: { type: ["integer", "null"] }
+        industry: { type: ["string", "null"], maxLength: 500 }
+        restrictedTerms:
+          type: array
+          maxItems: 500
+          items: { type: string, maxLength: 120 }
+        compliance:
+          oneOf:
+            - $ref: "#/components/schemas/BrandCompliance"
+            - type: "null"
+    ApproveVideoStoryboardInput:
+      type: object
+      properties:
+        acknowledgeComplianceReview:
+          type: boolean
     BrandKitVersion:
       type: object
       required: [id, brandKitId, versionNumber, sourceType, approvalStatus, payload, createdAt]
@@ -21516,6 +21760,13 @@ components:
           updatedAt,
         ]
       properties:
+        compliance:
+          oneOf:
+            - $ref: "#/components/schemas/VideoJobCompliance"
+            - type: "null"
+          description: >-
+            Profession compliance (NMC / ICAI) frozen at enqueue, with live
+            findings for the current storyboard. Null = not a regulated kit.
         referenceImages:
           type: array
           items:

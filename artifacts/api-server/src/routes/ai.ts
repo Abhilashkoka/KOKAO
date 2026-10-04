@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { parseModelJsonObject } from "../lib/modelJson";
 export { parseModelJsonObject } from "../lib/modelJson";
+import { complianceTextConstraints, resolveCompliance } from "../lib/compliance";
 import {
   db,
   tenantsTable,
@@ -663,6 +664,8 @@ async function buildCaptionSystemPrompt(
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
+    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
+    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const outputFormat = [
@@ -2251,6 +2254,8 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
+    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
+    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const systemPrompt = buildRicePrompt({
@@ -2824,6 +2829,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
+    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
+    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const campaignOutputFormat = [
@@ -3338,6 +3345,8 @@ router.post(
           `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
         );
       }
+      // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
+      constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
     }
     const streamOutputFormat = [
       'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}. Inside each post object, always emit the "platform" field first, then "caption".',
@@ -3801,6 +3810,8 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
+    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
+    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const carouselOutputFormat = [

@@ -7,6 +7,7 @@ import {
   jsonb,
 } from "drizzle-orm/pg-core";
 import type { ResolvedCreativeBrief } from "./creativeDirection";
+import type { BrandComplianceFacts, ComplianceProfession } from "./brandKitPayload";
 import type { VideoPriceCriteria } from "./aiCost";
 import type {
   GuidedStoryCastApprovalManifest,
@@ -228,6 +229,18 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 }
 
 /** Options captured at enqueue time so the job is fully self-describing. */
+export interface FrozenJobCompliance {
+  version: 1;
+  profession: ComplianceProfession;
+  packId: string;
+  packVersion: string;
+  brandKitId: number | null;
+  facts: BrandComplianceFacts;
+  extraNegativeTerms: string[];
+  reviewAcknowledgedAt?: string | null;
+  reviewAcknowledgedBy?: string | null;
+  reviewAcknowledgedFingerprint?: string | null;
+}
 export interface VideoJobOptions {
   /** Server-owned: stock visuals are free; only script/voice provider calls are metered. */
   freeStockVideo?: boolean;
@@ -895,6 +908,12 @@ export interface VideoJobOptions {
   /** Immutable creative intent resolved at enqueue time. Absent on legacy jobs. */
 
   resolvedCreativeBrief?: ResolvedCreativeBrief | null;
+  /** Profession compliance snapshot frozen at enqueue (NMC / ICAI rule pack
+   * id + version and the practitioner's verified facts / negative terms).
+   * Edits, approval and render are checked against these facts using the
+   * deployed pack for that profession, so a later Brand Kit edit cannot
+   * loosen an in-flight job. Absent/null = no regulated profession. */
+  compliance?: FrozenJobCompliance | null;
   /** Durable presenter render snapshot. Planned once, then reused by review,
    * approval and retries so stock searches / image generations never drift. */
 

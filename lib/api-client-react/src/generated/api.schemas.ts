@@ -571,7 +571,7 @@ export interface InvoiceSettingsInput {
 
 export interface ErrorEnvelope {
   error: string;
-  /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything). */
+  /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything), and "compliance_blocked" / "compliance_review_required" on video requests checked against an NMC / ICAI rule pack (the body then also carries a "compliance" ComplianceReport). */
   code?: string;
   /**
      * Safe provider identifier for configuration failures.
@@ -3745,6 +3745,62 @@ export type BrandKitPayloadVideoOutro = {
   clip_path: string | null;
 } | null;
 
+export type BrandComplianceProfession = typeof BrandComplianceProfession[keyof typeof BrandComplianceProfession];
+
+
+export const BrandComplianceProfession = {
+  medical: 'medical',
+  chartered_accountant: 'chartered_accountant',
+  none: 'none',
+} as const;
+
+export type BrandComplianceSource = typeof BrandComplianceSource[keyof typeof BrandComplianceSource];
+
+
+export const BrandComplianceSource = {
+  auto: 'auto',
+  manual: 'manual',
+} as const;
+
+export interface BrandComplianceFacts {
+  /** @maxLength 200 */
+  practitioner_name: string;
+  /** @maxLength 120 */
+  registration_number: string;
+  /** @maxLength 200 */
+  registering_body: string;
+  /**
+     * @maxItems 30
+     * @items.maxLength 200
+     */
+  qualifications: string[];
+  /**
+     * @maxItems 50
+     * @items.maxLength 200
+     */
+  services: string[];
+  /** @maxLength 500 */
+  practice_address: string;
+  /**
+     * @maxItems 30
+     * @items.maxLength 300
+     */
+  verified_claims: string[];
+}
+
+export interface BrandCompliance {
+  profession: BrandComplianceProfession;
+  source: BrandComplianceSource;
+  /** @nullable */
+  confirmed_at: string | null;
+  facts: BrandComplianceFacts;
+  /**
+     * @maxItems 200
+     * @items.maxLength 120
+     */
+  extra_negative_terms: string[];
+}
+
 /**
  * Source-of-truth brand definition stored immutably per version.
  */
@@ -3769,11 +3825,193 @@ export interface BrandKitPayload {
      * @nullable
      */
   base_videos?: BrandKitPayloadBaseVideosItem[] | null;
+  /** Profession profile; absent or null means auto-detect. */
+  compliance?: BrandCompliance | null;
   /**
      * Reusable final slate. Absent or null means disabled for legacy kits.
      * @nullable
      */
   video_outro?: BrandKitPayloadVideoOutro;
+}
+
+export type ComplianceFindingSeverity = typeof ComplianceFindingSeverity[keyof typeof ComplianceFindingSeverity];
+
+
+export const ComplianceFindingSeverity = {
+  block: 'block',
+  review: 'review',
+} as const;
+
+export type ComplianceFindingField = typeof ComplianceFindingField[keyof typeof ComplianceFindingField];
+
+
+export const ComplianceFindingField = {
+  spoken: 'spoken',
+  on_screen: 'on_screen',
+  visual: 'visual',
+  caption: 'caption',
+} as const;
+
+export interface ComplianceFinding {
+  ruleId: string;
+  title: string;
+  severity: ComplianceFindingSeverity;
+  source: string;
+  field: ComplianceFindingField;
+  location: string;
+  match: string;
+  excerpt: string;
+}
+
+export type ComplianceReportProfession = typeof ComplianceReportProfession[keyof typeof ComplianceReportProfession];
+
+
+export const ComplianceReportProfession = {
+  medical: 'medical',
+  chartered_accountant: 'chartered_accountant',
+} as const;
+
+export interface ComplianceReport {
+  profession: ComplianceReportProfession;
+  packId: string;
+  packVersion: string;
+  findings: ComplianceFinding[];
+  blocking: number;
+  review: number;
+}
+
+export type ComplianceRulePackProfession = typeof ComplianceRulePackProfession[keyof typeof ComplianceRulePackProfession];
+
+
+export const ComplianceRulePackProfession = {
+  medical: 'medical',
+  chartered_accountant: 'chartered_accountant',
+} as const;
+
+export type ComplianceRulePackSourcesItem = {
+  title: string;
+  /** @nullable */
+  url: string | null;
+  /** @nullable */
+  note: string | null;
+};
+
+export type ComplianceRulePackRulesItemSeverity = typeof ComplianceRulePackRulesItemSeverity[keyof typeof ComplianceRulePackRulesItemSeverity];
+
+
+export const ComplianceRulePackRulesItemSeverity = {
+  block: 'block',
+  review: 'review',
+} as const;
+
+export type ComplianceRulePackRulesItemFieldsItem = typeof ComplianceRulePackRulesItemFieldsItem[keyof typeof ComplianceRulePackRulesItemFieldsItem];
+
+
+export const ComplianceRulePackRulesItemFieldsItem = {
+  spoken: 'spoken',
+  on_screen: 'on_screen',
+  visual: 'visual',
+  caption: 'caption',
+} as const;
+
+export type ComplianceRulePackRulesItem = {
+  id: string;
+  title: string;
+  source: string;
+  severity: ComplianceRulePackRulesItemSeverity;
+  instruction: string;
+  fields: ComplianceRulePackRulesItemFieldsItem[];
+};
+
+export interface ComplianceRulePack {
+  id: string;
+  version: string;
+  profession: ComplianceRulePackProfession;
+  label: string;
+  regulator: string;
+  summary: string;
+  sources: ComplianceRulePackSourcesItem[];
+  rules: ComplianceRulePackRulesItem[];
+  visualNegatives: string[];
+}
+
+export type VideoJobComplianceProfession = typeof VideoJobComplianceProfession[keyof typeof VideoJobComplianceProfession];
+
+
+export const VideoJobComplianceProfession = {
+  medical: 'medical',
+  chartered_accountant: 'chartered_accountant',
+} as const;
+
+export interface VideoJobCompliance {
+  profession: VideoJobComplianceProfession;
+  packId: string;
+  packVersion: string;
+  /** @nullable */
+  reviewAcknowledgedAt: string | null;
+  report: ComplianceReport | null;
+}
+
+export interface DetectComplianceProfessionInput {
+  /** @maxLength 500 */
+  industry: string;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  description?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type ComplianceDetectResultProfession = typeof ComplianceDetectResultProfession[keyof typeof ComplianceDetectResultProfession] | null;
+
+
+export const ComplianceDetectResultProfession = {
+  medical: 'medical',
+  chartered_accountant: 'chartered_accountant',
+} as const;
+
+export interface ComplianceDetectResult {
+  /** @nullable */
+  profession: ComplianceDetectResultProfession;
+}
+
+export type CheckComplianceTextInputField = typeof CheckComplianceTextInputField[keyof typeof CheckComplianceTextInputField];
+
+
+export const CheckComplianceTextInputField = {
+  spoken: 'spoken',
+  on_screen: 'on_screen',
+  visual: 'visual',
+  caption: 'caption',
+} as const;
+
+export interface CheckComplianceTextInput {
+  /**
+     * @minLength 1
+     * @maxLength 20000
+     */
+  text: string;
+  field?: CheckComplianceTextInputField;
+  /** @nullable */
+  brandKitId?: number | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  industry?: string | null;
+  /**
+     * @maxItems 500
+     * @items.maxLength 120
+     */
+  restrictedTerms?: string[];
+  compliance?: BrandCompliance | null;
+}
+
+export interface ApproveVideoStoryboardInput {
+  acknowledgeComplianceReview?: boolean;
 }
 
 export type BrandKitVersionApprovalStatus = typeof BrandKitVersionApprovalStatus[keyof typeof BrandKitVersionApprovalStatus];
@@ -7391,6 +7629,8 @@ export type VideoJobGuidedPreviewRender = {
 } | null;
 
 export interface VideoJob {
+  /** Profession compliance (NMC / ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit. */
+  compliance?: VideoJobCompliance | null;
   /** Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes. */
   referenceImages?: VideoReferenceImage[];
   id: number;

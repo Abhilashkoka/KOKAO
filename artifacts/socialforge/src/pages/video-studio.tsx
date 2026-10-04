@@ -211,6 +211,7 @@ import {
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
+import { ComplianceFindingsList } from "@/components/brand-compliance";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
@@ -9360,6 +9361,18 @@ function StoryboardReview({
   const correctGuidedScene = useCorrectGuidedStoryScene();
   const approve = useApproveVideoStoryboard();
   const discard = useDiscardVideoStoryboard();
+  // Profession compliance (NMC / ICAI): findings on the SAVED storyboard.
+  // Blocking ones are rejected server-side at approval; review ones need the
+  // reviewer's explicit acknowledgement, sent with the approval.
+  const compliance = job.compliance ?? null;
+  const complianceReport = compliance?.report ?? null;
+  const complianceNeedsAck =
+    (complianceReport?.review ?? 0) > 0 && !compliance?.reviewAcknowledgedAt;
+  const [complianceAck, setComplianceAck] = useState(false);
+  const approveData =
+    complianceNeedsAck && complianceAck
+      ? { acknowledgeComplianceReview: true }
+      : undefined;
   // The immutable storyboard only contains the finalized cast. The draft is
   // the authoritative home for in-review reference candidates.
   const guidedDraftId = job.guidedStoryDraftId ?? undefined;
@@ -9704,7 +9717,7 @@ function StoryboardReview({
     // drafts to flush; approval must use the exact reviewed snapshot.
     if (guidedStoryboard) {
       approve.mutate(
-        { jobId: job.id },
+        { jobId: job.id, data: approveData },
         { onSuccess: settle, onError: fail("Could not start rendering") },
       );
       return;
@@ -9721,7 +9734,7 @@ function StoryboardReview({
     });
     const start = () =>
       approve.mutate(
-        { jobId: job.id },
+        { jobId: job.id, data: approveData },
         { onSuccess: settle, onError: fail("Could not start rendering") },
       );
     if (scenes.length === 0) {
@@ -10666,6 +10679,42 @@ function StoryboardReview({
         </DialogContent>
       </Dialog>
 
+      {compliance && complianceReport && (
+        <div
+          className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2 dark:border-violet-900 dark:bg-violet-950/20"
+          data-testid="storyboard-compliance"
+        >
+          <p className="text-sm font-medium">
+            {compliance.profession === "medical" ? "NMC" : "ICAI"} compliance check
+            <span className="text-muted-foreground font-normal">
+              {" "}· {complianceReport.blocking} to fix, {complianceReport.review} to review
+            </span>
+          </p>
+          <ComplianceFindingsList
+            report={complianceReport}
+            emptyLabel="No compliance issues found in this storyboard."
+          />
+          {complianceReport.blocking > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Edit the flagged narration or visual prompts — rendering stays blocked until they are gone.
+            </p>
+          )}
+          {complianceNeedsAck && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={complianceAck}
+                onCheckedChange={(v) => setComplianceAck(v === true)}
+                data-testid="checkbox-compliance-ack"
+              />
+              <span>
+                I have reviewed the flagged items and confirm they are accurate and allowed for my
+                profession.
+              </span>
+            </label>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {guidedStoryboard && missingGuidedPreviewCount > 0 && !guidedPreviewOutcomeUncertain && (
           <Button
@@ -10735,7 +10784,8 @@ function StoryboardReview({
             rollingScene !== null ||
             guidedReviewBlocked ||
             guidedPreviewRendering ||
-            guidedCorrectionActive
+            guidedCorrectionActive ||
+            (complianceNeedsAck && !complianceAck)
           }
           onClick={renderNow}
           data-testid="button-approve-storyboard"

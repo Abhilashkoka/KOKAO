@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BrandCompliance } from './brandCompliance';
 import type { BrandKitPayloadBaseVideosItem } from './brandKitPayloadBaseVideosItem';
 import type { BrandKitPayloadBrandControls } from './brandKitPayloadBrandControls';
 import type { BrandKitPayloadBrandVoice } from './brandKitPayloadBrandVoice';
@@ -42,6 +43,8 @@ export interface BrandKitPayload {
      * @nullable
      */
   base_videos?: BrandKitPayloadBaseVideosItem[] | null;
+  /** Profession profile; absent or null means auto-detect. */
+  compliance?: BrandCompliance | null;
   /**
      * Reusable final slate. Absent or null means disabled for legacy kits.
      * @nullable

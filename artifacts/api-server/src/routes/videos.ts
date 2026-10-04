@@ -240,6 +240,12 @@ import {
   planCharacterDialogueScenes,
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
+import {
+  checkCompliance, complianceScriptHint, describeFindings,
+  guidedScriptComplianceTexts, mergeGuidance, resolveJobCompliance,
+  newBlockingFindings, reviewFingerprint, storyboardComplianceError,
+  storyboardComplianceReport, thawCompliance,
+} from "../lib/compliance";
 import { resolveBrandOutroSnapshot, type BrandOutroSnapshot } from "../lib/videoGen/brandOutro";
 import { applyGuidedBrandEnding, confirmGuidedBrandEnding, loadGuidedBrandEnding, type GuidedBrandEndingApproval } from "../lib/videoGen/guidedBrandEnding";
 import { planGuidedFootageReuse } from "../lib/videoGen/guidedFootageReuse";
@@ -1718,6 +1724,19 @@ function serializeVideoJob(
               ],
             ),
           ),
+        }
+      : null,
+    // Profession compliance (NMC / ICAI): the frozen pack and, when a plan
+    // exists, its live findings — the review panel renders these directly.
+    compliance: job.options?.compliance
+      ? {
+          profession: job.options.compliance.profession,
+          packId: job.options.compliance.packId,
+          packVersion: job.options.compliance.packVersion,
+          reviewAcknowledgedAt: job.options.compliance.reviewAcknowledgedAt ?? null,
+          report: job.storyboard
+            ? storyboardComplianceReport(job.storyboard, job.options.compliance)
+            : null,
         }
       : null,
     modelId: job.options?.modelId ?? null,
@@ -5341,6 +5360,10 @@ router.post(
     const activeBrand = setup.brandKitId
       ? await loadActivePayload(req.tenantId, setup.brandKitId)
       : null;
+    const guidedCompliance = await resolveJobCompliance(
+      req.tenantId,
+      setup.brandKitId ?? null,
+    ).catch(() => null);
     let scriptReceipt: GuidedStoryDraftState["billingReceipts"] = undefined;
     let persistedScriptRow: GuidedStoryDraft | null = null;
     let billed: {
@@ -5364,12 +5387,15 @@ router.post(
             durationSeconds: setup.durationSeconds,
             locale: setup.locale,
             topic: setup.topic,
-            brandConstraints: activeBrand
-              ? [
-                  ...activeBrand.payload.brand_controls.restricted_terms,
-                  ...activeBrand.payload.voice.traits,
-                ].join(", ")
-              : null,
+            brandConstraints: mergeGuidance(
+              activeBrand
+                ? [
+                    ...activeBrand.payload.brand_controls.restricted_terms,
+                    ...activeBrand.payload.voice.traits,
+                  ].join(", ")
+                : null,
+              complianceScriptHint(thawCompliance(guidedCompliance)),
+            ),
             meterContext,
           }),
         beforeSettlement: async (result, meta) => {
@@ -5509,6 +5535,27 @@ router.post(
         .status(400)
         .json({ error: "Generate or save a valid script before approval." });
       return;
+    }
+    {
+      const scriptCompliance = await resolveJobCompliance(
+        req.tenantId,
+        row.state.setup?.brandKitId ?? null,
+      ).catch(() => null);
+      const report = scriptCompliance
+        ? checkCompliance(
+            guidedScriptComplianceTexts(row.state.script),
+            thawCompliance(scriptCompliance),
+          )
+        : null;
+      const blocking = report?.findings.filter((f) => f.severity === "block") ?? [];
+      if (blocking.length > 0) {
+        res.status(400).json({
+          error: `This script breaks ${report!.profession === "medical" ? "NMC" : "ICAI"} advertising rules and cannot be approved until these are edited out — ${describeFindings(blocking)}.`,
+          code: "compliance_blocked",
+          compliance: report,
+        });
+        return;
+      }
     }
     if (
       row.state.scriptGeneration ||
@@ -12418,6 +12465,49 @@ async function generateVideoHandler(
         : null,
   };
 
+  // Profession compliance (NMC / ICAI). Frozen onto the job so every later
+  // edit / approval / render is judged against the same practitioner facts.
+  // Resolved from the request's kit, else the tenant default kit, else the
+  // tenant's Business/Industry — independent of the brandVideo kill switch.
+  options.compliance = await resolveJobCompliance(
+    req.tenantId,
+    body.brandKitId ?? options.brandKitId ?? null,
+  ).catch((err) => {
+    req.log.warn({ err }, "Compliance profile lookup failed");
+    return null;
+  });
+  if (options.compliance) {
+    // Regulated kits always stop for storyboard review before billable
+    // visuals; Guided Story keeps its own script/cast/backdrop approvals.
+    if (body.engine === "topic_to_video" && !guidedDraft && options.reviewStoryboard === false) {
+      options.reviewStoryboard = true;
+    }
+    // Engines that send the user's own words straight to a provider are
+    // checked up front — there is no storyboard to review later.
+    const directTexts =
+      body.engine === "text_to_video" || body.engine === "image_to_video"
+        ? [{ field: "visual" as const, location: "Video prompt", text: body.prompt ?? "" }]
+        : body.engine === "localized_dub" && options.localizedTrack
+          ? [{
+              field: "spoken" as const,
+              location: "Dubbed script",
+              text: options.localizedTrack.cues.map((cue) => cue.text).join(" "),
+            }]
+          : [];
+    const direct = directTexts.length
+      ? checkCompliance(directTexts, thawCompliance(options.compliance))
+      : null;
+    const directBlocking = direct?.findings.filter((f) => f.severity === "block") ?? [];
+    if (directBlocking.length > 0) {
+      res.status(400).json({
+        error: `This request breaks ${options.compliance.profession === "medical" ? "NMC" : "ICAI"} advertising rules — ${describeFindings(directBlocking)}. Edit it and try again.`,
+        code: "compliance_blocked",
+        compliance: direct,
+      });
+      return;
+    }
+  }
+
   // Resolve mutable platform defaults into the immutable provider/model
   // contract before quota, credits, or wallet funds are touched.
   const resolvedMode: "text" | "image" | null =
@@ -16989,6 +17079,22 @@ router.patch(
         });
         return;
       }
+      // Compliance (NMC / ICAI): an edit may not ADD a blocking violation.
+      // Pre-existing ones stay saveable so the reviewer can fix the board
+      // scene by scene; approval and render reject anything still blocking.
+      const introduced = newBlockingFindings(
+        storyboard,
+        updated,
+        loaded.job.options?.compliance,
+      );
+      if (introduced.length > 0) {
+        res.status(400).json({
+          error: `This edit adds wording that breaks ${loaded.job.options?.compliance?.profession === "medical" ? "NMC" : "ICAI"} advertising rules — ${describeFindings(introduced)}.`,
+          code: "compliance_blocked",
+          compliance: storyboardComplianceReport(updated, loaded.job.options?.compliance),
+        });
+        return;
+      }
       const nextOptions =
         revisesGeneratedClaim &&
         loaded.job.status === "awaiting_review" &&
@@ -17959,6 +18065,50 @@ router.post(
           .join(", ")}.`,
       });
       return;
+    }
+    // Compliance (NMC / ICAI): blocking findings must be edited out; review
+    // findings need an explicit acknowledgement, recorded on the job for audit.
+    const acknowledgeComplianceReview =
+      (req.body as { acknowledgeComplianceReview?: unknown } | undefined)
+        ?.acknowledgeComplianceReview === true;
+    const complianceIssue = storyboardComplianceError(
+      loaded.storyboard,
+      loaded.job.options?.compliance,
+      { requireReviewAck: true, acknowledged: acknowledgeComplianceReview },
+    );
+    if (complianceIssue) {
+      res.status(400).json({
+        error: complianceIssue.error,
+        code: complianceIssue.code,
+        compliance: complianceIssue.report,
+      });
+      return;
+    }
+    if (acknowledgeComplianceReview && loaded.job.options?.compliance) {
+      const report = storyboardComplianceReport(
+        loaded.storyboard,
+        loaded.job.options.compliance,
+      );
+      if (report && report.review > 0) {
+        const acknowledgement = {
+          reviewAcknowledgedAt: new Date().toISOString(),
+          reviewAcknowledgedBy: req.clerkUserId ?? null,
+          reviewAcknowledgedFingerprint: reviewFingerprint(report.findings),
+        };
+        await db
+          .update(videoGenerationsTable)
+          .set({
+            options: sql`jsonb_set(${videoGenerationsTable.options}, '{compliance}', coalesce(${videoGenerationsTable.options}->'compliance', '{}'::jsonb) || ${JSON.stringify(acknowledgement)}::jsonb)`,
+          })
+          .where(
+            and(
+              eq(videoGenerationsTable.id, loaded.job.id),
+              eq(videoGenerationsTable.tenantId, req.tenantId),
+              eq(videoGenerationsTable.status, "awaiting_review"),
+            ),
+          );
+        Object.assign(loaded.job.options.compliance, acknowledgement);
+      }
     }
     if (loaded.storyboard.mode === "guided_story") {
       if (

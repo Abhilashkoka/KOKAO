@@ -10,6 +10,7 @@ import type { GuidedStoryDialogueReplayOperation } from './guidedStoryDialogueRe
 import type { GuidedStoryDialogueReplaySnapshot } from './guidedStoryDialogueReplaySnapshot';
 import type { LocalizedDubResult } from './localizedDubResult';
 import type { ResolvedCreativeBrief } from './resolvedCreativeBrief';
+import type { VideoJobCompliance } from './videoJobCompliance';
 import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobErrorHistoryItem } from './videoJobErrorHistoryItem';
 import type { VideoJobFreshRestart } from './videoJobFreshRestart';
@@ -26,6 +27,8 @@ import type { VideoReferenceImage } from './videoReferenceImage';
 import type { VideoStoryboard } from './videoStoryboard';
 
 export interface VideoJob {
+  /** Profession compliance (NMC / ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit. */
+  compliance?: VideoJobCompliance | null;
   /** Frozen uploaded reference metadata accepted for this job; assignments are on storyboard scenes. */
   referenceImages?: VideoReferenceImage[];
   id: number;

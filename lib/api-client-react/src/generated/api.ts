@@ -100,6 +100,7 @@ import type {
   AppBrandInput,
   AppBrandUploadUrlBody,
   AppBrandUploadUrlResponse,
+  ApproveVideoStoryboardInput,
   AsrSettingsView,
   AtlasCloudAssetsAdminView,
   AttachCreatorCode200,
@@ -159,6 +160,7 @@ import type {
   CharacterOutfit,
   CharacterOutfitUpdateInput,
   CharacterUpdateInput,
+  CheckComplianceTextInput,
   CheckVoiceSampleRequest,
   CinematographyCatalog,
   ClaimGamificationRewardRequest,
@@ -166,6 +168,9 @@ import type {
   ClawbackPromoterCommission200,
   CloneBrandVoiceRequest,
   CompleteOnboardingInput,
+  ComplianceDetectResult,
+  ComplianceReport,
+  ComplianceRulePack,
   ConnectedAccount,
   ConsentAnalytics,
   ConsentInput,
@@ -208,6 +213,7 @@ import type {
   DeletePromptTemplate200,
   DeletePromptVersion200,
   DesignSkillSettings,
+  DetectComplianceProfessionInput,
   DismissPromptKitDrift200,
   EditImageRequest,
   EmailSettingsInput,
@@ -14049,6 +14055,223 @@ export const useCreateBrandKit = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getCreateBrandKitMutationOptions(options));
     }
 
+export const getListComplianceRulePacksUrl = () => {
+
+
+
+
+  return `/api/brand-kits/compliance/rule-packs`
+}
+
+/**
+ * @summary List the profession compliance rule packs (NMC, ICAI)
+ */
+export const listComplianceRulePacks = async ( options?: RequestInit): Promise<ComplianceRulePack[]> => {
+
+  return customFetch<ComplianceRulePack[]>(getListComplianceRulePacksUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListComplianceRulePacksQueryKey = () => {
+    return [
+    `/api/brand-kits/compliance/rule-packs`
+    ] as const;
+    }
+
+
+export const getListComplianceRulePacksQueryOptions = <TData = Awaited<ReturnType<typeof listComplianceRulePacks>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listComplianceRulePacks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListComplianceRulePacksQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listComplianceRulePacks>>> = ({ signal }) => listComplianceRulePacks({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listComplianceRulePacks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListComplianceRulePacksQueryResult = NonNullable<Awaited<ReturnType<typeof listComplianceRulePacks>>>
+export type ListComplianceRulePacksQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the profession compliance rule packs (NMC, ICAI)
+ */
+
+export function useListComplianceRulePacks<TData = Awaited<ReturnType<typeof listComplianceRulePacks>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listComplianceRulePacks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListComplianceRulePacksQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDetectComplianceProfessionUrl = () => {
+
+
+
+
+  return `/api/brand-kits/compliance/detect`
+}
+
+/**
+ * @summary Detect a regulated profession from Business/Industry
+ */
+export const detectComplianceProfession = async (detectComplianceProfessionInput: DetectComplianceProfessionInput, options?: RequestInit): Promise<ComplianceDetectResult> => {
+
+  return customFetch<ComplianceDetectResult>(getDetectComplianceProfessionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(detectComplianceProfessionInput)
+  }
+);}
+
+
+
+
+export const getDetectComplianceProfessionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof detectComplianceProfession>>, TError,{data: BodyType<DetectComplianceProfessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof detectComplianceProfession>>, TError,{data: BodyType<DetectComplianceProfessionInput>}, TContext> => {
+
+const mutationKey = ['detectComplianceProfession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof detectComplianceProfession>>, {data: BodyType<DetectComplianceProfessionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  detectComplianceProfession(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DetectComplianceProfessionMutationResult = NonNullable<Awaited<ReturnType<typeof detectComplianceProfession>>>
+    export type DetectComplianceProfessionMutationBody = BodyType<DetectComplianceProfessionInput>
+    export type DetectComplianceProfessionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Detect a regulated profession from Business/Industry
+ */
+export const useDetectComplianceProfession = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof detectComplianceProfession>>, TError,{data: BodyType<DetectComplianceProfessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof detectComplianceProfession>>,
+        TError,
+        {data: BodyType<DetectComplianceProfessionInput>},
+        TContext
+      > => {
+      return useMutation(getDetectComplianceProfessionMutationOptions(options));
+    }
+
+export const getCheckComplianceTextUrl = () => {
+
+
+
+
+  return `/api/brand-kits/compliance/check`
+}
+
+/**
+ * @summary Run the profession negative list over a piece of text
+ */
+export const checkComplianceText = async (checkComplianceTextInput: CheckComplianceTextInput, options?: RequestInit): Promise<ComplianceReport | null> => {
+
+  return customFetch<ComplianceReport | null>(getCheckComplianceTextUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(checkComplianceTextInput)
+  }
+);}
+
+
+
+
+export const getCheckComplianceTextMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkComplianceText>>, TError,{data: BodyType<CheckComplianceTextInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof checkComplianceText>>, TError,{data: BodyType<CheckComplianceTextInput>}, TContext> => {
+
+const mutationKey = ['checkComplianceText'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof checkComplianceText>>, {data: BodyType<CheckComplianceTextInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  checkComplianceText(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CheckComplianceTextMutationResult = NonNullable<Awaited<ReturnType<typeof checkComplianceText>>>
+    export type CheckComplianceTextMutationBody = BodyType<CheckComplianceTextInput>
+    export type CheckComplianceTextMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run the profession negative list over a piece of text
+ */
+export const useCheckComplianceText = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkComplianceText>>, TError,{data: BodyType<CheckComplianceTextInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof checkComplianceText>>,
+        TError,
+        {data: BodyType<CheckComplianceTextInput>},
+        TContext
+      > => {
+      return useMutation(getCheckComplianceTextMutationOptions(options));
+    }
+
 export const getResolveBrandSelectionUrl = () => {
 
 
@@ -20912,14 +21135,15 @@ export const getApproveVideoStoryboardUrl = (jobId: number,) => {
  * Returns immediately with status processing; poll the job as usual. Nothing is charged here — the reservation was taken when the job was created.
  * @summary Approve a storyboard and resume rendering
  */
-export const approveVideoStoryboard = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+export const approveVideoStoryboard = async (jobId: number,
+    approveVideoStoryboardInput?: ApproveVideoStoryboardInput, options?: RequestInit): Promise<VideoJob> => {
 
   return customFetch<VideoJob>(getApproveVideoStoryboardUrl(jobId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(approveVideoStoryboardInput)
   }
 );}
 
@@ -20927,8 +21151,8 @@ export const approveVideoStoryboard = async (jobId: number, options?: RequestIni
 
 
 export const getApproveVideoStoryboardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}, TContext> => {
 
 const mutationKey = ['approveVideoStoryboard'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -20940,10 +21164,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveVideoStoryboard>>, {jobId: number}> = (props) => {
-          const {jobId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveVideoStoryboard>>, {jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
 
-          return  approveVideoStoryboard(jobId,requestOptions)
+          return  approveVideoStoryboard(jobId,data,requestOptions)
         }
 
 
@@ -20954,18 +21178,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ApproveVideoStoryboardMutationResult = NonNullable<Awaited<ReturnType<typeof approveVideoStoryboard>>>
-
+    export type ApproveVideoStoryboardMutationBody = BodyType<ApproveVideoStoryboardInput> | undefined
     export type ApproveVideoStoryboardMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Approve a storyboard and resume rendering
  */
 export const useApproveVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof approveVideoStoryboard>>,
         TError,
-        {jobId: number},
+        {jobId: number;data?: BodyType<ApproveVideoStoryboardInput>},
         TContext
       > => {
       return useMutation(getApproveVideoStoryboardMutationOptions(options));

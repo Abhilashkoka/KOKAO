@@ -235,6 +235,8 @@ import {
   unaccountedPresenterBrollEvents,
 } from "./presenterBroll";
 import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBrief";
+import { storyboardComplianceError } from "../compliance/gates";
+import { withComplianceVisual, withComplianceVoice } from "../compliance/prompt";
 import { videoPriceCriteria } from "./pricing";
 import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
@@ -4402,7 +4404,7 @@ async function produceVideo(
             screenDemo,
             brief: job.prompt ?? "",
             brandName: branding?.brandName ?? null,
-            brandVoice: branding?.voiceHint ?? null,
+            brandVoice: withComplianceVoice(branding?.voiceHint ?? null, options.compliance),
             loadRecording: loadScreenDemoRecording,
             textClient: async () => {
               const tenant = (await db.select({ aiModel: tenantsTable.aiModel }).from(tenantsTable)
@@ -4455,8 +4457,8 @@ async function produceVideo(
         videoJobId: job.id, topic: job.prompt ?? "", aspectRatio, voice: effectiveVoice, clonedVoice,
         paragraphCount: options.paragraphCount ?? 1, templateRuntime: options.templateRuntime ?? null,
         visualsSource: "ai_video", characterId: null, outfitId: null, wardrobeNotes: null,
-        brandVoice: branding?.voiceHint ?? null, referenceStyle: compiledReferenceStyle,
-        creativeVisualGuidance: creative.visual, scriptVariant,
+        brandVoice: withComplianceVoice(branding?.voiceHint ?? null, options.compliance), referenceStyle: compiledReferenceStyle,
+        creativeVisualGuidance: withComplianceVisual(creative.visual, options.compliance), scriptVariant,
         suppliedPlan: null, materializePreviews: false,
         approvedScript: screenDemoScript,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType), onStage,
@@ -4553,6 +4555,11 @@ async function produceVideo(
             .join(", ")}.`,
         );
       }
+      // Profession compliance (NMC / ICAI): last gate before any billable
+      // render. Review-level flags were acknowledged at approval; anything
+      // blocking still stops the render here, whichever route led to it.
+      const complianceIssue = storyboardComplianceError(board, options.compliance);
+      if (complianceIssue) throw new VideoJobInputError(complianceIssue.error);
       const legacyPrivacy = options.recovery?.privacyRecovery;
       if (legacyPrivacy) {
         const scene = board.scenes.find((candidate) => candidate.id === legacyPrivacy.sceneId);
@@ -5850,9 +5857,9 @@ async function produceVideo(
         characterId: options.characterId ?? null,
         outfitId: options.outfitId ?? null,
         wardrobeNotes: options.wardrobeNotes ?? null,
-        brandVoice: branding?.voiceHint ?? null,
+        brandVoice: withComplianceVoice(branding?.voiceHint ?? null, options.compliance),
         referenceStyle: compiledReferenceStyle,
-        creativeVisualGuidance: creative.visual,
+        creativeVisualGuidance: withComplianceVisual(creative.visual, options.compliance),
         scriptVariant,
         suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
         materializePreviews: !hasDeferredTemplateFunding(job) && !options.referenceImages?.length,
@@ -5928,9 +5935,9 @@ async function produceVideo(
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
       characterSnapshot: options.characterSnapshot,
-      brandVoice: branding?.voiceHint ?? null,
+      brandVoice: withComplianceVoice(branding?.voiceHint ?? null, options.compliance),
       referenceStyle: compiledReferenceStyle,
-      creativeVisualGuidance: creative.visual,
+      creativeVisualGuidance: withComplianceVisual(creative.visual, options.compliance),
       scriptVariant,
       suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
       accentColor: branding?.accentColor ?? null,

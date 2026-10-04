@@ -7,4 +7,4 @@ For video ad generation, the user wants the selected Brand Kit's professional ru
 
 **Why:** The user wants mistakes prevented before generating the video, rather than detected after generation.
 
-**How to apply:** Treat this as a requested design requirement, not an implemented feature. Review the script and scene instructions before rendering; do not describe pre-generation checks as guaranteeing that generated media contains no mistakes. The discussion remains design-only unless the user authorizes building.
+**How to apply:** Review script and scene instructions before rendering; do not describe pre-generation checks as guaranteeing that generated media contains no mistakes. The user approved the negative-list plus approved-facts and locked-script approach and subsequently authorized installing their supplied compliance patch. Installation is not evidence of legal approval of the supplied rule packs.

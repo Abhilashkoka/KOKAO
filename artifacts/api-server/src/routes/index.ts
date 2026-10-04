@@ -5,6 +5,7 @@ import plansRouter from "./plans";
 import meRouter from "./me";
 import teamRouter from "./team";
 import brandKitsRouter from "./brandKits";
+import complianceRouter from "./compliance";
 import brandPreferencesRouter from "./brandPreferences";
 import onboardingRouter from "./onboarding";
 import firstPostProgressRouter from "./firstPostProgress";
@@ -178,6 +179,7 @@ router.use(meRouter);
 // reads the tenant's own data and a dismissal flag on the tenant row).
 router.use(firstPostProgressRouter);
 router.use(teamRouter);
+router.use(complianceRouter);
 router.use(brandKitsRouter);
 router.use(brandPreferencesRouter);
 router.use(onboardingRouter);
