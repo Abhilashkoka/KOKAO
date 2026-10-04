@@ -1,4 +1,5 @@
 import { mergePublishedPlatform } from "../lib/publishedPlatforms";
+import { contentPublishBlock } from "../lib/compliance/content";
 import { recordTasteSignalFromContent } from "../lib/tasteMemory";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -606,6 +607,8 @@ export async function publishThreadsCore(
   tenantId: number,
   contentItemId: number,
 ): Promise<PublishOutcome> {
+  const complianceBlock = await contentPublishBlock(tenantId, contentItemId);
+  if (complianceBlock) return complianceBlock;
   const id = contentItemId;
   const item = (
     await db

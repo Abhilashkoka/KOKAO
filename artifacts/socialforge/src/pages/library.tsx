@@ -28,6 +28,7 @@ import {
   getListContentQueryKey
 } from "@workspace/api-client-react";
 import { useFeatureFlags } from "@/lib/features";
+import { PostComplianceCheck } from "@/components/brand-compliance";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1171,6 +1172,7 @@ export function LibraryPage() {
                 onChange={e => setEditCaption(e.target.value)} 
                 className="min-h-[150px]"
               />
+              <PostComplianceCheck brandKitId={editItem?.brandKitId ?? null} text={[editTitle, editCaption].filter(Boolean).join("\n")} />
               {editPlatform === "twitter" && (() => {
                 const tweetText = ((editCaption?.trim() || editTitle) ?? "").trim();
                 const overLimit = isOverTweetLimit(tweetText);

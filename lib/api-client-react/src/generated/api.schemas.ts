@@ -571,7 +571,7 @@ export interface InvoiceSettingsInput {
 
 export interface ErrorEnvelope {
   error: string;
-  /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything), and "compliance_blocked" / "compliance_review_required" on video requests checked against an NMC / ICAI rule pack (the body then also carries a "compliance" ComplianceReport). */
+  /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything), and "compliance_blocked" / "compliance_review_required" / "compliance_ai_review_required" on requests checked against an NMC / ICAI rule pack (the body then also carries a "compliance" ComplianceReport), "compliance_unavailable" (503) when the rules or the AI review could not be loaded, and "compliance_config" (409) when a job's pinned rule version is unknown. */
   code?: string;
   /**
      * Safe provider identifier for configuration failures.
@@ -3871,6 +3871,16 @@ export const ComplianceReportProfession = {
   chartered_accountant: 'chartered_accountant',
 } as const;
 
+/**
+ * AI second-pass status for this exact content (job gates only).
+ */
+export type ComplianceReportAiReview = {
+  required: boolean;
+  upToDate: boolean;
+  /** @nullable */
+  reviewedAt: string | null;
+};
+
 export interface ComplianceReport {
   profession: ComplianceReportProfession;
   packId: string;
@@ -3878,6 +3888,12 @@ export interface ComplianceReport {
   findings: ComplianceFinding[];
   blocking: number;
   review: number;
+  /** Identity of the exact content checked (job gates only). */
+  contentFingerprint?: string;
+  /** AI second-pass status for this exact content (job gates only). */
+  aiReview?: ComplianceReportAiReview;
+  /** Whether "review" findings were acknowledged for this exact content. */
+  reviewAcknowledged?: boolean;
 }
 
 export type ComplianceRulePackProfession = typeof ComplianceRulePackProfession[keyof typeof ComplianceRulePackProfession];
@@ -4008,6 +4024,8 @@ export interface CheckComplianceTextInput {
      */
   restrictedTerms?: string[];
   compliance?: BrandCompliance | null;
+  /** Also run the AI second-pass review (paraphrases, Hindi/Telugu/Tamil). Fails with 503 if it cannot run. */
+  deep?: boolean;
 }
 
 export interface ApproveVideoStoryboardInput {
@@ -8631,6 +8649,7 @@ export interface ScriptMeta {
 }
 
 export interface SpokespersonScriptResult {
+  compliance?: ComplianceReport;
   /**
      * Clean spoken text, free of cues and unspeakable tokens — this is what the lip-sync and TTS paths consume.
      * @minLength 1
@@ -11952,6 +11971,7 @@ export interface FeatureFlags {
   lipSync: boolean;
   studioLipSync: boolean;
   screenDemoVideo: boolean;
+  complianceAiReview?: boolean;
 }
 
 /**

@@ -10,6 +10,8 @@ import {
   checkCompliance,
   detectProfession,
   resolveCompliance,
+  runSemanticReview,
+  ComplianceUnavailableError,
   type ComplianceRulePack,
 } from "../lib/compliance";
 
@@ -86,7 +88,35 @@ router.post("/brand-kits/compliance/check", async (req: Request, res: Response) 
     compliance: body.compliance !== undefined ? body.compliance : (saved?.payload.compliance ?? null),
   } as BrandKitPayload;
   const field = body.field ?? "caption";
-  res.json(checkCompliance([{ field, location: "Text", text: body.text }], resolveCompliance(payload)));
+  const items = [{ field, location: "Text", text: body.text }];
+  const effective = resolveCompliance(payload);
+  const report = checkCompliance(items, effective);
+  if (!report || !body.deep || report.blocking > 0) {
+    res.json(report);
+    return;
+  }
+  try {
+    const reviewed = await runSemanticReview({
+      tenantId: req.tenantId,
+      items,
+      compliance: effective!,
+      operationKey: `brand-kit-test:${req.tenantId}:${Date.now()}`,
+    });
+    const findings = [...report.findings, ...reviewed.findings];
+    res.json({
+      ...report,
+      findings,
+      blocking: findings.filter((f) => f.severity === "block").length,
+      review: findings.filter((f) => f.severity === "review").length,
+      aiReview: { required: true, upToDate: true, reviewedAt: reviewed.reviewedAt },
+    });
+  } catch (error) {
+    if (error instanceof ComplianceUnavailableError) {
+      res.status(503).json({ error: error.message, code: error.code });
+      return;
+    }
+    throw error;
+  }
 });
 
 export default router;

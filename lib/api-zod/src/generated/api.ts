@@ -152,7 +152,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "providerScoring": zod.boolean(),
   "lipSync": zod.boolean(),
   "studioLipSync": zod.boolean(),
-  "screenDemoVideo": zod.boolean()
+  "screenDemoVideo": zod.boolean(),
+  "complianceAiReview": zod.boolean().optional()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -9457,7 +9458,8 @@ export const CheckComplianceTextBody = zod.object({
   "verified_claims": zod.array(zod.string().max(checkComplianceTextBodyComplianceOneFactsVerifiedClaimsItemMax)).max(checkComplianceTextBodyComplianceOneFactsVerifiedClaimsMax)
 }),
   "extra_negative_terms": zod.array(zod.string().max(checkComplianceTextBodyComplianceOneExtraNegativeTermsItemMax)).max(checkComplianceTextBodyComplianceOneExtraNegativeTermsMax)
-}),zod.null()]).optional()
+}),zod.null()]).optional(),
+  "deep": zod.boolean().optional().describe('Also run the AI second-pass review (paraphrases, Hindi\/Telugu\/Tamil). Fails with 503 if it cannot run.')
 })
 
 export const CheckComplianceTextResponse = zod.union([zod.object({
@@ -9475,7 +9477,14 @@ export const CheckComplianceTextResponse = zod.union([zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 
 
@@ -15994,7 +16003,14 @@ export const GenerateVideoResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -22278,7 +22294,14 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -22901,7 +22924,14 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -23489,7 +23519,14 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -24088,7 +24125,14 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -24772,7 +24816,14 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -25445,6 +25496,30 @@ export const generateSpokespersonScriptResponseBeatsItemDurationSecMin = 0.5;
 
 
 export const GenerateSpokespersonScriptResponse = zod.object({
+  "compliance": zod.object({
+  "profession": zod.enum(['medical', 'chartered_accountant']),
+  "packId": zod.string(),
+  "packVersion": zod.string(),
+  "findings": zod.array(zod.object({
+  "ruleId": zod.string(),
+  "title": zod.string(),
+  "severity": zod.enum(['block', 'review']),
+  "source": zod.string(),
+  "field": zod.enum(['spoken', 'on_screen', 'visual', 'caption']),
+  "location": zod.string(),
+  "match": zod.string(),
+  "excerpt": zod.string()
+})),
+  "blocking": zod.number(),
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
+}).optional(),
   "script": zod.string().min(1).max(generateSpokespersonScriptResponseScriptMax).describe('Clean spoken text, free of cues and unspeakable tokens — this is what the lip-sync and TTS paths consume.'),
   "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
   "beats": zod.array(zod.object({
@@ -25726,7 +25801,14 @@ export const ListVideoJobsResponseItem = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -26306,7 +26388,14 @@ export const GetVideoJobResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -26886,7 +26975,14 @@ export const CancelVideoJobResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -27343,6 +27439,10 @@ export const RetryVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const RetryVideoJobBody = zod.object({
+  "acknowledgeComplianceReview": zod.boolean().optional()
+})
+
 export const retryVideoJobResponseReferenceImagesItemIdMax = 80;
 
 export const retryVideoJobResponseReferenceImagesItemLabelMax = 120;
@@ -27466,7 +27566,14 @@ export const RetryVideoJobResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -28046,7 +28153,14 @@ export const RestartVideoJobFreshResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -28630,7 +28744,14 @@ export const RepairVideoJobResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -29237,7 +29358,14 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -29829,7 +29957,14 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -30410,7 +30545,14 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -31003,7 +31145,14 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -31583,7 +31732,14 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -32163,7 +32319,14 @@ export const CancelGuidedStoryPreviewRenderResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -32747,7 +32910,14 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -33326,7 +33496,14 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -33905,7 +34082,14 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({
@@ -34601,7 +34785,14 @@ export const SetVideoCoverResponse = zod.object({
   "excerpt": zod.string()
 })),
   "blocking": zod.number(),
-  "review": zod.number()
+  "review": zod.number(),
+  "contentFingerprint": zod.string().optional().describe('Identity of the exact content checked (job gates only).'),
+  "aiReview": zod.object({
+  "required": zod.boolean(),
+  "upToDate": zod.boolean(),
+  "reviewedAt": zod.string().nullable()
+}).optional().describe('AI second-pass status for this exact content (job gates only).'),
+  "reviewAcknowledged": zod.boolean().optional().describe('Whether \"review\" findings were acknowledged for this exact content.')
 }),zod.null()])
 }),zod.null()]).optional().describe('Profession compliance (NMC \/ ICAI) frozen at enqueue, with live findings for the current storyboard. Null = not a regulated kit.'),
   "referenceImages": zod.array(zod.object({

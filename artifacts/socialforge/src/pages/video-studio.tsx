@@ -61,6 +61,7 @@ import {
   useImportLibraryMusic,
   useGenerateHooks,
   useGenerateSpokespersonScript,
+  type ComplianceReport,
   useLocalizeScript,
   useAnalyzeScriptIntake,
   useListBrandKits,
@@ -1014,6 +1015,7 @@ export function VideoStudioPage() {
   const [sourceFacts, setSourceFacts] = useState<string[]>([]);
   const [scriptBeats, setScriptBeats] = useState<ScriptBeat[]>([]);
   const [scriptMeta, setScriptMeta] = useState<ScriptMeta | null>(null);
+  const [scriptCompliance, setScriptCompliance] = useState<ComplianceReport | null>(null);
   const [musicPrompt, setMusicPrompt] = useState("");
   const [aiMusicDraft, setAiMusicDraft] = useState("");
   const [aiMusicOpen, setAiMusicOpen] = useState(false);
@@ -1388,6 +1390,8 @@ export function VideoStudioPage() {
   const generateVideo = useGenerateVideo();
   const restartVideoFresh = useRestartVideoJobFresh();
   const retryVideo = useRetryVideoJob();
+  const [retryComplianceAck, setRetryComplianceAck] = useState(false);
+  useEffect(() => { setRetryComplianceAck(false); }, [activeJobId]);
   const repairVideo = useRepairVideoJob();
   const generateHooks = useGenerateHooks();
   const draftSpokespersonScript = useGenerateSpokespersonScript();
@@ -2760,10 +2764,11 @@ export function VideoStudioPage() {
     draftSpokespersonScript.mutate(
       { data: { topic, ...scriptRequestFields() } },
       {
-        onSuccess: ({ script, beats, meta }) => {
+        onSuccess: ({ script, beats, meta, compliance }) => {
           setSpokespersonScript(script);
           setScriptBeats(beats ?? []);
           setScriptMeta(meta ?? null);
+          setScriptCompliance(compliance ?? null);
           setSpokespersonStep("review");
         },
         onError: (error) => {
@@ -4357,6 +4362,13 @@ export function VideoStudioPage() {
                       </p>
                     </div>
 
+                    {scriptCompliance && (
+                      <div className="rounded-xl border p-3 space-y-2" data-testid="spokesperson-compliance">
+                        <p className="text-sm font-medium">{scriptCompliance.profession === "medical" ? "NMC" : "ICAI"} compliance check</p>
+                        <ComplianceFindingsList report={scriptCompliance} emptyLabel="No compliance issues found in this draft." />
+                        <p className="text-xs text-muted-foreground">Your recording or the generated voice is checked again before the video is made.</p>
+                      </div>
+                    )}
                     {scriptMeta && (
                       <div
                         className="flex flex-wrap gap-2 text-xs text-muted-foreground"
@@ -7934,13 +7946,27 @@ export function VideoStudioPage() {
                               }`
                             : "Keep the original prompt, selected assets, template, character, and model settings, but regenerate provider work."}
                     </p>
+                    {activeJob.compliance?.report && activeJob.compliance.report.findings.length > 0 && (
+                      <div className="rounded-xl border p-3 space-y-2" data-testid="retry-compliance">
+                        <p className="text-sm font-medium">{activeJob.compliance.profession === "medical" ? "NMC" : "ICAI"} compliance check</p>
+                        <ComplianceFindingsList report={activeJob.compliance.report} emptyLabel="No compliance issues found." />
+                        {activeJob.compliance.report.review > 0 && !activeJob.compliance.report.reviewAcknowledged && (
+                          <label className="flex items-start gap-2 text-sm">
+                            <Checkbox checked={retryComplianceAck} onCheckedChange={(v) => setRetryComplianceAck(v === true)}
+                              data-testid="checkbox-retry-compliance-ack" />
+                            <span>I have reviewed the flagged items and confirm they are accurate and allowed for my profession.</span>
+                          </label>
+                        )}
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         variant="outline"
-                        disabled={retryVideo.isPending}
+                        disabled={retryVideo.isPending || (activeJob.compliance?.report?.blocking ?? 0) > 0 ||
+                          ((activeJob.compliance?.report?.review ?? 0) > 0 && !activeJob.compliance?.report?.reviewAcknowledged && !retryComplianceAck)}
                         onClick={() =>
                           retryVideo.mutate(
-                            { jobId: activeJob.id },
+                            { jobId: activeJob.id, data: retryComplianceAck ? { acknowledgeComplianceReview: true } : undefined },
                             {
                               onSuccess: (job) => {
                                 if (activeDialogueReplay) {
@@ -9367,8 +9393,10 @@ function StoryboardReview({
   const compliance = job.compliance ?? null;
   const complianceReport = compliance?.report ?? null;
   const complianceNeedsAck =
-    (complianceReport?.review ?? 0) > 0 && !compliance?.reviewAcknowledgedAt;
+    (complianceReport?.review ?? 0) > 0 && complianceReport?.reviewAcknowledged !== true;
+  const complianceFingerprint = complianceReport?.contentFingerprint ?? null;
   const [complianceAck, setComplianceAck] = useState(false);
+  useEffect(() => { setComplianceAck(false); }, [complianceFingerprint]);
   const approveData =
     complianceNeedsAck && complianceAck
       ? { acknowledgeComplianceReview: true }
@@ -10694,6 +10722,12 @@ function StoryboardReview({
             report={complianceReport}
             emptyLabel="No compliance issues found in this storyboard."
           />
+          {complianceReport.aiReview?.required && (
+            <p className="text-xs text-muted-foreground" data-testid="text-compliance-ai-review">
+              {complianceReport.aiReview.upToDate ? "AI compliance review: checked for this version."
+                : "AI compliance review runs when you click Render (catches reworded and Hindi/Telugu/Tamil claims)."}
+            </p>
+          )}
           {complianceReport.blocking > 0 && (
             <p className="text-xs text-muted-foreground">
               Edit the flagged narration or visual prompts — rendering stays blocked until they are gone.

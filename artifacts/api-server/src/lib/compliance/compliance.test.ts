@@ -192,8 +192,10 @@ describe("storyboard + guided texts", () => {
     expect(storyboardComplianceError(reviewOnly, frozen)).toBeNull();
     expect(storyboardComplianceError(reviewOnly, frozen, { requireReviewAck: true })?.code).toBe("compliance_review_required");
     expect(storyboardComplianceError(reviewOnly, frozen, { requireReviewAck: true, acknowledged: true })).toBeNull();
-    const fp = reviewFingerprint(storyboardComplianceReport(reviewOnly, frozen)!.findings);
-    expect(storyboardComplianceError(reviewOnly, { ...frozen, reviewAcknowledgedFingerprint: fp }, { requireReviewAck: true })).toBeNull();
+    const fp = storyboardComplianceReport(reviewOnly, frozen)!.contentFingerprint!;
+    expect(storyboardComplianceError(reviewOnly, { ...frozen, reviewAcknowledgedContentFingerprint: fp }, { requireReviewAck: true })).toBeNull();
+    const legacy = reviewFingerprint(storyboardComplianceReport(reviewOnly, frozen)!.findings);
+    expect(storyboardComplianceError(reviewOnly, { ...frozen, reviewAcknowledgedFingerprint: legacy }, { requireReviewAck: true })?.code).toBe("compliance_review_required");
   });
 
   it("edit gate only rejects newly introduced violations", () => {

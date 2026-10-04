@@ -304,6 +304,12 @@ export const FEATURES = [
     description:
       "The usage progress meter in AI Studio that nudges tenants on limited plans toward an upgrade.",
   },
+  {
+    id: "complianceAiReview",
+    label: "Compliance AI Review (NMC / ICAI)",
+    description:
+      "A second, AI-based compliance review for doctor (NMC) and chartered-accountant (ICAI) brands that catches reworded and Hindi/Telugu/Tamil claims the negative list misses. Runs before storyboard approval, Guided Story script approval, directed renders and publishing; if the review cannot run, those steps stop. When off, only the deterministic negative list applies.",
+  },
 ] as const;
 
 export type FeatureId = (typeof FEATURES)[number]["id"];

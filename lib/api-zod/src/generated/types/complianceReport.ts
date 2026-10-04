@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ComplianceFinding } from './complianceFinding';
+import type { ComplianceReportAiReview } from './complianceReportAiReview';
 import type { ComplianceReportProfession } from './complianceReportProfession';
 
 export interface ComplianceReport {
@@ -15,4 +16,10 @@ export interface ComplianceReport {
   findings: ComplianceFinding[];
   blocking: number;
   review: number;
+  /** Identity of the exact content checked (job gates only). */
+  contentFingerprint?: string;
+  /** AI second-pass status for this exact content (job gates only). */
+  aiReview?: ComplianceReportAiReview;
+  /** Whether "review" findings were acknowledged for this exact content. */
+  reviewAcknowledged?: boolean;
 }

@@ -5,6 +5,7 @@ import { CreateScheduleBody, UpdateScheduleBody } from "@workspace/api-zod";
 import { serializeSchedule } from "../lib/serializers";
 import { recordTasteSignal } from "../lib/tasteMemory";
 import { retryScheduledPostNow } from "../lib/scheduledPublisher";
+import { checkContentItemCompliance } from "../lib/compliance/content";
 
 const router: IRouter = Router();
 
@@ -47,6 +48,15 @@ router.post("/schedules", async (req: Request, res: Response) => {
   )[0];
   if (!content) {
     res.status(400).json({ error: "Content item not found" });
+    return;
+  }
+  const compliance = await checkContentItemCompliance(req.tenantId, content.id);
+  if (!compliance.ok) {
+    res.status(compliance.errorStatus).json({
+      error: compliance.error,
+      code: compliance.errorStatus === 503 ? "compliance_unavailable" : "compliance_blocked",
+      ...(compliance.report ? { compliance: compliance.report } : {}),
+    });
     return;
   }
 

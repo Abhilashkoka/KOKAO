@@ -318,6 +318,7 @@ export * from './complianceFinding';
 export * from './complianceFindingField';
 export * from './complianceFindingSeverity';
 export * from './complianceReport';
+export * from './complianceReportAiReview';
 export * from './complianceReportProfession';
 export * from './complianceRulePack';
 export * from './complianceRulePackProfession';

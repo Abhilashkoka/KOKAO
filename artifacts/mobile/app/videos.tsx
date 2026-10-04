@@ -377,6 +377,16 @@ function JobCard({
         </Text>
       ) : null}
 
+      {job.compliance?.report ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }} testID={`video-compliance-${job.id}`}>
+          <Badge label={`${job.compliance.profession === "medical" ? "NMC" : "ICAI"}: ${
+            job.compliance.report.blocking > 0 ? `${job.compliance.report.blocking} to fix`
+              : job.compliance.report.review > 0 && !job.compliance.report.reviewAcknowledged
+                ? `${job.compliance.report.review} to review` : "no issues"
+          }`} tone={job.compliance.report.blocking > 0 ? "destructive"
+            : job.compliance.report.review > 0 && !job.compliance.report.reviewAcknowledged ? "accent" : "success"} />
+        </View>
+      ) : null}
       {expanded && playable ? (
         <View style={{ marginTop: 12, gap: 8 }}>
           <JobVideoPlayer job={job} />

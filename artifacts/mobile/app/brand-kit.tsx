@@ -14,6 +14,7 @@ import {
   useGetBrandKit,
   useCreateBrandKitVersion,
   useSetDefaultBrandKit,
+  useDetectComplianceProfession,
   getListBrandKitsQueryKey,
   getGetBrandKitQueryKey,
   type BrandKitPayload,
@@ -56,6 +57,20 @@ interface EditState {
   dos: string; // newline-separated
   donts: string; // newline-separated
   captionStyle: string;
+  complianceChoice: ComplianceChoice;
+  practitionerName: string;
+  registrationNumber: string;
+  registeringBody: string;
+  qualifications: string;
+}
+
+export type ComplianceChoice = "auto" | "medical" | "chartered_accountant" | "none";
+const PROFESSION_LABELS = { medical: "Doctor (NMC)", chartered_accountant: "Chartered Accountant (ICAI)" };
+function complianceChoiceOf(payload: BrandKitPayload): ComplianceChoice {
+  const saved = payload.compliance;
+  if (!saved) return "auto";
+  if (saved.source !== "manual") return saved.profession === "none" ? "auto" : saved.profession;
+  return saved.profession;
 }
 
 export function payloadToEdit(payload: BrandKitPayload): EditState {
@@ -69,6 +84,11 @@ export function payloadToEdit(payload: BrandKitPayload): EditState {
     dos: (payload.voice.dos ?? []).join("\n"),
     donts: (payload.voice.donts ?? []).join("\n"),
     captionStyle: payload.voice.caption_style ?? "",
+    complianceChoice: complianceChoiceOf(payload),
+    practitionerName: payload.compliance?.facts?.practitioner_name ?? "",
+    registrationNumber: payload.compliance?.facts?.registration_number ?? "",
+    registeringBody: payload.compliance?.facts?.registering_body ?? "",
+    qualifications: (payload.compliance?.facts?.qualifications ?? []).join("\n"),
   };
 }
 
@@ -91,6 +111,30 @@ export function applyEditToPayload(base: BrandKitPayload, edit: EditState): Bran
     donts: lineList(edit.donts),
     caption_style: edit.captionStyle.trim(),
   };
+  const saved = base.compliance ?? null;
+  const touched = edit.complianceChoice !== "auto" || Boolean(saved) ||
+    [edit.practitionerName, edit.registrationNumber, edit.registeringBody, edit.qualifications].some((v) => v.trim());
+  if (touched) {
+    const explicit = edit.complianceChoice !== "auto";
+    const profession = explicit ? edit.complianceChoice : (saved?.source === "auto" ? saved.profession : "none");
+    clone.compliance = {
+      profession: profession as NonNullable<BrandKitPayload["compliance"]>["profession"],
+      source: explicit ? "manual" : "auto",
+      confirmed_at: explicit && edit.complianceChoice !== "none"
+        ? saved?.profession === edit.complianceChoice && saved.confirmed_at ? saved.confirmed_at : new Date().toISOString()
+        : saved?.confirmed_at && profession === saved.profession ? saved.confirmed_at : null,
+      facts: {
+        practitioner_name: edit.practitionerName.trim(),
+        registration_number: edit.registrationNumber.trim(),
+        registering_body: edit.registeringBody.trim(),
+        qualifications: lineList(edit.qualifications),
+        services: saved?.facts?.services ?? [],
+        practice_address: saved?.facts?.practice_address ?? "",
+        verified_claims: saved?.facts?.verified_claims ?? [],
+      },
+      extra_negative_terms: saved?.extra_negative_terms ?? [],
+    };
+  }
   return clone;
 }
 
@@ -150,6 +194,20 @@ export default function BrandKitScreen() {
 
   const createVersion = useCreateBrandKitVersion();
   const setDefault = useSetDefaultBrandKit();
+  const detect = useDetectComplianceProfession();
+  const [detected, setDetected] = useState<"medical" | "chartered_accountant" | null>(null);
+  const industryText = edit?.industry ?? "";
+  const descriptionText = edit?.description ?? "";
+  useEffect(() => {
+    if (!industryText.trim() && !descriptionText.trim()) { setDetected(null); return; }
+    const handle = setTimeout(() => {
+      detect.mutate(
+        { data: { industry: industryText, description: descriptionText } },
+        { onSuccess: (r) => setDetected((r?.profession as "medical" | "chartered_accountant" | null) ?? null) },
+      );
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [industryText, descriptionText]);
   const [notice, setNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
 
   // Clear notice when kit changes.
@@ -419,6 +477,54 @@ export default function BrandKitScreen() {
       </Card>
 
       {/* Save button */}
+      {edit !== null ? (
+        <Card style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.iconWrap}><Feather name="shield" size={16} color={c.primary} /></View>
+            <Text style={styles.cardTitle}>Profession rules</Text>
+          </View>
+          {(() => {
+            const effective = edit.complianceChoice === "auto"
+              ? (activePayload?.compliance?.source === "auto" && activePayload.compliance.profession !== "none"
+                ? activePayload.compliance.profession : detected)
+              : edit.complianceChoice === "none" ? null : edit.complianceChoice;
+            return <>
+              <Text style={styles.hint} testID="text-compliance-status">
+                {effective
+                  ? `${PROFESSION_LABELS[effective]} advertising rules apply to supported workflows.${edit.complianceChoice === "auto" ? " Detected from Industry — tap it below to confirm." : ""}`
+                  : edit.complianceChoice === "none" ? "Marked as not a regulated profession." : "No regulated profession detected from Industry."}
+              </Text>
+              <View style={styles.chipRow}>
+                {(["auto", "medical", "chartered_accountant", "none"] as const).map((choice) => (
+                  <Chip key={choice}
+                    label={choice === "auto" ? `Auto${detected ? ` (${PROFESSION_LABELS[detected]})` : ""}` : choice === "none" ? "Not regulated" : PROFESSION_LABELS[choice]}
+                    selected={edit.complianceChoice === choice}
+                    onPress={() => { haptic(); setEdit((st) => st && { ...st, complianceChoice: choice }); }}
+                  />
+                ))}
+              </View>
+              {effective ? <>
+                <Label>{effective === "medical" ? "Doctor's name" : "Member / firm name"}</Label>
+                <TextInput value={edit.practitionerName} onChangeText={(v) => setEdit((st) => st && { ...st, practitionerName: v })}
+                  style={styles.input} placeholderTextColor={c.mutedForeground} testID="input-compliance-name" />
+                <Label>{effective === "medical" ? "Medical registration number" : "ICAI membership / firm reg. no."}</Label>
+                <TextInput value={edit.registrationNumber} onChangeText={(v) => setEdit((st) => st && { ...st, registrationNumber: v })}
+                  style={styles.input} placeholderTextColor={c.mutedForeground} testID="input-compliance-registration" />
+                <Label>{effective === "medical" ? "Registering council" : "Registering body"}</Label>
+                <TextInput value={edit.registeringBody} onChangeText={(v) => setEdit((st) => st && { ...st, registeringBody: v })}
+                  placeholder={effective === "medical" ? "e.g. Telangana State Medical Council" : "ICAI"}
+                  style={styles.input} placeholderTextColor={c.mutedForeground} />
+                <Label>Recognised qualifications</Label>
+                <Text style={styles.hint}>One per line — the AI may state only these</Text>
+                <TextInput value={edit.qualifications} onChangeText={(v) => setEdit((st) => st && { ...st, qualifications: v })}
+                  style={[styles.input, styles.multilineInput]} multiline numberOfLines={3}
+                  placeholderTextColor={c.mutedForeground} testID="input-compliance-qualifications" />
+                <Text style={styles.hint}>Services, other verified claims and the never-use list are edited on the web.</Text>
+              </> : null}
+            </>;
+          })()}
+        </Card>
+      ) : null}
       <Button
         title={createVersion.isPending ? "Saving..." : "Save brand kit"}
         disabled={!dirty || createVersion.isPending || !activePayload}

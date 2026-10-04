@@ -29,6 +29,9 @@ export interface ComplianceReport {
   findings: ComplianceFinding[];
   blocking: number;
   review: number;
+  contentFingerprint?: string;
+  aiReview?: { required: boolean; upToDate: boolean; reviewedAt: string | null };
+  reviewAcknowledged?: boolean;
 }
 
 /** Lower-case, straight quotes, collapsed whitespace, Indic digits → ASCII. */
@@ -162,7 +165,8 @@ export function storyboardComplianceTexts(board: VideoStoryboard): ComplianceTex
         }
       }
     }
-    const visuals = [scene.visual, scene.brollVisual, scene.renderVisual].filter(
+    // Post-approval machine-written prompts are checked separately.
+    const visuals = [scene.visual, scene.brollVisual].filter(
       (v): v is string => typeof v === "string" && v.trim() !== "",
     );
     for (const visual of new Set(visuals)) {
@@ -176,6 +180,15 @@ export function storyboardComplianceTexts(board: VideoStoryboard): ComplianceTex
     if (narration.trim()) items.push({ field: "spoken", location: "Narration", text: narration });
   }
   return items;
+}
+
+/** Post-approval prompts are not part of human-reviewed content. */
+export function derivedPromptTexts(board: VideoStoryboard): ComplianceText[] {
+  return board.scenes.flatMap((scene, index) =>
+    scene.renderVisual?.trim() && scene.renderVisual.trim() !== scene.visual?.trim()
+      ? [{ field: "visual" as const, location: `Scene ${index + 1} · final AI prompt`, text: scene.renderVisual }]
+      : [],
+  );
 }
 
 export function describeFindings(findings: ComplianceFinding[], limit = 6): string {

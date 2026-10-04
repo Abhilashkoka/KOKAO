@@ -1,4 +1,5 @@
 import { mergePublishedPlatform } from "../lib/publishedPlatforms";
+import { contentPublishBlock } from "../lib/compliance/content";
 import { recordTasteSignalFromContent } from "../lib/tasteMemory";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -886,6 +887,8 @@ export async function publishFacebookCore(
   tenantId: number,
   id: number,
 ): Promise<PublishOutcome> {
+  const complianceBlock = await contentPublishBlock(tenantId, id);
+  if (complianceBlock) return complianceBlock;
     const item = await loadContentItem(id, tenantId);
     if (!item) {
       return { ok: false, errorStatus: 404, error: "Not found" };
@@ -1167,6 +1170,8 @@ export async function publishInstagramCore(
   tenantId: number,
   id: number,
 ): Promise<PublishOutcome> {
+  const complianceBlock = await contentPublishBlock(tenantId, id);
+  if (complianceBlock) return complianceBlock;
   const prep = await prepareInstagramPublish(tenantId, id);
   if (!prep.ok) {
     return { ok: false, errorStatus: prep.errorStatus, error: prep.error };

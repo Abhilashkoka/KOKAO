@@ -20488,14 +20488,15 @@ export const getRetryVideoJobUrl = (jobId: number,) => {
  * Supports Topic Video (including character story and presenter B-roll), Character Dialogue, text-to-video, image-to-video, slideshow, and ordinary lip-sync. The failed source remains immutable. A linked child copies the source's saved inputs and complete tenant-owned checkpoints, and reserves only provider operations that are still missing.
  * @summary Create one safely funded recovery child for a failed video job
  */
-export const retryVideoJob = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+export const retryVideoJob = async (jobId: number,
+    approveVideoStoryboardInput?: ApproveVideoStoryboardInput, options?: RequestInit): Promise<VideoJob> => {
 
   return customFetch<VideoJob>(getRetryVideoJobUrl(jobId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(approveVideoStoryboardInput)
   }
 );}
 
@@ -20503,8 +20504,8 @@ export const retryVideoJob = async (jobId: number, options?: RequestInit): Promi
 
 
 export const getRetryVideoJobMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}, TContext> => {
 
 const mutationKey = ['retryVideoJob'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -20516,10 +20517,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryVideoJob>>, {jobId: number}> = (props) => {
-          const {jobId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryVideoJob>>, {jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
 
-          return  retryVideoJob(jobId,requestOptions)
+          return  retryVideoJob(jobId,data,requestOptions)
         }
 
 
@@ -20530,18 +20531,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type RetryVideoJobMutationResult = NonNullable<Awaited<ReturnType<typeof retryVideoJob>>>
-
+    export type RetryVideoJobMutationBody = BodyType<ApproveVideoStoryboardInput> | undefined
     export type RetryVideoJobMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Create one safely funded recovery child for a failed video job
  */
 export const useRetryVideoJob = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number;data?: BodyType<ApproveVideoStoryboardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof retryVideoJob>>,
         TError,
-        {jobId: number},
+        {jobId: number;data?: BodyType<ApproveVideoStoryboardInput>},
         TContext
       > => {
       return useMutation(getRetryVideoJobMutationOptions(options));

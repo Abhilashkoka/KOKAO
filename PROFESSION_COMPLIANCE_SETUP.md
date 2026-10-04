@@ -1,5 +1,10 @@
 # Profession Compliance (NMC / ICAI) — setup
 
+> The second supplied compliance patch is now installed. For its enforcement,
+> versioning, semantic-review, publishing and mobile changes, see
+> `attached_assets/PROFESSION_COMPLIANCE_SETUP_1_1791120632329.md`.
+> The original installation notes below describe the initial patch only.
+
 When a brand's **Business / Industry** says *doctor* or *CA*, everything KOKAO
 creates for that brand follows a profession rule pack:
 

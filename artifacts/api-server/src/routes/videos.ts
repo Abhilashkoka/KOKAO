@@ -241,10 +241,11 @@ import {
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
 import {
-  checkCompliance, complianceScriptHint, describeFindings,
-  guidedScriptComplianceTexts, mergeGuidance, resolveJobCompliance,
-  newBlockingFindings, reviewFingerprint, storyboardComplianceError,
-  storyboardComplianceReport, thawCompliance,
+  checkTextsWithAiReview, complianceGateError, complianceScriptHint, describeFindings,
+  ensureStoryboardAiReview, guidedScriptComplianceTexts, mergeGuidance, resolveJobCompliance,
+  newBlockingFindings, storyboardComplianceReport, thawCompliance,
+  ComplianceConfigError, ComplianceUnavailableError,
+  type ComplianceReport, type ComplianceText,
 } from "../lib/compliance";
 import { resolveBrandOutroSnapshot, type BrandOutroSnapshot } from "../lib/videoGen/brandOutro";
 import { applyGuidedBrandEnding, confirmGuidedBrandEnding, loadGuidedBrandEnding, type GuidedBrandEndingApproval } from "../lib/videoGen/guidedBrandEnding";
@@ -1734,9 +1735,14 @@ function serializeVideoJob(
           packId: job.options.compliance.packId,
           packVersion: job.options.compliance.packVersion,
           reviewAcknowledgedAt: job.options.compliance.reviewAcknowledgedAt ?? null,
-          report: job.storyboard
-            ? storyboardComplianceReport(job.storyboard, job.options.compliance)
-            : null,
+          report: (() => {
+            if (!job.storyboard) return null;
+            try {
+              return storyboardComplianceReport(job.storyboard, job.options.compliance);
+            } catch {
+              return null; // The runner refuses unknown rules, but the list still loads.
+            }
+          })(),
         }
       : null,
     modelId: job.options?.modelId ?? null,
@@ -2025,12 +2031,14 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
         .json({ error: `Unsupported target locale: ${body.targetLocale}.` });
       return;
     }
+    const spokespersonCompliance = await resolveJobCompliance(req.tenantId, body.brandKitId ?? null);
     const billed = await runBillableScriptRequest({
       req,
       tenantModel: tenant.aiModel,
       operationKind: "video_script_draft",
       perform: (meterContext) =>
         generateSpokespersonScript({
+          complianceRules: complianceScriptHint(thawCompliance(spokespersonCompliance)),
           tenantId: req.tenantId,
           tenantAiModel: tenant.aiModel,
           topic: body.topic.trim(),
@@ -2090,8 +2098,21 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
         "Spokesperson script usage recording failed",
       );
     });
+    const compliance = await checkTextsWithAiReview({
+      tenantId: req.tenantId,
+      items: [
+        { field: "spoken", location: "Script", text: result.script },
+        ...result.beats.flatMap((beat, i) => [
+          ...(beat.onScreen ? [{ field: "on_screen" as const, location: `Beat ${i + 1} · on-screen`, text: beat.onScreen }] : []),
+          ...(beat.bRoll ? [{ field: "visual" as const, location: `Beat ${i + 1} · B-roll`, text: beat.bRoll }] : []),
+        ]),
+      ],
+      frozen: spokespersonCompliance,
+      operationKey: `spokesperson:${req.tenantId}:${createHash("sha256").update(result.script).digest("hex").slice(0, 24)}`,
+    });
     res.json({
       script: result.script,
+      ...(compliance ? { compliance } : {}),
       ...(result.variant ? { variant: result.variant } : {}),
       // Omitted rather than empty so a model that returned only a flat script
       // reads as "no production doc" instead of "a doc with no beats".
@@ -2105,6 +2126,10 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
         .json({
           error: "AI script writing is not configured. Contact your admin.",
         });
+      return;
+    }
+    if (error instanceof ComplianceUnavailableError || error instanceof ComplianceConfigError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
       return;
     }
     req.log.warn({ err: error }, "Spokesperson script generation failed");
@@ -5360,10 +5385,16 @@ router.post(
     const activeBrand = setup.brandKitId
       ? await loadActivePayload(req.tenantId, setup.brandKitId)
       : null;
-    const guidedCompliance = await resolveJobCompliance(
-      req.tenantId,
-      setup.brandKitId ?? null,
-    ).catch(() => null);
+    let guidedCompliance: Awaited<ReturnType<typeof resolveJobCompliance>>;
+    try {
+      guidedCompliance = await resolveJobCompliance(req.tenantId, setup.brandKitId ?? null);
+    } catch (error) {
+      await saveGuidedState(claimed, claimed.revision, {
+        ...claimed.state,
+        scriptGeneration: null,
+      }).catch(() => undefined);
+      throw error;
+    }
     let scriptReceipt: GuidedStoryDraftState["billingReceipts"] = undefined;
     let persistedScriptRow: GuidedStoryDraft | null = null;
     let billed: {
@@ -5540,13 +5571,13 @@ router.post(
       const scriptCompliance = await resolveJobCompliance(
         req.tenantId,
         row.state.setup?.brandKitId ?? null,
-      ).catch(() => null);
-      const report = scriptCompliance
-        ? checkCompliance(
-            guidedScriptComplianceTexts(row.state.script),
-            thawCompliance(scriptCompliance),
-          )
-        : null;
+      );
+      const report = await checkTextsWithAiReview({
+        tenantId: req.tenantId,
+        items: guidedScriptComplianceTexts(row.state.script),
+        frozen: scriptCompliance,
+        operationKey: `guided-script-approve:${row.id}:${row.revision}`,
+      });
       const blocking = report?.findings.filter((f) => f.severity === "block") ?? [];
       if (blocking.length > 0) {
         res.status(400).json({
@@ -12469,42 +12500,113 @@ async function generateVideoHandler(
   // edit / approval / render is judged against the same practitioner facts.
   // Resolved from the request's kit, else the tenant default kit, else the
   // tenant's Business/Industry — independent of the brandVideo kill switch.
-  options.compliance = await resolveJobCompliance(
-    req.tenantId,
-    body.brandKitId ?? options.brandKitId ?? null,
-  ).catch((err) => {
-    req.log.warn({ err }, "Compliance profile lookup failed");
-    return null;
-  });
+  try {
+    options.compliance = await resolveJobCompliance(
+      req.tenantId, body.brandKitId ?? options.brandKitId ?? null,
+    );
+  } catch (error) {
+    if (error instanceof ComplianceUnavailableError) {
+      res.status(503).json({ error: error.message, code: error.code });
+      return;
+    }
+    throw error;
+  }
   if (options.compliance) {
     // Regulated kits always stop for storyboard review before billable
     // visuals; Guided Story keeps its own script/cast/backdrop approvals.
-    if (body.engine === "topic_to_video" && !guidedDraft && options.reviewStoryboard === false) {
+    if (
+      !guidedDraft && !options.directedVideo && !body.directedVideo &&
+      ["topic_to_video", "text_to_video", "image_to_video", "slideshow"].includes(body.engine) &&
+      options.reviewStoryboard === false
+    ) {
       options.reviewStoryboard = true;
     }
     // Engines that send the user's own words straight to a provider are
     // checked up front — there is no storyboard to review later.
-    const directTexts =
-      body.engine === "text_to_video" || body.engine === "image_to_video"
-        ? [{ field: "visual" as const, location: "Video prompt", text: body.prompt ?? "" }]
-        : body.engine === "localized_dub" && options.localizedTrack
-          ? [{
-              field: "spoken" as const,
-              location: "Dubbed script",
-              text: options.localizedTrack.cues.map((cue) => cue.text).join(" "),
-            }]
-          : [];
-    const direct = directTexts.length
-      ? checkCompliance(directTexts, thawCompliance(options.compliance))
-      : null;
-    const directBlocking = direct?.findings.filter((f) => f.severity === "block") ?? [];
-    if (directBlocking.length > 0) {
-      res.status(400).json({
-        error: `This request breaks ${options.compliance.profession === "medical" ? "NMC" : "ICAI"} advertising rules — ${describeFindings(directBlocking)}. Edit it and try again.`,
-        code: "compliance_blocked",
-        compliance: direct,
+    const directTexts: ComplianceText[] = [];
+    if ((body.engine === "text_to_video" || body.engine === "image_to_video") && body.prompt?.trim()) {
+      directTexts.push(
+        { field: "visual", location: "Video prompt", text: body.prompt },
+        ...(body.directedVideo ? [{ field: "spoken" as const, location: "Video brief", text: body.prompt }] : []),
+      );
+    }
+    if (body.directedVideo) {
+      const directed = body.directedVideo;
+      if (directed.brandingInstructions?.trim()) {
+        directTexts.push({ field: "visual", location: "Branding instructions", text: directed.brandingInstructions });
+      }
+      if (directed.fictionalCharacter?.trim()) {
+        directTexts.push({ field: "visual", location: "Character description", text: directed.fictionalCharacter });
+      }
+      for (const [i, overlay] of (directed.overlays ?? []).entries()) {
+        directTexts.push({ field: "on_screen", location: `On-screen text ${i + 1}`, text: overlay.text });
+      }
+    }
+    if ((body.engine === "lip_sync" || body.engine === "dialogue_lip_sync") && body.prompt?.trim()) {
+      directTexts.push({ field: "spoken", location: "Spoken script", text: body.prompt });
+    }
+    if (body.engine === "localized_dub" && options.localizedTrack) {
+      directTexts.push({
+        field: "spoken", location: "Dubbed script",
+        text: options.localizedTrack.cues.map((cue) => cue.text).join(" "),
       });
-      return;
+    }
+    if (body.engine === "lip_sync" && body.audioPath) {
+      try {
+        const file = await musicStorage.getObjectEntityFile(body.audioPath, req.tenantId);
+        const [metadata] = await file.getMetadata();
+        if (Number(metadata.size ?? 0) > 25 * 1024 * 1024) {
+          res.status(400).json({ error: "The voice recording is too large to check (max 25 MB)." });
+          return;
+        }
+        const [audio] = await file.download();
+        const mimeType = String(metadata.contentType ?? "audio/mpeg").toLowerCase().split(";")[0]!.trim();
+        const transcription = await transcribeAudio(
+          { buffer: audio, mimeType, filename: `voice.${mimeType.split("/")[1] ?? "mp3"}` },
+          {
+            tenantId: req.tenantId,
+            refKind: "complianceReview",
+            refId: body.audioPath,
+            funding: Object.freeze({ tenantId: req.tenantId, rail: "quota" as const, mode: "shadow" as const }),
+            operationKey: `asr:compliance:${req.tenantId}:${body.audioPath}`,
+          },
+        );
+        if (!transcription.text?.trim()) throw new Error("empty transcript");
+        directTexts.push({ field: "spoken", location: "Your recording (transcript)", text: transcription.text });
+      } catch (error) {
+        req.log.warn({ err: error }, "Compliance transcription of lip-sync audio failed");
+        res.status(503).json({
+          error: "We couldn't transcribe your recording to check it against your profession's advertising rules, so nothing was generated or charged. Please try again.",
+          code: "compliance_unavailable",
+        });
+        return;
+      }
+    }
+    if (directTexts.length > 0) {
+      let direct: ComplianceReport | null;
+      try {
+        direct = await checkTextsWithAiReview({
+          tenantId: req.tenantId,
+          items: directTexts,
+          frozen: options.compliance,
+          operationKey: `enqueue:${req.tenantId}:${createHash("sha256").update(JSON.stringify(directTexts)).digest("hex").slice(0, 24)}`,
+        });
+      } catch (error) {
+        if (error instanceof ComplianceUnavailableError || error instanceof ComplianceConfigError) {
+          res.status(error.status).json({ error: error.message, code: error.code });
+          return;
+        }
+        throw error;
+      }
+      const directBlocking = direct?.findings.filter((f) => f.severity === "block") ?? [];
+      if (directBlocking.length > 0) {
+        res.status(400).json({
+          error: `This request breaks ${options.compliance.profession === "medical" ? "NMC" : "ICAI"} advertising rules — ${describeFindings(directBlocking)}. Edit it and try again.`,
+          code: "compliance_blocked",
+          compliance: direct,
+        });
+        return;
+      }
     }
   }
 
@@ -14873,6 +14975,13 @@ router.post(
         code: "recovery_not_eligible",
       });
       return;
+    }
+    if (initial.storyboard && initial.options?.compliance) {
+      const failure = await reviewStoryboardComplianceForApproval(req, initial, initial.storyboard, "failed");
+      if (failure) {
+        res.status(400).json({ error: failure.error, code: failure.code, compliance: failure.report });
+        return;
+      }
     }
     if (
       requiresFreshRestartAfterNativeAudioFailure(initial) &&
@@ -18047,6 +18156,52 @@ router.post(
   },
 );
 
+/** Review exact content and persist the result even when approval is refused. */
+async function reviewStoryboardComplianceForApproval(
+  req: Request,
+  job: VideoGeneration,
+  board: VideoStoryboard,
+  expectedStatus: VideoGeneration["status"],
+) {
+  const frozen = job.options?.compliance ?? null;
+  if (!frozen) return null;
+  const acknowledged =
+    (req.body as { acknowledgeComplianceReview?: unknown } | undefined)?.acknowledgeComplianceReview === true;
+  let report = storyboardComplianceReport(board, frozen);
+  const early = complianceGateError(report, frozen, { requireAiReview: false });
+  if (early) return early;
+  const patch: Partial<NonNullable<VideoJobOptions["compliance"]>> = {};
+  if (frozen.semanticReviewRequired && !report?.aiReview?.upToDate) {
+    const semanticReview = await ensureStoryboardAiReview({
+      tenantId: req.tenantId, jobId: job.id, board, frozen,
+    });
+    if (semanticReview) {
+      patch.semanticReview = semanticReview;
+      frozen.semanticReview = semanticReview;
+      report = storyboardComplianceReport(board, frozen);
+    }
+  }
+  const failure = complianceGateError(report, frozen, { requireReviewAck: true, acknowledged });
+  if (!failure && acknowledged && report && report.review > 0 && !report.reviewAcknowledged) {
+    Object.assign(patch, {
+      reviewAcknowledgedAt: new Date().toISOString(),
+      reviewAcknowledgedBy: req.clerkUserId ?? null,
+      reviewAcknowledgedContentFingerprint: report.contentFingerprint ?? null,
+    });
+  }
+  if (Object.keys(patch).length > 0) {
+    await db.update(videoGenerationsTable).set({
+      options: sql`jsonb_set(${videoGenerationsTable.options}, '{compliance}', coalesce(${videoGenerationsTable.options}->'compliance', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`,
+    }).where(and(
+      eq(videoGenerationsTable.id, job.id),
+      eq(videoGenerationsTable.tenantId, req.tenantId),
+      eq(videoGenerationsTable.status, expectedStatus),
+    ));
+    Object.assign(frozen, patch);
+  }
+  return failure;
+}
+
 /** Approve the plan and run the expensive half. */
 router.post(
   "/ai/video-jobs/:jobId/storyboard/approve",
@@ -18068,46 +18223,13 @@ router.post(
     }
     // Compliance (NMC / ICAI): blocking findings must be edited out; review
     // findings need an explicit acknowledgement, recorded on the job for audit.
-    const acknowledgeComplianceReview =
-      (req.body as { acknowledgeComplianceReview?: unknown } | undefined)
-        ?.acknowledgeComplianceReview === true;
-    const complianceIssue = storyboardComplianceError(
-      loaded.storyboard,
-      loaded.job.options?.compliance,
-      { requireReviewAck: true, acknowledged: acknowledgeComplianceReview },
-    );
-    if (complianceIssue) {
-      res.status(400).json({
-        error: complianceIssue.error,
-        code: complianceIssue.code,
-        compliance: complianceIssue.report,
-      });
-      return;
-    }
-    if (acknowledgeComplianceReview && loaded.job.options?.compliance) {
-      const report = storyboardComplianceReport(
-        loaded.storyboard,
-        loaded.job.options.compliance,
+    {
+      const failure = await reviewStoryboardComplianceForApproval(
+        req, loaded.job, loaded.storyboard, "awaiting_review",
       );
-      if (report && report.review > 0) {
-        const acknowledgement = {
-          reviewAcknowledgedAt: new Date().toISOString(),
-          reviewAcknowledgedBy: req.clerkUserId ?? null,
-          reviewAcknowledgedFingerprint: reviewFingerprint(report.findings),
-        };
-        await db
-          .update(videoGenerationsTable)
-          .set({
-            options: sql`jsonb_set(${videoGenerationsTable.options}, '{compliance}', coalesce(${videoGenerationsTable.options}->'compliance', '{}'::jsonb) || ${JSON.stringify(acknowledgement)}::jsonb)`,
-          })
-          .where(
-            and(
-              eq(videoGenerationsTable.id, loaded.job.id),
-              eq(videoGenerationsTable.tenantId, req.tenantId),
-              eq(videoGenerationsTable.status, "awaiting_review"),
-            ),
-          );
-        Object.assign(loaded.job.options.compliance, acknowledgement);
+      if (failure) {
+        res.status(400).json({ error: failure.error, code: failure.code, compliance: failure.report });
+        return;
       }
     }
     if (loaded.storyboard.mode === "guided_story") {

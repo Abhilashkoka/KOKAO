@@ -30,6 +30,10 @@ const state = vi.hoisted(() => ({
 // previously-good token turns out dead; that path touches tables the fake db
 // does not model, so stub it out (the notification itself is covered by the
 // socialReverify/notifications tests).
+vi.mock("../lib/compliance/content", () => ({
+  contentPublishBlock: vi.fn(async () => null),
+  checkContentItemCompliance: vi.fn(async () => ({ ok: true, report: null })),
+}));
 vi.mock("../lib/notifications", () => ({
   notifySocialConnectionFailed: vi.fn(async () => {}),
   resolveSocialConnectionNotifications: vi.fn(async () => {}),

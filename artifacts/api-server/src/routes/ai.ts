@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { parseModelJsonObject } from "../lib/modelJson";
 export { parseModelJsonObject } from "../lib/modelJson";
-import { complianceTextConstraints, resolveCompliance } from "../lib/compliance";
+import { textComplianceConstraints } from "../lib/compliance";
 import {
   db,
   tenantsTable,
@@ -637,6 +637,7 @@ async function buildCaptionSystemPrompt(
     `Tone/voice: ${tone}.`,
   ];
   const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+  constraints.push(...(await textComplianceConstraints(tenantId, data.brandKitId ?? null)));
   if (data.videoCopy) {
     const budget = ({ instagram: 2200, twitter: 280, threads: 500, linkedin: 3000, facebook: 5000 } as Record<string, number>)[platform];
     const hashtags = platform === "instagram" ? "3-5" : platform === "twitter" || platform === "threads" ? "1-3" : "3-5";
@@ -664,8 +665,6 @@ async function buildCaptionSystemPrompt(
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
-    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
-    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const outputFormat = [
@@ -2239,6 +2238,7 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
     ...platforms.map((p) => PLATFORM_NORMS[p]!),
   ];
   const constraints = [...HUMAN_EXPERT_CONSTRAINTS];
+  constraints.push(...(await textComplianceConstraints(req.tenantId, parsed.data.brandKitId ?? null)));
   if (brand) {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
     if (brand.voice.dos.length > 0)
@@ -2254,8 +2254,6 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
-    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
-    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const systemPrompt = buildRicePrompt({
@@ -2816,6 +2814,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     ...styleLines,
   ];
   const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+  constraints.push(...(await textComplianceConstraints(req.tenantId, parsed.data.brandKitId ?? null)));
   if (brand) {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
     const palette = colorHint(brand);
@@ -2829,8 +2828,6 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
-    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
-    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const campaignOutputFormat = [
@@ -3332,6 +3329,7 @@ router.post(
       ...styleLines,
     ];
     const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+    constraints.push(...(await textComplianceConstraints(req.tenantId, parsed.data.brandKitId ?? null)));
     if (brand) {
       context.push(`Brand name: ${brand.identity.brand_name}.`);
       const palette = colorHint(brand);
@@ -3345,8 +3343,6 @@ router.post(
           `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
         );
       }
-      // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
-      constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
     }
     const streamOutputFormat = [
       'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}. Inside each post object, always emit the "platform" field first, then "caption".',
@@ -3797,6 +3793,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     "Keep a consistent visual system across all slide image prompts: same color scheme, same layout style, same typography treatment, so the slides read as one cohesive carousel.",
   ];
   const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+  constraints.push(...(await textComplianceConstraints(req.tenantId, parsed.data.brandKitId ?? null)));
   if (brand) {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
     const palette = colorHint(brand);
@@ -3810,8 +3807,6 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
-    // Profession compliance (NMC / ICAI) — auto-detected from Business/Industry.
-    constraints.push(...complianceTextConstraints(resolveCompliance(brand)));
   }
 
   const carouselOutputFormat = [

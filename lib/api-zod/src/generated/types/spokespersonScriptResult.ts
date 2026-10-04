@@ -5,11 +5,13 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ComplianceReport } from './complianceReport';
 import type { ScriptBeat } from './scriptBeat';
 import type { ScriptMeta } from './scriptMeta';
 import type { ScriptVariant } from './scriptVariant';
 
 export interface SpokespersonScriptResult {
+  compliance?: ComplianceReport;
   /**
      * Clean spoken text, free of cues and unspeakable tokens — this is what the lip-sync and TTS paths consume.
      * @minLength 1

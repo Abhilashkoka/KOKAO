@@ -7539,6 +7539,12 @@ paths:
         ordinary lip-sync. The failed source remains immutable. A linked child
         copies the source's saved inputs and complete tenant-owned checkpoints,
         and reserves only provider operations that are still missing.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveVideoStoryboardInput"
       responses:
         "201":
           description: Retry job created and queued
@@ -14331,9 +14337,12 @@ components:
             Optional machine-readable error code. Currently
             "already_complete" on resend endpoints when there is nothing left
             to resend (e.g. a concurrent resend already posted everything), and
-            "compliance_blocked" / "compliance_review_required" on video
-            requests checked against an NMC / ICAI rule pack (the body then
-            also carries a "compliance" ComplianceReport).
+            "compliance_blocked" / "compliance_review_required" /
+            "compliance_ai_review_required" on requests checked against an
+            NMC / ICAI rule pack (the body then also carries a "compliance"
+            ComplianceReport), "compliance_unavailable" (503) when the rules or
+            the AI review could not be loaded, and "compliance_config" (409)
+            when a job's pinned rule version is unknown.
         provider:
           type: ["string", "null"]
           description: Safe provider identifier for configuration failures.
@@ -17904,6 +17913,20 @@ components:
             $ref: "#/components/schemas/ComplianceFinding"
         blocking: { type: integer }
         review: { type: integer }
+        contentFingerprint:
+          type: string
+          description: Identity of the exact content checked (job gates only).
+        aiReview:
+          type: object
+          required: [required, upToDate, reviewedAt]
+          description: AI second-pass status for this exact content (job gates only).
+          properties:
+            required: { type: boolean }
+            upToDate: { type: boolean }
+            reviewedAt: { type: ["string", "null"] }
+        reviewAcknowledged:
+          type: boolean
+          description: Whether "review" findings were acknowledged for this exact content.
     ComplianceRulePack:
       type: object
       required: [id, version, profession, label, regulator, summary, sources, rules, visualNegatives]
@@ -17991,6 +18014,9 @@ components:
           oneOf:
             - $ref: "#/components/schemas/BrandCompliance"
             - type: "null"
+        deep:
+          type: boolean
+          description: Also run the AI second-pass review (paraphrases, Hindi/Telugu/Tamil). Fails with 503 if it cannot run.
     ApproveVideoStoryboardInput:
       type: object
       properties:
@@ -21264,6 +21290,8 @@ components:
       type: object
       required: [script]
       properties:
+        compliance:
+          $ref: "#/components/schemas/ComplianceReport"
         script:
           type: string
           minLength: 1
@@ -26044,6 +26072,8 @@ components:
         studioLipSync:
           type: boolean
         screenDemoVideo:
+          type: boolean
+        complianceAiReview:
           type: boolean
     AiSpendSettingsView:
       type: object

@@ -217,7 +217,7 @@ export function BrandComplianceSection({
   };
   const facts = saved?.facts ?? emptyComplianceFacts();
 
-  const runCheck = () => {
+  const runCheck = (deep = false) => {
     setCheckError(null);
     check.mutate(
       {
@@ -228,6 +228,7 @@ export function BrandComplianceSection({
           restrictedTerms: draft.brand_controls.restricted_terms,
           compliance: saved,
           field: "caption",
+          deep,
         },
       },
       {
@@ -434,12 +435,16 @@ export function BrandComplianceSection({
             <Button
               size="sm"
               variant="secondary"
-              onClick={runCheck}
+              onClick={() => runCheck(false)}
               disabled={!testText.trim() || check.isPending}
               data-testid="button-run-compliance-check"
             >
               {check.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
               Check
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => runCheck(true)}
+              disabled={!testText.trim() || check.isPending} data-testid="button-run-compliance-deep-check">
+              Deep check (AI, any language)
             </Button>
             {checkError && <p className="text-sm text-destructive">{checkError}</p>}
             {report !== undefined && !checkError && (
@@ -489,4 +494,28 @@ export function ComplianceFindingsList({
       ))}
     </ul>
   );
+}
+
+/** Debounced negative-list preview; publishing does the full server-side check. */
+export function PostComplianceCheck({ brandKitId, text }: { brandKitId: number | null | undefined; text: string }) {
+  const check = useCheckComplianceText();
+  const [report, setReport] = useState<ComplianceReport | null>(null);
+  useEffect(() => {
+    if (!text.trim()) { setReport(null); return; }
+    const handle = window.setTimeout(() => {
+      check.mutate(
+        { data: { text: text.slice(0, 20000), brandKitId: brandKitId ?? null, field: "caption" } },
+        { onSuccess: (r) => setReport(r ?? null), onError: () => setReport(null) },
+      );
+    }, 600);
+    return () => window.clearTimeout(handle);
+  }, [text, brandKitId]);
+  if (!report) return null;
+  return <div className="space-y-1.5" data-testid="post-compliance-check">
+    <p className="text-xs font-medium text-muted-foreground">
+      {report.profession === "medical" ? "NMC" : "ICAI"} check
+      {report.blocking > 0 ? " — this post can't be published until fixed" : ""}
+    </p>
+    <ComplianceFindingsList report={report} emptyLabel="No compliance issues found." />
+  </div>;
 }

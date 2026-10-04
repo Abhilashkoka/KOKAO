@@ -687,6 +687,36 @@ const BETA_PAYLOAD: BrandKitPayload = {
 const ALPHA_DETAIL = { id: 1, name: "Kit Alpha", activeVersion: { payload: ALPHA_PAYLOAD } };
 const BETA_DETAIL = { id: 2, name: "Kit Beta", activeVersion: { payload: BETA_PAYLOAD } };
 
+describe("applyEditToPayload — profession compliance", () => {
+  it("keeps untouched kits auto-detected", () => {
+    const edit = payloadToEdit(FULL_PAYLOAD);
+    expect(edit.complianceChoice).toBe("auto");
+    expect(applyEditToPayload(FULL_PAYLOAD, { ...edit, brandName: "Renamed" }).compliance).toBeUndefined();
+  });
+  it("confirms Doctor and saves registration facts", () => {
+    const result = applyEditToPayload(FULL_PAYLOAD, {
+      ...payloadToEdit(FULL_PAYLOAD), complianceChoice: "medical",
+      registrationNumber: " TSMC/123 ", qualifications: "MBBS\n\nMD (Dermatology)",
+    });
+    expect(result.compliance).toMatchObject({ profession: "medical", source: "manual",
+      facts: { registration_number: "TSMC/123", qualifications: ["MBBS", "MD (Dermatology)"] } });
+    expect(result.compliance?.confirmed_at).toBeTruthy();
+  });
+  it("preserves web-only facts and confirmation", () => {
+    const base = { ...FULL_PAYLOAD, compliance: {
+      profession: "chartered_accountant", source: "manual", confirmed_at: "2026-10-01T00:00:00.000Z",
+      facts: { practitioner_name: "A", registration_number: "1", registering_body: "ICAI",
+        qualifications: ["FCA"], services: ["Audit"], practice_address: "Pune", verified_claims: ["10 years"] },
+      extra_negative_terms: ["cheapest"],
+    } } as unknown as BrandKitPayload;
+    expect(applyEditToPayload(base, payloadToEdit(base)).compliance).toEqual(base.compliance);
+  });
+  it("stores explicit opt-out", () => {
+    expect(applyEditToPayload(FULL_PAYLOAD, { ...payloadToEdit(FULL_PAYLOAD), complianceChoice: "none" }).compliance)
+      .toMatchObject({ profession: "none", source: "manual", confirmed_at: null });
+  });
+});
+
 describe("BrandKitScreen — kit switching", () => {
   beforeEach(() => {
     // Two-kit list; alpha is default and auto-selected first.

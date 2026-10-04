@@ -58,4 +58,5 @@ export interface FeatureFlags {
   lipSync: boolean;
   studioLipSync: boolean;
   screenDemoVideo: boolean;
+  complianceAiReview?: boolean;
 }

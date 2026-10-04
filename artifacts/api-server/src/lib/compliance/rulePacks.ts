@@ -119,7 +119,7 @@ const NUMERIC_CLAIM = [
   /\b\d{1,2}\s*\+?\s*years?\s+(of\s+)?(experience|practice|in\s+practice)\b/,
 ];
 
-export const NMC_RULE_PACK: ComplianceRulePack = {
+const NMC_PACK_2026_10_1: ComplianceRulePack = {
   id: "nmc-medical-advertising",
   version: "2026.10.1",
   profession: "medical",
@@ -304,7 +304,7 @@ export const NMC_RULE_PACK: ComplianceRulePack = {
   ],
 };
 
-export const ICAI_RULE_PACK: ComplianceRulePack = {
+const ICAI_PACK_2026_10_1: ComplianceRulePack = {
   id: "icai-ca-advertising",
   version: "2026.10.1",
   profession: "chartered_accountant",
@@ -455,6 +455,105 @@ export const ICAI_RULE_PACK: ComplianceRulePack = {
     "no piles of cash",
   ],
 };
+
+// Published rule versions remain immutable and loadable for in-flight jobs.
+function freezePack(pack: ComplianceRulePack): ComplianceRulePack {
+  for (const rule of pack.rules) {
+    Object.freeze(rule.patterns);
+    Object.freeze(rule.fields);
+    Object.freeze(rule);
+  }
+  Object.freeze(pack.rules);
+  Object.freeze(pack.sources);
+  Object.freeze(pack.visualNegatives);
+  return Object.freeze(pack);
+}
+
+function extendPack(
+  base: ComplianceRulePack,
+  version: string,
+  extraPatterns: Record<string, RegExp[]>,
+): ComplianceRulePack {
+  for (const id of Object.keys(extraPatterns)) {
+    if (!base.rules.some((rule) => rule.id === id)) throw new Error(`Unknown rule ${id} in ${base.id}@${version}`);
+  }
+  return freezePack({
+    ...base,
+    version,
+    sources: [...base.sources],
+    visualNegatives: [...base.visualNegatives],
+    rules: base.rules.map((rule) => ({
+      ...rule,
+      fields: [...rule.fields],
+      patterns: [...rule.patterns, ...(extraPatterns[rule.id] ?? [])],
+    })),
+  });
+}
+
+// Native-script patterns intentionally avoid ASCII-only word boundaries.
+const INDIC_GUARANTEE = [
+  /गारंटी|गैरंटी|पक्का\s*इलाज|100\s*%\s*(इलाज|सफलता|रिज़ल्ट|रिजल्ट)|గ్యారంటీ|గ్యారెంటీ|హామీ\s*ఇస్తా|உத்தரவாதம்|கியாரண்டி|கேரண்டி/u,
+  /\bpakk?a\s+ilaa?j\b|\b100\s*%\s*ilaa?j\b|\bguarantee\s+(ke\s+saath|hai|denge)\b/,
+];
+const INDIC_CURE = [
+  /(कैंसर|डायबिटीज|डायबिटीज़|मधुमेह|मोटापा|मोटापे|बांझपन|निःसंतानता|गंजापन|गंजेपन|सफेद\s*दाग|सोरायसिस|थायराइड|पीसीओडी|पीसीओएस)\s*(का|की|के)?\s*(पक्का|स्थायी|पूरा|जड़\s*से)?\s*(इलाज|खात्मा)/u,
+  /(క్యాన్సర్|మధుమేహం|డయాబెటిస్|షుగర్|ఊబకాయం|సంతానలేమి|బట్టతల|సొరియాసిస్).{0,15}(నయం|శాశ్వత\s*పరిష్కారం)/u,
+  /(புற்றுநோய்|நீரிழிவு|சர்க்கரை\s*நோய்|உடல்\s*பருமன்|மலட்டுத்தன்மை|வழுக்கை|சொரியாசிஸ்).{0,20}(குணப்படுத்த|குணமாக்க|நிரந்தர\s*தீர்வு)/u,
+  /\b(sugar|diabetes|cancer|motapa|baanjhpan)\s+(ka|ki|ke)\s+(pakka\s+|permanent\s+)?ilaa?j\b/,
+];
+const INDIC_SUPERIORITY = [
+  /सबसे\s*(अच्छा|अच्छे|अच्छी|बेहतरीन|बढ़िया|बड़ा|बड़े)\s*(डॉक्टर|डाक्टर|क्लिनिक|अस्पताल|हॉस्पिटल|सीए|चार्टर्ड)|नंबर\s*(1|१|वन)\s*(डॉक्टर|क्लिनिक|अस्पताल|हॉस्पिटल|सीए)/u,
+  /(ఉత్తమ|నంబర్\s*1|నెంబర్\s*1)\s*(డాక్టర్|వైద్యుడు|వైద్యురాలు|క్లినిక్|ఆసుపత్రి|హాస్పిటల్|సీఏ)/u,
+  /(சிறந்த|நம்பர்\s*1|நம்பர்\s*ஒன்)\s*(மருத்துவர்|டாக்டர்|மருத்துவமனை|கிளினிக்|ஆடிட்டர்)/u,
+  /\bsabse\s+(best|accha|achha|badhiya)\s+(doctor|clinic|hospital|ca)\b/,
+];
+const INDIC_TESTIMONIAL = [
+  /(मरीज़ों|मरीजों|ग्राहकों|क्लाइंट्स)\s*(की|के)\s*(राय|अनुभव|रिव्यू|कहानी)/u,
+  /(రోగుల|క్లయింట్ల)\s*(అభిప్రాయ|అనుభవ|రివ్యూ)/u,
+  /(நோயாளிகளின்|வாடிக்கையாளர்களின்)\s*(கருத்து|அனுபவ|விமர்சன)/u,
+];
+const INDIC_INDUCEMENT = [
+  /छूट|डिस्काउंट|मुफ़्त|मुफ्त|फ्री\s*(जांच|जाँच|परामर्श|कंसल्टेशन|चेकअप)|ఉచిత|డిస్కౌంట్|తగ్గింపు|இலவச|தள்ளுபடி|டிஸ்கவுண்ட்/u,
+  /\b(muft|chhoot|chhut)\b/,
+];
+const INDIC_SEX_SELECTION = [
+  /लड़का\s*(होने|पैदा|पाने)|बेटा\s*(होने|पाने|पैदा)|लिंग\s*(जांच|जाँच|चयन|परीक्षण|निर्धारण)/u,
+  /మగ\s*బిడ్డ|లింగ\s*నిర్ధారణ|ஆண்\s*குழந்தை|பாலின\s*(தேர்வு|கண்டறி)/u,
+];
+const INDIC_TAX_EVASION = [/टैक्स\s*चोरी|कर\s*चोरी|काला\s*धन|బ్లాక్\s*మనీ|పన్ను\s*ఎగవేత|வரி\s*ஏய்ப்பு|கருப்பு\s*பணம்/u];
+
+export const NMC_RULE_PACK_HISTORY: readonly ComplianceRulePack[] = (() => {
+  const v1 = freezePack(NMC_PACK_2026_10_1);
+  const v2 = extendPack(v1, "2026.10.2", {
+    "nmc.guarantee": INDIC_GUARANTEE,
+    "nmc.dmr_cure_claims": INDIC_CURE,
+    "nmc.superiority": INDIC_SUPERIORITY,
+    "nmc.testimonials": INDIC_TESTIMONIAL,
+    "nmc.inducements": INDIC_INDUCEMENT,
+    "nmc.sex_selection": INDIC_SEX_SELECTION,
+  });
+  return Object.freeze([v1, v2]);
+})();
+
+export const ICAI_RULE_PACK_HISTORY: readonly ComplianceRulePack[] = (() => {
+  const v1 = freezePack(ICAI_PACK_2026_10_1);
+  const v2 = extendPack(v1, "2026.10.2", {
+    "icai.guarantee": INDIC_GUARANTEE,
+    "icai.superiority": INDIC_SUPERIORITY,
+    "icai.testimonials": INDIC_TESTIMONIAL,
+    "icai.fees_offers": INDIC_INDUCEMENT,
+    "icai.tax_evasion": INDIC_TAX_EVASION,
+  });
+  return Object.freeze([v1, v2]);
+})();
+
+export const NMC_RULE_PACK = NMC_RULE_PACK_HISTORY[NMC_RULE_PACK_HISTORY.length - 1]!;
+export const ICAI_RULE_PACK = ICAI_RULE_PACK_HISTORY[ICAI_RULE_PACK_HISTORY.length - 1]!;
+const HISTORY: readonly ComplianceRulePack[] = [...NMC_RULE_PACK_HISTORY, ...ICAI_RULE_PACK_HISTORY];
+
+export function rulePackVersion(id: string, version: string): ComplianceRulePack | null {
+  return HISTORY.find((pack) => pack.id === id && pack.version === version) ?? null;
+}
 
 export const RULE_PACKS: Record<ComplianceProfession, ComplianceRulePack> = {
   medical: NMC_RULE_PACK,

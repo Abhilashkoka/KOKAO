@@ -28,4 +28,6 @@ export interface CheckComplianceTextInput {
      */
   restrictedTerms?: string[];
   compliance?: BrandCompliance | null;
+  /** Also run the AI second-pass review (paraphrases, Hindi/Telugu/Tamil). Fails with 503 if it cannot run. */
+  deep?: boolean;
 }

@@ -14,6 +14,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { buildAllowedOrigins, isAllowedOrigin } from "./lib/corsOrigins";
 import { apiLatencySampler } from "./middlewares/apiLatency";
+import { complianceErrorHandler } from "./middlewares/complianceErrors";
 
 /**
  * Origins allowed to make credentialed (cookie-authed) cross-origin requests.
@@ -92,5 +93,7 @@ app.use(
 
 app.use(apiLatencySampler);
 app.use("/api", router);
+// Compliance errors thrown from any route become a clear JSON answer.
+app.use("/api", complianceErrorHandler);
 
 export default app;

@@ -272,6 +272,7 @@ export async function generateSpokespersonScript(params: {
   overrides?: ScriptInputOverrides;
   /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
   meterContext?: MeterContext | null;
+  complianceRules?: string | null;
 }): Promise<SpokespersonScriptResult> {
   const textGen = await getTextGenClient(
     params.tenantAiModel,
@@ -304,7 +305,8 @@ export async function generateSpokespersonScript(params: {
     runtimeContext: [
       "Format: one direct-to-camera spokesperson speaking naturally.",
       inputs.runtimeContext,
-    ].join("\n"),
+      params.complianceRules ?? null,
+    ].filter(Boolean).join("\n"),
     outputFormat: OUTPUT_FORMAT,
     placeholderValues: {
       topic: params.topic,
@@ -328,7 +330,9 @@ export async function generateSpokespersonScript(params: {
           params.topic,
           inputs,
           params.targetLocale ? characterDialogueLocale(params.targetLocale) : null,
-        ),
+        ) + (params.complianceRules
+          ? `\n\n## Profession advertising rules (override everything above)\n${params.complianceRules}`
+          : ""),
       },
     ],
     // A production doc is several times the size of a bare script.

@@ -240,6 +240,27 @@ export interface FrozenJobCompliance {
   reviewAcknowledgedAt?: string | null;
   reviewAcknowledgedBy?: string | null;
   reviewAcknowledgedFingerprint?: string | null;
+  /** Content-bound approval; deprecated finding-only identity above is ignored. */
+  reviewAcknowledgedContentFingerprint?: string | null;
+  /** Frozen at enqueue from the complianceAiReview switch. */
+  semanticReviewRequired?: boolean;
+  semanticReview?: FrozenSemanticReview | null;
+}
+
+export interface FrozenSemanticReview {
+  contentFingerprint: string;
+  reviewedAt: string;
+  model: string | null;
+  findings: Array<{
+    ruleId: string;
+    title: string;
+    severity: "block" | "review";
+    source: string;
+    field: "spoken" | "on_screen" | "visual" | "caption";
+    location: string;
+    match: string;
+    excerpt: string;
+  }>;
 }
 export interface VideoJobOptions {
   /** Server-owned: stock visuals are free; only script/voice provider calls are metered. */

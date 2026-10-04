@@ -8,7 +8,7 @@
 
 export interface ErrorEnvelope {
   error: string;
-  /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything), and "compliance_blocked" / "compliance_review_required" on video requests checked against an NMC / ICAI rule pack (the body then also carries a "compliance" ComplianceReport). */
+  /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything), and "compliance_blocked" / "compliance_review_required" / "compliance_ai_review_required" on requests checked against an NMC / ICAI rule pack (the body then also carries a "compliance" ComplianceReport), "compliance_unavailable" (503) when the rules or the AI review could not be loaded, and "compliance_config" (409) when a job's pinned rule version is unknown. */
   code?: string;
   /**
      * Safe provider identifier for configuration failures.

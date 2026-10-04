@@ -5,7 +5,8 @@ import type {
   ComplianceProfession,
   FrozenJobCompliance,
 } from "@workspace/db";
-import { rulePackFor, type ComplianceRulePack } from "./rulePacks";
+import { rulePackFor, rulePackVersion, type ComplianceRulePack } from "./rulePacks";
+import { ComplianceConfigError } from "./errors";
 
 /**
  * Business/Industry → regulated profession.
@@ -123,6 +124,7 @@ export function resolveCompliance(
 export function freezeCompliance(
   effective: EffectiveCompliance | null,
   brandKitId: number | null,
+  opts: { semanticReviewRequired?: boolean } = {},
 ): FrozenJobCompliance | null {
   if (!effective) return null;
   return {
@@ -133,15 +135,22 @@ export function freezeCompliance(
     brandKitId,
     facts: effective.facts,
     extraNegativeTerms: [...new Set([...effective.extraNegativeTerms, ...effective.restrictedTerms])],
+    semanticReviewRequired: opts.semanticReviewRequired ?? false,
   };
 }
 
 /** Rehydrate a frozen job snapshot into the shape the checker uses. */
 export function thawCompliance(frozen: FrozenJobCompliance | null | undefined): EffectiveCompliance | null {
   if (!frozen) return null;
+  const pack = rulePackVersion(frozen.packId, frozen.packVersion);
+  if (!pack || pack.profession !== frozen.profession) {
+    throw new ComplianceConfigError(
+      `This video was planned under compliance rules ${frozen.packId}@${frozen.packVersion}, which this server cannot load. Nothing was generated; please start a new video.`,
+    );
+  }
   return {
     profession: frozen.profession,
-    pack: rulePackFor(frozen.profession),
+    pack,
     source: "manual",
     confirmed: true,
     facts: normaliseFacts(frozen.facts),

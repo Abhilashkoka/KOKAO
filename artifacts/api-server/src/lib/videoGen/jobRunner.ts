@@ -235,8 +235,12 @@ import {
   unaccountedPresenterBrollEvents,
 } from "./presenterBroll";
 import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBrief";
-import { storyboardComplianceError } from "../compliance/gates";
+import { storyboardComplianceError, complianceReportFor } from "../compliance/gates";
 import { withComplianceVisual, withComplianceVoice } from "../compliance/prompt";
+import { checkCompliance, derivedPromptTexts, describeFindings, type ComplianceText } from "../compliance/check";
+import { thawCompliance } from "../compliance/profile";
+import { ComplianceConfigError, ComplianceUnavailableError } from "../compliance/errors";
+import { runSemanticReview } from "../compliance/semantic";
 import { videoPriceCriteria } from "./pricing";
 import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
@@ -2366,6 +2370,7 @@ async function renderApprovedClipStoryboard(
   aspectRatio: NonNullable<VideoJobAspect>,
   onStage: (stage: string) => void,
 ): Promise<ProduceResult> {
+  assertStoryboardRenderCompliance(storyboard, options);
   const sceneEvents: VideoProviderEvent[] = storyboard.scenes.flatMap((scene) =>
     scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
   );
@@ -2388,6 +2393,15 @@ async function renderApprovedClipStoryboard(
         .where(eq(videoGenerationsTable.id, job.id));
     }
   }
+  await assertGeneratedPromptCompliance(
+    job,
+    options,
+    derivedPromptTexts({
+      ...storyboard,
+      scenes: storyboard.scenes.filter((scene) => !scene.providerCheckpoint?.event),
+    }),
+    "polished-prompts",
+  );
   const music = await resolveMusic(
     job,
     options,
@@ -2610,6 +2624,74 @@ async function validateNativeAudioRecoveryInputs(job: VideoGeneration): Promise<
   }
 }
 
+function complianceStop(error: unknown): never {
+  if (error instanceof ComplianceConfigError || error instanceof ComplianceUnavailableError) {
+    throw new VideoJobInputError(error.message);
+  }
+  throw error;
+}
+
+function assertStoryboardRenderCompliance(
+  board: VideoStoryboard,
+  options: NonNullable<VideoGeneration["options"]>,
+): void {
+  if (!options.compliance) return;
+  try {
+    const failure = storyboardComplianceError(board, options.compliance, { requireReviewAck: true });
+    if (failure) throw new VideoJobInputError(failure.error);
+  } catch (error) {
+    complianceStop(error);
+  }
+}
+
+async function assertGeneratedPromptCompliance(
+  job: VideoGeneration,
+  options: NonNullable<VideoGeneration["options"]>,
+  items: ComplianceText[],
+  operation: string,
+): Promise<void> {
+  if (!options.compliance || items.length === 0) return;
+  try {
+    const compliance = thawCompliance(options.compliance)!;
+    const blocking = (checkCompliance(items, compliance)?.findings ?? []).filter((f) => f.severity === "block");
+    if (options.compliance.semanticReviewRequired) {
+      const reviewed = await runSemanticReview({
+        tenantId: job.tenantId, items, compliance, operationKey: `job:${job.id}:${operation}`,
+      });
+      blocking.push(...reviewed.findings.filter((f) => f.severity === "block"));
+    }
+    if (blocking.length > 0) {
+      throw new VideoJobInputError(
+        `The AI-written video prompt broke ${options.compliance.profession === "medical" ? "NMC" : "ICAI"} advertising rules, so nothing was generated — ${describeFindings(blocking)}. Edit your brief and try again.`,
+      );
+    }
+  } catch (error) {
+    complianceStop(error);
+  }
+}
+
+function assertDirectPromptCompliance(
+  job: VideoGeneration,
+  options: NonNullable<VideoGeneration["options"]>,
+): void {
+  if (!options.compliance || job.storyboard || options.directedVideo) return;
+  if (job.engine !== "text_to_video" && job.engine !== "image_to_video") return;
+  try {
+    const report = complianceReportFor(
+      [{ field: "visual", location: "Video prompt", text: job.prompt ?? "" }],
+      options.compliance,
+    );
+    const blocking = report?.findings.filter((f) => f.severity === "block") ?? [];
+    if (blocking.length > 0) {
+      throw new VideoJobInputError(
+        `This prompt breaks ${options.compliance.profession === "medical" ? "NMC" : "ICAI"} advertising rules — ${describeFindings(blocking)}.`,
+      );
+    }
+  } catch (error) {
+    complianceStop(error);
+  }
+}
+
 async function produceVideo(
   job: VideoGeneration,
   onStage: (stage: string) => void,
@@ -2622,6 +2704,8 @@ async function produceVideo(
   // resolution / quality / audio flags it understands. With no picked model
   // every field is a pass-through and the job behaves exactly as before.
   const model = resolveModelOptions(options, 5);
+  if (job.storyboard) assertStoryboardRenderCompliance(job.storyboard, options);
+  assertDirectPromptCompliance(job, options);
   if (options.directedVideo) {
     const { verifyDirectedAssets } = await import("./directedVideo");
     // Must check exact inputs again on retries, before any provider work.
@@ -2716,10 +2800,20 @@ async function produceVideo(
         nativeAudio: model.generateAudio === true, hasCast: references.length > 0,
         meterContext: videoMeterContext(job, "text_to_video"),
         motion: motionPresetClause(options.motionPreset, options.cinematography) ?? "",
+        complianceRules: options.compliance
+          ? withComplianceVisual(withComplianceVoice(null, options.compliance), options.compliance)
+          : null,
       });
       directed.compiledPrompt = prompt;
       await setJob(job.id, { options });
     }
+    await assertGeneratedPromptCompliance(job, options, [
+      { field: "spoken", location: "AI video direction", text: directed.compiledPrompt },
+      { field: "visual", location: "AI video direction", text: directed.compiledPrompt },
+      ...directed.overlays.map((overlay, i) => ({
+        field: "on_screen" as const, location: `On-screen text ${i + 1}`, text: overlay.text,
+      })),
+    ], "directed-prompt");
     onStage("Generating the video");
     const result = await generateVideo({
       mode: "text", prompt: directed.compiledPrompt, aspectRatio, ...model,
@@ -4558,8 +4652,7 @@ async function produceVideo(
       // Profession compliance (NMC / ICAI): last gate before any billable
       // render. Review-level flags were acknowledged at approval; anything
       // blocking still stops the render here, whichever route led to it.
-      const complianceIssue = storyboardComplianceError(board, options.compliance);
-      if (complianceIssue) throw new VideoJobInputError(complianceIssue.error);
+      assertStoryboardRenderCompliance(board, options);
       const legacyPrivacy = options.recovery?.privacyRecovery;
       if (legacyPrivacy) {
         const scene = board.scenes.find((candidate) => candidate.id === legacyPrivacy.sceneId);
