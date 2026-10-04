@@ -133,6 +133,8 @@ router.use("/ai/platform-pack", requireFeature("viralToolkit"));
 router.use("/ai/generate-image-async", requireFeature("imageJobs"));
 router.use("/ai/image-jobs", requireFeature("imageJobs"));
 router.use("/ai/layer-plan", requireFeature("layeredImages"));
+router.use("/ai/cover", requireFeature("coverStudio"));
+router.use("/ai/cover-copy", requireFeature("coverStudio"));
 router.use("/google-drive", requireFeature("videoGen"));
 // Characters exist for the Video Studio, so they share its kill switch.
 router.use("/characters", requireFeature("videoGen"));

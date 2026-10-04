@@ -4991,6 +4991,7 @@ export const ImagePromptRecipePreset = {
   fashion: 'fashion',
   lifestyle: 'lifestyle',
   architecture: 'architecture',
+  editorial: 'editorial',
 } as const;
 
 export type ImagePromptRecipeCamera = typeof ImagePromptRecipeCamera[keyof typeof ImagePromptRecipeCamera];
@@ -5280,6 +5281,159 @@ export interface ImageOpResult {
   layers: ImageOpLayer[] | null;
   /** Billable image generations this call consumed. Zero for enlarge. */
   units: number;
+}
+
+export interface CoverCopy {
+  /** @maxLength 24 */
+  kicker?: string;
+  /**
+     * @minLength 1
+     * @maxLength 28
+     */
+  headline: string;
+  /** @maxLength 48 */
+  subline?: string;
+}
+
+/**
+ * Stored cover canvas and registered subject, reused without provider calls.
+ * @nullable
+ */
+export type CoverReuse = {
+  basePath: string;
+  /** @nullable */
+  subjectPath?: string | null;
+} | null;
+
+export type CoverRequestLayout = typeof CoverRequestLayout[keyof typeof CoverRequestLayout];
+
+
+export const CoverRequestLayout = {
+  behind: 'behind',
+  over: 'over',
+} as const;
+
+export type CoverRequestPosition = typeof CoverRequestPosition[keyof typeof CoverRequestPosition];
+
+
+export const CoverRequestPosition = {
+  top: 'top',
+  bottom: 'bottom',
+} as const;
+
+export type CoverRequestHeadlineStyle = typeof CoverRequestHeadlineStyle[keyof typeof CoverRequestHeadlineStyle];
+
+
+export const CoverRequestHeadlineStyle = {
+  condensed: 'condensed',
+  grotesk: 'grotesk',
+} as const;
+
+export type CoverRequestTheme = typeof CoverRequestTheme[keyof typeof CoverRequestTheme];
+
+
+export const CoverRequestTheme = {
+  auto: 'auto',
+  light: 'light',
+  dark: 'dark',
+} as const;
+
+export type CoverRequestAccent = typeof CoverRequestAccent[keyof typeof CoverRequestAccent];
+
+
+export const CoverRequestAccent = {
+  sparkle: 'sparkle',
+  arrow: 'arrow',
+  none: 'none',
+} as const;
+
+/**
+ * Ignored on reuse, where the grade was already applied.
+ */
+export type CoverRequestGrade = typeof CoverRequestGrade[keyof typeof CoverRequestGrade];
+
+
+export const CoverRequestGrade = {
+  editorial: 'editorial',
+  none: 'none',
+} as const;
+
+export interface CoverRequest {
+  /**
+     * Tenant-owned source photo. Required unless reuse is supplied.
+     * @nullable
+     */
+  imagePath?: string | null;
+  reuse?: CoverReuse | null;
+  copy: CoverCopy;
+  layout?: CoverRequestLayout;
+  position?: CoverRequestPosition;
+  headlineStyle?: CoverRequestHeadlineStyle;
+  theme?: CoverRequestTheme;
+  accent?: CoverRequestAccent;
+  /**
+     * @nullable
+     * @pattern ^#[0-9a-fA-F]{6}$
+     */
+  accentColor?: string | null;
+  /** Ignored on reuse, where the grade was already applied. */
+  grade?: CoverRequestGrade;
+  /**
+     * Optional owned Library item for billing attribution.
+     * @nullable
+     */
+  contentId?: number | null;
+}
+
+export type CoverResultLayout = typeof CoverResultLayout[keyof typeof CoverResultLayout];
+
+
+export const CoverResultLayout = {
+  behind: 'behind',
+  over: 'over',
+} as const;
+
+export type CoverResultLayers = { [key: string]: unknown };
+
+export interface CoverResult {
+  imagePath: string;
+  b64Json: string;
+  basePath: string;
+  /** @nullable */
+  subjectPath: string | null;
+  layout: CoverResultLayout;
+  /** @nullable */
+  notice: string | null;
+  layers: CoverResultLayers;
+  /** Image operations consumed, zero or one. */
+  units: number;
+  /** @nullable */
+  spendPaise?: number | null;
+}
+
+export interface CoverCopyRequest {
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  topic: string;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export type CoverCopyResultSource = typeof CoverCopyResultSource[keyof typeof CoverCopyResultSource];
+
+
+export const CoverCopyResultSource = {
+  ai: 'ai',
+  fallback: 'fallback',
+} as const;
+
+export interface CoverCopyResult {
+  kicker: string;
+  headline: string;
+  subline: string;
+  source: CoverCopyResultSource;
 }
 
 export interface ImageResult {
@@ -12099,6 +12253,8 @@ export interface FeatureFlags {
   providerScoring: boolean;
   lipSync: boolean;
   studioLipSync: boolean;
+  coverStudio: boolean;
+  editorialVideoGrade: boolean;
   screenDemoVideo: boolean;
   complianceAiReview?: boolean;
 }

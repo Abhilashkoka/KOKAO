@@ -110,7 +110,7 @@ const EXPAND_PROMPT_PREFIX =
   "Extend this photograph outwards into the transparent area. Continue the existing scene, lighting, " +
   "colour grade, grain and perspective seamlessly, with no visible seam or border. Do not repeat the subject. ";
 
-const CUTOUT_PROMPT =
+export const CUTOUT_PROMPT =
   "Return the main subject of this image cut out precisely, on a fully transparent background. " +
   "Keep the subject's original colours, lighting and detail unchanged. Preserve fine edges such as hair and fur. " +
   "Do not add a shadow, a backdrop, or any new element.";

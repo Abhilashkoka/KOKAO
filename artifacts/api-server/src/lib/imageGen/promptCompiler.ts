@@ -117,6 +117,11 @@ const PRESETS: Record<string, LookPreset> = {
     aperture: "f2.8",
     lighting: "window",
   },
+  editorial: {
+    scene: "Editorial magazine-cover portrait of one person framed from the waist up and centred, the head in the upper-middle of a portrait frame with calm, uncluttered space above it; a real lived-in location such as a library, studio office or cafe softly out of focus behind; one natural everyday prop in hand",
+    finish: "muted filmic grade, gently desaturated neutrals with warm true-to-life skin, soft low-contrast highlights, fine film grain, real skin texture with visible pores; no plastic retouching, no HDR, no oversaturation, no text or logos",
+    camera: "mirrorless", lens: "portrait-85", aperture: "f1.4", lighting: "window",
+  },
   architecture: {
     scene:
       "Architectural photograph with strictly vertical lines and a considered one-point composition",

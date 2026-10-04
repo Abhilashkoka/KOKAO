@@ -6161,6 +6161,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/cover:
+    post:
+      operationId: createCover
+      tags: [ai]
+      summary: Turn a photo into an editorial magazine-style cover
+      description: >-
+        Creates a 4:5 subject-aware cover with editable typography layers.
+        A fresh behind-subject cover uses image funding for its subject matte.
+        Text-over covers and re-typesetting via reuse are free. Returns the actual
+        layout and a notice when subject separation or headline occlusion requires text-over.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoverRequest"
+      responses:
+        "200":
+          description: The composed cover
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoverResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/cover-copy:
+    post:
+      operationId: draftCoverCopy
+      tags: [ai]
+      summary: Write cover text for a topic
+      description: Free brand-voiced text drafting with a labelled deterministic fallback.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoverCopyRequest"
+      responses:
+        "200":
+          description: Suggested cover text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoverCopyResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/generate-caption/stream:
     post:
       operationId: streamCaption
@@ -19248,7 +19308,7 @@ components:
       properties:
         preset:
           type: string
-          enum: [product, food, fashion, lifestyle, architecture]
+          enum: [product, food, fashion, lifestyle, architecture, editorial]
         camera:
           type: string
           enum: [phone, mirrorless, dslr, medium-format, film35]
@@ -19518,6 +19578,113 @@ components:
         units:
           type: integer
           description: Billable image generations this call consumed. Zero for enlarge.
+    CoverCopy:
+      type: object
+      required: [headline]
+      properties:
+        kicker:
+          type: string
+          maxLength: 24
+        headline:
+          type: string
+          minLength: 1
+          maxLength: 28
+        subline:
+          type: string
+          maxLength: 48
+    CoverReuse:
+      type: ["object", "null"]
+      description: Stored cover canvas and registered subject, reused without provider calls.
+      required: [basePath]
+      properties:
+        basePath:
+          type: string
+        subjectPath:
+          type: ["string", "null"]
+    CoverRequest:
+      type: object
+      required: [copy]
+      properties:
+        imagePath:
+          type: ["string", "null"]
+          description: Tenant-owned source photo. Required unless reuse is supplied.
+        reuse:
+          $ref: "#/components/schemas/CoverReuse"
+        copy:
+          $ref: "#/components/schemas/CoverCopy"
+        layout:
+          type: string
+          enum: [behind, over]
+        position:
+          type: string
+          enum: [top, bottom]
+        headlineStyle:
+          type: string
+          enum: [condensed, grotesk]
+        theme:
+          type: string
+          enum: [auto, light, dark]
+        accent:
+          type: string
+          enum: [sparkle, arrow, none]
+        accentColor:
+          type: ["string", "null"]
+          pattern: "^#[0-9a-fA-F]{6}$"
+        grade:
+          type: string
+          enum: [editorial, none]
+          description: Ignored on reuse, where the grade was already applied.
+        contentId:
+          type: ["integer", "null"]
+          description: Optional owned Library item for billing attribution.
+    CoverResult:
+      type: object
+      required: [imagePath, b64Json, basePath, subjectPath, layout, notice, layers, units]
+      properties:
+        imagePath:
+          type: string
+        b64Json:
+          type: string
+        basePath:
+          type: string
+        subjectPath:
+          type: ["string", "null"]
+        layout:
+          type: string
+          enum: [behind, over]
+        notice:
+          type: ["string", "null"]
+        layers:
+          type: object
+          additionalProperties: true
+        units:
+          type: integer
+          description: Image operations consumed, zero or one.
+        spendPaise:
+          type: ["integer", "null"]
+    CoverCopyRequest:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        brandKitId:
+          type: ["integer", "null"]
+    CoverCopyResult:
+      type: object
+      required: [kicker, headline, subline, source]
+      properties:
+        kicker:
+          type: string
+        headline:
+          type: string
+        subline:
+          type: string
+        source:
+          type: string
+          enum: [ai, fallback]
     ImageResult:
       type: object
       required: [imagePath, b64Json]
@@ -26189,6 +26356,8 @@ components:
           imageLooks,
           providerScoring,
           lipSync,
+          coverStudio,
+          editorialVideoGrade,
           studioLipSync,
           screenDemoVideo,
         ]
@@ -26286,6 +26455,10 @@ components:
         lipSync:
           type: boolean
         studioLipSync:
+          type: boolean
+        coverStudio:
+          type: boolean
+        editorialVideoGrade:
           type: boolean
         screenDemoVideo:
           type: boolean

@@ -178,6 +178,10 @@ import type {
   ContentInput,
   ContentItem,
   ContentUpdate,
+  CoverCopyRequest,
+  CoverCopyResult,
+  CoverRequest,
+  CoverResult,
   CreateCharacterOutfitRequest,
   CreateCharacterRequest,
   CreateCustomAiProviderRequest,
@@ -17657,6 +17661,148 @@ export const useRunImageOp = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getRunImageOpMutationOptions(options));
+    }
+
+export const getCreateCoverUrl = () => {
+
+
+
+
+  return `/api/ai/cover`
+}
+
+/**
+ * Creates a 4:5 subject-aware cover with editable typography layers. A fresh behind-subject cover uses image funding for its subject matte. Text-over covers and re-typesetting via reuse are free. Returns the actual layout and a notice when subject separation or headline occlusion requires text-over.
+ * @summary Turn a photo into an editorial magazine-style cover
+ */
+export const createCover = async (coverRequest: CoverRequest, options?: RequestInit): Promise<CoverResult> => {
+
+  return customFetch<CoverResult>(getCreateCoverUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(coverRequest)
+  }
+);}
+
+
+
+
+export const getCreateCoverMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCover>>, TError,{data: BodyType<CoverRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCover>>, TError,{data: BodyType<CoverRequest>}, TContext> => {
+
+const mutationKey = ['createCover'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCover>>, {data: BodyType<CoverRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createCover(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCoverMutationResult = NonNullable<Awaited<ReturnType<typeof createCover>>>
+    export type CreateCoverMutationBody = BodyType<CoverRequest>
+    export type CreateCoverMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Turn a photo into an editorial magazine-style cover
+ */
+export const useCreateCover = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCover>>, TError,{data: BodyType<CoverRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCover>>,
+        TError,
+        {data: BodyType<CoverRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateCoverMutationOptions(options));
+    }
+
+export const getDraftCoverCopyUrl = () => {
+
+
+
+
+  return `/api/ai/cover-copy`
+}
+
+/**
+ * Free brand-voiced text drafting with a labelled deterministic fallback.
+ * @summary Write cover text for a topic
+ */
+export const draftCoverCopy = async (coverCopyRequest: CoverCopyRequest, options?: RequestInit): Promise<CoverCopyResult> => {
+
+  return customFetch<CoverCopyResult>(getDraftCoverCopyUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(coverCopyRequest)
+  }
+);}
+
+
+
+
+export const getDraftCoverCopyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof draftCoverCopy>>, TError,{data: BodyType<CoverCopyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof draftCoverCopy>>, TError,{data: BodyType<CoverCopyRequest>}, TContext> => {
+
+const mutationKey = ['draftCoverCopy'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof draftCoverCopy>>, {data: BodyType<CoverCopyRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  draftCoverCopy(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DraftCoverCopyMutationResult = NonNullable<Awaited<ReturnType<typeof draftCoverCopy>>>
+    export type DraftCoverCopyMutationBody = BodyType<CoverCopyRequest>
+    export type DraftCoverCopyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Write cover text for a topic
+ */
+export const useDraftCoverCopy = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof draftCoverCopy>>, TError,{data: BodyType<CoverCopyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof draftCoverCopy>>,
+        TError,
+        {data: BodyType<CoverCopyRequest>},
+        TContext
+      > => {
+      return useMutation(getDraftCoverCopyMutationOptions(options));
     }
 
 export const getStreamCaptionUrl = () => {

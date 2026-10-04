@@ -37,9 +37,12 @@ import {
   OP_UNITS,
   type ImageOp,
 } from "../lib/imageEditor/ops";
+import { buildCover, CoverInputError, draftCoverCopy, normalizeCoverCopy, normalizeCoverOptions } from "../lib/cover";
 import {
   EditImageBody,
   RunImageOpBody,
+  CreateCoverBody,
+  DraftCoverCopyBody,
   GenerateCaptionBody,
   GenerateHooksBody,
   GenerateImageBody,
@@ -1911,6 +1914,82 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
     req.log.error({ err: error }, "Editor image operation failed");
     res.status(500).json({ error: "Failed to run the operation" });
   }
+});
+
+/** Reserve only fresh subject extraction; free re-typesets never call an image provider. */
+router.post("/ai/cover", async (req: Request, res: Response) => {
+  const parsed = CreateCoverBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const copy = normalizeCoverCopy(parsed.data.copy);
+  if (!copy.headline) { res.status(400).json({ error: "Add a headline for the cover." }); return; }
+  const options = normalizeCoverOptions(parsed.data);
+  const reuseReq = parsed.data.reuse ?? null;
+  let source: Buffer | undefined;
+  let reuse: Parameters<typeof buildCover>[0]["reuse"];
+  try {
+    if (reuseReq) {
+      const base = await loadSourceImage(reuseReq.basePath, req.tenantId);
+      const subject = reuseReq.subjectPath ? await loadSourceImage(reuseReq.subjectPath, req.tenantId) : null;
+      reuse = { base: base.buffer, basePath: reuseReq.basePath,
+        subject: subject?.buffer ?? null, subjectPath: reuseReq.subjectPath ?? null };
+    } else if (parsed.data.imagePath) {
+      source = (await loadSourceImage(parsed.data.imagePath, req.tenantId)).buffer;
+    } else { res.status(400).json({ error: "Choose a photo for the cover." }); return; }
+  } catch (error) {
+    if (error instanceof ReferenceImageError || error instanceof ImageEditInputError) {
+      res.status(400).json({ error: error.message.replace("Reference image", "Image") }); return;
+    }
+    req.log.error({ err: error }, "Failed to load image for a cover");
+    res.status(500).json({ error: "Failed to load the image" }); return;
+  }
+  let funding: Awaited<ReturnType<typeof reserveFunding>> = null;
+  if (!reuse && options.layout === "behind") {
+    const limits = await getPlanLimits(tenant.plan);
+    funding = await reserveFunding(req.tenantId, limits.images, "image");
+    if (!funding) {
+      res.status(402).json({ error: await outOfFundsMessage(req.tenantId, "image",
+        "Monthly image quota reached and no image credits left. Upgrade your plan, buy a credit pack, or use the text-over layout (free).") });
+      return;
+    }
+  }
+  try {
+    const outcome = await buildCover({
+      tenantId: req.tenantId, tenant, copy, options, source, reuse,
+      meterContext: funding ? { tenantId: req.tenantId, funding: funding.funding,
+        operationKey: meterOperationKey(funding, "cover:matte") } : null,
+    });
+    let spendPaise: number | null = null, units = 0;
+    if (funding && outcome.matteMeta) {
+      spendPaise = await settleFunding(req, funding, "image", {
+        ...outcome.matteMeta, ...(await contentRef(req.tenantId, parsed.data.contentId)),
+      });
+      units = 1;
+    } else if (funding) { await releaseFunding(req, funding, "image"); }
+    res.json({
+      imagePath: outcome.imagePath, b64Json: outcome.b64Json, basePath: outcome.basePath,
+      subjectPath: outcome.subjectPath, layout: outcome.layout, notice: outcome.notice, layers: outcome.layerDoc,
+      units, ...(spendPaise !== null ? { spendPaise } : {}),
+    });
+  } catch (error) {
+    if (funding) await releaseFunding(req, funding, "image");
+    if (error instanceof CoverInputError) { res.status(400).json({ error: error.message }); return; }
+    if (error instanceof InsufficientCreditsError) { res.status(402).json({ error: error.message }); return; }
+    req.log.error({ err: error }, "Cover composition failed");
+    res.status(500).json({ error: "Failed to create the cover" });
+  }
+});
+
+router.post("/ai/cover-copy", async (req: Request, res: Response) => {
+  const parsed = DraftCoverCopyBody.safeParse(req.body);
+  if (!parsed.success || !parsed.data.topic.trim()) { res.status(400).json({ error: "Invalid input" }); return; }
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const { copy, source } = await draftCoverCopy({
+    tenantId: req.tenantId, tenant, topic: parsed.data.topic, brandKitId: parsed.data.brandKitId ?? null,
+  });
+  res.json({ ...copy, source });
 });
 
 const PLATFORM_STYLES: Record<string, string> = {

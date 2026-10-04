@@ -54,6 +54,8 @@ const ALL_ON: FeatureFlags = {
   imageLooks: true,
   providerScoring: true,
   lipSync: true,
+  coverStudio: true,
+  editorialVideoGrade: true,
   studioLipSync: true,
   screenDemoVideo: true,
 };

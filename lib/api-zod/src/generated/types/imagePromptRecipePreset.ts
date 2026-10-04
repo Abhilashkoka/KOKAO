@@ -15,4 +15,5 @@ export const ImagePromptRecipePreset = {
   fashion: 'fashion',
   lifestyle: 'lifestyle',
   architecture: 'architecture',
+  editorial: 'editorial',
 } as const;

@@ -267,6 +267,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "providerScoring": zod.boolean(),
   "lipSync": zod.boolean(),
   "studioLipSync": zod.boolean(),
+  "coverStudio": zod.boolean(),
+  "editorialVideoGrade": zod.boolean(),
   "screenDemoVideo": zod.boolean(),
   "complianceAiReview": zod.boolean().optional()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
@@ -15539,7 +15541,7 @@ export const generateImageBodyLayerPlanOneLayersMax = 8;
 export const GenerateImageBody = zod.object({
   "prompt": zod.string().min(1),
   "promptRecipe": zod.object({
-  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
+  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture', 'editorial']).optional(),
   "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
   "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
   "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),
@@ -15640,6 +15642,74 @@ export const RunImageOpResponse = zod.object({
 
 
 /**
+ * Creates a 4:5 subject-aware cover with editable typography layers. A fresh behind-subject cover uses image funding for its subject matte. Text-over covers and re-typesetting via reuse are free. Returns the actual layout and a notice when subject separation or headline occlusion requires text-over.
+ * @summary Turn a photo into an editorial magazine-style cover
+ */
+export const createCoverBodyCopyKickerMax = 24;
+
+export const createCoverBodyCopyHeadlineMax = 28;
+
+export const createCoverBodyCopySublineMax = 48;
+
+export const createCoverBodyAccentColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+
+
+export const CreateCoverBody = zod.object({
+  "imagePath": zod.string().nullish().describe('Tenant-owned source photo. Required unless reuse is supplied.'),
+  "reuse": zod.object({
+  "basePath": zod.string(),
+  "subjectPath": zod.string().nullish()
+}).nullish().describe('Stored cover canvas and registered subject, reused without provider calls.'),
+  "copy": zod.object({
+  "kicker": zod.string().max(createCoverBodyCopyKickerMax).optional(),
+  "headline": zod.string().min(1).max(createCoverBodyCopyHeadlineMax),
+  "subline": zod.string().max(createCoverBodyCopySublineMax).optional()
+}),
+  "layout": zod.enum(['behind', 'over']).optional(),
+  "position": zod.enum(['top', 'bottom']).optional(),
+  "headlineStyle": zod.enum(['condensed', 'grotesk']).optional(),
+  "theme": zod.enum(['auto', 'light', 'dark']).optional(),
+  "accent": zod.enum(['sparkle', 'arrow', 'none']).optional(),
+  "accentColor": zod.string().regex(createCoverBodyAccentColorRegExp).nullish(),
+  "grade": zod.enum(['editorial', 'none']).optional().describe('Ignored on reuse, where the grade was already applied.'),
+  "contentId": zod.number().nullish().describe('Optional owned Library item for billing attribution.')
+})
+
+export const CreateCoverResponse = zod.object({
+  "imagePath": zod.string(),
+  "b64Json": zod.string(),
+  "basePath": zod.string(),
+  "subjectPath": zod.string().nullable(),
+  "layout": zod.enum(['behind', 'over']),
+  "notice": zod.string().nullable(),
+  "layers": zod.record(zod.string(), zod.unknown()),
+  "units": zod.number().describe('Image operations consumed, zero or one.'),
+  "spendPaise": zod.number().nullish()
+})
+
+
+/**
+ * Free brand-voiced text drafting with a labelled deterministic fallback.
+ * @summary Write cover text for a topic
+ */
+export const draftCoverCopyBodyTopicMax = 2000;
+
+
+
+export const DraftCoverCopyBody = zod.object({
+  "topic": zod.string().min(1).max(draftCoverCopyBodyTopicMax),
+  "brandKitId": zod.number().nullish()
+})
+
+export const DraftCoverCopyResponse = zod.object({
+  "kicker": zod.string(),
+  "headline": zod.string(),
+  "subline": zod.string(),
+  "source": zod.enum(['ai', 'fallback'])
+})
+
+
+/**
  * SSE variant of generateCaption for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", text} as caption text becomes available, then a terminal {type:"result", caption, hashtags, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCaption; a client disconnect mid-stream settles (charges) the reserved funding if any caption text was already delivered, and releases it only when nothing was sent.
  * @summary Generate an AI caption as a Server-Sent Events stream
  */
@@ -15670,7 +15740,7 @@ export const generateImageAsyncBodyLayerPlanOneLayersMax = 8;
 export const GenerateImageAsyncBody = zod.object({
   "prompt": zod.string().min(1),
   "promptRecipe": zod.object({
-  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
+  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture', 'editorial']).optional(),
   "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
   "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
   "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),
@@ -15729,7 +15799,7 @@ export const GenerateImageAsyncResponse = zod.object({
 export const PlanImageLayersBody = zod.object({
   "prompt": zod.string().min(1),
   "promptRecipe": zod.object({
-  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
+  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture', 'editorial']).optional(),
   "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
   "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
   "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),

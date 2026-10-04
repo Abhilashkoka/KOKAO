@@ -8,6 +8,8 @@ import { probeHeight } from "./lipSyncSource";
 import { ASPECT_DIMENSIONS, frameFor, VideoGenProviderError, type VideoAspect } from "./types";
 import { RESOLUTION_SHORT_EDGE, type VideoResolution } from "./modelCatalog";
 import { renderWatermarkPill } from "../watermark";
+import { EDITORIAL_VIDEO_FILTER } from "../cover/grade";
+import { isFeatureEnabled } from "../featureFlags";
 import { logger } from "../logger";
 
 /**
@@ -135,6 +137,7 @@ export async function normalizeVideo(
   aspectRatio: VideoAspect,
   resolution?: VideoResolution | null,
 ): Promise<Buffer> {
+  const grade = await isFeatureEnabled("editorialVideoGrade").catch(() => true);
   // Omitted resolution keeps the 1080-class frame every video used to get
   // unconditionally, so nothing about existing output changes. A cheaper tier
   // encodes smaller rather than being upscaled to look like something it is
@@ -153,7 +156,8 @@ export async function normalizeVideo(
         "in.mp4",
         "-vf",
         `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
-          `crop=${width}:${height},setsar=1,fps=30,format=yuv420p`,
+          `crop=${width}:${height},setsar=1,fps=30,` +
+          (grade ? `${EDITORIAL_VIDEO_FILTER},` : "") + "format=yuv420p",
         "-map",
         "0:v:0",
         "-map",

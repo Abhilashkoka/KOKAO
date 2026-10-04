@@ -116,6 +116,7 @@ import {
   Camera,
   Pencil,
   Languages,
+  Sparkles,
 } from "lucide-react";
 import { VideoStudioPage } from "@/pages/video-studio";
 import { LocalizeStudioPage } from "@/pages/localize-studio";
@@ -144,6 +145,7 @@ import {
 } from "@/lib/quotaCopy";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { ImageEditorDialog } from "@/components/image-editor";
+import { CoverStudioDialog } from "@/components/cover-studio-dialog";
 import { ZoomableImage } from "@/components/zoomable-image";
 import {
   AlertDialog,
@@ -203,6 +205,7 @@ const LOOK_PRESETS: Record<ImagePromptRecipePreset, string> = {
   fashion: "Fashion",
   lifestyle: "Lifestyle",
   architecture: "Architecture",
+  editorial: "Editorial cover",
 };
 const LOOK_CAMERAS: Record<ImagePromptRecipeCamera, string> = {
   phone: "Phone",
@@ -628,6 +631,7 @@ function ImageStudio() {
   // Layered image editor (same one as the Library): the layer document rides
   // along with the draft so a Studio-edited image stays re-editable later.
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
   const [imageLayers, setImageLayers] = useState<Record<
     string,
     unknown
@@ -4015,6 +4019,12 @@ function ImageStudio() {
                             <Pencil className="mr-2 h-4 w-4" />
                             Edit image
                           </Button>
+                          {flags.coverStudio && (
+                            <Button type="button" size="sm" variant="secondary" disabled={isPending}
+                              onClick={() => setCoverOpen(true)} data-testid="button-make-cover">
+                              <Sparkles className="mr-2 h-4 w-4" /> Make cover
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             size="sm"
@@ -4458,6 +4468,23 @@ function ImageStudio() {
         </DialogContent>
       </Dialog>
 
+      {imageResult && flags.coverStudio && (
+        <CoverStudioDialog
+          open={coverOpen}
+          onOpenChange={setCoverOpen}
+          imagePath={imageResult.imagePath}
+          imageB64={imageResult.b64Json}
+          topic={watchedValues.prompt ?? ""}
+          brandKitId={watchedValues.brandKitId || undefined}
+          onApply={(result) => {
+            const nextImage = { imagePath: result.imagePath, b64Json: result.b64 };
+            setImageResult(nextImage);
+            setImageLayers(result.layers);
+            upsertDraft(captionResult, nextImage, result.layers);
+            toast({ title: "Cover applied", description: "Open Edit image to nudge any layer." });
+          }}
+        />
+      )}
       {imageResult && (
         <ImageEditorDialog
           open={imageEditorOpen}

@@ -152,3 +152,4 @@
 - [Guided brand endings](guided-brand-endings.md) — explicit replace/keep/append confirmation; full-scene replacement includes speech, and recovery preserves the chosen animation.
 - [Professional video compliance](professional-video-compliance.md) — requested Brand Kit rules apply during scripting and scene planning, with review before video generation, not after.
 - [Storyboard rejection cleanup](storyboard-rejection-cleanup.md) — rejecting failed or completed storyboards must clean up associated characters, not require separate Atlas console deletion.
+- [JSX generic instrumentation](jsx-generic-instrumentation.md) — explicit JSX type arguments can break the instrumented Vite build despite passing TypeScript and tests.

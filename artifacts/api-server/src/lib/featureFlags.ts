@@ -281,6 +281,16 @@ export const FEATURES = [
       "Reference-video style profiles for topic videos: upload a video, analyze its pacing and hook shape once, and reuse it to steer scripts. When off, the picker and manager are hidden and all videos render without reference styling.",
   },
   {
+    id: "coverStudio",
+    label: "Cover Studio",
+    description: "Editorial magazine-style covers with subject-aware crop, typography, colour grade and editable layers. Fresh subject cutouts use image funding; text-over covers and re-typesets are free.",
+  },
+  {
+    id: "editorialVideoGrade",
+    label: "Editorial Video Grade",
+    description: "Applies a muted editorial grade with warm skin bias and fine film grain to AI clips during normalisation. Turn off to keep raw provider colour.",
+  },
+  {
     id: "lipSync",
     label: "Lip-Synced Spokesperson Videos",
     description:
