@@ -22,6 +22,7 @@ import { Badge, Chip, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { hasPendingPieces, PENDING_TEXT } from "@/lib/contentPending";
+import { isVideoContent } from "@/lib/videoPublish";
 
 const c = colors.light;
 
@@ -55,8 +56,8 @@ export default function LibraryScreen() {
       }
       style={({ pressed }) => [styles.row, { opacity: pressed ? 0.85 : 1 }]}
     >
-      {item.imagePath ? (
-        <ContentImage imagePath={item.imagePath} style={styles.thumb} />
+      {item.videoThumbnailPath || item.imagePath ? (
+        <ContentImage imagePath={(item.videoThumbnailPath || item.imagePath)!} style={styles.thumb} />
       ) : (
         <View style={[styles.thumb, styles.thumbEmpty]}>
           <Text style={styles.thumbLetter}>{item.title.slice(0, 1).toUpperCase()}</Text>
@@ -71,6 +72,7 @@ export default function LibraryScreen() {
         </Text>
         <View style={styles.rowMeta}>
           <Badge label={item.status} tone={statusTone(item.status)} />
+          {isVideoContent(item) ? <Badge label="Video" tone="accent" /> : null}
           <Text style={styles.rowPlatform}>{item.platform}</Text>
         </View>
         {retryingScheduleIds.has(item.id) ? (

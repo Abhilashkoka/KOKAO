@@ -105,6 +105,7 @@ vi.mock("@/components/SchedulePicker", () => ({
   SchedulePicker: () => null,
 }));
 
+vi.mock("@/components/LibraryVideoPlayer", () => ({ LibraryVideoPlayer: () => null }));
 import ContentDetailScreen from "../app/content/[id]";
 import { getGetFirstPostProgressQueryKey } from "@workspace/api-client-react";
 

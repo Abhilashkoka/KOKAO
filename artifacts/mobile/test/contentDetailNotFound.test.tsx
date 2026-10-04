@@ -65,6 +65,7 @@ vi.mock("@/components/SchedulePicker", () => ({
 }));
 
 // Imported after the mocks so the mocked modules are picked up.
+vi.mock("@/components/LibraryVideoPlayer", () => ({ LibraryVideoPlayer: () => null }));
 import ContentDetailScreen from "../app/content/[id]";
 
 function renderScreen() {

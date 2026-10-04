@@ -105,6 +105,7 @@ vi.mock("@/components/SchedulePicker", () => ({
 }));
 
 // Imported after the mocks so the mocked modules are picked up.
+vi.mock("@/components/LibraryVideoPlayer", () => ({ LibraryVideoPlayer: () => null }));
 import ContentDetailScreen from "../app/content/[id]";
 import { RESTART_RETRY_DELAY_MS } from "@workspace/api-client-react";
 

@@ -46,6 +46,8 @@ import {
   useWalletBilling,
 } from "@/components/QuotaInfoSheet";
 import { ContentImage } from "@/components/ContentImage";
+import { VideoLibraryDetail } from "@/components/VideoLibraryDetail";
+import { isVideoContent } from "@/lib/videoPublish";
 import { buildSplitWarnings } from "@/components/publishSplitWarnings";
 import {
   buildExpiredNames,
@@ -779,6 +781,10 @@ export default function ContentDetailScreen() {
         <ErrorState message={error?.message} onRetry={() => refetch()} />
       </View>
     );
+  }
+
+  if (isVideoContent(data)) {
+    return <VideoLibraryDetail key={data.id} item={data} />;
   }
 
   return (
