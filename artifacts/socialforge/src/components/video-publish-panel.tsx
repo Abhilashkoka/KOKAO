@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   usePublishLibraryVideo,
+  useGenerateCaption,
+  getContentVideoCopySource,
   useUpdateContent,
   useCreateSchedule,
   useGetYoutubeStatus,
@@ -31,6 +33,7 @@ import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useFeatureFlags } from "@/lib/features";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { formatVideoLibraryCopy, videoLibraryCopyPrompt, VIDEO_COPY_SOURCE_LABELS } from "@/lib/videoLibraryCopy";
 import { defaultScheduleValue } from "@/components/studio-quick-publish";
 import { useVideoPublishes, VideoPublishProgressList } from "@/components/video-publish-status";
 import {
@@ -56,6 +59,7 @@ export interface VideoPublishItem {
   title: string;
   caption: string;
   platform?: string;
+  brandKitId?: number | null;
   videoPublishMetadata?: VideoPublishMetadata | null;
 }
 
@@ -72,6 +76,16 @@ export function VideoPublishPanel({
   const queryClient = useQueryClient();
   const { flags } = useFeatureFlags();
   const updateContent = useUpdateContent();
+  const generateCaption = useGenerateCaption();
+  const [writing, setWriting] = useState(false);
+  const writingRef = useRef(false);
+  const copyEpoch = useRef(0);
+  const [suggestion, setSuggestion] = useState<{ title: string; caption: string; source: string } | null>(null);
+  useEffect(() => {
+    copyEpoch.current++;
+    setSuggestion(null);
+    return () => { copyEpoch.current++; };
+  }, [item.id]);
   const publishVideo = usePublishLibraryVideo();
   const createSchedule = useCreateSchedule();
   const { data: ytStatus } = useGetYoutubeStatus();
@@ -119,6 +133,8 @@ export function VideoPublishPanel({
   };
 
   const changeDestination = (destination: VideoDestination) => {
+    copyEpoch.current++;
+    setSuggestion(null);
     setDraft((d) => {
       const base = defaultVideoMetadata(destination, d.title, d.description);
       return destination === "youtube" ? base : normalizeForDestination(base);
@@ -129,6 +145,31 @@ export function VideoPublishPanel({
   };
 
   const dest = draft.destination;
+  const writeCaption = async () => {
+    if (writingRef.current) return;
+    writingRef.current = true;
+    setWriting(true);
+    setSuggestion(null);
+    const epoch = ++copyEpoch.current;
+    try {
+      const source = await getContentVideoCopySource(item.id);
+      if (epoch !== copyEpoch.current) return;
+      const result = await generateCaption.mutateAsync({ data: {
+        prompt: videoLibraryCopyPrompt(source, dest), platform: dest,
+        videoCopy: true, contentId: item.id, brandKitId: item.brandKitId ?? undefined,
+      } });
+      if (epoch !== copyEpoch.current) return;
+      setSuggestion({ ...formatVideoLibraryCopy(result, dest), source: VIDEO_COPY_SOURCE_LABELS[source.sourceType] });
+    } catch (error) {
+      if (epoch === copyEpoch.current) toast({
+        title: "Could not generate a caption", description: apiErrorMessage(error, error instanceof Error ? error.message : "Please try again."),
+        variant: "destructive",
+      });
+    } finally {
+      writingRef.current = false;
+      setWriting(false);
+    }
+  };
   const ytConnected = !!ytStatus?.connected;
   const ytCanUpload = ytConnected && ytStatus?.canUpload !== false;
   const cap = capabilities?.[dest];
@@ -303,6 +344,31 @@ export function VideoPublishPanel({
           disabled={busy !== null}
           data-testid="input-video-description"
         />
+        <Button type="button" variant="outline" size="sm" disabled={writing || busy !== null}
+          onClick={writeCaption} data-testid="button-generate-publish-caption">
+          {writing ? <RippleSpinner className="mr-2 h-3 w-3" /> : null}
+          {writing ? "Writing from video…" : `Generate ${dest === "youtube" ? "description" : "caption"} with AI`}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Uses the saved video script or narration, or the original brief if unavailable—not visual analysis.
+          Includes relevant hashtags for this destination. Uses one caption generation from your plan or credits.
+          Nothing is saved or published until you approve it.
+        </p>
+        {suggestion && <div className="space-y-2 rounded-md border p-3" data-testid="publish-caption-suggestion">
+          <p className="text-xs text-muted-foreground">Source: {suggestion.source}</p>
+          <p className="text-sm font-medium">{suggestion.title}</p>
+          <p className="whitespace-pre-wrap text-sm">{suggestion.caption}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" disabled={busy !== null}
+              onClick={() => { update({ description: suggestion.caption }); setSuggestion(null); }}
+              data-testid="button-use-publish-caption">Use caption</Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy !== null}
+              onClick={() => { update({ title: suggestion.title, description: suggestion.caption }); setSuggestion(null); }}>
+              Use title and caption
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setSuggestion(null)}>Dismiss</Button>
+          </div>
+        </div>}
       </div>
 
       {dest === "youtube" ? (

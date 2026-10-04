@@ -14,12 +14,15 @@ let publishes: any[] = [];
 let yt: any = { connected: true, canUpload: true };
 let caps: any = { instagram: { available: true }, facebook: { available: true }, youtube: { available: true } };
 const toastSpy = vi.fn();
+const captionSpy = vi.fn(async () => ({ title: "Relevant title", caption: "Relevant video caption", hashtags: ["#Video"] }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: toastSpy }) }));
 vi.mock("@/lib/features", () => ({ useFeatureFlags: () => ({ flags: { scheduling: true } }) }));
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
+    getContentVideoCopySource: async () => ({ text: "A video about caring for indoor plants.", sourceType: "narration" }),
+    useGenerateCaption: () => ({ isPending: false, mutateAsync: captionSpy }),
     useUpdateContent: () => ({ isPending: false, mutateAsync: vi.fn(async (v: any) => { calls.updates.push(v); calls.order.push("save"); return {}; }) }),
     usePublishLibraryVideo: () => ({ isPending: false, mutateAsync: vi.fn(async (v: any) => { calls.published.push(v.id); calls.order.push("publish"); return { platform: "youtube", state: "queued" }; }) }),
     useCreateSchedule: () => ({ isPending: false, mutateAsync: vi.fn(async (v: any) => { calls.scheduled.push(v.data); return {}; }) }),
@@ -60,10 +63,29 @@ beforeEach(() => {
   publishes = []; yt = { connected: true, canUpload: true };
   caps = { instagram: { available: true }, facebook: { available: true }, youtube: { available: true } };
   toastSpy.mockClear();
+  captionSpy.mockClear();
   cleanup();
 });
 
 describe("VideoPublishPanel", () => {
+  it("generates from the video source without overwriting edits or publishing, then applies on approval", async () => {
+    renderPanel(ytMeta);
+    fireEvent.change(screen.getByTestId("input-video-description"), { target: { value: "My edited caption" } });
+    fireEvent.click(screen.getByTestId("button-generate-publish-caption"));
+    await screen.findByTestId("publish-caption-suggestion");
+    expect(captionSpy).toHaveBeenCalledWith({ data: expect.objectContaining({
+      platform: "youtube", videoCopy: true, contentId: 7,
+      prompt: expect.stringContaining("caring for indoor plants"),
+    }) });
+    expect((screen.getByTestId("input-video-description") as HTMLTextAreaElement).value).toBe("My edited caption");
+    expect(calls.updates).toEqual([]);
+    expect(calls.published).toEqual([]);
+    fireEvent.click(screen.getByTestId("button-use-publish-caption"));
+    expect((screen.getByTestId("input-video-description") as HTMLTextAreaElement).value).toContain("Relevant video caption");
+    expect((screen.getByTestId("input-video-description") as HTMLTextAreaElement).value).toContain("#Video");
+    expect((screen.getByTestId("input-video-title") as HTMLInputElement).value).toBe("Clip");
+    expect((screen.getByTestId("button-video-publish") as HTMLButtonElement).disabled).toBe(true);
+  });
   it("requires explicit review before publish, saves the snapshot first, and reports queued not published", async () => {
     renderPanel(ytMeta);
     choose();
