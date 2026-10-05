@@ -79,6 +79,7 @@ import {
   GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE,
   guidedCastApprovalsMatch,
   guidedStoryStoryboard,
+  guidedInScenePhotoProducts,
   effectiveGuidedBackdrop,
 } from "../guidedStory";
 import type { GuidedStoryCastSnapshot, VideoJobOptions } from "@workspace/db";
@@ -2189,6 +2190,11 @@ export async function regenerateStoryboardPreview(params: {
       ...(visualGuidance.logoPath
         ? [{ label: "LOGO OVERLAY", path: visualGuidance.logoPath }]
         : []),
+      ...guidedInScenePhotoProducts(params.scene.guidedStory.visuals.products).map((product) => ({
+        label: `BRAND PRODUCT: ${product.name} — reproduce its shape, colours and label exactly`,
+        path: product.imagePath,
+        sha256: product.imageSha256,
+      })),
     ];
     const refs = await Promise.all(
       visualReferences.map((reference) => loadReferenceImage(reference.path, params.tenantId)),
@@ -2202,6 +2208,17 @@ export async function regenerateStoryboardPreview(params: {
       if (!expected || actual !== expected) {
         throw new VideoGenProviderError(
           `${GUIDED_CAST_APPROVAL_REQUIRED_MESSAGE} The saved bytes for ${castReferences[index]!.label} no longer match their approval.`,
+        );
+      }
+    }
+    for (const [index, reference] of visualReferences.entries()) {
+      const expected = (reference as { sha256?: string }).sha256;
+      if (
+        expected &&
+        createHash("sha256").update(refs[index]!.buffer).digest("hex") !== expected
+      ) {
+        throw new VideoGenProviderError(
+          `Guided scene ${params.scene.id} product image changed after approval. Re-select it in the story setup.`,
         );
       }
     }

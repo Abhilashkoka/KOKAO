@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { BrandProductsSection } from "@/components/brand-products";
 import {
   Dialog,
   DialogContent,
@@ -2845,10 +2846,13 @@ export function BrandKitsPage() {
           </DialogHeader>
           {draft && (
             <Tabs defaultValue="identity" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="identity">Identity</TabsTrigger>
                 <TabsTrigger value="voice">Voice</TabsTrigger>
                 <TabsTrigger value="colors">Colors</TabsTrigger>
+                <TabsTrigger value="products" data-testid="tab-products">
+                  Products
+                </TabsTrigger>
                 <TabsTrigger value="compliance" data-testid="tab-compliance">
                   Compliance
                 </TabsTrigger>
@@ -3114,6 +3118,10 @@ export function BrandKitsPage() {
                       placeholder="e.g. warm tones, lifestyle, minimal"
                     />
                   </div>
+                </TabsContent>
+
+                <TabsContent value="products" className="space-y-4 mt-0">
+                  {editKit && <BrandProductsSection kitId={editKit.id} />}
                 </TabsContent>
 
                 <TabsContent value="compliance" className="space-y-4 mt-0">

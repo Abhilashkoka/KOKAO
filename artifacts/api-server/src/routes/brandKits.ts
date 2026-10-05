@@ -10,7 +10,22 @@ import {
   brandKitVersionsTable,
   type BrandKitPayload,
   type BrandVoiceEntry,
+  type BrandProductMetadata,
 } from "@workspace/db";
+import {
+  BRAND_PRODUCT_ASSET_TYPE,
+  MAX_BRAND_PRODUCTS,
+  BrandProductInputError,
+  brandProductMetadata,
+  describeBrandProductImage,
+  listBrandProducts,
+  loadBrandProduct,
+  normalizeBrandProductInput,
+  readBrandProductImage,
+  saveBrandProductDescription,
+  serializeBrandProduct,
+  type BrandProductInput,
+} from "../lib/brandKit/products";
 import { randomUUID } from "node:crypto";
 import { and, eq, desc } from "drizzle-orm";
 import {
@@ -21,6 +36,8 @@ import {
   DraftBrandKitBody,
   ResolveBrandSelectionBody,
   CreateBrandAssetBody,
+  CreateBrandProductBody,
+  UpdateBrandProductBody,
   CloneBrandVoiceBody,
   SelectBrandVoiceBody,
   PreviewBrandVoiceBody,
@@ -386,6 +403,10 @@ router.post("/brand-kits/:id/assets", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
+  if (parsed.data.assetType === BRAND_PRODUCT_ASSET_TYPE) {
+    res.status(400).json({ error: "Add products and services from the Products tab." });
+    return;
+  }
   const id = Number(req.params.id);
   const kit = await loadKit(req.tenantId, id);
   if (!kit) {
@@ -429,6 +450,180 @@ router.delete("/brand-kits/:id/assets/:assetId", async (req: Request, res: Respo
   }
   res.status(204).end();
 });
+
+// --- Products & Services (Guided Story promotion library) ---
+
+router.get("/brand-kits/:id/products", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!(await loadKit(req.tenantId, id))) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json((await listBrandProducts(req.tenantId, id)).map(serializeBrandProduct));
+});
+
+router.post("/brand-kits/:id/products", async (req: Request, res: Response) => {
+  const parsed = CreateBrandProductBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid product." });
+    return;
+  }
+  const id = Number(req.params.id);
+  if (!(await loadKit(req.tenantId, id))) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  let input: BrandProductInput;
+  let image: Awaited<ReturnType<typeof readBrandProductImage>>;
+  try {
+    input = normalizeBrandProductInput(parsed.data);
+    image = await readBrandProductImage(parsed.data.imagePath, req.tenantId);
+  } catch (error) {
+    if (error instanceof BrandProductInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+  const metadata: BrandProductMetadata = {
+    version: 1,
+    ...input,
+    aiDescription: null,
+    aiDescriptionStatus: "pending",
+    aiDescribedAt: null,
+    imageSha256: image.sha256,
+  };
+  // Lock the kit so parallel uploads cannot overshoot the catalog cap.
+  const created = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: brandKitsTable.id })
+      .from(brandKitsTable)
+      .where(and(eq(brandKitsTable.id, id), eq(brandKitsTable.tenantId, req.tenantId)))
+      .for("update");
+    const existing = await tx
+      .select({ id: brandAssetsTable.id })
+      .from(brandAssetsTable)
+      .where(
+        and(
+          eq(brandAssetsTable.tenantId, req.tenantId),
+          eq(brandAssetsTable.brandKitId, id),
+          eq(brandAssetsTable.assetType, BRAND_PRODUCT_ASSET_TYPE),
+        ),
+      );
+    if (existing.length >= MAX_BRAND_PRODUCTS) return null;
+    return (
+      await tx
+        .insert(brandAssetsTable)
+        .values({
+          tenantId: req.tenantId,
+          brandKitId: id,
+          assetType: BRAND_PRODUCT_ASSET_TYPE,
+          fileUrl: parsed.data.imagePath,
+          mimeType: image.mimeType,
+          label: input.name,
+          metadataJson: metadata as unknown as Record<string, unknown>,
+        })
+        .returning()
+    )[0]!;
+  });
+  if (!created) {
+    res.status(409).json({
+      error: `A brand can hold up to ${MAX_BRAND_PRODUCTS} products and services. Remove one first.`,
+    });
+    return;
+  }
+  const description = await describeBrandProductImage({
+    tenantId: req.tenantId,
+    brandKitId: id,
+    assetId: created.id,
+    input,
+    image,
+  });
+  const saved = await saveBrandProductDescription(created, image.sha256, description);
+  res.status(201).json(serializeBrandProduct(saved ?? created));
+});
+
+router.patch(
+  "/brand-kits/:id/products/:assetId",
+  async (req: Request, res: Response) => {
+    const assetId = assetIdParam(req, res);
+    if (assetId === null) return;
+    const parsed = UpdateBrandProductBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid product." });
+      return;
+    }
+    const row = await loadBrandProduct(req.tenantId, Number(req.params.id), assetId);
+    if (!row) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const current = brandProductMetadata(row);
+    let input: BrandProductInput;
+    try {
+      input = normalizeBrandProductInput({ ...current, ...parsed.data });
+    } catch (error) {
+      if (error instanceof BrandProductInputError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    const updated = (
+      await db
+        .update(brandAssetsTable)
+        .set({
+          label: input.name,
+          metadataJson: { ...current, ...input } as unknown as Record<string, unknown>,
+        })
+        .where(and(eq(brandAssetsTable.id, row.id), eq(brandAssetsTable.tenantId, req.tenantId)))
+        .returning()
+    )[0];
+    if (!updated) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.json(serializeBrandProduct(updated));
+  },
+);
+
+router.post(
+  "/brand-kits/:id/products/:assetId/describe",
+  async (req: Request, res: Response) => {
+    const assetId = assetIdParam(req, res);
+    if (assetId === null) return;
+    const kitId = Number(req.params.id);
+    const row = await loadBrandProduct(req.tenantId, kitId, assetId);
+    if (!row) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    let image: Awaited<ReturnType<typeof readBrandProductImage>>;
+    try {
+      image = await readBrandProductImage(row.fileUrl, req.tenantId);
+    } catch (error) {
+      if (error instanceof BrandProductInputError) {
+        res.status(409).json({ error: `${error.message} Upload the image again.` });
+        return;
+      }
+      throw error;
+    }
+    const meta = brandProductMetadata(row);
+    const description = await describeBrandProductImage({
+      tenantId: req.tenantId,
+      brandKitId: kitId,
+      assetId,
+      input: meta,
+      image,
+    });
+    const saved = await saveBrandProductDescription(row, image.sha256, description);
+    if (!saved) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.json(serializeBrandProduct(saved));
+  },
+);
 
 // --- Brand Voice (cloned narration voice) ---
 

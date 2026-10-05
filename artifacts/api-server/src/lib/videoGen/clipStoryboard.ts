@@ -24,7 +24,8 @@ import {
   isAtlasReferenceModel,
   isAtlasWanReferenceModel,
 } from "./providers/atlascloud";
-import { concatClips, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+import { applyProductCardOverlay, concatClips, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+import { guidedExactProductCards, guidedWanProductReferenceUrls } from "./guidedProductReferences";
 import { actualClipDuration } from "./renderTimeline";
 import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
 import {
@@ -833,7 +834,30 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
         if (!refs.length) throw new VideoGenProviderError(`Guided Story scene ${i + 1} has a participating cast member without an active BytePlus asset mapping.`);
         assetIds.push(...refs);
       }
+      // In-scene product photos ride along as Wan references after the cast
+      // (and the approved backdrop, so prompt labels stay aligned). Other
+      // providers get the product from the scene prompt text only.
+      if (
+        modelOptions.resolvedVideoModel?.provider === "atlascloud" &&
+        modelOptions.resolvedVideoModel.model &&
+        isAtlasWanReferenceModel(modelOptions.resolvedVideoModel.model)
+      ) {
+        assetIds.push(
+          ...(await guidedWanProductReferenceUrls({
+            tenantId: params.job.tenantId,
+            visuals: scene.guidedStory.visuals,
+          })),
+        );
+      }
     }
+    // Verify exact-mode product bytes before paying for the clip.
+    const productCards =
+      storyboard.mode === "guided_story" && scene.guidedStory
+        ? await guidedExactProductCards({
+            tenantId: params.job.tenantId,
+            visuals: scene.guidedStory.visuals,
+          })
+        : [];
     const result = saved?.path
       ? {
           buffer: (await params.load(saved.path)).buffer,
@@ -881,7 +905,12 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     }
     provider = result.provider;
     model = result.model;
-    clips.push(await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution));
+    const normalized = await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution);
+    clips.push(
+      productCards.length
+        ? await applyProductCardOverlay(normalized, productCards, aspectRatio, modelOptions.resolution)
+        : normalized,
+    );
   }
 
   if (clips.length > 1) params.onStage?.("Joining your shots");

@@ -260,7 +260,14 @@ import {
 import { loadStyleGuidance } from "../lib/videoGen/referenceAnalyzer";
 import {
   guidedStoryReferencePreflightError as guidedStoryboardReferenceError,
+  sanitizeGuidedScriptProducts,
+  withGuidedProductWarnings,
 } from "../lib/videoGen/guidedStory";
+import {
+  GuidedProductSelectionError,
+  assertGuidedProductsUnchanged,
+  resolveGuidedSetupProducts,
+} from "../lib/videoGen/guidedProducts";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { getTextGenClient, TextGenNotConfiguredError } from "../lib/textGen";
 import {
@@ -2755,6 +2762,8 @@ function guidedSetup(
     topic: string;
     roleCount?: number;
     brandKitId?: number | null;
+    /** Resolved separately (async) by resolveGuidedSetupProducts. */
+    productSelection?: unknown;
   },
 ): NonNullable<GuidedStoryDraftState["setup"]> | null {
   const platform = guidedStoryPlatform(input.platform);
@@ -2788,9 +2797,12 @@ function guidedStorySetupValidationError(
   issuePath?: PropertyKey[],
 ): string | null {
   const field = issuePath?.find((part) =>
-    ["genre", "platform", "durationSeconds", "locale", "topic", "roleCount", "brandKitId"]
+    ["genre", "platform", "durationSeconds", "locale", "topic", "roleCount", "brandKitId", "productSelection"]
       .includes(String(part)),
   );
+  if (field === "productSelection") {
+    return "Choose up to 4 Brand Kit products or services and a Subtle or Featured promotion level.";
+  }
   if (field === "topic") return "Topic must be between 3 and 6000 characters.";
   if (field === "genre") {
     return "Genre is not supported. Choose Action / Adventure, Comedy, Drama, Romance, Thriller / Mystery, Fantasy, or Science Fiction.";
@@ -4723,6 +4735,21 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Brand Kit not found." });
     return;
   }
+  try {
+    const products = await resolveGuidedSetupProducts({
+      tenantId: req.tenantId,
+      setup,
+      selection: parsed.data.productSelection,
+      previous: null,
+    });
+    if (products) setup.products = products;
+  } catch (error) {
+    if (error instanceof GuidedProductSelectionError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
   const imageSelection = await getImageGenSelection();
   if (imageSelection.provider === "auto") {
     res.status(409).json({
@@ -4860,6 +4887,21 @@ router.patch(
         res.status(404).json({ error: "Brand Kit not found." });
         return;
       }
+      try {
+        const products = await resolveGuidedSetupProducts({
+          tenantId: req.tenantId,
+          setup,
+          selection: parsed.data.setup.productSelection,
+          previous: row.state.setup,
+        });
+        if (products) setup.products = products;
+      } catch (error) {
+        if (error instanceof GuidedProductSelectionError) {
+          res.status(400).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
     }
     let script = row.state.script;
     if (parsed.data.script) {
@@ -4885,6 +4927,12 @@ router.patch(
           });
         return;
       }
+    }
+    if (script && setup && (parsed.data.setup || parsed.data.script)) {
+      script = withGuidedProductWarnings(
+        sanitizeGuidedScriptProducts(script, setup.products),
+        setup.products,
+      );
     }
     const validatedVisualChoices = parsed.data.visualChoices
       ? validateGuidedVisualChoices(parsed.data.visualChoices, script, req.tenantId)
@@ -5477,6 +5525,7 @@ router.post(
                 : null,
               complianceScriptHint(thawCompliance(guidedCompliance)),
             ),
+            products: setup.products ?? null,
             meterContext,
           });
         },
@@ -10670,6 +10719,11 @@ async function generateVideoHandler(
       });
       return;
     }
+    const productError = await assertGuidedProductsUnchanged(setup.products, req.tenantId);
+    if (productError) {
+      res.status(409).json({ error: productError });
+      return;
+    }
     body = {
       ...body,
       engine: "topic_to_video",
@@ -12276,6 +12330,9 @@ async function generateVideoHandler(
               approvedAt: approvedGuidedBackdrops.default.approvedAt,
             },
             backdrops: approvedGuidedBackdrops,
+            ...(guidedDraft.state.setup.products?.items.length
+              ? { products: guidedDraft.state.setup.products }
+              : {}),
           }
         : undefined,
     hybridStory:

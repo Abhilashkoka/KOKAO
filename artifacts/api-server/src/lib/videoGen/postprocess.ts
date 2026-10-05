@@ -11,6 +11,7 @@ import { renderWatermarkPill } from "../watermark";
 import { EDITORIAL_VIDEO_FILTER } from "../cover/grade";
 import { isFeatureEnabled } from "../featureFlags";
 import { logger } from "../logger";
+import sharp from "sharp";
 
 /**
  * Stamp the "Made with KOKAO.in" pill in the bottom-right corner of a
@@ -60,6 +61,132 @@ export async function applyAppWatermarkToVideo(
     return out.length > 0 ? out : video;
   } catch (error) {
     logger.warn({ err: error }, "App watermark overlay failed; delivering the unwatermarked video");
+    return video;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function escapeXml(value: string): string {
+  return value.replace(/[<>&"']/g, (c) =>
+    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c]!,
+  );
+}
+
+/**
+ * Render one product card: the untouched upload, letterboxed on a white
+ * rounded card with the product name underneath. Never crops the product.
+ */
+export async function renderProductCard(
+  image: Buffer,
+  name: string,
+  cardWidth: number,
+): Promise<{ png: Buffer; width: number; height: number }> {
+  const pad = Math.max(8, Math.round(cardWidth * 0.06));
+  const inner = cardWidth - pad * 2;
+  const fontSize = Math.max(14, Math.round(cardWidth * 0.075));
+  const labelHeight = Math.round(fontSize * 1.8);
+  const height = pad + inner + labelHeight;
+  const radius = Math.round(cardWidth * 0.07);
+  const photo = await sharp(image, { limitInputPixels: 40_000_000 })
+    .rotate()
+    .resize(inner, inner, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 1 } })
+    .png()
+    .toBuffer();
+  const label = name.length > 28 ? `${name.slice(0, 27).trimEnd()}…` : name;
+  const svg = Buffer.from(
+    `<svg width="${cardWidth}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+      `<rect width="100%" height="100%" rx="${radius}" ry="${radius}" fill="#ffffff"/>` +
+      `<text x="50%" y="${pad + inner + Math.round(labelHeight * 0.68)}" text-anchor="middle" ` +
+      `font-family="DejaVu Sans" font-weight="bold" font-size="${fontSize}" fill="#14141A">${escapeXml(label)}</text>` +
+      `</svg>`,
+  );
+  const mask = Buffer.from(
+    `<svg width="${cardWidth}" height="${height}"><rect width="100%" height="100%" rx="${radius}" ry="${radius}"/></svg>`,
+  );
+  const png = await sharp(svg)
+    .composite([
+      { input: photo, top: pad, left: pad },
+      { input: mask, blend: "dest-in" },
+    ])
+    .png()
+    .toBuffer();
+  return { png, width: cardWidth, height };
+}
+
+/**
+ * Overlay exact-mode product cards in the upper-right of a normalized scene
+ * clip (below platform top chrome, clear of the lower-third captions/logo).
+ * Audio is copied untouched. Fail-soft like the watermark: a paid render is
+ * never lost to a cosmetic overlay; the failure is logged.
+ */
+export async function applyProductCardOverlay(
+  video: Buffer,
+  cards: Array<{ name: string; image: Buffer }>,
+  aspectRatio: VideoAspect,
+  resolution?: VideoResolution | null,
+): Promise<Buffer> {
+  if (!cards.length) return video;
+  const { width, height } = resolution
+    ? frameFor(aspectRatio, RESOLUTION_SHORT_EDGE[resolution])
+    : ASPECT_DIMENSIONS[aspectRatio];
+  const short = Math.min(width, height);
+  const cardWidth = Math.round(short * (cards.length > 1 ? 0.24 : 0.3));
+  const margin = Math.round(short * 0.05);
+  const top = Math.round(height * (height > width ? 0.12 : 0.06));
+  const dir = await mkdtemp(join(tmpdir(), "kokao-product-card-"));
+  try {
+    await writeFile(join(dir, "in.mp4"), video);
+    const rendered = [];
+    for (const [index, card] of cards.entries()) {
+      const out = await renderProductCard(card.image, card.name, cardWidth);
+      await writeFile(join(dir, `card${index}.png`), out.png);
+      rendered.push(out);
+    }
+    const inputs = rendered.flatMap((_card, index) => ["-loop", "1", "-i", `card${index}.png`]);
+    const filters: string[] = [];
+    let last = "0:v";
+    let y = top;
+    rendered.forEach((card, index) => {
+      const faded = `c${index}`;
+      const next = index === rendered.length - 1 ? "vout" : `v${index}`;
+      filters.push(`[${index + 1}:v]format=rgba,fade=t=in:st=0.2:d=0.4:alpha=1[${faded}]`);
+      filters.push(`[${last}][${faded}]overlay=W-w-${margin}:${y}:shortest=1[${next}]`);
+      last = next;
+      y += card.height + Math.round(margin / 2);
+    });
+    await runFfmpeg(
+      [
+        "-y",
+        "-i",
+        "in.mp4",
+        ...inputs,
+        "-filter_complex",
+        filters.join(";"),
+        "-map",
+        "[vout]",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "copy",
+        "-movflags",
+        "+faststart",
+        "out.mp4",
+      ],
+      dir,
+    );
+    const out = await readFile(join(dir, "out.mp4"));
+    return out.length > 0 ? out : video;
+  } catch (error) {
+    logger.warn({ err: error }, "Product card overlay failed; delivering the scene without it");
     return video;
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});

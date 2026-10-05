@@ -29,6 +29,34 @@ export type GuidedStoryPlatform =
 /** Canonical language identities accepted for new Guided Story attempts. */
 export type GuidedStoryLocale = "en" | "hi" | "te" | "ta";
 
+/** How hard the story sells the selected Brand Kit products & services. */
+export type GuidedStoryPromotion = "subtle" | "featured";
+
+/**
+ * A Brand Kit product frozen into one draft. The image bytes are pinned by
+ * hash so a later Brand Kit edit cannot change what an approved script,
+ * estimate or render promised.
+ */
+export interface GuidedStoryProductReference {
+  /** Stable script-facing id, `p<assetId>`. */
+  id: string;
+  assetId: number;
+  name: string;
+  kind: "product" | "service";
+  description: string;
+  aiDescription: string | null;
+  displayMode: "in_scene" | "exact";
+  imagePath: string;
+  imageSha256: string;
+  mimeType: string;
+}
+
+export interface GuidedStoryProductChoices {
+  version: 1;
+  promotion: GuidedStoryPromotion;
+  items: GuidedStoryProductReference[];
+}
+
 export interface GuidedStoryScript {
   version: 1;
   title: string;
@@ -42,6 +70,8 @@ export interface GuidedStoryScript {
     visualDirection: string;
     /** Every cast role visually present in this exact approved scene. */
     roleIds: string[];
+    /** Frozen draft product ids shown in this scene. Absent on legacy scripts. */
+    productIds?: string[];
     lines: Array<{
       id: string;
       ownerRoleId: string | null;
@@ -359,7 +389,8 @@ export interface GuidedStoryDraftState {
      */
     roleCount?: number;
     brandKitId: number | null;
-
+    /** Brand Kit products & services this story promotes. Absent on legacy drafts. */
+    products?: GuidedStoryProductChoices | null;
   } | null;
   /**
    * New drafts freeze the platform image choice so review assets and retries

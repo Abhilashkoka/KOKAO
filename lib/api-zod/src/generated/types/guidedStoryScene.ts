@@ -16,5 +16,10 @@ export interface GuidedStoryScene {
   visualDirection: string;
   /** Stable role ids visibly present in this scene. */
   roleIds: string[];
+  /**
+     * Frozen draft product ids (setup.products.items[].id) shown in this scene.
+     * @maxItems 2
+     */
+  productIds?: string[];
   lines: GuidedStoryLine[];
 }

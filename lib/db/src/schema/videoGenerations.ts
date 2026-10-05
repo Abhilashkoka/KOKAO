@@ -1272,6 +1272,8 @@ export interface VideoJobOptions {
     };
     /** Canonical immutable per-scene backdrop snapshot. */
     backdrops?: GuidedStoryBackdropChoices;
+    /** Frozen Brand Kit products & services; absent on jobs before products. */
+    products?: import("./guidedStories").GuidedStoryProductChoices;
   };
   /**
    * Privacy-safe post-render speech QA evidence. Transcript text is
@@ -1386,6 +1388,20 @@ export interface VideoStoryboardScene {
       backdropSource?: "default" | "override";
       backdropRevision?: number;
       backdropImageSha256?: string;
+      /**
+       * Products shown in this scene, in prompt/reference order. Present only
+       * when the scene features at least one, so legacy fingerprints are stable.
+       */
+      products?: Array<{
+        id: string;
+        name: string;
+        kind: "product" | "service";
+        description: string;
+        aiDescription: string | null;
+        displayMode: "in_scene" | "exact";
+        imagePath: string;
+        imageSha256: string;
+      }>;
     };
     /**
      * Append-only, funded correction history. The approved inputs and

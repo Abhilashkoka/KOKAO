@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryProductSelectionInput } from './guidedStoryProductSelectionInput';
 import type { GuidedStorySetupInputGenre } from './guidedStorySetupInputGenre';
 import type { GuidedStorySetupInputPlatform } from './guidedStorySetupInputPlatform';
 
@@ -34,4 +35,5 @@ export interface GuidedStorySetupInput {
   roleCount?: number;
   /** @nullable */
   brandKitId?: number | null;
+  productSelection?: GuidedStoryProductSelectionInput;
 }

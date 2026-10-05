@@ -13050,6 +13050,132 @@ export const DeleteBrandAssetResponse = zod.void()
 
 
 /**
+ * @summary List the brand's products and services
+ */
+export const ListBrandProductsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListBrandProductsResponseItem = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "imagePath": zod.string(),
+  "mimeType": zod.string().nullable(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
+  "aiDescription": zod.string().nullable(),
+  "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "createdAt": zod.coerce.date()
+})
+export const ListBrandProductsResponse = zod.array(ListBrandProductsResponseItem)
+
+
+/**
+ * Validates the uploaded image, stores it with the owner's name and description, then asks a vision model once for a saved visual description. A failed description never blocks the upload; the product is returned with aiDescriptionStatus "failed" and can be retried.
+ * @summary Add an uploaded product or service image to the brand
+ */
+export const CreateBrandProductParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const createBrandProductBodyImagePathMax = 512;
+
+export const createBrandProductBodyNameMin = 2;
+export const createBrandProductBodyNameMax = 80;
+
+export const createBrandProductBodyKindDefault = `product`;
+export const createBrandProductBodyDescriptionMin = 3;
+export const createBrandProductBodyDescriptionMax = 400;
+
+export const createBrandProductBodyDisplayModeDefault = `in_scene`;
+
+export const CreateBrandProductBody = zod.object({
+  "imagePath": zod.string().min(1).max(createBrandProductBodyImagePathMax),
+  "name": zod.string().min(createBrandProductBodyNameMin).max(createBrandProductBodyNameMax),
+  "kind": zod.enum(['product', 'service']).default(createBrandProductBodyKindDefault),
+  "description": zod.string().min(createBrandProductBodyDescriptionMin).max(createBrandProductBodyDescriptionMax),
+  "displayMode": zod.enum(['in_scene', 'exact']).default(createBrandProductBodyDisplayModeDefault)
+})
+
+export const CreateBrandProductResponse = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "imagePath": zod.string(),
+  "mimeType": zod.string().nullable(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
+  "aiDescription": zod.string().nullable(),
+  "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Edit a product's name, kind, description or display mode
+ */
+export const UpdateBrandProductParams = zod.object({
+  "id": zod.coerce.number(),
+  "assetId": zod.coerce.number()
+})
+
+export const updateBrandProductBodyNameMin = 2;
+export const updateBrandProductBodyNameMax = 80;
+
+export const updateBrandProductBodyDescriptionMin = 3;
+export const updateBrandProductBodyDescriptionMax = 400;
+
+
+
+export const UpdateBrandProductBody = zod.object({
+  "name": zod.string().min(updateBrandProductBodyNameMin).max(updateBrandProductBodyNameMax).optional(),
+  "kind": zod.enum(['product', 'service']).optional(),
+  "description": zod.string().min(updateBrandProductBodyDescriptionMin).max(updateBrandProductBodyDescriptionMax).optional(),
+  "displayMode": zod.enum(['in_scene', 'exact']).optional()
+})
+
+export const UpdateBrandProductResponse = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "imagePath": zod.string(),
+  "mimeType": zod.string().nullable(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
+  "aiDescription": zod.string().nullable(),
+  "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Re-run the one-time AI visual description of a product image
+ */
+export const DescribeBrandProductParams = zod.object({
+  "id": zod.coerce.number(),
+  "assetId": zod.coerce.number()
+})
+
+export const DescribeBrandProductResponse = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "imagePath": zod.string(),
+  "mimeType": zod.string().nullable(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
+  "aiDescription": zod.string().nullable(),
+  "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Whether brand-voice cloning is enabled and configured
  */
 export const GetBrandVoiceStatusResponse = zod.object({
@@ -16764,6 +16890,9 @@ export const createGuidedStoryDraftBodyTopicMin = 3;
 export const createGuidedStoryDraftBodyTopicMax = 6000;
 
 
+export const createGuidedStoryDraftBodyProductSelectionAssetIdsMax = 4;
+
+
 
 export const CreateGuidedStoryDraftBody = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
@@ -16772,7 +16901,11 @@ export const CreateGuidedStoryDraftBody = zod.object({
   "locale": zod.string().min(createGuidedStoryDraftBodyLocaleMin).max(createGuidedStoryDraftBodyLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(createGuidedStoryDraftBodyTopicMin).max(createGuidedStoryDraftBodyTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftBodyProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 })
 
 export const createGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
@@ -16784,10 +16917,15 @@ export const createGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const createGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const createGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
+
+export const createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const createGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const createGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const createGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const createGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -16801,6 +16939,8 @@ export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptR
 
 export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -16850,12 +16990,32 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "locale": zod.string().min(createGuidedStoryDraftResponseSetupOneOneLocaleMin).max(createGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(createGuidedStoryDraftResponseSetupOneOneTopicMin).max(createGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -16880,6 +17040,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -16984,6 +17145,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17127,10 +17289,15 @@ export const getGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const getGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const getGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
+
+export const getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const getGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const getGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const getGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const getGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -17144,6 +17311,8 @@ export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRole
 
 export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17193,12 +17362,32 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "locale": zod.string().min(getGuidedStoryDraftResponseSetupOneOneLocaleMin).max(getGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(getGuidedStoryDraftResponseSetupOneOneTopicMin).max(getGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -17223,6 +17412,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17327,6 +17517,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17471,10 +17662,15 @@ export const updateGuidedStoryDraftBodySetupLocaleMax = 35;
 export const updateGuidedStoryDraftBodySetupTopicMin = 3;
 export const updateGuidedStoryDraftBodySetupTopicMax = 6000;
 
+
+export const updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax = 4;
+
 export const updateGuidedStoryDraftBodyScriptRolesMax = 20;
 
 export const updateGuidedStoryDraftBodyScriptScenesItemStartMsMin = 0;
 
+
+export const updateGuidedStoryDraftBodyScriptScenesItemProductIdsMax = 2;
 
 export const updateGuidedStoryDraftBodyScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17508,7 +17704,11 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "locale": zod.string().min(updateGuidedStoryDraftBodySetupLocaleMin).max(updateGuidedStoryDraftBodySetupLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(updateGuidedStoryDraftBodySetupTopicMin).max(updateGuidedStoryDraftBodySetupTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).optional(),
   "script": zod.object({
   "version": zod.number(),
@@ -17526,6 +17726,7 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17598,10 +17799,15 @@ export const updateGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const updateGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const updateGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
+
+export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const updateGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const updateGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -17615,6 +17821,8 @@ export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptR
 
 export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17664,12 +17872,32 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "locale": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneLocaleMin).max(updateGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneTopicMin).max(updateGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -17694,6 +17922,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17798,6 +18027,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17948,10 +18178,15 @@ export const generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax = 35;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMin = 3;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const generateGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -17965,6 +18200,8 @@ export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResul
 
 export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18014,12 +18251,32 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "locale": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneTopicMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -18044,6 +18301,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18148,6 +18406,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18308,10 +18567,15 @@ export const refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMax = 35;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMin = 3;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax = 6000;
 
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMax = 20;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -18325,6 +18589,8 @@ export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationRe
 
 export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18374,12 +18640,32 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "locale": zod.string().min(refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -18404,6 +18690,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18508,6 +18795,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18655,6 +18943,8 @@ export const generateGuidedStoryDraftSceneBodyScriptRolesMax = 20;
 export const generateGuidedStoryDraftSceneBodyScriptScenesItemStartMsMin = 0;
 
 
+export const generateGuidedStoryDraftSceneBodyScriptScenesItemProductIdsMax = 2;
+
 export const generateGuidedStoryDraftSceneBodyScriptScenesItemLinesItemStartMsMin = 0;
 
 
@@ -18682,6 +18972,7 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18701,6 +18992,8 @@ export const generateGuidedStoryDraftSceneResponseScriptRolesMax = 20;
 
 export const generateGuidedStoryDraftSceneResponseScriptScenesItemStartMsMin = 0;
 
+
+export const generateGuidedStoryDraftSceneResponseScriptScenesItemProductIdsMax = 2;
 
 export const generateGuidedStoryDraftSceneResponseScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18728,6 +19021,7 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18767,10 +19061,15 @@ export const approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax = 35;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMin = 3;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const approveGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -18784,6 +19083,8 @@ export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResult
 
 export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18833,12 +19134,32 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "locale": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneTopicMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -18863,6 +19184,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18967,6 +19289,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19132,10 +19455,15 @@ export const castGuidedStoryDraftResponseSetupOneOneLocaleMax = 35;
 export const castGuidedStoryDraftResponseSetupOneOneTopicMin = 3;
 export const castGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
+
+export const castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const castGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const castGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const castGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const castGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -19149,6 +19477,8 @@ export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRol
 
 export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19198,12 +19528,32 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "locale": zod.string().min(castGuidedStoryDraftResponseSetupOneOneLocaleMin).max(castGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(castGuidedStoryDraftResponseSetupOneOneTopicMin).max(castGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -19228,6 +19578,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19332,6 +19683,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19484,10 +19836,15 @@ export const approveGuidedStoryCastRoleResponseSetupOneOneLocaleMax = 35;
 export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMin = 3;
 export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMax = 6000;
 
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const approveGuidedStoryCastRoleResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const approveGuidedStoryCastRoleResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -19501,6 +19858,8 @@ export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScr
 
 export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19550,12 +19909,32 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "locale": zod.string().min(approveGuidedStoryCastRoleResponseSetupOneOneLocaleMin).max(approveGuidedStoryCastRoleResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(approveGuidedStoryCastRoleResponseSetupOneOneTopicMin).max(approveGuidedStoryCastRoleResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -19580,6 +19959,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19684,6 +20064,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19851,10 +20232,15 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMax =
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMin = 3;
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax = 6000;
 
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax = 20;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -19868,6 +20254,8 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerati
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19917,12 +20305,32 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "locale": zod.string().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -19947,6 +20355,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20051,6 +20460,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20203,10 +20613,15 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocal
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMin = 3;
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMax = 6000;
 
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax = 20;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -20220,6 +20635,8 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGe
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -20269,12 +20686,32 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "locale": zod.string().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocaleMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -20299,6 +20736,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20403,6 +20841,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20647,10 +21086,15 @@ export const prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
 export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
 export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const prepareGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -20664,6 +21108,8 @@ export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScr
 
 export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -20713,12 +21159,32 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "locale": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneTopicMin).max(prepareGuidedStoryBackdropResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -20743,6 +21209,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20847,6 +21314,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21005,10 +21473,15 @@ export const approveGuidedStoryBackdropResponseSetupOneOneLocaleMax = 35;
 export const approveGuidedStoryBackdropResponseSetupOneOneTopicMin = 3;
 export const approveGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
+
+export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const approveGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -21022,6 +21495,8 @@ export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScr
 
 export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21071,12 +21546,32 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "locale": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(approveGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneTopicMin).max(approveGuidedStoryBackdropResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -21101,6 +21596,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21205,6 +21701,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21356,10 +21853,15 @@ export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax = 35;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMin = 3;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax = 6000;
 
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 20;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -21373,6 +21875,8 @@ export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationRe
 
 export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21422,12 +21926,32 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "locale": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -21452,6 +21976,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21556,6 +22081,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21707,10 +22233,15 @@ export const finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -21724,6 +22255,8 @@ export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultS
 
 export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21773,12 +22306,32 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "locale": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -21803,6 +22356,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21907,6 +22461,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22058,10 +22613,15 @@ export const rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax = 35;
 export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMin = 3;
 export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
 export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
 
+
+export const rejectGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax = 2;
 
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -22075,6 +22635,8 @@ export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScr
 
 export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemStartMsMin = 0;
 
+
+export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
 export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -22124,12 +22686,32 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "locale": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneTopicMin).max(rejectGuidedStoryReferenceResponseSetupOneOneTopicMax),
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "productSelection": zod.object({
+  "promotion": zod.enum(['subtle', 'featured']),
+  "assetIds": zod.array(zod.number().min(1)).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax)
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
   "height": zod.number(),
-  "safeArea": zod.string()
+  "safeArea": zod.string(),
+  "products": zod.union([zod.object({
+  "version": zod.number(),
+  "promotion": zod.enum(['subtle', 'featured']),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "assetId": zod.number(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "displayMode": zod.enum(['in_scene', 'exact']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
+  "mimeType": zod.string()
+}))
+}),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
   "provider": zod.string(),
@@ -22154,6 +22736,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22258,6 +22841,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "endMs": zod.number().min(1),
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),

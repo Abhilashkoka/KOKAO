@@ -26,6 +26,19 @@ export interface GuidedSceneVisualInput {
    * than naming none.
    */
   referenceLabels?: readonly string[];
+  /** Brand products tagged in this scene (frozen snapshot copies). */
+  products?: ReadonlyArray<{
+    name: string;
+    kind: "product" | "service";
+    aiDescription: string | null;
+    description: string;
+    displayMode: "in_scene" | "exact";
+  }>;
+  /**
+   * Positional labels for in-scene product photos actually attached to the
+   * request, in product order. Only supplied when the photos are sent.
+   */
+  productReferenceLabels?: readonly string[];
 }
 
 /**
@@ -150,6 +163,45 @@ function locationClause(input: GuidedSceneVisualInput): string {
   return "";
 }
 
+/** Keep catalogue text short and single-line; it competes with the shot. */
+function productNote(value: string | null | undefined, max = 360): string {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
+/**
+ * Products are shown, not narrated. With an attached photo the model is told
+ * to match it; without one, the saved visual description is the only source.
+ * Exact-mode products are composited later, so the shot only keeps room.
+ */
+export function productClause(input: GuidedSceneVisualInput): string {
+  const products = input.products ?? [];
+  if (!products.length) return "";
+  const labels = input.productReferenceLabels ?? [];
+  let photoIndex = 0;
+  const parts: string[] = [];
+  let reserveCard = false;
+  for (const product of products) {
+    if (product.displayMode === "exact") {
+      reserveCard = true;
+      continue;
+    }
+    const label = labels[photoIndex];
+    photoIndex += 1;
+    const look = productNote(product.aiDescription) || productNote(product.description, 200);
+    const subject = product.kind === "service" ? "service setting" : "product";
+    parts.push(
+      label
+        ? `Show the brand ${subject} "${product.name}" exactly as in ${label}${look ? ` (${look})` : ""}; keep its shape, colours, packaging and any label text unchanged and legible.`
+        : `Show the brand ${subject} "${product.name}" clearly in the shot${look ? `: ${look}` : "."} Keep its shape, colours and label text consistent and legible.`,
+    );
+  }
+  if (reserveCard) {
+    parts.push("Keep the upper-right corner uncluttered for a product card overlay.");
+  }
+  return parts.join(" ");
+}
+
 export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
   const labels = input.referenceLabels ?? [];
   const blocks = [
@@ -157,6 +209,7 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
     input.sceneCast.map((member, i) => roleClause(member, labels.slice(i * 2, i * 2 + 2))).join(" "),
     castClause(input.sceneCast),
     locationClause(input),
+    productClause(input),
     // The logo is composited, not described. A path here was never actionable,
     // and the bare word "logo" invites the model to invent one.
     input.logoPath ? "Leave clear space in the lower third for a logo overlay." : "",

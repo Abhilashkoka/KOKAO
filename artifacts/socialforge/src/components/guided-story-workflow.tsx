@@ -68,6 +68,7 @@ import {
   CharacterProvenanceRecovery,
   GuidedCharacterProvenanceWarning,
 } from "@/components/character-provenance";
+import { GuidedProductPicker, SceneProductToggles } from "@/components/brand-products";
 import {
   GuidedBrandEndingDialog,
   type GuidedBrandEndingSelection,
@@ -310,6 +311,8 @@ export function GuidedStoryWorkflow({
   const [locale, setLocale] = useState("en");
   const [topic, setTopic] = useState("");
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
+  const [productAssetIds, setProductAssetIds] = useState<number[]>([]);
+  const [promotion, setPromotion] = useState<"subtle" | "featured">("featured");
   const [editing, setEditing] = useState(false);
   const [scriptEditorOpen, setScriptEditorOpen] = useState(false);
   const scriptEditorRef = useRef<HTMLDivElement>(null);
@@ -587,6 +590,8 @@ export function GuidedStoryWorkflow({
     setGenre(draft.setup.genre); setPlatformId(draft.setup.platform); setDuration(draft.setup.durationSeconds);
     setLocale(draft.setup.locale); setTopic(draft.setup.topic);
     setBrandKitId(draft.setup.brandKitId ?? null);
+    setProductAssetIds(draft.setup.products?.items.map((item) => item.assetId) ?? []);
+    setPromotion(draft.setup.products?.promotion ?? "featured");
   }, [draft?.id, draft?.revision]);
   useEffect(() => {
     if (!draft?.script) return;
@@ -619,6 +624,8 @@ export function GuidedStoryWorkflow({
     setLocale("en");
     setTopic("");
     setBrandKitId(null);
+    setProductAssetIds([]);
+    setPromotion("featured");
     setEditing(false);
     setScriptEditorOpen(false);
     setUserRoleId(null);
@@ -834,7 +841,15 @@ export function GuidedStoryWorkflow({
   const begin = () => {
     if (!setupComplete || duration === null || !acquireMutation()) return;
     setSetupSaveError(null);
-    const setup = { genre, platform: platformId as never, durationSeconds: duration, locale, topic: topic.trim(), brandKitId };
+    const setup = {
+      genre,
+      platform: platformId as never,
+      durationSeconds: duration,
+      locale,
+      topic: topic.trim(),
+      brandKitId,
+      productSelection: { promotion, assetIds: brandKitId === null ? [] : productAssetIds },
+    };
     if (draft) {
       updateDraft.mutate(
         { draftId: draft.id, data: { revision: draft.revision, setup } },
@@ -1106,8 +1121,9 @@ export function GuidedStoryWorkflow({
           <div className="grid gap-2 md:grid-cols-2">{GENRES.map(([id, name, description]) => <Button key={id} type="button" variant={genre === id ? "default" : "outline"} className="h-auto justify-start whitespace-normal p-4 text-left" onClick={() => setGenre(id)} data-testid={`button-guided-genre-${id}`}><span><b>{name}</b><br /><small>{description}</small></span></Button>)}</div>
           <div className="grid gap-4 md:grid-cols-2">
             <div><Label>Publishing platform</Label><Select value={platformId} onValueChange={setPlatformId}><SelectTrigger data-testid="select-guided-platform"><SelectValue placeholder="Choose a platform" /></SelectTrigger><SelectContent>{(platforms.data ?? []).map((item) => <SelectItem key={item.id} value={item.id}>{item.id.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Brand Kit and voice library (optional)</Label><Select value={brandKitId?.toString() ?? ""} onValueChange={(value) => setBrandKitId(Number(value))}><SelectTrigger data-testid="select-guided-brand-kit"><SelectValue placeholder="No Brand Kit" /></SelectTrigger><SelectContent>{brandKits.map((kit) => <SelectItem key={kit.id} value={String(kit.id)}>{kit.name}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Brand Kit and voice library (optional)</Label><Select value={brandKitId?.toString() ?? ""} onValueChange={(value) => { const next = Number(value); if (next !== brandKitId) setProductAssetIds([]); setBrandKitId(next); }}><SelectTrigger data-testid="select-guided-brand-kit"><SelectValue placeholder="No Brand Kit" /></SelectTrigger><SelectContent>{brandKits.map((kit) => <SelectItem key={kit.id} value={String(kit.id)}>{kit.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
+          <GuidedProductPicker brandKitId={brandKitId} selected={productAssetIds} onSelectedChange={setProductAssetIds} promotion={promotion} onPromotionChange={setPromotion} disabled={mutationLocked} />
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
           {contract && <div ref={durationRef} className={runtimeGuidance ? "rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : undefined} data-testid="section-guided-duration"><Label>Duration</Label>{runtimeGuidance && <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-runtime">{runtimeGuidance}</p>}<div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => { setDuration(value); setRuntimeGuidance(null); }} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
           <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-story-decides-cast">
@@ -2678,6 +2694,19 @@ function ScriptReview(props: any) {
                     updateScript({ ...editedScript, scenes });
                   }}
                   data-testid={`input-guided-scene-visual-${scene.id}`}
+                />
+                <SceneProductToggles
+                  products={props.draft.setup?.products?.items ?? []}
+                  productIds={scene.productIds ?? []}
+                  sceneLabel={scene.id}
+                  onChange={(productIds) => {
+                    const scenes = editedScript.scenes.map((item, index) => {
+                      if (index !== sceneIndex) return item;
+                      const { productIds: _previous, ...rest } = item;
+                      return productIds.length ? { ...rest, productIds } : rest;
+                    });
+                    updateScript({ ...editedScript, scenes });
+                  }}
                 />
               </div>
               <div className="space-y-2">

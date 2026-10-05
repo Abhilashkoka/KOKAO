@@ -5,12 +5,14 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryProductChoices } from './guidedStoryProductChoices';
 import type { GuidedStorySetupAspectRatio } from './guidedStorySetupAspectRatio';
 import type { GuidedStorySetupInput } from './guidedStorySetupInput';
 
-export type GuidedStorySetup = GuidedStorySetupInput & {
+export type GuidedStorySetup = GuidedStorySetupInput & ({
   aspectRatio: GuidedStorySetupAspectRatio;
   width: number;
   height: number;
   safeArea: string;
-};
+  products?: GuidedStoryProductChoices | null;
+});

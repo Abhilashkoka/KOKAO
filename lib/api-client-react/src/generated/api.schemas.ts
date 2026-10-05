@@ -4164,6 +4164,118 @@ export interface BrandAsset {
   createdAt: string;
 }
 
+export type BrandProductKind = typeof BrandProductKind[keyof typeof BrandProductKind];
+
+
+export const BrandProductKind = {
+  product: 'product',
+  service: 'service',
+} as const;
+
+/**
+ * in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.
+ */
+export type BrandProductDisplayMode = typeof BrandProductDisplayMode[keyof typeof BrandProductDisplayMode];
+
+
+export const BrandProductDisplayMode = {
+  in_scene: 'in_scene',
+  exact: 'exact',
+} as const;
+
+export type BrandProductAiDescriptionStatus = typeof BrandProductAiDescriptionStatus[keyof typeof BrandProductAiDescriptionStatus];
+
+
+export const BrandProductAiDescriptionStatus = {
+  pending: 'pending',
+  ready: 'ready',
+  failed: 'failed',
+} as const;
+
+export interface BrandProduct {
+  id: number;
+  brandKitId: number;
+  imagePath: string;
+  /** @nullable */
+  mimeType: string | null;
+  name: string;
+  kind: BrandProductKind;
+  description: string;
+  /** in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card. */
+  displayMode: BrandProductDisplayMode;
+  /** @nullable */
+  aiDescription: string | null;
+  aiDescriptionStatus: BrandProductAiDescriptionStatus;
+  createdAt: string;
+}
+
+export type BrandProductInputKind = typeof BrandProductInputKind[keyof typeof BrandProductInputKind];
+
+
+export const BrandProductInputKind = {
+  product: 'product',
+  service: 'service',
+} as const;
+
+export type BrandProductInputDisplayMode = typeof BrandProductInputDisplayMode[keyof typeof BrandProductInputDisplayMode];
+
+
+export const BrandProductInputDisplayMode = {
+  in_scene: 'in_scene',
+  exact: 'exact',
+} as const;
+
+export interface BrandProductInput {
+  /**
+     * @minLength 1
+     * @maxLength 512
+     */
+  imagePath: string;
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  name: string;
+  kind?: BrandProductInputKind;
+  /**
+     * @minLength 3
+     * @maxLength 400
+     */
+  description: string;
+  displayMode?: BrandProductInputDisplayMode;
+}
+
+export type BrandProductUpdateKind = typeof BrandProductUpdateKind[keyof typeof BrandProductUpdateKind];
+
+
+export const BrandProductUpdateKind = {
+  product: 'product',
+  service: 'service',
+} as const;
+
+export type BrandProductUpdateDisplayMode = typeof BrandProductUpdateDisplayMode[keyof typeof BrandProductUpdateDisplayMode];
+
+
+export const BrandProductUpdateDisplayMode = {
+  in_scene: 'in_scene',
+  exact: 'exact',
+} as const;
+
+export interface BrandProductUpdate {
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  name?: string;
+  kind?: BrandProductUpdateKind;
+  /**
+     * @minLength 3
+     * @maxLength 400
+     */
+  description?: string;
+  displayMode?: BrandProductUpdateDisplayMode;
+}
+
 export interface BrandKit {
   id: number;
   name: string;
@@ -5946,6 +6058,26 @@ export const GuidedStorySetupInputPlatform = {
   youtube: 'youtube',
 } as const;
 
+export type GuidedStoryProductSelectionInputPromotion = typeof GuidedStoryProductSelectionInputPromotion[keyof typeof GuidedStoryProductSelectionInputPromotion];
+
+
+export const GuidedStoryProductSelectionInputPromotion = {
+  subtle: 'subtle',
+  featured: 'featured',
+} as const;
+
+/**
+ * Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.
+ */
+export interface GuidedStoryProductSelectionInput {
+  promotion: GuidedStoryProductSelectionInputPromotion;
+  /**
+     * @maxItems 4
+     * @items.minimum 1
+     */
+  assetIds: number[];
+}
+
 export interface GuidedStorySetupInput {
   genre: GuidedStorySetupInputGenre;
   platform: GuidedStorySetupInputPlatform;
@@ -5972,6 +6104,51 @@ export interface GuidedStorySetupInput {
   roleCount?: number;
   /** @nullable */
   brandKitId?: number | null;
+  productSelection?: GuidedStoryProductSelectionInput;
+}
+
+export type GuidedStoryProductReferenceKind = typeof GuidedStoryProductReferenceKind[keyof typeof GuidedStoryProductReferenceKind];
+
+
+export const GuidedStoryProductReferenceKind = {
+  product: 'product',
+  service: 'service',
+} as const;
+
+export type GuidedStoryProductReferenceDisplayMode = typeof GuidedStoryProductReferenceDisplayMode[keyof typeof GuidedStoryProductReferenceDisplayMode];
+
+
+export const GuidedStoryProductReferenceDisplayMode = {
+  in_scene: 'in_scene',
+  exact: 'exact',
+} as const;
+
+export interface GuidedStoryProductReference {
+  id: string;
+  assetId: number;
+  name: string;
+  kind: GuidedStoryProductReferenceKind;
+  description: string;
+  /** @nullable */
+  aiDescription: string | null;
+  displayMode: GuidedStoryProductReferenceDisplayMode;
+  imagePath: string;
+  imageSha256: string;
+  mimeType: string;
+}
+
+export type GuidedStoryProductChoicesPromotion = typeof GuidedStoryProductChoicesPromotion[keyof typeof GuidedStoryProductChoicesPromotion];
+
+
+export const GuidedStoryProductChoicesPromotion = {
+  subtle: 'subtle',
+  featured: 'featured',
+} as const;
+
+export interface GuidedStoryProductChoices {
+  version: 1;
+  promotion: GuidedStoryProductChoicesPromotion;
+  items: GuidedStoryProductReference[];
 }
 
 export interface GuidedStoryRevisionInput {
@@ -6092,6 +6269,11 @@ export interface GuidedStoryScene {
   visualDirection: string;
   /** Stable role ids visibly present in this scene. */
   roleIds: string[];
+  /**
+     * Frozen draft product ids (setup.products.items[].id) shown in this scene.
+     * @maxItems 2
+     */
+  productIds?: string[];
   lines: GuidedStoryLine[];
 }
 
@@ -8111,12 +8293,13 @@ export const GuidedStorySetupAspectRatio = {
   '4:5': '4:5',
 } as const;
 
-export type GuidedStorySetup = GuidedStorySetupInput & {
+export type GuidedStorySetup = GuidedStorySetupInput & ({
   aspectRatio: GuidedStorySetupAspectRatio;
   width: number;
   height: number;
   safeArea: string;
-};
+  products?: GuidedStoryProductChoices | null;
+});
 
 export type GuidedStoryVisualChoices = GuidedStoryVisualChoicesInput & {
   version: 1;

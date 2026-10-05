@@ -5269,6 +5269,148 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/products:
+    get:
+      operationId: listBrandProducts
+      tags: [brand-kits]
+      summary: List the brand's products and services
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Products and services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BrandProduct"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createBrandProduct
+      tags: [brand-kits]
+      summary: Add an uploaded product or service image to the brand
+      description: >
+        Validates the uploaded image, stores it with the owner's name and
+        description, then asks a vision model once for a saved visual
+        description. A failed description never blocks the upload; the
+        product is returned with aiDescriptionStatus "failed" and can be retried.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandProductInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandProduct"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Catalog limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/products/{assetId}:
+    patch:
+      operationId: updateBrandProduct
+      tags: [brand-kits]
+      summary: Edit a product's name, kind, description or display mode
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandProductUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandProduct"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/products/{assetId}/describe:
+    post:
+      operationId: describeBrandProduct
+      tags: [brand-kits]
+      summary: Re-run the one-time AI visual description of a product image
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Product with its description attempt recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandProduct"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stored image can no longer be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-voice/status:
     get:
       operationId: getBrandVoiceStatus
@@ -18296,6 +18438,45 @@ components:
         createdAt:
           type: string
           format: date-time
+    BrandProduct:
+      type: object
+      required:
+        [id, brandKitId, imagePath, mimeType, name, kind, description, displayMode, aiDescription, aiDescriptionStatus, createdAt]
+      properties:
+        id: { type: integer }
+        brandKitId: { type: integer }
+        imagePath: { type: string }
+        mimeType: { type: ["string", "null"] }
+        name: { type: string }
+        kind: { type: string, enum: [product, service] }
+        description: { type: string }
+        displayMode:
+          type: string
+          enum: [in_scene, exact]
+          description: in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.
+        aiDescription: { type: ["string", "null"] }
+        aiDescriptionStatus: { type: string, enum: [pending, ready, failed] }
+        createdAt:
+          type: string
+          format: date-time
+    BrandProductInput:
+      type: object
+      additionalProperties: false
+      required: [imagePath, name, description]
+      properties:
+        imagePath: { type: string, minLength: 1, maxLength: 512 }
+        name: { type: string, minLength: 2, maxLength: 80 }
+        kind: { type: string, enum: [product, service], default: product }
+        description: { type: string, minLength: 3, maxLength: 400 }
+        displayMode: { type: string, enum: [in_scene, exact], default: in_scene }
+    BrandProductUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        kind: { type: string, enum: [product, service] }
+        description: { type: string, minLength: 3, maxLength: 400 }
+        displayMode: { type: string, enum: [in_scene, exact] }
     BrandKit:
       type: object
       required: [id, name, slug, brandType, status, isDefault, isArchived, createdAt, updatedAt]
@@ -20139,6 +20320,45 @@ components:
           deprecated: true
           description: Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.
         brandKitId: { type: ["integer", "null"] }
+        productSelection:
+          $ref: "#/components/schemas/GuidedStoryProductSelectionInput"
+    GuidedStoryProductSelectionInput:
+      type: object
+      additionalProperties: false
+      required: [promotion, assetIds]
+      description: >
+        Brand Kit products & services to promote. Omit on an update to keep
+        the current selection; send an empty assetIds list to clear it.
+      properties:
+        promotion: { type: string, enum: [subtle, featured] }
+        assetIds:
+          type: array
+          maxItems: 4
+          items: { type: integer, minimum: 1 }
+    GuidedStoryProductReference:
+      type: object
+      required: [id, assetId, name, kind, description, aiDescription, displayMode, imagePath, imageSha256, mimeType]
+      properties:
+        id: { type: string }
+        assetId: { type: integer }
+        name: { type: string }
+        kind: { type: string, enum: [product, service] }
+        description: { type: string }
+        aiDescription: { type: ["string", "null"] }
+        displayMode: { type: string, enum: [in_scene, exact] }
+        imagePath: { type: string }
+        imageSha256: { type: string }
+        mimeType: { type: string }
+    GuidedStoryProductChoices:
+      type: object
+      required: [version, promotion, items]
+      properties:
+        version: { type: integer, const: 1 }
+        promotion: { type: string, enum: [subtle, featured] }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuidedStoryProductReference"
     GuidedStoryRevisionInput:
       type: object
       required: [revision]
@@ -20391,6 +20611,11 @@ components:
         roleIds:
           type: array
           description: Stable role ids visibly present in this scene.
+          items: { type: string }
+        productIds:
+          type: array
+          maxItems: 2
+          description: Frozen draft product ids (setup.products.items[].id) shown in this scene.
           items: { type: string }
         lines:
           type: array
@@ -20836,6 +21061,10 @@ components:
             width: { type: integer }
             height: { type: integer }
             safeArea: { type: string }
+            products:
+              oneOf:
+                - $ref: "#/components/schemas/GuidedStoryProductChoices"
+                - type: "null"
     GuidedStoryVisualChoices:
       allOf:
         - $ref: "#/components/schemas/GuidedStoryVisualChoicesInput"
