@@ -1406,6 +1406,7 @@ export function validateAndRepairGuidedScript(
     roleCount?: number;
     durationSeconds: number;
     requireOpeningBuildup?: boolean;
+    maxSceneSeconds?: number;
   },
   locale?: string,
 ): GuidedStoryScript {
@@ -1445,6 +1446,9 @@ export function validateAndRepairGuidedScript(
     const visualDirection = text(item.visualDirection, 2000);
     if (startMs !== priorSceneEnd || endMs === null || endMs <= startMs || !visualDirection) {
       throw new VideoGenProviderError(`Scene ${sceneIndex + 1} has invalid timing or visual direction.`);
+    }
+    if (constraints.maxSceneSeconds && endMs - startMs > constraints.maxSceneSeconds * 1000) {
+      throw new VideoGenProviderError(`Scene duration exceeds the selected model's ${constraints.maxSceneSeconds}-second limit.`);
     }
     if (!Array.isArray(item.lines) || item.lines.length === 0) {
       throw new VideoGenProviderError(`Scene ${sceneIndex + 1} needs dialogue or narration.`);
@@ -1563,6 +1567,7 @@ export async function generateGuidedStoryScript(params: {
   genre: GuidedStoryGenre;
   platform: PlatformContract;
   durationSeconds: number;
+  maxSceneSeconds?: number;
   locale: string;
   topic: string;
   /** @deprecated Ignored. Cast size is chosen by the screenplay planner. */
@@ -1586,6 +1591,10 @@ export async function generateGuidedStoryScript(params: {
     },
   );
   const maxSpokenWords = guidedStoryMaxSpokenWords(params.durationSeconds);
+  const longScenes = (params.maxSceneSeconds ?? 10) > 10;
+  const scenePolicy = params.maxSceneSeconds
+    ? `The selected video model supports scenes up to ${params.maxSceneSeconds} seconds. Prefer the fewest coherent continuous scenes, using most of this duration when the story allows it. Each scene must stay within this limit, finish its sentences, and describe one continuous performance rather than a montage. Keep character appearance, outfit, setting, voice qualities, and eyelines consistent between scenes. Keep the opening hook inside the first scene; do not add a separate short opening merely for pacing.`
+    : "";
   const outputFormat = "Return only JSON with title, logline, warnings, roles[{id,name,description}], scenes[{id,startMs,endMs,visualDirection,roleIds,lines[{id,ownerRoleId,kind,text,romanizedPronunciation,englishTranslation,startMs,endMs}]}]. roleIds lists every role visibly present; kind is dialogue or narration; dialogue ownerRoleId must be a role id. For Hindi, Telugu, and Tamil, romanizedPronunciation must be a faithful, readable Latin-letter pronunciation of text and englishTranslation must be its faithful English meaning; both are display only. For English, use null for both.";
   const runtimeContext = [
     `Genre: ${params.genre}. Topic: ${params.topic}`,
@@ -1594,7 +1603,7 @@ export async function generateGuidedStoryScript(params: {
     "Use the smallest complete cast justified by the story. Include every role the story genuinely needs, but never add filler roles.",
     "This story-decided cast policy supersedes any historical fixed-size cast instruction in a governed template.",
     `Hard spoken-word maximum: ${maxSpokenWords} total words across every dialogue and narration line. Aim for 70-90% of this budget; never exceed it.`,
-    [
+    longScenes ? scenePolicy : [
       "Mandatory opening plan: scene 1 starts at 0ms and lasts 3-5 seconds.",
       "It is an ensemble build-up shot containing every animated character relevant to the opening hook in one frame; list all of them in roleIds.",
       "Give each visible character a concrete hook-relevant action, activity, reaction, or facial expression.",
@@ -1646,12 +1655,12 @@ export async function generateGuidedStoryScript(params: {
   try {
     script = validateAndRepairGuidedScript(
       parsed,
-      { ...params, requireOpeningBuildup: true },
+      { ...params, requireOpeningBuildup: !longScenes },
       params.locale,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (!/script runtime|dialogue word count|opening buildup/i.test(message)) throw error;
+    if (!/script runtime|dialogue word count|opening buildup|scene duration/i.test(message)) throw error;
     repairCompletion = await textGen.client.chat.completions.create({
       model: textGen.model,
       messages: [
@@ -1665,7 +1674,7 @@ export async function generateGuidedStoryScript(params: {
           content: [
             `Rewrite the supplied screenplay JSON so its final timeline is no longer than ${params.durationSeconds} seconds and all spoken text totals at most ${maxSpokenWords} words.`,
             `Preserve the supplied cast membership, the story's meaning, and locale ${params.locale}; keep valid contiguous millisecond timings. Do not add or remove roles during this timing repair.`,
-            "Scene 1 must start at 0ms, last 3-5 seconds, use narration only, and show every opening-hook character together performing concrete hook-relevant actions or expressions that visibly settle, pause, or complete before scene 2. Include every visible opening character in roleIds.",
+            longScenes ? scenePolicy : "Scene 1 must start at 0ms, last 3-5 seconds, use narration only, and show every opening-hook character together performing concrete hook-relevant actions or expressions that visibly settle, pause, or complete before scene 2. Include every visible opening character in roleIds.",
             "Shorten dialogue and narration naturally; do not truncate words or sentences. Return only the complete replacement JSON in the original schema.",
             outputFormat,
             `SUPPLIED JSON DATA:\n${JSON.stringify(parsed)}`,
@@ -1684,7 +1693,7 @@ export async function generateGuidedStoryScript(params: {
     }
     script = validateAndRepairGuidedScript(
       repaired,
-      { ...params, requireOpeningBuildup: true },
+      { ...params, requireOpeningBuildup: !longScenes },
       params.locale,
     );
     if (script.roles.length !== (parsed.roles as unknown[]).length) {

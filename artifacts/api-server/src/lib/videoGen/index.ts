@@ -583,6 +583,8 @@ export async function resolveVideoModelSnapshot(args: {
   generateAudio?: boolean | null;
   /** Composite render paths can make several fixed scene-duration calls. */
   permittedDurationSec?: number[];
+  /** Never fund a clip shorter than an approved continuous performance. */
+  coverSceneDuration?: boolean;
 }): Promise<ResolvedVideoModelSnapshot> {
   const picked = findVideoModel(args.modelId);
   if (args.modelId && !picked) {
@@ -670,11 +672,19 @@ export async function resolveVideoModelSnapshot(args: {
   // the shorter clip to avoid silently purchasing/rendering excess footage.
   const permittedDurationSec = catalogModel && args.permittedDurationSec?.length
     ? [...new Set(targetDurations.map((target) =>
-        [...catalogModel.durations].sort((a, b) =>
+        [...catalogModel.durations].filter(duration =>
+          !args.coverSceneDuration || duration >= target,
+        ).sort((a, b) =>
           Math.abs(a - target) - Math.abs(b - target) || a - b
-        )[0]!,
+        )[0] ?? NaN,
       ))]
     : targetDurations;
+  if (permittedDurationSec.some(duration => !Number.isFinite(duration))) {
+    throw new VideoModelResolutionError(
+      "An approved scene is longer than this model supports. Shorten the scene or choose a longer-duration model.",
+      "video_model_incompatible", provider, model,
+    );
+  }
   if (!(await Promise.all(permittedDurationSec.map((durationSec) => isVideoModelPriced({
     provider, model, durationSec, variantCriteria: videoPriceCriteria(normalized),
   }).catch(() => false)))).every(Boolean)) {
@@ -987,6 +997,8 @@ export interface GenerateVideoParams {
   prompt: string;
   aspectRatio: VideoAspect;
   durationSec: number;
+  /** A continuous approved scene cannot use a shorter funded clip. */
+  coverSceneDuration?: boolean;
   image?: SourceImage;
   assetIds?: string[];
   /** Never fail over when a substitute would ignore a verified identity. */
@@ -1057,7 +1069,9 @@ async function generateVideoUnmetered(
   const dispatchDurationSec = permittedDurations.includes(params.durationSec)
     ? params.durationSec
     : snapshot.durationPolicy === "nearest"
-      ? [...permittedDurations].sort((a, b) =>
+      ? [...permittedDurations].filter(duration =>
+          !params.coverSceneDuration || duration >= params.durationSec,
+        ).sort((a, b) =>
           Math.abs(a - params.durationSec) - Math.abs(b - params.durationSec) || a - b
         )[0]
       : undefined;

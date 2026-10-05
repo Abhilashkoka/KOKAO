@@ -84,7 +84,7 @@ const GENRES = [
   ["science_fiction", "Science Fiction", "A future-facing idea grounded in people."],
 ] as const;
 
-type Assignment = { characterId: number | null; outfitId: number | null; voiceId: string };
+type Assignment = { characterId: number | null; outfitId: number | null; voiceId: string; voiceChoiceConfirmed?: boolean };
 const GUIDED_STORY_ELEVENLABS_MODEL = "eleven_v3";
 type GuidedStoryLocaleOption = {
   code: "en" | "hi" | "te" | "ta";
@@ -954,12 +954,12 @@ export function GuidedStoryWorkflow({
       ? selectedSavedRoles.length > 0 &&
         voices.length > 0 &&
         consent &&
-        selectedSavedRoles.every((role) => !!assignments[role.id]?.voiceId)
+        selectedSavedRoles.every((role) => !!assignments[role.id]?.voiceId && assignments[role.id]?.voiceChoiceConfirmed === true)
       : userRoleChoiceMade &&
         draft.script.roles.every((role) => {
           const assigned = assignments[role.id];
           const isUserRole = userRoleId !== null && role.id === userRoleId;
-          return !isUserRole || (!!assigned?.characterId && !!assigned.voiceId && consent);
+          return !isUserRole || (!!assigned?.characterId && !!assigned.voiceId && assigned.voiceChoiceConfirmed === true && consent);
         }));
   const pendingCastApprovalRoles = draft?.script?.roles.filter((role) => {
     const approval = draft.castApprovals?.roles[role.id];
@@ -1000,7 +1000,7 @@ export function GuidedStoryWorkflow({
             source: saved ? "saved" as const : "generated" as const,
             characterId: saved ? item.characterId : null,
             outfitId: saved ? item.outfitId : null,
-            brandKitId,
+            brandKitId: voices.find(voice => voice.id === item.voiceId)?.brandKitId ?? null,
             voiceId: item.voiceId || voices[0]?.id || "",
             isUserRole,
             consentGranted: saved ? consent : false,
@@ -3067,6 +3067,7 @@ function CastFields({
           updateAssignment(role.id, {
             characterId: Number(value),
             outfitId: null,
+            voiceChoiceConfirmed: false,
           })
         }
       >
@@ -3126,10 +3127,19 @@ function CastFields({
           </SelectContent>
         </Select>
       )}
+      {character && <div className="space-y-2 rounded border p-3" data-testid={`guided-voice-choice-${role.id}`}>
+        <p className="text-sm font-medium">Use this person's Brand Kit voice for {role.name}?</p>
+        <p className="text-xs text-muted-foreground">Confirm the mapping yourself: an image does not identify a voice. Model-generated speech is the default. Selecting a Brand Kit voice switches this story to separate speech and lip-sync, using each character's own mapped voice. Saved-voice speaking scenes currently require solo dialogue shots.</p>
+        <Button type="button" variant="outline" onClick={() => updateAssignment(role.id, {
+          voiceId: voices.find((voice: GuidedStoryVoiceCatalogItem) => voice.provider === "stock")?.id ?? "",
+          voiceChoiceConfirmed: true,
+        })} data-testid={`button-guided-native-voice-${role.id}`}>Use model-generated voice</Button>
+        <p className="text-xs text-muted-foreground">Or select the person's cloned voice below and confirm you have permission.</p>
+      </div>}
       <Select
         value={item.voiceId ?? ""}
         onValueChange={(value) =>
-          updateAssignment(role.id, { voiceId: value })
+          updateAssignment(role.id, { voiceId: value, voiceChoiceConfirmed: true })
         }
       >
         <SelectTrigger data-testid={`select-guided-voice-${role.id}`}>
@@ -3139,6 +3149,11 @@ function CastFields({
           <VoiceOptions voices={voices} brandKits={brandKits} />
         </SelectContent>
       </Select>
+      {item.voiceChoiceConfirmed && <p className="text-xs text-muted-foreground" role="status">
+        {voices.find((voice: GuidedStoryVoiceCatalogItem) => voice.id === item.voiceId)?.brandKitId != null
+          ? `Saved voice mapped to ${role.name}. Other characters keep their own mapped voices.`
+          : `Model-generated dialogue selected for ${role.name}.`}
+      </p>}
     </div>
   );
 }

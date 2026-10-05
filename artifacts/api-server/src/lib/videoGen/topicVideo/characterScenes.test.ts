@@ -465,6 +465,24 @@ describe("generateCharacterSceneClips", () => {
     });
   });
 
+  it("requests complete 30 and 28 second native performances instead of ten-second plates", async () => {
+    const { generateVideo } = await import("../index");
+    vi.mocked(generateVideo).mockClear();
+    await generateCharacterSceneClips({
+      tenantId: 1, character, outfits, aspectRatio: "9:16", nativeAudio: true,
+      plan: [
+        { visual: "speaking", outfitId: 10, shotSize: "medium" as const },
+        { visual: "finishing the explanation", outfitId: 10, shotSize: "medium" as const },
+      ],
+      scenes: [
+        { firstCue: 0, lastCue: 0, durationSec: 30, text: "one" },
+        { firstCue: 1, lastCue: 1, durationSec: 28, text: "two" },
+      ],
+    });
+    expect(vi.mocked(generateVideo).mock.calls.map(([input]) => input.durationSec).sort()).toEqual([28, 30]);
+    expect(vi.mocked(generateVideo).mock.calls.every(([input]) => input.generateAudio && input.coverSceneDuration)).toBe(true);
+  });
+
   it("anchors every scene to its outfit reference and animates the keyframe", async () => {
     const scenes = [
       { firstCue: 0, lastCue: 1, durationSec: 6.2, text: "one" },

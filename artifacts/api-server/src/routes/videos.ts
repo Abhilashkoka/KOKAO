@@ -136,6 +136,7 @@ import {
   resolveCharacterLipSync,
 } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
+import { guidedSceneDurations, guidedUsesSavedVoice, guidedSavedVoiceSceneError } from "../lib/videoGen/guidedScenePolicy";
 import {
   clampSceneDuration,
   clipShotCount,
@@ -969,6 +970,9 @@ function compositeVideoDurations(
   engine: string,
   options: NonNullable<VideoGeneration["options"]>,
 ): number[] | undefined {
+  if (options.guidedStory && options.guidedStoryRenderFlow?.mode === "direct_video") {
+    return guidedSceneDurations(options.guidedStory);
+  }
   if (
     engine === "topic_to_video" ||
     engine === "dialogue_lip_sync" ||
@@ -5448,13 +5452,20 @@ router.post(
         operationKind: "video_script_draft",
         operationKey: `guided-script:${claimed.id}:${claimed.revision}`,
         settleProviderSuccessBeforePersistence: true,
-        perform: (meterContext) =>
-          generateGuidedStoryScript({
+        perform: async (meterContext) => {
+          const selection = await getVideoGenSelection();
+          const selected = selection.provider === "atlascloud"
+            ? findVideoModel(guidedAtlasReferenceModelId(null, selection.textToVideoModel))
+            : VIDEO_MODEL_CATALOG.find(candidate =>
+                candidate.provider === selection.provider &&
+                candidate.models.image === selection.imageToVideoModel);
+          return generateGuidedStoryScript({
             tenantId: req.tenantId,
             tenantAiModel: tenant.aiModel,
             genre: setup.genre,
             platform: guidedStoryPlatform(setup.platform)!,
             durationSeconds: setup.durationSeconds,
+            maxSceneSeconds: selected ? Math.min(30, Math.max(...selected.durations)) : 10,
             locale: setup.locale,
             topic: setup.topic,
             brandConstraints: mergeGuidance(
@@ -5467,7 +5478,8 @@ router.post(
               complianceScriptHint(thawCompliance(guidedCompliance)),
             ),
             meterContext,
-          }),
+          });
+        },
         beforeSettlement: async (result, meta) => {
           const receipt = {
             version: 2 as const,
@@ -12678,7 +12690,19 @@ async function generateVideoHandler(
       const useAtlasGuidedReferences =
         options.guidedStory != null && requestedProvider === "atlascloud";
       const useGuidedProviderNativeAudio =
-        options.guidedStory != null;
+        options.guidedStory != null && !guidedUsesSavedVoice(options.guidedStory);
+      if (options.guidedStory) {
+        try { guidedSceneDurations(options.guidedStory); }
+        catch (error) {
+          res.status(400).json({ error: error instanceof Error ? error.message : "Invalid scene duration." });
+          return;
+        }
+        const voiceError = guidedSavedVoiceSceneError(options.guidedStory);
+        if (voiceError) {
+          res.status(400).json({ error: voiceError });
+          return;
+        }
+      }
       const resolvedVideoModel = await resolveVideoModelSnapshot({
         mode: useAtlasGuidedReferences ? "text" : resolvedMode,
         modelId: useAtlasGuidedReferences
@@ -12694,6 +12718,7 @@ async function generateVideoHandler(
           ? useGuidedProviderNativeAudio
           : options.generateAudio,
         permittedDurationSec: compositeVideoDurations(body.engine, options),
+        coverSceneDuration: options.guidedStory != null,
       });
       options.resolvedVideoModel =
         options.guidedStory &&
@@ -12705,6 +12730,13 @@ async function generateVideoHandler(
           ? { ...resolvedVideoModel, generateAudio: true }
           : resolvedVideoModel;
       if (options.guidedStory) {
+        const longestScene = Math.max(...guidedSceneDurations(options.guidedStory));
+        const longestSupported = Math.max(...(resolvedVideoModel.permittedDurationSec ?? [resolvedVideoModel.durationSec]));
+        if (longestScene > longestSupported) {
+          const error = `The approved story needs a ${longestScene}-second scene, but this model's funded duration contract supports only ${longestSupported} seconds. Shorten the scene or select a compatible model before generating.`;
+          res.status(400).json({ error });
+          return;
+        }
         if (
           useGuidedProviderNativeAudio &&
           !hasNativeSynchronizedAudio(
@@ -13051,6 +13083,21 @@ async function generateVideoHandler(
     )
   ) {
     const planned = planGuidedStoryIntrinsicDialogue(options.guidedStory);
+    if (guidedUsesSavedVoice(options.guidedStory)) {
+      const clonedRoles = new Set(options.guidedStory.cast
+        .filter(member => member.brandKitId != null && member.voice.providerVoiceId != null)
+        .map(member => member.roleId));
+      const missing = options.guidedStory.script.scenes.find(scene =>
+        scene.lines.some(line => line.ownerRoleId && clonedRoles.has(line.ownerRoleId)) &&
+        !planned.some(item => item.sceneId === scene.id),
+      );
+      if (missing) {
+        const error = `Scene ${missing.id} cannot safely lip-sync its mapped Brand Kit voice. Approve the character and outfit references and use a solo dialogue shot before generating.`;
+        await failProvisionalGuidedJob(error);
+        res.status(400).json({ error });
+        return;
+      }
+    }
     const permitted = options.resolvedVideoModel.permittedDurationSec ??
       [options.resolvedVideoModel.durationSec];
     const scenes = [];
@@ -15090,8 +15137,9 @@ router.post(
           resolution: initial.options.resolution,
           quality: initial.options.quality,
           generateAudio: useAtlasGuidedReferences
-            ? true
+            ? !guidedUsesSavedVoice(initial.options.guidedStory)
             : initial.options.generateAudio,
+          coverSceneDuration: initial.options.guidedStoryRenderFlow?.mode === "direct_video",
           permittedDurationSec: compositeVideoDurations(
             initial.engine,
             initial.options,
@@ -16269,7 +16317,7 @@ async function prepareFreshRestartOptions(
   const options = freshRestartOptions(source);
   const frozen = options.resolvedVideoModel;
   const useGuidedProviderNativeAudio =
-    options.guidedStory != null;
+    options.guidedStory != null && !guidedUsesSavedVoice(options.guidedStory);
   if (
     options.guidedStoryRenderFlow?.mode === "direct_video" &&
     options.guidedStory &&
@@ -16309,6 +16357,7 @@ async function prepareFreshRestartOptions(
     quality: options.quality,
     generateAudio: useGuidedProviderNativeAudio,
     permittedDurationSec: compositeVideoDurations(source.engine, options),
+    coverSceneDuration: options.guidedStory != null,
   });
   options.modelId = null;
   options.resolvedVideoModel = {

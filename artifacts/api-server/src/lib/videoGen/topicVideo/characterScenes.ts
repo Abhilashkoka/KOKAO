@@ -564,6 +564,7 @@ export async function animateSceneKeyframes(params: {
   scenePrompts?: readonly string[];
   /** Seedance generates the dialogue audio in the same provider call. */
   nativeAudio?: boolean;
+  continuousScenes?: boolean;
   /** Resolved immediately before the paid scene call. */
   resolveAssetIds?: (sceneIndex: number) => Promise<string[]>;
 }): Promise<CharacterSceneClips> {
@@ -591,7 +592,10 @@ export async function animateSceneKeyframes(params: {
     const keyframe = params.keyframes[i];
     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
     const scene = params.scenes[i]!;
-    const durationSec = clipDurationForScene(scene.durationSec);
+    // Native dialogue must not be cut into the legacy 5/8/10-second plate.
+    const durationSec = params.nativeAudio || params.continuousScenes
+      ? Math.ceil(scene.durationSec)
+      : clipDurationForScene(scene.durationSec);
     const operationFamilyKey =
       `${params.meterCtx?.operationKey ?? "character_scene"}:${i}`;
     let providerAttempt = 0;
@@ -615,6 +619,7 @@ export async function animateSceneKeyframes(params: {
         // Scene lengths come from the narration timing; the audio is already
         // recorded, so the model's own duration snap must not override it.
         durationSec,
+        coverSceneDuration: params.nativeAudio || params.continuousScenes,
         operationKey: `character_scene:${i}`,
         meterCtx: params.meterCtx
           ? {
@@ -717,6 +722,7 @@ export async function generateCharacterSceneClips(params: {
   meterCtx?: MeterContext | null;
   scenePrompts?: readonly string[];
   nativeAudio?: boolean;
+  continuousScenes?: boolean;
 }): Promise<CharacterSceneClips> {
   const keyframes = (await generateSceneKeyframes(params)).map((keyframe) => keyframe.buffer);
   return animateSceneKeyframes({
@@ -732,6 +738,7 @@ export async function generateCharacterSceneClips(params: {
     meterCtx: params.meterCtx ?? null,
     scenePrompts: params.scenePrompts,
     nativeAudio: params.nativeAudio,
+    continuousScenes: params.continuousScenes,
     resolveAssetIds: undefined,
   });
 }

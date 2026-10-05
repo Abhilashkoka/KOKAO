@@ -1710,6 +1710,9 @@ describe("GuidedStoryWorkflow", () => {
     await user.click(screen.getByText("Me"));
     await user.click(screen.getByTestId("checkbox-guided-consent"));
 
+    expect(useSavedCast.disabled).toBe(true);
+    expect(screen.getByTestId("guided-voice-choice-r1").textContent).toContain("Brand Kit voice");
+    await user.click(screen.getByTestId("button-guided-native-voice-r1"));
     expect(useSavedCast.disabled).toBe(false);
     expect(screen.getByTestId("button-guided-cast-generated").textContent).toContain(
       "automatic generated cast",

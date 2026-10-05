@@ -2006,6 +2006,7 @@ export async function renderTopicStoryboard(params: {
       modelOptions: params.modelOptions,
       scenePrompts: seedancePrompts?.map((prompt, index) => prompt ?? board.scenes[index]!.visual),
       nativeAudio: params.guidedStory ? nativeAudio : undefined,
+      continuousScenes: !!params.guidedStory,
       resolveAssetIds: params.resolveGuidedAtlasAssetIds,
       savedClips,
       onCheckpoint: params.onCheckpoint,
