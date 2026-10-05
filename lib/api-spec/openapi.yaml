@@ -18456,6 +18456,7 @@ components:
           description: in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.
         aiDescription: { type: ["string", "null"] }
         aiDescriptionStatus: { type: string, enum: [pending, ready, failed] }
+        aiDescriptionError: { type: string, nullable: true }
         createdAt:
           type: string
           format: date-time

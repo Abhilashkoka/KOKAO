@@ -48,6 +48,7 @@ export interface BrandProductMetadata {
   /** One-time AI look of the uploaded image; null until described. */
   aiDescription: string | null;
   aiDescriptionStatus: "pending" | "ready" | "failed";
+  aiDescriptionError?: string | null;
   aiDescribedAt: string | null;
   /** SHA-256 of the exact bytes the AI description was made from. */
   imageSha256: string | null;

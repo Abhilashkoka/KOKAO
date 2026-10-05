@@ -13067,6 +13067,7 @@ export const ListBrandProductsResponseItem = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "aiDescriptionError": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const ListBrandProductsResponse = zod.array(ListBrandProductsResponseItem)
@@ -13110,6 +13111,7 @@ export const CreateBrandProductResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "aiDescriptionError": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -13148,6 +13150,7 @@ export const UpdateBrandProductResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "aiDescriptionError": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -13171,6 +13174,7 @@ export const DescribeBrandProductResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "aiDescriptionError": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 

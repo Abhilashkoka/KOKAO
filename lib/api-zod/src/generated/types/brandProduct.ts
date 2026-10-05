@@ -23,5 +23,6 @@ export interface BrandProduct {
   /** @nullable */
   aiDescription: string | null;
   aiDescriptionStatus: BrandProductAiDescriptionStatus;
+  aiDescriptionError?: string | null;
   createdAt: Date;
 }

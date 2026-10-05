@@ -32,7 +32,7 @@ const visionState = vi.hoisted(() => ({
 /** Only the product-description calls; kit creation may use text-gen too. */
 function productCalls() {
   return visionState.calls.filter((call) =>
-    String((call as { meter?: { operationKey?: string } }).meter?.operationKey ?? "").includes(":product:"),
+    (call as { opts?: { capability?: string } }).opts?.capability === "multimodal",
   );
 }
 
@@ -58,7 +58,18 @@ vi.mock("../lib/textGen", async (importOriginal) => {
   };
 });
 
-import { pool, db, brandKitsTable, brandAssetsTable } from "@workspace/db";
+vi.mock("../lib/meterFunding", () => ({
+  freezeMeterFunding: async (tenantId: number) => ({ tenantId, rail: "credits", mode: "enforce" }),
+}));
+vi.mock("../lib/creditRates", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/creditRates")>();
+  return { ...actual, creditCostSnapshotFor: async (key: string, quantity: number) =>
+    key === "ai_photo_description"
+      ? { unitRateMilli: 1750, costMilli: 1750 * quantity, active: true, valid: true }
+      : actual.creditCostSnapshotFor(key, quantity) };
+});
+
+import { pool, db, brandKitsTable, brandAssetsTable, creditAccountsTable, creditAccountLedgerTable, creditMeterEventsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import brandKitsRouter from "./brandKits";
@@ -118,11 +129,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.delete(brandAssetsTable).where(eq(brandAssetsTable.tenantId, tenant.tenantId));
+  await db.delete(creditMeterEventsTable).where(eq(creditMeterEventsTable.tenantId, tenant.tenantId));
+  await db.delete(creditAccountLedgerTable).where(eq(creditAccountLedgerTable.tenantId, tenant.tenantId));
+  await db.delete(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenant.tenantId));
   await deleteTenant(tenant.tenantId);
   await pool.end();
 });
 
 beforeEach(async () => {
+  await db.insert(creditAccountsTable).values({ tenantId: tenant.tenantId, purchasedMilli: 20000, grantedMilli: 0 })
+    .onConflictDoUpdate({ target: creditAccountsTable.tenantId, set: { purchasedMilli: 20000, grantedMilli: 0 } });
   await db.delete(brandAssetsTable).where(eq(brandAssetsTable.tenantId, tenant.tenantId));
   await db.delete(brandKitsTable).where(eq(brandKitsTable.tenantId, tenant.tenantId));
   resetAuthState();
@@ -135,6 +151,43 @@ beforeEach(async () => {
 });
 
 describe("Brand Kit products & services", () => {
+  it("charges the dedicated price once and reuses the saved description", async () => {
+    const kitId = await newKit();
+    const created = await request(app).post(`/api/brand-kits/${kitId}/products`)
+      .send({ imagePath: `/objects/${tenant.tenantId}/uploads/serum`, name: "Serum", description: "Evens tone." });
+    expect(created.body.aiDescriptionStatus).toBe("ready");
+    await request(app).post(`/api/brand-kits/${kitId}/products/${created.body.id}/describe`);
+    expect(productCalls()).toHaveLength(1);
+    const [account] = await db.select().from(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenant.tenantId));
+    expect(account.purchasedMilli).toBe(18250);
+    const receipts = await db.select().from(creditAccountLedgerTable).where(eq(creditAccountLedgerTable.tenantId, tenant.tenantId));
+    expect(receipts.some((r) => r.kind === "spend" && r.rateKey === "ai_photo_description" && r.purchasedDeltaMilli === -1750)).toBe(true);
+  });
+
+  it("keeps the photo without calling AI when credits are insufficient", async () => {
+    await db.update(creditAccountsTable).set({ purchasedMilli: 0 }).where(eq(creditAccountsTable.tenantId, tenant.tenantId));
+    const kitId = await newKit();
+    const created = await request(app).post(`/api/brand-kits/${kitId}/products`)
+      .send({ imagePath: `/objects/${tenant.tenantId}/uploads/serum`, name: "Serum", description: "Evens tone." });
+    expect(created.status).toBe(201);
+    expect(created.body.aiDescriptionStatus).toBe("failed");
+    expect(productCalls()).toHaveLength(0);
+  });
+
+  it("refunds invalid descriptions and charges a successful retry", async () => {
+    visionState.reply = "not json";
+    const kitId = await newKit();
+    const created = await request(app).post(`/api/brand-kits/${kitId}/products`)
+      .send({ imagePath: `/objects/${tenant.tenantId}/uploads/serum`, name: "Serum", description: "Evens tone." });
+    expect(created.body.aiDescriptionStatus).toBe("failed");
+    const [account] = await db.select().from(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenant.tenantId));
+    expect(account.purchasedMilli).toBe(20000);
+    visionState.reply = '{"description":"A green bottle with a white cap."}';
+    const retried = await request(app).post(`/api/brand-kits/${kitId}/products/${created.body.id}/describe`);
+    expect(retried.body.aiDescriptionStatus).toBe("ready");
+    const [after] = await db.select().from(creditAccountsTable).where(eq(creditAccountsTable.tenantId, tenant.tenantId));
+    expect(after.purchasedMilli).toBe(18250);
+  });
   it("stores a product, describes its image once, and lists it", async () => {
     const kitId = await newKit();
     const created = await request(app)
@@ -161,7 +214,7 @@ describe("Brand Kit products & services", () => {
       opts: { capability: string };
     };
     expect(call.opts.capability).toBe("multimodal");
-    expect(call.meter.funding.mode).toBe("shadow");
+    expect(call.meter).toBeNull(); // Dedicated outer meter, not a second caption debit.
     expect(JSON.stringify(call.body.messages[1]!.content)).toContain("data:image/png;base64,");
 
     const list = await request(app).get(`/api/brand-kits/${kitId}/products`);
@@ -171,7 +224,7 @@ describe("Brand Kit products & services", () => {
 
   it("keeps the upload when the vision call fails and lets the user retry", async () => {
     const kitId = await newKit();
-    visionState.reply = new Error("vision down");
+    visionState.reply = Object.assign(new Error("vision rejected"), { status: 422 });
     const created = await request(app)
       .post(`/api/brand-kits/${kitId}/products`)
       .send({

@@ -10,6 +10,10 @@ import { getTextGenClient } from "../textGen";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { withTimeout } from "../videoGen/retry";
+import { meter } from "../meter";
+import { freezeMeterFunding } from "../meterFunding";
+import { InsufficientCreditsError } from "../creditAccounts";
+import { MeterDispatchReplayError } from "../meterErrors";
 import {
   readReferenceBytes,
   referenceDigest,
@@ -63,6 +67,7 @@ export function brandProductMetadata(
     description: typeof raw.description === "string" ? raw.description : "",
     displayMode: raw.displayMode === "exact" ? "exact" : "in_scene",
     aiDescription: typeof raw.aiDescription === "string" ? raw.aiDescription : null,
+    aiDescriptionError: typeof raw.aiDescriptionError === "string" ? raw.aiDescriptionError : null,
     aiDescriptionStatus:
       raw.aiDescriptionStatus === "ready" || raw.aiDescriptionStatus === "failed"
         ? raw.aiDescriptionStatus
@@ -85,6 +90,7 @@ export function serializeBrandProduct(row: BrandAsset) {
     displayMode: meta.displayMode,
     aiDescription: meta.aiDescription,
     aiDescriptionStatus: meta.aiDescriptionStatus,
+    aiDescriptionError: meta.aiDescriptionError ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -171,6 +177,14 @@ export async function describeBrandProductImage(params: {
   image: { bytes: Buffer; mimeType: string };
 }): Promise<string | null> {
   try {
+    const row = await loadBrandProduct(params.tenantId, params.brandKitId, params.assetId);
+    if (!row) return null;
+    const digest = referenceDigest(params.image.bytes);
+    const saved = brandProductMetadata(row);
+    if (saved.aiDescriptionStatus === "ready" && saved.imageSha256 === digest) {
+      return saved.aiDescription;
+    }
+    const funding = await freezeMeterFunding(params.tenantId);
     const tenant = (
       await db
         .select({ aiModel: tenantsTable.aiModel })
@@ -180,21 +194,21 @@ export async function describeBrandProductImage(params: {
     )[0];
     const textGen = await getTextGenClient(
       tenant?.aiModel ?? "gpt-5.4",
-      {
-        tenantId: params.tenantId,
-        refKind: "brandKit",
-        refId: String(params.brandKitId),
-        // Catalogue analysis is a few cents of vision tokens; it is tracked
-        // for cost reporting but not charged to the user's balance.
-        funding: Object.freeze({
-          tenantId: params.tenantId,
-          rail: "quota",
-          mode: "shadow",
-        }),
-        operationKey: `brand-kit:${params.brandKitId}:product:${params.assetId}:describe`,
-      },
+      // The outer operation meters the dedicated rate, including validation
+      // and persistence. Do not also charge the caption transport.
+      null,
       { capability: "multimodal" },
     );
+    let reported: { tokens?: number; usd?: number } | null = null;
+    return await meter({
+      tenantId: params.tenantId,
+      refKind: "brandProductDescription",
+      refId: String(params.assetId),
+      provider: textGen.provider,
+      model: textGen.model,
+      funding,
+      operationKey: `brand-product:${params.assetId}:describe:${digest}`,
+    }, "ai_photo_description", 1, async () => {
     const completion = await withTimeout(
       () =>
         textGen.client.chat.completions.create({
@@ -224,15 +238,38 @@ export async function describeBrandProductImage(params: {
       DESCRIBE_TIMEOUT_MS,
       "Product description",
     );
-    return parseProductDescription(completion.choices[0]?.message?.content ?? "");
+    const usage = completion.usage as { completion_tokens?: number; cost?: number } | undefined;
+    reported = usage ? { tokens: usage.completion_tokens, usd: usage.cost } : null;
+    const description = parseProductDescription(completion.choices[0]?.message?.content ?? "");
+    if (!description) throw new UnusableProductDescriptionError("AI returned an unusable photo description.");
+    const persisted = await saveBrandProductDescription(row, digest, description);
+    if (!persisted) throw new UnusableProductDescriptionError("The product was removed before its description could be saved.");
+    return description;
+    }, () => reported, {
+      reportedFromError: () => reported,
+      isFailureConfirmed: (error) => error instanceof UnusableProductDescriptionError ||
+        (typeof (error as { status?: unknown })?.status === "number" &&
+          [400, 401, 403, 404, 422, 429].includes((error as { status: number }).status)),
+    });
   } catch (error) {
     logger.warn(
       { err: error, tenantId: params.tenantId, assetId: params.assetId },
       "Brand product image description failed",
     );
+    const row = await loadBrandProduct(params.tenantId, params.brandKitId, params.assetId);
+    if (row) {
+      await saveBrandProductDescription(row, referenceDigest(params.image.bytes), null,
+        error instanceof InsufficientCreditsError
+          ? "Not enough credits for AI photo description. Your photo is saved. Add credits, then retry."
+          : error instanceof MeterDispatchReplayError
+            ? "This description is already running or awaiting confirmation. Refresh later; do not submit another paid request."
+            : "AI photo description failed. Your photo is saved. Confirmed failures are refunded; an uncertain provider request must be resolved before retrying.");
+    }
     return null;
   }
 }
+
+class UnusableProductDescriptionError extends Error {}
 
 export function parseProductDescription(raw: string): string | null {
   try {
@@ -252,18 +289,28 @@ export async function saveBrandProductDescription(
   row: BrandAsset,
   sha256: string,
   description: string | null,
+  errorMessage?: string,
 ): Promise<BrandAsset | null> {
-  const meta = brandProductMetadata(row);
+  return db.transaction(async (tx) => {
+  const [current] = await tx.select().from(brandAssetsTable).where(
+    and(eq(brandAssetsTable.id, row.id), eq(brandAssetsTable.tenantId, row.tenantId)),
+  ).for("update");
+  if (!current) return null;
+  const meta = brandProductMetadata(current);
+  // A competing replay must not replace a successfully saved description
+  // with its own failed/in-flight result.
+  if (!description && meta.aiDescriptionStatus === "ready") return current;
   const next: BrandProductMetadata = {
     ...meta,
     aiDescription: description ?? meta.aiDescription,
     aiDescriptionStatus: description ? "ready" : "failed",
+    aiDescriptionError: description ? null : errorMessage ?? meta.aiDescriptionError ?? null,
     aiDescribedAt: description ? new Date().toISOString() : meta.aiDescribedAt,
     imageSha256: sha256,
   };
   return (
     (
-      await db
+      await tx
         .update(brandAssetsTable)
         .set({ metadataJson: next as unknown as Record<string, unknown> })
         .where(
@@ -275,4 +322,5 @@ export async function saveBrandProductDescription(
         .returning()
     )[0] ?? null
   );
+  });
 }

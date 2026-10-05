@@ -85,6 +85,7 @@ export type MeterKey =
   | "image"
   | "image_edit"
   | "caption"
+  | "ai_photo_description"
   | "voice"
   | "lipsync"
   | "transcription";

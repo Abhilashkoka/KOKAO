@@ -154,3 +154,4 @@
 - [Storyboard rejection cleanup](storyboard-rejection-cleanup.md) — rejecting failed or completed storyboards must clean up associated characters, not require separate Atlas console deletion.
 - [JSX generic instrumentation](jsx-generic-instrumentation.md) — explicit JSX type arguments can break the instrumented Vite build despite passing TypeScript and tests.
 - [Long native video scenes](long-native-video-scenes.md) — use selected models' verified long-scene capabilities with dialogue and continuity, rather than always splitting into short clips.
+- [Photo description pricing](photo-description-pricing.md) — owner requires an independent AI photo description rate, not caption or image pricing.

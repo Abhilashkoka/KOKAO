@@ -4,7 +4,7 @@ import {
   creditMeterSettingsTable,
   type CreditRate,
 } from "@workspace/db";
-import { asc, eq, inArray, not } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, not } from "drizzle-orm";
 import {
   creditEnforcementLockReason,
   isCreditEnforcementAllowed,
@@ -198,6 +198,16 @@ function toView(row: CreditRate): CreditRateView {
  */
 async function seedIfEmpty(): Promise<void> {
   const existing = await db.select({ id: creditRatesTable.id }).from(creditRatesTable).limit(1);
+  // Additive capability rollout: never replace an administrator's saved price.
+  await db.insert(creditRatesTable).values({
+    key: "ai_photo_description",
+    label: "AI photo description",
+    unit: "item",
+    creditsMilli: 1000,
+    active: true,
+    sortOrder: 85,
+    notes: "One saved AI description of an uploaded product or service photo.",
+  }).onConflictDoNothing({ target: creditRatesTable.key });
   if (existing.length > 0) return;
   await db
     .insert(creditRatesTable)
@@ -441,7 +451,11 @@ export async function replaceCreditRateCard(
     if (keys.length === 0) {
       await rateDelete;
     } else {
-      await rateDelete.where(not(inArray(creditRatesTable.key, keys)));
+      await rateDelete.where(and(
+        not(inArray(creditRatesTable.key, keys)),
+        // Preserve additive pricing when an older admin client saves its card.
+        ne(creditRatesTable.key, "ai_photo_description"),
+      ));
     }
   });
   invalidateCreditRateCache();

@@ -76,7 +76,7 @@ function DescriptionStatus({ product }: { product: BrandProduct }) {
   return (
     <p className="text-xs text-amber-700 dark:text-amber-300" data-testid={`text-product-ai-${product.id}`}>
       {product.aiDescriptionStatus === "failed"
-        ? "The AI couldn't describe this image yet. Retry, or the story will use your description only."
+        ? product.aiDescriptionError ?? "Your photo is saved, but the AI description is unavailable. Check your credit balance and AI photo description pricing before retrying."
         : "AI description pending."}
     </p>
   );
