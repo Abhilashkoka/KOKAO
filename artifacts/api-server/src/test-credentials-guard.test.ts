@@ -14,6 +14,32 @@ describe("credentials guard orphan recovery", () => {
     vi.restoreAllMocks();
   });
 
+  it.each([
+    ["credit_meter_settings", ["id", "mode"], { id: 1, mode: "enforce" }],
+    ["credit_rates", ["id", "credits_milli"], { id: 1, credits_milli: 68000 }],
+  ])("restores administrator billing configuration in %s", async (table, columns, row) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "billing-guard-"));
+    tempDirs.push(dir);
+    const snapshotFile = path.join(dir, "snapshot.json");
+    fs.writeFileSync(snapshotFile, JSON.stringify({
+      version: 1,
+      createdAt: new Date().toISOString(),
+      snapshots: [{ table, columns, rows: [row] }],
+    }));
+    const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await restoreOrphanedSnapshot(
+      client as unknown as Parameters<typeof restoreOrphanedSnapshot>[0],
+      snapshotFile,
+    );
+    expect(client.query).toHaveBeenCalledWith(`DELETE FROM ${table}`);
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining(`INSERT INTO ${table}`), Object.values(row),
+    );
+    expect(client.query).toHaveBeenCalledWith("COMMIT");
+    expect(fs.existsSync(snapshotFile)).toBe(false);
+  });
+
   it("quarantines malformed JSON without querying or modifying credentials", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "credentials-guard-"));
     tempDirs.push(dir);

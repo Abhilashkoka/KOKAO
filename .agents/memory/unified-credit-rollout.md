@@ -5,9 +5,9 @@ description: Safety and accounting rules for replacing separate quotas with one 
 
 Purchased unified balances must remain visible even before credit-funded generation is enabled. Balance visibility and authorization to debit are separate decisions.
 
-Never treat a development rate-card read as the user's pricing decision without checking its audit history after billing tests.
+Never treat a development rate-card or enforcement-mode read as the user's billing decision without checking its audit history after billing tests.
 
-**Why:** Billing tests have directly upserted global development rates, including a free image rate, without restoring them or creating an admin audit. This caused a test value to be mistaken for an intentional saved price.
+**Why:** Billing tests have directly upserted global development rates, including a free image rate, and reset enforcement to shadow without creating an admin audit. This caused test values to be mistaken for intentional saved pricing. Shadow receipts may therefore contain test prices, not approved customer prices.
 
 **How to apply:** Isolate test pricing from shared application settings, preserve concurrent legitimate edits, and verify audited intent before preparing deployment pricing. Missing audit evidence is a reason to investigate, not to assume the user changed the rate.
 
