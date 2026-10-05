@@ -4,6 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+const videoDownloadMocks = vi.hoisted(() => ({
+  download: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@clerk/react", () => ({
+  useAuth: () => ({ getToken: async () => "download-test-token" }),
+}));
+vi.mock("@/lib/download-video", () => ({ downloadVideo: videoDownloadMocks.download }));
+
 // Radix components need a few APIs jsdom doesn't implement.
 if (!Element.prototype.hasPointerCapture) {
   Element.prototype.hasPointerCapture = () => false;
@@ -4130,7 +4138,7 @@ describe("Video Studio", () => {
     });
   });
 
-  it("shows the finished video with save and download actions", () => {
+  it("shows the finished video with authenticated save and download actions", async () => {
     mockState.activeJob = {
       id: 7,
       engine: "text_to_video",
@@ -4150,15 +4158,13 @@ describe("Video Studio", () => {
     const video = screen.getByTestId("video-preview") as HTMLVideoElement;
     expect(video.getAttribute("src")).toBe("/api/storage/objects/1/uploads/v.mp4");
     expect(screen.getByTestId("button-save-video")).toBeTruthy();
-    const download = screen.getByTestId("button-download-video") as HTMLAnchorElement;
-    expect(download.getAttribute("href")).toBe(
-      "/api/storage/objects/1/uploads/v.mp4?download=kokao-video-7.mp4",
-    );
-    expect(download.download).toBe("kokao-video-7.mp4");
-    expect(download.getAttribute("target")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-download-video"));
+    await waitFor(() => expect(videoDownloadMocks.download).toHaveBeenLastCalledWith(
+      "/objects/1/uploads/v.mp4", "kokao-video-7.mp4", "download-test-token",
+    ));
   });
 
-  it("downloads the repaired current video, not the original job output", () => {
+  it("downloads the repaired current video, not the original job output", async () => {
     mockState.activeJob = {
       id: 7,
       engine: "topic_to_video",
@@ -4174,10 +4180,10 @@ describe("Video Studio", () => {
     mockState.jobs = [mockState.activeJob];
     renderPage();
     fireEvent.click(screen.getByTestId("job-card-7"));
-    const download = screen.getByTestId("button-download-video") as HTMLAnchorElement;
-    expect(download.getAttribute("href")).toBe(
-      "/api/storage/objects/1/uploads/repaired.mp4?download=kokao-video-7.mp4",
-    );
+    fireEvent.click(screen.getByTestId("button-download-video"));
+    await waitFor(() => expect(videoDownloadMocks.download).toHaveBeenLastCalledWith(
+      "/objects/1/uploads/repaired.mp4", "kokao-video-7.mp4", "download-test-token",
+    ));
   });
 
   it("starts a no-charge repair for an eligible completed video", async () => {

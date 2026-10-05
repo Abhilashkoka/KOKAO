@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DirectedVideoPanel } from "@/components/directed-video-panel";
+import { VideoDownloadButton } from "@/components/video-download-button";
 import { CoverStudioDialog } from "@/components/cover-studio-dialog";
 import {
   buildDirectedVideoPayload,
@@ -7613,15 +7614,11 @@ export function VideoStudioPage() {
                     <ImageIcon className="h-4 w-4 mr-2" /> {flags.coverStudio ? "Make cover" : "Cover"}
                   </Button>
                   {(activeJob.currentVideoPath ?? activeJob.videoPath) && (
-                    <Button variant="outline" asChild>
-                      <a
-                        href={`${storageUrl(activeJob.currentVideoPath ?? activeJob.videoPath!)}?download=${encodeURIComponent(`kokao-video-${activeJob.id}.mp4`)}`}
-                        download={`kokao-video-${activeJob.id}.mp4`}
-                        data-testid="button-download-video"
-                      >
-                        <Download className="h-4 w-4 mr-2" /> Download
-                      </a>
-                    </Button>
+                    <VideoDownloadButton
+                      objectPath={activeJob.currentVideoPath ?? activeJob.videoPath!}
+                      filename={`kokao-video-${activeJob.id}.mp4`}
+                      testId="button-download-video"
+                    />
                   )}
                   {activeJob.repairable && (
                     <Button

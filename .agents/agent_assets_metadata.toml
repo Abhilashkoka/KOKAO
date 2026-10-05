@@ -515,3 +515,17 @@ mtime_ms = 1791031211333
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/b50b65c5-a695-4f6d-b45a-0b2f85654242/051738f1-3e63-451f-a7a3-0c097f997719"
 storage_version_token = "1791031261343678"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "cKV5g1phzpVMRTd8_o59B"
+uri = "file://downloads/kokao-video-127788.mp4"
+type = "video"
+title = "Download video — Job 127788"
+description = "The completed MP4 retrieved from your saved job (20.6 MB)."
+logical_id = "c6c85432-43f2-4026-a402-3386758089b7"
+content_hash = "sha256:4a26c628e98cf163e912d37fb4de567c6bdfd21900f6e3670a1d23cd99a71471"
+size = 20593980
+mtime_ms = 1791217584914
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/c6c85432-43f2-4026-a402-3386758089b7/a7c81440-36c4-4378-b7ce-e1bcefbfde0b"
+storage_version_token = "1791217673411499"
+content_type = "video/mp4"
