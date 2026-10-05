@@ -1,3 +1,7 @@
+import { assertTestDatabase } from "./test-database";
+
+assertTestDatabase();
+
 // The superadmin allowlist (lib/superadmins.ts) is built from SUPERADMIN_EMAILS
 // at module-load time. Ensure a deterministic owner is present for tests before
 // any app module imports the allowlist.

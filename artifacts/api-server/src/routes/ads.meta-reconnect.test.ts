@@ -46,6 +46,7 @@ import {
   pool,
   adAccountConnectionsTable,
   notificationsTable,
+  appCredentialsTable,
 } from "@workspace/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { platformFetch } from "../lib/platformFetch";
@@ -92,12 +93,25 @@ function mockTokenExchange() {
   } as never);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetAuthState();
   vi.clearAllMocks();
+  // Explicit fake app credentials: never rely on the Preview admin's keys.
+  await db.insert(appCredentialsTable).values({
+    provider: "meta",
+    encryptedCredentials: encryptJson({ appId: "test-meta-app", appSecret: "test-meta-secret" }),
+    lastTestStatus: "verified",
+  }).onConflictDoUpdate({
+    target: appCredentialsTable.provider,
+    set: {
+      encryptedCredentials: encryptJson({ appId: "test-meta-app", appSecret: "test-meta-secret" }),
+      lastTestStatus: "verified",
+    },
+  });
 });
 
 afterAll(async () => {
+  await db.delete(appCredentialsTable).where(eq(appCredentialsTable.provider, "meta"));
   await pool.end();
 });
 

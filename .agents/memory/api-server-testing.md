@@ -8,10 +8,9 @@ description: Durable decisions for writing tests in artifacts/api-server.
 - Quota-focused tests must pin plan configuration independently of saved admin edits, while retaining real reservation/debit checks. Use paid-plan fixtures for AI video and unique provider-asset IDs.
   **Why:** Real development plans can be archived or repriced, and provider asset uniqueness spans tenants; stale assumptions produce unrelated billing and ownership failures.
   **How to apply:** Keep Free-policy tests explicitly Free, isolate the catalog boundary for legacy quota tests, and never change production rules to accommodate a fixture.
-- **Integration tests hit the REAL dev Postgres DB, not a mock DB.** drizzle's fluent query builder
-  isn't worth mocking; real-DB tests are the only faithful proof of tenant isolation. Always clean up
-  rows you create, and snapshot+restore any GLOBALLY-unique row (e.g. the single `app_credentials`
-  provider="meta" row) so real dev config is never destroyed.
+- **Integration tests use real PostgreSQL, but never the Preview database.**
+  Keep the per-run empty local cluster boundary; see [database isolation](test-database-isolation.md).
+  Do not restore shared Preview snapshots or copy customer balances into tests.
 - **Mock only the trust boundary and the network**, never the DB: mock `@clerk/express` (auth) and the
   live `metaApi` network functions; keep DB-backed helpers real.
 - Integration test files must run serially when they share global rows. Individual suites must never

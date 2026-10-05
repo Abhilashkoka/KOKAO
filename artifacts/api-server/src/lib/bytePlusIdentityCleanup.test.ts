@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, bytePlusIdentityCleanupsTable, pool } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 const mocks = vi.hoisted(() => ({
   deleteAssetGroup: vi.fn(),
@@ -25,14 +25,27 @@ vi.mock("./byteplus/assets", async (importOriginal) => {
 import { BytePlusAssetsError } from "./byteplus/assets";
 import {
   enqueueBytePlusIdentityCleanup,
-  sweepBytePlusIdentityCleanups,
+  sweepBytePlusIdentityCleanups as runCleanupSweep,
 } from "./bytePlusIdentityCleanup";
 import { encryptJson } from "./secretCrypto";
 
 const tenantId = 91_158;
 
+// These tests exercise outcomes for due work, not the clock scheduler.
+// PostgreSQL defaultNow has microsecond precision; JS Date has milliseconds.
+// A fast local connection can otherwise poll before the inserted row is due.
+async function sweepBytePlusIdentityCleanups(options: { tenantId: number }) {
+  await db.update(bytePlusIdentityCleanupsTable)
+    .set({ nextAttemptAt: new Date(Date.now() - 1000) })
+    .where(and(
+      eq(bytePlusIdentityCleanupsTable.tenantId, options.tenantId),
+      eq(bytePlusIdentityCleanupsTable.status, "pending"),
+    ));
+  return runCleanupSweep(options);
+}
+
 beforeEach(async () => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   process.env.SESSION_SECRET = "cleanup-test-session-secret";
   mocks.resolveLivenessAssetGroup.mockResolvedValue("resolved-group");
   await db.delete(bytePlusIdentityCleanupsTable)

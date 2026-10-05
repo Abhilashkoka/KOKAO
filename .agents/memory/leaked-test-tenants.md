@@ -6,6 +6,11 @@ Shared-development-DB tests must prevent synthetic administrators and alerts
 from entering operational fan-out, and must own their fixture lifecycle
 exclusively for the duration of a run.
 
+API Vitest now avoids this hazard with an empty per-run local database; see
+[database isolation](test-database-isolation.md). The advice below remains
+relevant to browser tests or legacy scripts that intentionally use Preview,
+not ordinary API Vitest invocations.
+
 **Why:** killed runs and a few incomplete suite teardowns accumulated more than
 3,000 synthetic tenants, including over 1,600 superadmins. Every superadmin
 alert then performed thousands of sequential notification operations, turning

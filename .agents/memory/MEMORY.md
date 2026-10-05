@@ -7,6 +7,7 @@
 - [Superadmin allowlist](superadmin-allowlist.md) — built ONLY from SUPERADMIN_EMAILS env at module load; no hardcoded emails; tests inject it via vitest setupFiles before import.
 - [Meta credential framework](meta-credential-framework.md) — encrypted app-level + per-tenant FB/IG creds, auto-tested & masked; Meta secrets go in headers/body never URLs.
 - [Testing lessons](testing-index.md) — API/DB harnesses, frontend mocks, Expo authentication, provider mocking, modal exits and test placement.
+- [API database isolation](test-database-isolation.md) — empty per-run PostgreSQL; never borrow Preview settings or balances, and never auto-replay old shared snapshots.
 - [X (Twitter) publishing](twitter-publishing.md) — OAuth 2.0 PKCE connect + bearer-token publish; legacy OAuth 1.0a tokens prompt reconnect; no retest endpoint.
 - [OpenAPI Zod name collisions](openapi-zod-body-name-collision.md) — operation-shaped body names and mixed path/query Params exports can collide in the generated barrel (TS2308).
 - [Brand Kit module](brand-kit-module.md) — session-scoped routes avoid IDOR; edits create deep-cloned versioned JSON; keep OpenAPI and routes in lockstep.

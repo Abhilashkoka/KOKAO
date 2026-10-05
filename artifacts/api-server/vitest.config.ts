@@ -1,4 +1,7 @@
 import { defineConfig } from "vitest/config";
+import { configureTestDatabase } from "./src/test-database";
+
+configureTestDatabase();
 
 export default defineConfig({
   test: {
@@ -7,10 +10,8 @@ export default defineConfig({
     setupFiles: ["./src/test-setup.ts"],
     // Fail fast with a clear "run db push" message when the dev DB schema
     // has drifted from lib/db/src/schema/ (e.g. after a merge).
-    globalSetup: ["./src/test-schema-check.ts", "./src/test-credentials-guard.ts"],
-    // These are real-DB integration tests that share a single global
-    // app_credentials "meta" row. Run files serially so they don't race each
-    // other on that shared row.
+    globalSetup: ["./src/test-database.ts", "./src/test-schema-check.ts"],
+    // Suites share singleton fixtures within their isolated cluster.
     fileParallelism: false,
     hookTimeout: 30000,
     testTimeout: 30000,

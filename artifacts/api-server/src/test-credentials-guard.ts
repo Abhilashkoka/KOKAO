@@ -26,6 +26,7 @@ import pg from "pg";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertTestDatabase } from "./test-database";
 
 /**
  * Admin-configuration tables tests are allowed to mutate but a run must never
@@ -347,6 +348,9 @@ async function purgeSyntheticFailoverNotifications(
 }
 
 export default async function credentialsGuard(): Promise<() => Promise<void>> {
+  // Legacy helper only: never permit an old setup entry point to snapshot and
+  // overwrite Preview. The normal runner now discards an isolated DB instead.
+  assertTestDatabase();
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   const snapshots: TableSnapshot[] = [];
