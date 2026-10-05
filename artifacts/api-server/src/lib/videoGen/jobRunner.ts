@@ -246,6 +246,7 @@ import { atlasAssetRefsForOutfit } from "../characterAssets";
 import { transcribeAudio } from "../asr";
 import { meter, isDefinitiveProviderRejection, type MeterContext } from "../meter";
 import type { MeterFundingSnapshot } from "../meterFunding";
+import { refundFailedGuidedVideoCredits, settleVideoCredits } from "../videoCreditSettlement";
 import { videoFundingSnapshot } from "./funding";
 import {
   assessNativeAudioTranscript,
@@ -1501,6 +1502,16 @@ export async function setJob(
   jobId: number,
   values: Partial<typeof videoGenerationsTable.$inferInsert>,
 ): Promise<void> {
+  if (values.status === "failed") {
+    await db.transaction(async tx => {
+      const [job] = await tx.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, jobId)).for("update");
+      if (!job || job.options?.storyboardRejection) return;
+      await settleVideoCredits(tx, job, null);
+      await tx.update(videoGenerationsTable).set(values).where(eq(videoGenerationsTable.id, jobId));
+    });
+    return;
+  }
   await db
     .update(videoGenerationsTable)
     .set(values)
@@ -7919,9 +7930,9 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
       detectLanguage: true,
     }, {
       tenantId: job.tenantId,
-      refKind: "videoJob",
+      refKind: "videoInternalQa",
       refId: String(job.id),
-      funding: videoMeterContext(job, "native-audio-asr:auto").funding,
+      funding: { tenantId: job.tenantId, rail: "quota", mode: "shadow" },
       operationKey: `video-job:${job.id}:native-audio-asr:auto`,
     });
   } catch {
@@ -7960,9 +7971,9 @@ async function verifyGuidedProviderSpeech(job: VideoGeneration, video: Buffer): 
         language: snapshot.locale,
       }, {
         tenantId: job.tenantId,
-        refKind: "videoJob",
+        refKind: "videoInternalQa",
         refId: String(job.id),
-        funding: videoMeterContext(job, `native-audio-asr:hint:${snapshot.locale}`).funding,
+        funding: { tenantId: job.tenantId, rail: "quota", mode: "shadow" },
         operationKey: `video-job:${job.id}:native-audio-asr:hint:${snapshot.locale}`,
       });
     } catch {
@@ -9656,6 +9667,9 @@ async function executeVideoJob(
         (err) => logger.error({ err, jobId }, "Failed to zero failed video job wallet charge"),
       );
     }
+    await refundFailedGuidedVideoCredits(jobId).catch(
+      (err) => logger.error({ err, jobId }, "Failed to refund Guided video account credits"),
+    );
   }
 }
 

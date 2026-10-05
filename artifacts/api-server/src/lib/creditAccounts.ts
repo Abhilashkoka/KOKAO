@@ -794,12 +794,12 @@ export async function spendCredits(
  * bucket could hand back credits that lapse tomorrow, and a refund for a
  * failure that was never the customer's fault should not carry a deadline.
  */
-export async function refundCredits(input: SpendCreditsInput): Promise<void> {
+export async function refundCredits(input: SpendCreditsInput, transaction?: DbTransaction): Promise<void> {
   const amountMilli = Math.max(0, Math.round(input.creditsMilli));
   if (!Number.isSafeInteger(amountMilli)) {
     throw new Error("Credit refund amount is outside the supported range");
   }
-  await db.transaction(async (tx) => {
+  const apply = async (tx: DbTransaction) => {
     const before = await lockAccount(tx, input.tenantId);
     if (input.idempotencyKey) {
       const [seen] = await tx
@@ -830,7 +830,9 @@ export async function refundCredits(input: SpendCreditsInput): Promise<void> {
       idempotencyKey: input.idempotencyKey ?? null,
       note: input.note ?? "Generation failed",
     });
-  });
+  };
+  if (transaction) await apply(transaction);
+  else await db.transaction(apply);
 }
 
 /**
@@ -1452,9 +1454,10 @@ function ordinalForReceipt(key: string, base: string): number | null {
  */
 export async function spendCreditsOnce(
   input: SpendCreditsInput,
+  transaction?: DbTransaction,
 ): Promise<SpendCreditsResult> {
   const costMilli = Math.max(0, Math.round(input.creditsMilli));
-  return db.transaction(async (tx) => {
+  const apply = async (tx: DbTransaction): Promise<SpendCreditsResult> => {
     // Serialize all movements for this workspace before consulting the
     // idempotency ledger. Checking first leaves a race where two transactions
     // both observe "unseen", both debit, and only the later ledger INSERT
@@ -1605,5 +1608,11 @@ export async function spendCreditsOnce(
       refundIdempotencyKey: refundReceiptKey,
       attemptOrdinal,
     };
-  });
+  };
+  return transaction ? apply(transaction) : db.transaction(apply);
+}
+
+/** Hold the same account lock as provider debits throughout video finalization. */
+export async function lockVideoCreditSettlement(tx: DbTransaction, tenantId: number): Promise<void> {
+  await lockAccount(tx, tenantId);
 }

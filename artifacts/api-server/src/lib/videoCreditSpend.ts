@@ -8,7 +8,7 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 
-type DeliveryItem = {
+export type DeliveryItem = {
   operationIdentity: string;
   kind?: string;
   independentlySettled: boolean;
@@ -34,7 +34,7 @@ function identityMatches(key: string | null, identity: string): boolean {
   );
 }
 
-function operationLedgerIdentities(
+export function operationLedgerIdentities(
   job: VideoGeneration,
   operationIdentity: string,
 ): string[] {
@@ -44,6 +44,9 @@ function operationLedgerIdentities(
   );
   if (videoEvent) {
     identities.push(`videoJob:${videoEvent[2]}:${videoEvent[1]}`);
+    if (videoEvent[1].startsWith("storyboard_scene:")) {
+      identities.push(`videoJob:${videoEvent[2]}:clip-storyboard-render:${videoEvent[1]}`);
+    }
   }
 
   // Early Guided v2 manifests froze the role slug as the delivered identity,
@@ -62,7 +65,7 @@ function operationLedgerIdentities(
   return identities;
 }
 
-function rowMatchesIdentities(
+export function rowMatchesIdentities(
   row: CreditAccountLedgerEntry,
   identities: readonly string[],
 ): boolean {
@@ -194,6 +197,10 @@ export function computeVideoCreditTotals(
     const applied = rows.filter(
       (row) => row.purchasedDeltaMilli !== 0 || row.grantedDeltaMilli !== 0,
     );
+    const coveredCharges = rows.filter(row =>
+      row.purchasedDeltaMilli + row.grantedDeltaMilli < 0 ||
+      (row.kind === "spend" && (row.rateKey === "video" || row.rateKey === "video_hd"))
+    );
     const coveredAcceptedInputs = acceptedItems.every((item) =>
       applied.some((row) =>
         row.purchasedDeltaMilli + row.grantedDeltaMilli < 0 &&
@@ -206,9 +213,8 @@ export function computeVideoCreditTotals(
     const coveredVideoOperations = creditOperationItems
       .filter((item) => !item.independentlySettled)
       .every((item) =>
-      applied.some(
+      coveredCharges.some(
         (row) =>
-          row.purchasedDeltaMilli + row.grantedDeltaMilli < 0 &&
           rowMatchesIdentities(
             row,
             operationLedgerIdentities(job, item.operationIdentity),
@@ -231,12 +237,6 @@ export function computeVideoCreditTotals(
           ),
       ),
     );
-    const hasVideoDebit = applied.some(
-      (row) =>
-        row.purchasedDeltaMilli + row.grantedDeltaMilli < 0 &&
-        row.refKind === "videoJob" &&
-        row.refId === String(job.id),
-    );
     const videoIsExplicitlyUnmetered =
       delivery.items.some((item) => !item.independentlySettled) &&
       delivery.items
@@ -245,8 +245,7 @@ export function computeVideoCreditTotals(
     if (
       !coveredAcceptedInputs ||
       !coveredReusedLineage ||
-      (!hasVideoDebit &&
-        !videoIsExplicitlyUnmetered &&
+      (!videoIsExplicitlyUnmetered &&
         !coveredVideoOperations)
     ) {
       result.set(job.id, null);
@@ -262,7 +261,7 @@ export function computeVideoCreditTotals(
       result.set(job.id, null);
       continue;
     }
-    result.set(job.id, -netDeltaMilli / 1_000);
+    result.set(job.id, netDeltaMilli === 0 ? 0 : -netDeltaMilli / 1_000);
   }
   return result;
 }

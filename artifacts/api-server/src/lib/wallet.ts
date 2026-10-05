@@ -1,3 +1,4 @@
+import { settleVideoCredits } from "./videoCreditSettlement";
 import {
   db,
   walletBalancesTable,
@@ -3590,10 +3591,8 @@ export async function finalizeVideoDeliveryBillingAndSuccess(input: {
     ? normalizedItems.reduce((sum, item) => sum + (item.rawProviderCostPaise ?? 0), 0)
     : null;
   return db.transaction(async (tx) => {
-    const [job] = await tx.select({
-      tenantId: videoGenerationsTable.tenantId,
-      status: videoGenerationsTable.status,
-    }).from(videoGenerationsTable).where(eq(videoGenerationsTable.id, input.jobId)).for("update");
+    const [job] = await tx.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, input.jobId)).for("update");
     if (!job || job.tenantId !== input.tenantId) throw new Error("v2 job tenant mismatch");
     if (reservations.length > 0) {
       const ownedReservations = await tx.select({ id: walletLedgerTable.id })
@@ -3730,6 +3729,12 @@ export async function finalizeVideoDeliveryBillingAndSuccess(input: {
         sourceMetadata: item.sourceMetadata,
       })));
     }
+    await settleVideoCredits(tx, job, normalizedItems.map(item => ({
+      ...item,
+      independentlySettled: Boolean(item.independentlySettled),
+      providerReservationId: item.providerReservationId ?? null,
+      unmetered: Boolean(item.unmetered),
+    })));
     const [updated] = await tx.update(videoGenerationsTable).set({
       ...input.terminal,
       status: "succeeded",

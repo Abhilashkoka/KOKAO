@@ -11,6 +11,7 @@ import {
   renderClipStoryboard,
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
+import { generateVideo } from "./index";
 
 const state = vi.hoisted(() => ({
   /** JSON the shot-splitter gets back, or "" to make the call throw. */
@@ -559,6 +560,23 @@ describe("renderClipStoryboard", () => {
     await expect(
       render(board({ visualsSource: "slide", scenes: [scene({ previewPath: null })] })),
     ).rejects.toThrow(/photo in this storyboard is missing/);
+  });
+
+  it("uses durable credit funding when no optional rendering context is supplied", async () => {
+    const funded = makeJob({});
+    funded.funding = "credits";
+    funded.options!.meterFunding = { tenantId: funded.tenantId, rail: "credits", mode: "enforce" };
+    await renderClipStoryboard({
+      job: funded,
+      storyboard: board({ visualsSource: "prompt", scenes: [scene({})] }),
+      aspectRatio: "9:16",
+      load: async () => ({ buffer: Buffer.from("photo"), mimeType: "image/png" }),
+    });
+    expect(vi.mocked(generateVideo).mock.calls.at(-1)?.[0].meterCtx).toMatchObject({
+      tenantId: funded.tenantId,
+      funding: funded.options!.meterFunding,
+      operationKey: `videoJob:${funded.id}:clip-storyboard-render:storyboard_scene:s1`,
+    });
   });
 
   it("generates one clip per shot and joins them", async () => {

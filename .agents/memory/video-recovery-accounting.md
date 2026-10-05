@@ -27,6 +27,12 @@ Historical wallet reconciliation must distinguish saved event costs from current
 
 **How to apply:** Inspect the entire chain's reservation/settle/refund lifecycle, expose cost provenance, and require explicit approval of any inferred historical fee and additional debit. Never label a report executable merely because a current-price total is computable.
 
+Unified-credit Guided retries must collect refunded inherited video receipts at the original signed debit amount, never at today's rate. Receipt-based collection and successful delivery must commit together; accepted inputs keep their independent billing lifecycle. Internal speech QA is shadow-only customer billing.
+
+**Why:** Provider-boundary credit enforcement alone does not refund downstream delivery failures or collect footage reused after a source refund. A job-level speech-QA debit also cannot prove that its generated scenes were charged.
+
+**How to apply:** Match every delivered scene to its exact operation identity, include explicit zero-price receipts, and report an unknown total when any scene lacks coverage. Historical missing receipts require separate audited remediation, not invented prices.
+
 Terminal failed settlement retries are not necessarily unpaid work: the ledger may already prove exact settlement or a complete refund.
 
 **Why:** Historical outbox status can remain failed after a financial resolution. Treating that status alone as pending blocks otherwise safe conversion; ignoring all failures can instead conceal genuine liabilities.

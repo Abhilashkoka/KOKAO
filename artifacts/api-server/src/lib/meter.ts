@@ -408,7 +408,10 @@ export async function meter<T>(
   // A paid rate gets a receipt even when the conservative reservation rounds
   // to zero. The authoritative result can then be settled after success, and
   // a failed zero-estimate attempt can persist its matching refund marker.
-  if (creditsEnforced && (priceSnapshot?.unitRateMilli ?? 0) > 0) {
+  // Free video rates still need an immutable operation receipt so final
+  // delivery can distinguish approved zero pricing from a missing debit.
+  if (creditsEnforced && priceSnapshot &&
+    (priceSnapshot.unitRateMilli > 0 || key === "video" || key === "video_hd")) {
     const familyKey = ctx.operationFamilyKey?.trim() || null;
     const operationKey = ctx.operationKey?.trim() || null;
     if (!familyKey && !operationKey) {

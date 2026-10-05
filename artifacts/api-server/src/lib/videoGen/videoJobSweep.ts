@@ -1,6 +1,7 @@
 import { db, guidedStoryDraftsTable, videoGenerationsTable } from "@workspace/db";
 import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { refundCredits } from "../credits";
+import { refundFailedGuidedVideoCredits } from "../videoCreditSettlement";
 import {
   refundFailedVideoJobWallet,
   reservationFromRow,
@@ -74,6 +75,10 @@ async function refundRow(
   },
   reason: string,
 ): Promise<void> {
+  if (row.funding === "credits") {
+    await refundFailedGuidedVideoCredits(row.id);
+    return;
+  }
   const reservation = reservationFromRow(row);
   if (reservation) {
     await refundFailedVideoJobWallet(row.id, reason).catch((err) =>

@@ -18,6 +18,7 @@ import { logger } from "../logger";
 import { ObjectStorageService } from "../objectStorage";
 import { isAtlasGenerationReferenceId } from "../atlascloud/assetId";
 import { generateVideo } from "./index";
+import { videoFundingSnapshot } from "./funding";
 import { getMotionInstruction, motionPresetClause } from "./motionPrompt";
 import { resolveModelOptions } from "./modelCatalog";
 import {
@@ -590,8 +591,8 @@ export interface ClipStoryboardRenderParams {
   storyboard: VideoStoryboard;
   aspectRatio: VideoAspect;
   /**
-   * Frozen legacy funding from the owning video job. Older callers use an
-   * explicit shadow quota snapshot rather than leaving the meter context null.
+   * Optional caller context. When omitted, use the owning job's durable
+   * funding snapshot; never downgrade accepted credit work to shadow quota.
    */
   meterContext?: MeterContext | null;
   music?: Buffer | null;
@@ -889,7 +890,13 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       meterCtx: videoStoryboardMeterContext(
         params.job.tenantId,
         params.job.id,
-        params.meterContext,
+        params.meterContext ?? {
+          tenantId: params.job.tenantId,
+          refKind: "videoJob",
+          refId: String(params.job.id),
+          funding: videoFundingSnapshot(params.job),
+          operationKey: `videoJob:${params.job.id}:clip-storyboard-render`,
+        },
         `storyboard_scene:${scene.id}`,
       ),
     });

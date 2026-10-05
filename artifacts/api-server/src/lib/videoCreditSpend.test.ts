@@ -46,7 +46,7 @@ function row(input: {
     rateKey: null,
     refKind: input.refKind ?? (input.refId ? "videoJob" : null),
     refId: input.refId ?? null,
-    idempotencyKey: input.key ?? null,
+    idempotencyKey: input.key ?? (input.refId ? `${input.kind === "refund" ? "refund" : "spend"}:video-op:video:attempt:1` : null),
     note: input.note ?? null,
     createdAt: new Date(0),
   };

@@ -1239,8 +1239,8 @@ async function generateVideoUnmetered(
 /**
  * Generate a video and meter what it cost.
  *
- * Metering is applied by runModel immediately around each provider adapter
- * invocation, not around this router. That keeps end-frame compatibility
+ * Metering is applied inside provider adapters at paid submission boundaries,
+ * not around this router. That keeps end-frame compatibility
  * retries and caller retries as separate paid attempts, with the actual
  * provider/model frozen into each event.
  *
