@@ -122,7 +122,7 @@ describe("plan limit suggestions", () => {
       expect.objectContaining({ id: 1, data: expect.objectContaining({ recommended: true }) }),
       expect.any(Object),
     );
-    fireEvent.click(screen.getByRole("switch", { name: "Toggle Starter on sale" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Toggle Starter available for purchase" }));
     expect(screen.getByRole("switch", { name: "Recommend Starter" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(state.updatePack).toHaveBeenLastCalledWith(

@@ -406,7 +406,7 @@ export function CreditPacksCard() {
                 <div key={p.id} className="rounded-xl border border-border p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <Badge variant={p.active ? "secondary" : "outline"}>
-                      {p.active ? "On sale" : "Hidden"}
+                      {p.active ? "Available for purchase" : "Hidden"}
                     </Badge>
                     <Button
                       variant="ghost"
@@ -479,11 +479,11 @@ export function CreditPacksCard() {
                   </div>
                   </div>}
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium">On sale</label>
+                    <label className="text-sm font-medium">Available for purchase</label>
                     <Switch
                       checked={draft.active}
                       onCheckedChange={(on) => setField("active", on)}
-                      aria-label={`Toggle ${p.name} on sale`}
+                      aria-label={`Toggle ${p.name} available for purchase`}
                     />
                   </div>
                   <Button
