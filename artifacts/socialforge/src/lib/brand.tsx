@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect } from "react";
-import { useGetAppBrand } from "@workspace/api-client-react";
+import { useGetAppBrand, getGetAppBrandQueryKey } from "@workspace/api-client-react";
 import type { AppBrand } from "@workspace/api-client-react";
 import { setBrandDefaultTitle } from "@/lib/seo";
 const DEFAULT_APP_NAME = "KOKAO";
 
 type BrandContextValue = {
+  sidebarLogoHeight: number;
   appName: string;
   logoUrl: string;
   iconUrl: string | null;
@@ -34,6 +35,7 @@ export function writeCachedBrand(brand: AppBrand) {
     localStorage.setItem(
       BRAND_CACHE_KEY,
       JSON.stringify({
+        sidebarLogoHeight: brand.sidebarLogoHeight ?? 56,
         appName: brand.appName ?? null,
         logoUrl: brand.logoUrl ?? null,
         iconUrl: brand.iconUrl ?? null,
@@ -48,6 +50,7 @@ export function writeCachedBrand(brand: AppBrand) {
 }
 
 const BrandContext = createContext<BrandContextValue>({
+  sidebarLogoHeight: 56,
   appName: DEFAULT_APP_NAME,
   logoUrl: "",
   iconUrl: null,
@@ -162,7 +165,9 @@ function setFavicon(href: string | null) {
  * bundled default logo: when no custom logo is configured, nothing renders.
  */
 export function BrandProvider({ children }: { children: React.ReactNode }) {
-  const { data, isError } = useGetAppBrand();
+  const { data, isError } = useGetAppBrand({
+    query: { queryKey: getGetAppBrandQueryKey(), refetchOnMount: "always", staleTime: 30_000, refetchInterval: 60_000 },
+  });
   const fetched = data as AppBrand | undefined;
   // Until the fetch resolves, fall back to the last-known branding cached in
   // localStorage so reloads don't flash the bundled default logo.
@@ -182,6 +187,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   const appName = resolved ? brand?.appName || DEFAULT_APP_NAME : "";
   // No bundled default logo: if no custom logo is configured, render nothing.
   const logoUrl = brand?.logoUrl || "";
+  const sidebarLogoHeight = Math.min(120, Math.max(24, brand?.sidebarLogoHeight ?? 56));
   const iconUrl = brand?.iconUrl ?? null;
   const loaderAnimationUrl = brand?.loaderAnimationUrl ?? null;
 
@@ -217,7 +223,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   }, [brand?.primaryColor, brand?.backgroundColor]);
 
   return (
-    <BrandContext.Provider value={{ appName, logoUrl, iconUrl, loaderAnimationUrl }}>
+    <BrandContext.Provider value={{ appName, logoUrl, iconUrl, loaderAnimationUrl, sidebarLogoHeight }}>
       {children}
     </BrandContext.Provider>
   );

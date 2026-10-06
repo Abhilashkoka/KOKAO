@@ -13,6 +13,7 @@ export const appBrandSettingsTable = pgTable("app_brand_settings", {
   id: integer("id").primaryKey().default(1),
   appName: text("app_name"),
   logoUrl: text("logo_url"),
+  sidebarLogoHeight: integer("sidebar_logo_height").notNull().default(56),
   iconUrl: text("icon_url"),
   primaryColor: text("primary_color"),
   backgroundColor: text("background_color"),

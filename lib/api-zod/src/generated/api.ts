@@ -328,7 +328,13 @@ export const ListPlansResponse = zod.array(ListPlansResponseItem)
 /**
  * @summary Get the platform branding (public; used pre-auth for landing/auth/favicon)
  */
+export const getAppBrandResponseSidebarLogoHeightMin = 24;
+export const getAppBrandResponseSidebarLogoHeightMax = 120;
+
+
+
 export const GetAppBrandResponse = zod.object({
+  "sidebarLogoHeight": zod.number().min(getAppBrandResponseSidebarLogoHeightMin).max(getAppBrandResponseSidebarLogoHeightMax).optional(),
   "appName": zod.string().nullable().describe('Overrides the app name in the title and alt text.'),
   "logoUrl": zod.string().nullable().describe('Public served path of the logo shown in nav and landing.'),
   "iconUrl": zod.string().nullable().describe('Public served path of the favicon \/ app icon.'),
@@ -341,7 +347,13 @@ export const GetAppBrandResponse = zod.object({
 /**
  * @summary Update the platform branding (superadmin only)
  */
+export const updateAppBrandBodySidebarLogoHeightMin = 24;
+export const updateAppBrandBodySidebarLogoHeightMax = 120;
+
+
+
 export const UpdateAppBrandBody = zod.object({
+  "sidebarLogoHeight": zod.number().min(updateAppBrandBodySidebarLogoHeightMin).max(updateAppBrandBodySidebarLogoHeightMax).optional(),
   "appName": zod.string().nullish(),
   "logoUrl": zod.string().nullish(),
   "iconUrl": zod.string().nullish(),
@@ -350,7 +362,13 @@ export const UpdateAppBrandBody = zod.object({
   "loaderAnimationUrl": zod.string().nullish()
 })
 
+export const updateAppBrandResponseSidebarLogoHeightMin = 24;
+export const updateAppBrandResponseSidebarLogoHeightMax = 120;
+
+
+
 export const UpdateAppBrandResponse = zod.object({
+  "sidebarLogoHeight": zod.number().min(updateAppBrandResponseSidebarLogoHeightMin).max(updateAppBrandResponseSidebarLogoHeightMax).optional(),
   "appName": zod.string().nullable().describe('Overrides the app name in the title and alt text.'),
   "logoUrl": zod.string().nullable().describe('Public served path of the logo shown in nav and landing.'),
   "iconUrl": zod.string().nullable().describe('Public served path of the favicon \/ app icon.'),

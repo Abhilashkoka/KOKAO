@@ -129,6 +129,7 @@ export function AppBrandingSettings() {
   useEffect(() => {
     if (brand) {
       setForm({
+        sidebarLogoHeight: brand.sidebarLogoHeight ?? 56,
         appName: brand.appName,
         logoUrl: brand.logoUrl,
         iconUrl: brand.iconUrl,
@@ -247,6 +248,29 @@ export function AppBrandingSettings() {
           onPick={(file) => handleUpload("logoUrl", file)}
           onClear={() => handleClearImage("logoUrl")}
         />
+        <div className="space-y-3">
+          <Label htmlFor="sidebar-logo-size">Sidebar logo size: {form.sidebarLogoHeight ?? 56}px</Label>
+          <input
+            id="sidebar-logo-size"
+            type="range"
+            min={24}
+            max={120}
+            step={1}
+            value={form.sidebarLogoHeight ?? 56}
+            onChange={(event) => setForm((previous) => ({ ...previous, sidebarLogoHeight: Number(event.target.value) }))}
+            className="block w-full max-w-sm accent-primary"
+          />
+          <p className="text-xs text-muted-foreground">Desktop sidebar only. Preview below; save to apply for everyone. Wide logos remain fitted within the sidebar.</p>
+          {form.logoUrl && (
+            <div className="w-48 rounded-lg border border-border bg-card">
+              <img src={form.logoUrl} alt="Sidebar logo size preview" style={{ height: form.sidebarLogoHeight ?? 56 }} className="w-auto max-w-full object-contain object-left" />
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={() => setForm((previous) => ({ ...previous, sidebarLogoHeight: 56 }))}>Reset size</Button>
+            <Button type="button" disabled={saving || uploadingField !== null || !brand} onClick={handleSaveDetails}>Save logo size</Button>
+          </div>
+        </div>
         <UploadSlot
           label="Icon / Favicon"
           description="Shown in the browser tab. Square PNG or SVG, recommended 512x512 px (at least 64x64)."

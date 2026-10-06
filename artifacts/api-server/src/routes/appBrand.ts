@@ -14,6 +14,7 @@ import { recordAdminAction } from "../lib/adminAudit";
 const objectStorageService = new ObjectStorageService();
 
 const EMPTY_BRAND = {
+  sidebarLogoHeight: 56,
   appName: null,
   logoUrl: null,
   iconUrl: null,
@@ -30,6 +31,7 @@ async function loadBrand() {
     .limit(1);
   if (!row) return EMPTY_BRAND;
   return {
+    sidebarLogoHeight: row.sidebarLogoHeight,
     appName: row.appName,
     logoUrl: row.logoUrl,
     iconUrl: row.iconUrl,

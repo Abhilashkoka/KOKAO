@@ -79,6 +79,26 @@ const BRAND_BODY = {
   backgroundColor: null,
 };
 
+it("persists sidebar logo size, preserves it on older saves, and rejects invalid sizes", async () => {
+  const admin = await createTenant({ isSuperadmin: true });
+  try {
+    actAs(admin.clerkUserId, "admin@example.com");
+    const saved = await request(app).put("/api/app-brand").send({ ...BRAND_BODY, sidebarLogoHeight: 80 });
+    expect(saved.status).toBe(200);
+    expect(saved.body.sidebarLogoHeight).toBe(80);
+    const read = await request(app).get("/api/app-brand");
+    expect(read.body.sidebarLogoHeight).toBe(80);
+    const olderSave = await request(app).put("/api/app-brand").send(BRAND_BODY);
+    expect(olderSave.body.sidebarLogoHeight).toBe(80);
+    for (const sidebarLogoHeight of [0, 121, 55.5, "huge"]) {
+      const invalid = await request(app).put("/api/app-brand").send({ sidebarLogoHeight });
+      expect(invalid.status).toBe(400);
+    }
+  } finally {
+    await deleteTenant(admin.tenantId);
+  }
+});
+
 describe("PUT /app-brand audit trail", () => {
   it("rejects non-superadmins and writes nothing", async () => {
     const tenant = await createTenant();
@@ -109,6 +129,7 @@ describe("PUT /app-brand audit trail", () => {
       expect(log.targetTenantId).toBeNull();
       // Old side reflects the unconfigured defaults (no row yet).
       expect(JSON.parse(log.oldValue!)).toEqual({
+        sidebarLogoHeight: 56,
         appName: null,
         logoUrl: null,
         iconUrl: null,
@@ -116,7 +137,7 @@ describe("PUT /app-brand audit trail", () => {
         backgroundColor: null,
         loaderAnimationUrl: null,
       });
-      expect(JSON.parse(log.newValue!)).toEqual({ ...BRAND_BODY, loaderAnimationUrl: null });
+      expect(JSON.parse(log.newValue!)).toEqual({ ...BRAND_BODY, loaderAnimationUrl: null, sidebarLogoHeight: 56 });
     } finally {
       await deleteTenant(admin.tenantId);
     }

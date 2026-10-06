@@ -1036,6 +1036,11 @@ export interface SeatRequestDecisionInput {
 
 export interface AppBrand {
   /**
+     * @minimum 24
+     * @maximum 120
+     */
+  sidebarLogoHeight?: number;
+  /**
      * Overrides the app name in the title and alt text.
      * @nullable
      */
@@ -1068,6 +1073,11 @@ export interface AppBrand {
 }
 
 export interface AppBrandInput {
+  /**
+     * @minimum 24
+     * @maximum 120
+     */
+  sidebarLogoHeight?: number;
   /** @nullable */
   appName?: string | null;
   /** @nullable */

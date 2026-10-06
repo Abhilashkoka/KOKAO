@@ -15102,6 +15102,10 @@ components:
       type: object
       required: [appName, logoUrl, iconUrl, primaryColor, backgroundColor, loaderAnimationUrl]
       properties:
+        sidebarLogoHeight:
+          type: integer
+          minimum: 24
+          maximum: 120
         appName:
           type: ["string", "null"]
           description: Overrides the app name in the title and alt text.
@@ -15123,6 +15127,10 @@ components:
     AppBrandInput:
       type: object
       properties:
+        sidebarLogoHeight:
+          type: integer
+          minimum: 24
+          maximum: 120
         appName:
           type: ["string", "null"]
         logoUrl:

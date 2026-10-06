@@ -7,6 +7,11 @@
  */
 
 export interface AppBrandInput {
+  /**
+     * @minimum 24
+     * @maximum 120
+     */
+  sidebarLogoHeight?: number;
   /** @nullable */
   appName?: string | null;
   /** @nullable */
