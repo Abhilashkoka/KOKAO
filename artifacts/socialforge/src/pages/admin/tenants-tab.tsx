@@ -674,7 +674,9 @@ export function TenantsTab() {
                               setGrantTarget({
                                 id: t.id,
                                 name: t.name,
-                                canonical: t.creditAccountExists === true,
+                                // The grant endpoint creates missing unified accounts.
+                                // Account absence must not redirect a top-up to legacy buckets.
+                                canonical: true,
                                 purchasedMilli: Math.round((t.balance?.purchased ?? 0) * 1000),
                               })
                             }
@@ -826,7 +828,7 @@ export function TenantsTab() {
             </DialogTitle>
             <DialogDescription>
               {grantTarget?.canonical
-                ? "Standard adjustments affect granted credits only. Purchased-credit historical corrections use the separate reviewed action below."
+                ? "Standard adjustments affect unified granted credits only and create the credit account if needed. Existing legacy balances and billing mode stay unchanged. Purchased-credit historical corrections use the separate reviewed action below."
                 : "This workspace has no canonical credit account yet. These are legacy unit-credit controls, kept separate from unified credits; use negative numbers to deduct."}
             </DialogDescription>
           </DialogHeader>
@@ -1155,7 +1157,7 @@ export function TenantsTab() {
               <p className="mt-2 text-xs text-muted-foreground">
                 {detailsTarget?.creditAccountExists
                   ? "Canonical account"
-                  : "No canonical account; adjustments use legacy buckets"}
+                  : "No unified credit account yet; your first manual adjustment creates it."}
               </p>
             </div>
             <div className="rounded-lg border border-border p-3">

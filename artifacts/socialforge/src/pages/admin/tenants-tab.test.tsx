@@ -219,14 +219,22 @@ describe("TenantsTab credit-first workspace table", () => {
     );
   });
 
-  it("labels the legacy adjustment controls when no canonical account exists", () => {
+  it("grants unified credits even when no canonical account exists", () => {
     tenant.creditAccountExists = false;
     renderTab();
     fireEvent.click(screen.getByRole("button", { name: "Manual adjustment" }));
 
-    expect(screen.getByText("Adjust legacy credits for Unified Workspace")).toBeTruthy();
-    expect(screen.getByText("Legacy captions")).toBeTruthy();
-    expect(screen.getByTestId("input-grant-videos")).toBeTruthy();
-    expect(screen.queryByTestId("input-grant-unified")).toBeNull();
+    expect(screen.getByText("Adjust unified credits for Unified Workspace")).toBeTruthy();
+    expect(screen.queryByText("Legacy captions")).toBeNull();
+    expect(screen.queryByTestId("input-grant-videos")).toBeNull();
+    fireEvent.change(screen.getByTestId("input-grant-unified"), {
+      target: { value: "2.5" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply adjustment" }));
+    expect(accountGrantMutate).toHaveBeenCalledWith(
+      { id: 42, data: { credits: 2.5, note: undefined } },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    expect(billingModeMutate).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,12 @@ description: Safety and accounting rules for replacing separate quotas with one 
 
 Purchased unified balances must remain visible even before credit-funded generation is enabled. Balance visibility and authorization to debit are separate decisions.
 
+Manual tenant credit top-ups must target unified granted credits even before the tenant has a unified account. Do not require migration or enforcement activation to grant credits.
+
+**Why:** The owner expects manual credits to use the new balance; routing account-less tenants to legacy buckets prevented the first unified top-up after publishing.
+
+**How to apply:** Allow account creation through the existing grant operation, preserve legacy balances, and keep funding-mode changes separate from grants.
+
 Never treat a development rate-card or enforcement-mode read as the user's billing decision without checking its audit history after billing tests.
 
 **Why:** Billing tests have directly upserted global development rates, including a free image rate, and reset enforcement to shadow without creating an admin audit. This caused test values to be mistaken for intentional saved pricing. Shadow receipts may therefore contain test prices, not approved customer prices.
