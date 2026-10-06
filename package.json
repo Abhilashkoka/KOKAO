@@ -8,7 +8,8 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --if-present run typecheck",
     "test": "pnpm -r --workspace-concurrency=1 --no-bail --if-present run test",
-    "test:e2e:character-dialogue": "node scripts/src/e2e-character-dialogue.mjs"
+    "test:e2e:isolated": "node artifacts/api-server/scripts/run-browser-tests.mjs",
+    "test:e2e:character-dialogue": "pnpm test:e2e:isolated -- node scripts/src/e2e-character-dialogue.mjs"
   },
   "private": true,
   "devDependencies": {

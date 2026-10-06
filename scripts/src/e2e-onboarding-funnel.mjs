@@ -12,13 +12,14 @@
 // and "Saved to library".
 // Usage: node scripts/src/e2e-onboarding-funnel.mjs
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 import { createRequire } from "node:module";
 // Resolve pg through the api-server package (workspace-relative, not absolute).
 const pg = createRequire(
   new URL("../../artifacts/api-server/package.json", import.meta.url),
 )("pg");
 
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 const run = Date.now().toString(36);
 const EMAIL_A = `e2e-onb-a-${run}@example.com`;

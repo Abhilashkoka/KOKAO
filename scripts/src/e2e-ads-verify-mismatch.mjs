@@ -5,13 +5,14 @@
 // "Verify mismatch" badge in the change history.
 // Usage: node scripts/src/e2e-ads-verify-mismatch.mjs <email>
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 
 const email = process.argv[2];
 if (!email) {
   console.error("usage: node e2e-ads-verify-mismatch.mjs <email>");
   process.exit(2);
 }
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const MOCK = "http://localhost:9000";
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 

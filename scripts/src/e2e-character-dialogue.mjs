@@ -8,6 +8,7 @@
 // - verifies Telugu setup, long-script approval/consent, final payload, and retry
 // Usage: pnpm run test:e2e:character-dialogue
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 import { createRequire } from "node:module";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ const pg = createRequire(
   new URL("../../artifacts/api-server/package.json", import.meta.url),
 )("pg");
 
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 const RUN_ID = Date.now().toString(36);
@@ -33,7 +34,6 @@ const LONG_SCRIPT = [
   "ఈ చిన్న అలవాట్లు నమ్మకాన్ని పెంచుతాయి, మళ్లీ వచ్చే కస్టమర్లను సృష్టిస్తాయి, మరియు మీ బ్రాండ్‌ను మనుషులకు దగ్గరగా ఉంచుతాయి.",
 ].join(" ");
 
-if (!process.env.REPLIT_DEV_DOMAIN) throw new Error("REPLIT_DEV_DOMAIN missing");
 if (!CLERK_KEY) throw new Error("CLERK_SECRET_KEY missing");
 if (!DATABASE_URL) throw new Error("DATABASE_URL missing");
 

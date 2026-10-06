@@ -1,4 +1,6 @@
 /* eslint-disable no-console */
+// CLI-only guard runs before database imports.
+import "../../../../scripts/src/e2e-target.mjs";
 // One-off e2e seeding: give the tenant identified by email a connected Meta
 // Ads connection pointing at the local Graph mock (act_777001).
 // Usage: pnpm --filter @workspace/api-server exec tsx src/test/seedMetaAdsE2E.ts <email>

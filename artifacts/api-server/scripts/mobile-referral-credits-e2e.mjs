@@ -21,9 +21,10 @@
  * Run:  node artifacts/api-server/scripts/mobile-referral-credits-e2e.mjs
  */
 import { Client } from "pg";
+import { E2E_BASE_URL } from "../../../scripts/src/e2e-target.mjs";
 import { randomBytes } from "node:crypto";
 
-const API_BASE = process.env.API_BASE ?? "http://localhost:80/api";
+const API_BASE = `${E2E_BASE_URL}/api`;
 const CLERK_API = "https://api.clerk.com/v1";
 const SECRET = process.env.CLERK_SECRET_KEY;
 if (!SECRET) throw new Error("CLERK_SECRET_KEY required");

@@ -5,6 +5,7 @@
 // phase 2: rate zero -> line hidden
 // phase 3: rate 750 back, aiSpend flag OFF -> line hidden
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 import { execSync } from "node:child_process";
 
 const email = process.argv[2];
@@ -13,7 +14,7 @@ if (!email) {
   console.error("usage: node e2e-video-units.mjs <email> <phase>");
   process.exit(2);
 }
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 
 const psql = (q) =>

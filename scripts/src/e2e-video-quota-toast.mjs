@@ -2,6 +2,7 @@
 // Browser e2e for task 705: member vs owner 402 toast copy in the Video Studio.
 // Usage: node scripts/src/e2e-video-quota-toast.mjs <provision|member-on|member-off|owner> <email>
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 
 const phase = process.argv[2];
 const email = process.argv[3];
@@ -9,7 +10,7 @@ if (!["provision", "member-on", "member-off", "owner"].includes(phase) || !email
   console.error("usage: node e2e-video-quota-toast.mjs <provision|member-on|member-off|owner> <email>");
   process.exit(2);
 }
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 
 async function clerkApi(path, body) {

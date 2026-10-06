@@ -42,6 +42,11 @@ const mocks = vi.hoisted(() => {
       }),
       insert: (table: unknown) => ({
         values: (values: Record<string, unknown>) => ({
+          onConflictDoNothing: async () => {
+            if (table === creditRatesTable && !state.rates.has(String(values.key))) {
+              state.rates.set(String(values.key), { id: state.rates.size + 1, ...values });
+            }
+          },
           onConflictDoUpdate: async ({ set }: { set: Record<string, unknown> }) => {
             if (table === creditMeterSettingsTable) {
               state.mode = String(set.mode ?? values.mode);
@@ -112,6 +117,10 @@ vi.mock("@workspace/db", () => ({
 vi.mock("drizzle-orm", () => ({
   asc: vi.fn((column: unknown) => column),
   eq: vi.fn(),
+  ne: vi.fn(),
+  and: vi.fn((condition: { keep?: string[] }) => ({
+    keep: [...(condition.keep ?? []), "ai_photo_description"],
+  })),
   inArray: vi.fn((_column: unknown, keys: string[]) => ({ keys })),
   not: vi.fn((condition: { keys: string[] }) => ({ keep: condition.keys })),
 }));

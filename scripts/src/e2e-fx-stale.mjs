@@ -5,13 +5,14 @@
 // "Refresh now" clears BOTH without a manual dismiss.
 // Usage: node scripts/src/e2e-fx-stale.mjs <superadmin-email>
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 
 const email = process.argv[2];
 if (!email) {
   console.error("usage: node e2e-fx-stale.mjs <email>");
   process.exit(2);
 }
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 
 async function clerkApi(path, body) {

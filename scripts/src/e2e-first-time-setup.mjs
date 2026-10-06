@@ -3,13 +3,14 @@
 //   mode: "skip" (default) = skip onboarding at the welcome step
 // Creates a fresh Clerk user unless an email is given.
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 import { createRequire } from "node:module";
 // Resolve pg through the api-server package (workspace-relative, not absolute).
 const pg = createRequire(
   new URL("../../artifacts/api-server/package.json", import.meta.url),
 )("pg");
 
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY;
 if (!CLERK_SECRET_KEY) throw new Error("CLERK_SECRET_KEY missing");
 

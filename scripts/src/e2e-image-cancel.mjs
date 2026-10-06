@@ -4,6 +4,7 @@
 // Scenario A: cancel while queued (requires IMAGE_JOB_CLAIM_DELAY_MS on the API server).
 // Scenario B: late cancel (no delay) -> "Too late to cancel", image still lands.
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 
 const scenario = process.argv[2];
 const email = process.argv[3];
@@ -11,7 +12,7 @@ if (!["A", "B"].includes(scenario) || !email) {
   console.error("usage: node e2e-image-cancel.mjs <A|B> <email>");
   process.exit(2);
 }
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 
 async function clerkApi(path, body) {

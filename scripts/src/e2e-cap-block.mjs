@@ -4,13 +4,14 @@
 // budget cap" (via apiErrorMessage) and the draft stays pending, no reload.
 // Usage: node scripts/src/e2e-cap-block.mjs <email> [signin-only|full]
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 
 const email = process.argv[2];
 if (!email) {
   console.error("usage: node e2e-cap-block.mjs <email> [step]");
   process.exit(2);
 }
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 
 async function clerkApi(path, body) {

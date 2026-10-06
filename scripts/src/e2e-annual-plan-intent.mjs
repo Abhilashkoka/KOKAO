@@ -13,12 +13,13 @@
  * Requires: dev servers on localhost:80, CLERK_SECRET_KEY, DATABASE_URL.
  */
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 import { execSync } from "node:child_process";
 
 const CLERK_SECRET = process.env.CLERK_SECRET_KEY;
 if (!CLERK_SECRET) throw new Error("CLERK_SECRET_KEY missing");
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL missing");
-const BASE = "http://localhost:80";
+const BASE = E2E_BASE_URL;
 const FAPI_HOST = "sought-chipmunk-83.clerk.accounts.dev";
 const EMAIL = `annualintent${Date.now()}+clerk_test@example.com`;
 const PASSWORD = "E2e-Annual-Intent-9x!";

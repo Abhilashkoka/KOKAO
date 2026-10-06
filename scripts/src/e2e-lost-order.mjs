@@ -3,6 +3,7 @@
 // Razorpay mock does NOT know must surface the clear lost-order message.
 // Usage: node scripts/src/e2e-lost-order.mjs <email>
 import { chromium } from "playwright";
+import { E2E_BASE_URL } from "./e2e-target.mjs";
 import { createHmac } from "node:crypto";
 
 const email = process.argv[2];
@@ -10,7 +11,7 @@ if (!email) {
   console.error("usage: node e2e-lost-order.mjs <email>");
   process.exit(2);
 }
-const BASE = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+const BASE = E2E_BASE_URL;
 const CLERK_KEY = process.env.CLERK_SECRET_KEY;
 const KEY_SECRET = "test_key_secret_e2e711";
 const FAKE_ORDER = "order_LOST0000E2E711"; // never created on the mock

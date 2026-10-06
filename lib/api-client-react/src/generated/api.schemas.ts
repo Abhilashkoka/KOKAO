@@ -4206,6 +4206,7 @@ export interface BrandProduct {
   /** @nullable */
   aiDescription: string | null;
   aiDescriptionStatus: BrandProductAiDescriptionStatus;
+  /** @nullable */
   aiDescriptionError?: string | null;
   createdAt: string;
 }
