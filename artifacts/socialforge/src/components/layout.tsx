@@ -167,7 +167,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <aside className="sticky top-0 hidden h-dvh max-h-dvh w-64 shrink-0 self-start flex-col overflow-hidden border-r border-border bg-card p-6 md:flex">
         <div className="flex items-center mb-10 px-2">
           {logoUrl ? (
-            <img src={logoUrl} alt={appName} className="h-9 w-auto" />
+            <img src={logoUrl} alt={appName} className="h-14 w-auto max-w-full object-contain object-left" />
           ) : (
             <div className="h-9" aria-hidden="true" />
           )}
