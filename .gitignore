@@ -48,3 +48,4 @@ Thumbs.db
 .cache/
 .local/
 artifacts/api-server/.credentials-guard-snapshot.json
+artifacts/api-server/src/.browser-test-*.mjs
