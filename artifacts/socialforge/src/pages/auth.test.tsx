@@ -8,8 +8,8 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@clerk/react", () => ({
   useAuth: () => ({ isLoaded: state.loaded, isSignedIn: state.signedIn }),
-  SignIn: (props: Record<string, string>) => <div data-testid="clerk-sign-in" data-props={JSON.stringify(props)} />,
-  SignUp: (props: Record<string, string>) => <div data-testid="clerk-sign-up" data-props={JSON.stringify(props)} />,
+  SignIn: (props: Record<string, unknown>) => <div data-testid="clerk-sign-in" data-props={JSON.stringify(props)} />,
+  SignUp: (props: Record<string, unknown>) => <div data-testid="clerk-sign-up" data-props={JSON.stringify(props)} />,
 }));
 vi.mock("wouter", async () => {
   const { useSyncExternalStore } = await import("react");
@@ -28,7 +28,7 @@ vi.mock("wouter", async () => {
     }}>{children}</a>,
   };
 });
-vi.mock("@/lib/brand", () => ({ useBrand: () => ({ logoUrl: "", appName: "KOKAO" }) }));
+vi.mock("@/lib/brand", () => ({ useBrand: () => ({ logoUrl: "https://assets.example/kokao.svg", appName: "KOKAO" }) }));
 vi.mock("@/lib/seo", () => ({ usePageMeta: vi.fn() }));
 vi.mock("@/lib/planIntent", () => ({ savePlanIntent: vi.fn() }));
 
@@ -52,6 +52,12 @@ describe("KOKAO auth entry", () => {
   it("keeps regular workspace sign-in and safe admin deep links", () => {
     render(<SignInPage />);
     expect(clerkProps("clerk-sign-in").forceRedirectUrl).toBe("/dashboard");
+    expect(clerkProps("clerk-sign-in").appearance).toMatchObject({
+      options: {
+        logoPlacement: "inside",
+        logoImageUrl: "https://assets.example/kokao.svg",
+      },
+    });
     expect(screen.getByTestId("link-auth-creator").getAttribute("href")).toBe("/sign-in?redirect_url=%2Fcreator");
     cleanup();
     window.history.replaceState({}, "", "/sign-in?redirect_url=%2Fadmin%3Ftab%3Dusers");
@@ -73,6 +79,7 @@ describe("KOKAO auth entry", () => {
     render(<SignUpPage />);
     expect(clerkProps("clerk-sign-up")).toMatchObject({
       forceRedirectUrl: "/creator", signInUrl: "/sign-in?redirect_url=%2Fcreator",
+      appearance: { options: { logoImageUrl: "https://assets.example/kokao.svg" } },
     });
   });
 

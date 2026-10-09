@@ -30,6 +30,7 @@ function AuthEntry({ page }: { page: "sign-in" | "sign-up" }) {
   const [location, setLocation] = useLocation();
   const search = useSearch();
   const { isLoaded, isSignedIn } = useAuth();
+  const { logoUrl } = useBrand();
   const [showRecovery, setShowRecovery] = useState(false);
   const pathname = location;
   const target = authFlowTarget(search, pathname, basePath);
@@ -57,6 +58,18 @@ function AuthEntry({ page }: { page: "sign-in" | "sign-up" }) {
   const clerkReturnUrl = `${basePath}${selectedTarget}`;
   const creatorUrl = authSwitchUrl(page, "/creator");
   const workspaceUrl = authSwitchUrl(page, workspaceTarget);
+  const authLogoUrl = new URL(
+    logoUrl || `${basePath}/logo.svg`,
+    window.location.origin,
+  ).href;
+  const clerkAppearance = {
+    variables: { colorPrimary: "hsl(255, 85%, 55%)" },
+    options: {
+      logoPlacement: "inside" as const,
+      logoLinkUrl: `${window.location.origin}${basePath}/`,
+      logoImageUrl: authLogoUrl,
+    },
+  };
 
   return (
     <div className="min-h-screen w-full bg-gray-50 px-4 py-10 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 sm:py-16">
@@ -120,6 +133,7 @@ function AuthEntry({ page }: { page: "sign-in" | "sign-up" }) {
                 signUpUrl={`${basePath}${authSwitchUrl(otherPage, selectedTarget)}`}
                 forceRedirectUrl={clerkReturnUrl}
                 fallbackRedirectUrl={clerkReturnUrl}
+                appearance={clerkAppearance}
               />
             ) : (
               <SignUp
@@ -129,6 +143,7 @@ function AuthEntry({ page }: { page: "sign-in" | "sign-up" }) {
                 signInUrl={`${basePath}${authSwitchUrl(otherPage, selectedTarget)}`}
                 forceRedirectUrl={clerkReturnUrl}
                 fallbackRedirectUrl={clerkReturnUrl}
+                appearance={clerkAppearance}
               />
             )}
           </>

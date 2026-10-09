@@ -204,6 +204,20 @@ const clerkAppearance = {
   variables: { colorPrimary: 'hsl(255, 85%, 55%)' },
   elements: { card: 'shadow-2xl shadow-primary/10 rounded-2xl border border-border' },
 };
+const clerkLocalization = {
+  signIn: {
+    start: {
+      title: "Sign in to KOKAO",
+      subtitle: "Welcome back to KOKAO.",
+    },
+  },
+  signUp: {
+    start: {
+      title: "Create your KOKAO account",
+      subtitle: "Get started with KOKAO.",
+    },
+  },
+};
 
 function ClerkProviderWithRoutes() {
   const [, setLocation] = useLocation();
@@ -213,6 +227,7 @@ function ClerkProviderWithRoutes() {
       publishableKey={clerkPubKey}
       proxyUrl={clerkProxyUrl}
       appearance={clerkAppearance}
+      localization={clerkLocalization}
       signInUrl={`${basePath}/sign-in`}
       signUpUrl={`${basePath}/sign-up`}
       routerPush={(to) => setLocation(stripBase(to))}
