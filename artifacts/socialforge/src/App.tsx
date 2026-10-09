@@ -48,7 +48,6 @@ import {
   useAuth,
   useClerk,
 } from "@clerk/react";
-import { publishableKeyFromHost } from "@clerk/react/internal";
 import { useEffect, useRef } from "react";
 import { navigate } from "wouter/use-browser-location";
 
@@ -92,14 +91,8 @@ const queryClient: QueryClient = new QueryClient({
   }),
 });
 
-// Resolve the key from window.location.hostname so the same build serves multiple custom domains
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
-
-// Empty in dev (hits dev FAPI), auto-set in prod
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+// External Clerk: use the configured instance, never derive it from the app host.
+const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function stripBase(path: string): string {
@@ -216,7 +209,6 @@ function ClerkProviderWithRoutes() {
   return (
     <ClerkProvider
       publishableKey={clerkPubKey}
-      proxyUrl={clerkProxyUrl}
       appearance={clerkAppearance}
       signInUrl={`${basePath}/sign-in`}
       signUpUrl={`${basePath}/sign-up`}
