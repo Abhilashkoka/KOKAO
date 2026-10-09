@@ -78,6 +78,12 @@ export interface ClonedVoiceRef {
   voiceId: string;
 }
 
+/** Adjacent sentences help maintain the clone's accent and prosody. */
+export interface SpeechContext {
+  previousText?: string;
+  nextText?: string;
+}
+
 export interface VoiceSpeechReceipt {
   /** Exact `character-cost` response header, or null when absent/malformed. */
   providerCredits: string | null;
@@ -111,6 +117,7 @@ export interface VoiceCloneProviderDef {
     text: string;
     modelId?: string;
     languageCode?: string;
+    context?: SpeechContext;
   }) => Promise<Buffer>;
   /** Receipt-preserving variant for exact provider billing. */
   speakWithReceipt?: (args: {
@@ -120,6 +127,7 @@ export interface VoiceCloneProviderDef {
     modelId?: string;
     languageCode?: string;
     onReceipt?: VoiceSpeechReceiptHandler;
+    context?: SpeechContext;
   }) => Promise<VoiceSpeechResult>;
   /** Best-effort delete of a cloned voice at the provider. */
   remove: (args: { apiKey: string; voiceId: string }) => Promise<void>;
@@ -135,6 +143,12 @@ const ELEVENLABS_BASE = "https://api.elevenlabs.io";
 /** Raw 24kHz 16-bit mono PCM — wrapped in a WAV header below so the bytes
  * parse with the same RIFF reader as every other narration provider. */
 const ELEVENLABS_PCM_RATE = 24_000;
+const ELEVENLABS_VOICE_SETTINGS = {
+  stability: 0.55,
+  similarity_boost: 0.9,
+  style: 0,
+  use_speaker_boost: true,
+} as const;
 const BRAND_VOICE_TTS_OPERATION_PREFIX = "brand-voice-tts-v1";
 const LOCALIZED_BRAND_VOICE_TTS_OPERATION_PREFIX = "brand-voice-tts-v2";
 const ELEVENLABS_HISTORY_MAX_PAGES = 20;
@@ -154,6 +168,11 @@ export const ELEVENLABS_V3_EXPLICIT_LANGUAGE_CODES = new Set([
 export const ELEVENLABS_MULTILINGUAL_V2_MODEL = "eleven_multilingual_v2";
 export const ELEVENLABS_V3_MODEL = "eleven_v3";
 
+/** Explicit workflow models still win over this optional default override. */
+export function getDefaultElevenLabsTtsModel(): string {
+  return process.env.ELEVENLABS_TTS_MODEL?.trim() || ELEVENLABS_MULTILINGUAL_V2_MODEL;
+}
+
 /**
  * Normalize a frozen workflow locale to ElevenLabs' model-specific request
  * shape. multilingual_v2 auto-detects and must never receive language_code.
@@ -162,7 +181,7 @@ export function resolveElevenLabsSpeechLanguage(
   modelId: string | undefined,
   locale: string | undefined,
 ): { modelId: string; languageCode?: string } {
-  const model = modelId ?? ELEVENLABS_MULTILINGUAL_V2_MODEL;
+  const model = modelId ?? getDefaultElevenLabsTtsModel();
   let languageCode: string | undefined;
   if (locale) {
     try {
@@ -331,18 +350,27 @@ async function elevenLabsSpeakWithReceipt(args: {
   modelId?: string;
   languageCode?: string;
   onReceipt?: VoiceSpeechReceiptHandler;
+  context?: SpeechContext;
 }): Promise<VoiceSpeechResult> {
   const language = resolveElevenLabsSpeechLanguage(args.modelId, args.languageCode);
+  const previousText = args.context?.previousText?.trim();
+  const nextText = args.context?.nextText?.trim();
   const res = await platformFetch(
     `${ELEVENLABS_BASE}/v1/text-to-speech/${encodeURIComponent(args.voiceId)}?output_format=pcm_${ELEVENLABS_PCM_RATE}`,
     {
       method: "POST",
       headers: { "xi-api-key": args.apiKey, "Content-Type": "application/json" },
-       body: JSON.stringify({
-         text: args.text,
+      body: JSON.stringify({
+        text: args.text,
         model_id: language.modelId,
+        voice_settings: language.modelId === ELEVENLABS_V3_MODEL
+          // v3 uses discrete stability modes (0, 0.5, 1), not v2's 0.55.
+          ? { ...ELEVENLABS_VOICE_SETTINGS, stability: 0.5 }
+          : ELEVENLABS_VOICE_SETTINGS,
         ...(language.languageCode ? { language_code: language.languageCode } : {}),
-       }),
+        ...(previousText ? { previous_text: previousText } : {}),
+        ...(nextText ? { next_text: nextText } : {}),
+      }),
     },
     VOICE_CLONE_TIMEOUT_MS,
   );
@@ -366,6 +394,7 @@ async function elevenLabsSpeak(args: {
   text: string;
   modelId?: string;
   languageCode?: string;
+  context?: SpeechContext;
 }): Promise<Buffer> {
   return (await elevenLabsSpeakWithReceipt(args)).audio;
 }
@@ -935,6 +964,7 @@ export async function speakWithClonedVoice(
   meterContext: MeterContext | null,
   modelId?: string,
   languageCode?: string,
+  context?: SpeechContext,
 ): Promise<Buffer> {
   const { def, apiKey } = await requireVoiceCloneProvider();
   if (def.id !== voice.provider) {
@@ -942,11 +972,12 @@ export async function speakWithClonedVoice(
       "This brand voice was cloned at a different provider than the one currently configured.",
     );
   }
+  modelId ??= def.id === "elevenlabs" ? getDefaultElevenLabsTtsModel() : ELEVENLABS_MULTILINGUAL_V2_MODEL;
   return meter(
     meterContext ? { ...meterContext, provider: def.id, model: modelId ?? ELEVENLABS_MULTILINGUAL_V2_MODEL } : null,
     "voice",
     estimatedSpeechSeconds(text),
-    () => def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode }),
+    () => def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode, context }),
     (audio) => ({ actualQuantity: wavDurationSeconds(audio) }),
     { reservationQuantity: speechDurationReservationSeconds(text) },
   );
@@ -960,6 +991,7 @@ export async function speakWithClonedVoiceReceipt(
   onReceipt?: VoiceSpeechReceiptHandler,
   modelId?: string,
   languageCode?: string,
+  context?: SpeechContext,
 ): Promise<VoiceSpeechResult> {
   const { def, apiKey } = await requireVoiceCloneProvider();
   if (def.id !== voice.provider) {
@@ -967,13 +999,14 @@ export async function speakWithClonedVoiceReceipt(
       "This brand voice was cloned at a different provider than the one currently configured.",
     );
   }
+  modelId ??= def.id === "elevenlabs" ? getDefaultElevenLabsTtsModel() : ELEVENLABS_MULTILINGUAL_V2_MODEL;
   if (!def.speakWithReceipt) {
     return {
       audio: await meter(
         meterContext ? { ...meterContext, provider: def.id, model: modelId ?? ELEVENLABS_MULTILINGUAL_V2_MODEL } : null,
         "voice",
         estimatedSpeechSeconds(text),
-        () => def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode }),
+        () => def.speak({ apiKey, voiceId: voice.voiceId, text, modelId, languageCode, context }),
         (audio) => ({ actualQuantity: wavDurationSeconds(audio) }),
         { reservationQuantity: speechDurationReservationSeconds(text) },
       ),
@@ -991,6 +1024,7 @@ export async function speakWithClonedVoiceReceipt(
       onReceipt,
       modelId,
       languageCode,
+      context,
     }),
     (result) => ({ actualQuantity: wavDurationSeconds(result.audio) }),
     { reservationQuantity: speechDurationReservationSeconds(text) },

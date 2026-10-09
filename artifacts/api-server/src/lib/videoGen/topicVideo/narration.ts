@@ -11,6 +11,7 @@ import {
 } from "./tts";
 import {
   buildBrandVoiceTtsOperationKey,
+  getDefaultElevenLabsTtsModel,
   isConfirmedVoiceCloneFailure,
   resolveElevenLabsSpeechLanguage,
   speakWithClonedVoiceReceipt,
@@ -410,9 +411,10 @@ async function narrateWithBrandVoice(
   modelId?: "eleven_multilingual_v2" | "eleven_v3",
 ): Promise<ParsedWav[]> {
   // Validate before checking/reserving wallet funds. Legacy Topic narration
-  // defaults to multilingual v2; Guided Story explicitly selects v3.
+  // defaults to multilingual v2 (or the configured override); Guided Story
+  // explicitly selects v3.
   const speechConfig = clonedVoice.provider === "elevenlabs"
-    ? resolveElevenLabsSpeechLanguage(modelId ?? "eleven_multilingual_v2", languageCode)
+    ? resolveElevenLabsSpeechLanguage(modelId, languageCode)
     : { modelId: modelId ?? "eleven_multilingual_v2", languageCode };
   const walletFunded = billing && billing.funding?.rail !== "credits"
     ? await isWalletFunded(billing.tenantId) : false;
@@ -427,6 +429,10 @@ async function narrateWithBrandVoice(
   }
   const parts: ParsedWav[] = [];
   for (const [sentenceIndex, sentence] of sentences.entries()) {
+    const context = {
+      previousText: sentences[sentenceIndex - 1],
+      nextText: sentences[sentenceIndex + 1],
+    };
     const clonedSpeechOperationFamilyKey = billing
       ? `${billing.operationFamilyKey?.trim() || buildBrandVoiceTtsOperationKey(
           clonedVoice.voiceId,
@@ -542,6 +548,7 @@ async function narrateWithBrandVoice(
                       },
                        speechConfig.modelId,
                        speechConfig.languageCode,
+                      context,
                     ),
                   () => ({}),
                   {
@@ -625,6 +632,7 @@ async function narrateWithBrandVoice(
               undefined,
               speechConfig.modelId,
               speechConfig.languageCode,
+              context,
             );
             if (billing) {
               const costPaise =
@@ -765,7 +773,7 @@ export async function synthesizeNarration(
     return {
       ...stitchNarration(spoken, sentences),
       provider: options!.clonedVoice!.provider,
-      model: options!.brandVoiceModelId ?? "eleven_multilingual_v2",
+      model: options!.brandVoiceModelId ?? getDefaultElevenLabsTtsModel(),
       accountingMode: "independently_settled",
       costPaise: null,
     };

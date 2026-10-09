@@ -126,6 +126,7 @@ describe("synthesizeNarration with a cloned brand voice", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("speaks the whole track in the brand voice, never touching stock TTS", async () => {
@@ -144,10 +145,33 @@ describe("synthesizeNarration with a cloned brand voice", () => {
       undefined,
       "eleven_multilingual_v2",
       undefined,
+      { previousText: undefined, nextText: SENTENCES[1] },
+    );
+    expect(brandSpeak).toHaveBeenLastCalledWith(
+      CLONED,
+      SENTENCES[1],
+      null,
+      undefined,
+      "eleven_multilingual_v2",
+      undefined,
+      { previousText: SENTENCES[0], nextText: undefined },
     );
     expect(stockSpeak).not.toHaveBeenCalled();
     expect(narration.cues).toHaveLength(2);
     expect(narration.totalDurationSec).toBeGreaterThan(2);
+  });
+
+  it("uses the optional default model override for narration", async () => {
+    vi.stubEnv("ELEVENLABS_TTS_MODEL", "eleven_v3");
+    brandSpeak.mockResolvedValue({
+      audio: wav(1),
+      receipt: { providerCredits: "10", requestId: "req", traceId: null },
+    });
+    await synthesizeNarration(SENTENCES, "alloy", { clonedVoice: CLONED });
+    expect(brandSpeak).toHaveBeenCalledWith(
+      CLONED, SENTENCES[0], null, undefined, "eleven_v3", undefined,
+      { previousText: undefined, nextText: SENTENCES[1] },
+    );
   });
 
   it("keeps repeated cloned sentences in distinct stage families", async () => {
@@ -306,6 +330,7 @@ describe("synthesizeNarration with a cloned brand voice", () => {
       undefined,
       "eleven_multilingual_v2",
       undefined,
+      { previousText: undefined, nextText: undefined },
     );
   });
 
@@ -369,6 +394,7 @@ describe("synthesizeNarration with a cloned brand voice", () => {
       expect.any(Function),
       "eleven_v3",
       "te",
+      { previousText: undefined, nextText: undefined },
     );
     expect(billing.reserves[0]).toEqual(expect.arrayContaining([
       77, "caption", { provider: "elevenlabs", model: "eleven_v3" },
@@ -436,6 +462,7 @@ describe("synthesizeNarration with a cloned brand voice", () => {
       undefined,
       "eleven_v3",
       "te",
+      { previousText: undefined, nextText: undefined },
     );
   });
 

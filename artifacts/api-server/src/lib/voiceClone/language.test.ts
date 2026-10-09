@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const platformFetchMock = vi.hoisted(() => vi.fn());
 
@@ -13,7 +13,11 @@ import {
 } from "./index";
 
 describe("ElevenLabs localized speech", () => {
-  beforeEach(() => platformFetchMock.mockReset());
+  beforeEach(() => {
+    platformFetchMock.mockReset();
+    vi.stubEnv("ELEVENLABS_TTS_MODEL", "");
+  });
+  afterEach(() => vi.unstubAllEnvs());
 
   it("sends exact Unicode text and explicit language_code", async () => {
     platformFetchMock.mockResolvedValue(
@@ -36,6 +40,9 @@ describe("ElevenLabs localized speech", () => {
       text,
       model_id: "eleven_v3",
       language_code: "te",
+      voice_settings: {
+        stability: 0.5, similarity_boost: 0.9, style: 0, use_speaker_boost: true,
+      },
     });
   });
 
@@ -56,7 +63,57 @@ describe("ElevenLabs localized speech", () => {
     expect(JSON.parse(String(init.body))).toEqual({
       text,
       model_id: "eleven_multilingual_v2",
+      voice_settings: {
+        stability: 0.55, similarity_boost: 0.9, style: 0, use_speaker_boost: true,
+      },
     });
+  });
+
+  it("sends accent settings and trimmed adjacent text while preserving the receipt", async () => {
+    platformFetchMock.mockResolvedValue(
+      new Response(new Uint8Array([0, 0]), {
+        status: 200, headers: { "character-cost": "15", "request-id": "req-accent" },
+      }),
+    );
+    const onReceipt = vi.fn();
+    const result = await getVoiceCloneProviderDef("elevenlabs")!.speakWithReceipt!({
+      apiKey: "test-key", voiceId: "voice-1", text: "Middle sentence.",
+      context: { previousText: "  First sentence. ", nextText: " Last sentence.  " },
+      onReceipt,
+    });
+    const body = JSON.parse(String(platformFetchMock.mock.calls[0][1].body));
+    expect(body).toEqual({
+      text: "Middle sentence.", model_id: "eleven_multilingual_v2",
+      voice_settings: {
+        stability: 0.55, similarity_boost: 0.9, style: 0, use_speaker_boost: true,
+      },
+      previous_text: "First sentence.", next_text: "Last sentence.",
+    });
+    expect(result.audio.subarray(0, 4).toString()).toBe("RIFF");
+    expect(result.receipt).toMatchObject({ providerCredits: "15", requestId: "req-accent" });
+    expect(onReceipt).toHaveBeenCalledWith(result.receipt);
+  });
+
+  it("honours the optional model override, but explicit models still win", async () => {
+    vi.stubEnv("ELEVENLABS_TTS_MODEL", "eleven_v3");
+    platformFetchMock.mockImplementation(async () =>
+      new Response(new Uint8Array([0, 0]), { status: 200 }),
+    );
+    const def = getVoiceCloneProviderDef("elevenlabs")!;
+    const args = {
+      apiKey: "test-key", voiceId: "voice-1", text: "Hello.",
+      context: { previousText: " ", nextText: "" },
+    };
+    await def.speak(args);
+    let body = JSON.parse(String(platformFetchMock.mock.calls[0][1].body));
+    expect(body.model_id).toBe("eleven_v3");
+    expect(body.voice_settings.stability).toBe(0.5);
+    expect(body).not.toHaveProperty("previous_text");
+    expect(body).not.toHaveProperty("next_text");
+    await def.speak({ ...args, modelId: "eleven_multilingual_v2" });
+    body = JSON.parse(String(platformFetchMock.mock.calls[1][1].body));
+    expect(body.model_id).toBe("eleven_multilingual_v2");
+    expect(body.voice_settings.stability).toBe(0.55);
   });
 
   it("keeps locale in durable operation identity while preserving legacy keys", () => {

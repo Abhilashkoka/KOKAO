@@ -1,0 +1,160 @@
+From 7dd7b57d89248853706fac7ca588a8c8b2c2e8c5 Mon Sep 17 00:00:00 2001
+From: Abhilash <abhilash.koka1@gmail.com>
+Date: Fri, 9 Oct 2026 18:07:55 +0000
+Subject: [PATCH] Hold the cloned brand voice's natural accent in ElevenLabs
+ narration
+
+Instant clones drifted to an American English read because every
+sentence was synthesized in isolation with default voice settings.
+
+- Send voice_settings tuned for accent fidelity (similarity_boost 0.9,
+  stability 0.55, style 0, speaker boost on)
+- Pass previous_text/next_text so per-sentence calls keep continuous
+  accent and intonation across the track
+- Allow ELEVENLABS_TTS_MODEL to override eleven_multilingual_v2
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GH4wB3jQDmmdcWhiGxeuZ4
+---
+ .../topicVideo/brandVoiceNarration.test.ts    |  5 +-
+ .../src/lib/videoGen/topicVideo/narration.ts  |  7 ++-
+ .../api-server/src/lib/voiceClone/index.ts    | 46 +++++++++++++++++--
+ 3 files changed, 51 insertions(+), 7 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/brandVoiceNarration.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/brandVoiceNarration.test.ts
+index ff044b2..9b89901 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/brandVoiceNarration.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/brandVoiceNarration.test.ts
+@@ -66,7 +66,10 @@ describe("synthesizeNarration with a cloned brand voice", () => {
+     const narration = await synthesizeNarration(SENTENCES, "alloy", { clonedVoice: CLONED });
+ 
+     expect(brandSpeak).toHaveBeenCalledTimes(SENTENCES.length);
+-    expect(brandSpeak).toHaveBeenCalledWith(CLONED, "First sentence.");
++    expect(brandSpeak).toHaveBeenCalledWith(CLONED, "First sentence.", {
++      previousText: undefined,
++      nextText: SENTENCES[1],
++    });
+     expect(stockSpeak).not.toHaveBeenCalled();
+     expect(narration.cues).toHaveLength(2);
+     expect(narration.totalDurationSec).toBeGreaterThan(2);
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+index 3dae827..6b6bb3f 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+@@ -267,11 +267,14 @@ async function narrateWithBrandVoice(
+   sentences: string[],
+ ): Promise<ParsedWav[]> {
+   const parts: ParsedWav[] = [];
+-  for (const sentence of sentences) {
++  for (const [i, sentence] of sentences.entries()) {
++    // Neighbouring sentences keep the clone's accent and intonation
++    // continuous across the per-sentence calls.
++    const context = { previousText: sentences[i - 1], nextText: sentences[i + 1] };
+     const audio = await withRetries(
+       () =>
+         withTimeout(
+-          () => speakWithClonedVoice(clonedVoice, sentence),
++          () => speakWithClonedVoice(clonedVoice, sentence, context),
+           TTS_TIMEOUT_MS,
+           "Brand-voice narration",
+         ),
+diff --git a/artifacts/api-server/src/lib/voiceClone/index.ts b/artifacts/api-server/src/lib/voiceClone/index.ts
+index bc93b60..1aeafa8 100644
+--- a/artifacts/api-server/src/lib/voiceClone/index.ts
++++ b/artifacts/api-server/src/lib/voiceClone/index.ts
+@@ -60,6 +60,14 @@ export interface ClonedVoiceRef {
+   voiceId: string;
+ }
+ 
++/** Neighbouring sentences of a track spoken one sentence at a time. Lets the
++ * provider keep prosody and accent continuous instead of re-deriving the
++ * voice from each short sentence in isolation. */
++export interface SpeechContext {
++  previousText?: string;
++  nextText?: string;
++}
++
+ export interface VoiceCloneProviderDef {
+   id: string;
+   label: string;
+@@ -73,7 +81,12 @@ export interface VoiceCloneProviderDef {
+     mimeType: string;
+   }) => Promise<string>;
+   /** Speak text in a cloned voice; returns a complete WAV buffer. */
+-  speak: (args: { apiKey: string; voiceId: string; text: string }) => Promise<Buffer>;
++  speak: (args: {
++    apiKey: string;
++    voiceId: string;
++    text: string;
++    context?: SpeechContext;
++  }) => Promise<Buffer>;
+   /** Best-effort delete of a cloned voice at the provider. */
+   remove: (args: { apiKey: string; voiceId: string }) => Promise<void>;
+   /** Cheap authenticated call proving the key works. */
+@@ -86,6 +99,18 @@ const ELEVENLABS_BASE = "https://api.elevenlabs.io";
+ /** Raw 24kHz 16-bit mono PCM — wrapped in a WAV header below so the bytes
+  * parse with the same RIFF reader as every other narration provider. */
+ const ELEVENLABS_PCM_RATE = 24_000;
++/** Overridable so a newer model can be trialled without a deploy of code. */
++const ELEVENLABS_TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || "eleven_multilingual_v2";
++/** Tuned to hold the clone's own accent. ElevenLabs defaults
++ * (similarity 0.75) let instant clones drift toward a generic American
++ * English read; a high similarity boost and low style keep the speaker's
++ * natural (e.g. Indian English) accent. */
++const ELEVENLABS_VOICE_SETTINGS = {
++  stability: 0.55,
++  similarity_boost: 0.9,
++  style: 0,
++  use_speaker_boost: true,
++} as const;
+ 
+ async function elevenLabsError(res: Response, fallback: string): Promise<VoiceCloneError> {
+   let detail = "";
+@@ -150,13 +175,22 @@ async function elevenLabsSpeak(args: {
+   apiKey: string;
+   voiceId: string;
+   text: string;
++  context?: SpeechContext;
+ }): Promise<Buffer> {
++  const previousText = args.context?.previousText?.trim();
++  const nextText = args.context?.nextText?.trim();
+   const res = await platformFetch(
+     `${ELEVENLABS_BASE}/v1/text-to-speech/${encodeURIComponent(args.voiceId)}?output_format=pcm_${ELEVENLABS_PCM_RATE}`,
+     {
+       method: "POST",
+       headers: { "xi-api-key": args.apiKey, "Content-Type": "application/json" },
+-      body: JSON.stringify({ text: args.text, model_id: "eleven_multilingual_v2" }),
++      body: JSON.stringify({
++        text: args.text,
++        model_id: ELEVENLABS_TTS_MODEL,
++        voice_settings: ELEVENLABS_VOICE_SETTINGS,
++        ...(previousText ? { previous_text: previousText } : {}),
++        ...(nextText ? { next_text: nextText } : {}),
++      }),
+     },
+     VOICE_CLONE_TIMEOUT_MS,
+   );
+@@ -334,14 +368,18 @@ export async function cloneBrandVoice(args: {
+ /** Speak text in a cloned voice; returns a complete WAV buffer. The voice's
+  * provider must be the currently selected one — a clone made at a provider
+  * the admin has since switched away from reads as unconfigured. */
+-export async function speakWithClonedVoice(voice: ClonedVoiceRef, text: string): Promise<Buffer> {
++export async function speakWithClonedVoice(
++  voice: ClonedVoiceRef,
++  text: string,
++  context?: SpeechContext,
++): Promise<Buffer> {
+   const { def, apiKey } = await requireVoiceCloneProvider();
+   if (def.id !== voice.provider) {
+     throw new VoiceCloneNotConfiguredError(
+       "This brand voice was cloned at a different provider than the one currently configured.",
+     );
+   }
+-  return def.speak({ apiKey, voiceId: voice.voiceId, text });
++  return def.speak({ apiKey, voiceId: voice.voiceId, text, context });
+ }
+ 
+ /** Best-effort delete of a cloned voice at its provider. Never throws. */
+-- 
+2.43.0
+

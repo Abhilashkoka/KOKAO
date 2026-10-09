@@ -52,6 +52,7 @@ import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
 import {
   cloneBrandVoice,
   buildBrandVoiceTtsOperationKey,
+  getDefaultElevenLabsTtsModel,
   speakWithClonedVoice,
   speakWithClonedVoiceReceipt,
   deleteClonedVoiceQuietly,
@@ -1218,6 +1219,7 @@ router.post(
     }
 
     const text = (parsed.data.text?.trim() || DEFAULT_PREVIEW_TEXT).slice(0, 300);
+    const speechModelId = getDefaultElevenLabsTtsModel();
     const fundingSnapshot = await freezeMeterFunding(req.tenantId);
     let reservation: WalletReservation | null = null;
     let reservationCeilingPaise: number | null = null;
@@ -1245,7 +1247,7 @@ router.post(
       reservation = await reserveWallet(
         req.tenantId,
         "caption",
-        { provider: bv.provider, model: "eleven_multilingual_v2" },
+        { provider: bv.provider, model: speechModelId },
         1,
         reservationCeilingPaise,
       );
@@ -1266,7 +1268,7 @@ router.post(
     );
     const ttsOperationKey = buildBrandVoiceTtsOperationKey(
       bv.provider_voice_id,
-      "eleven_multilingual_v2",
+      speechModelId,
       text,
     ) + (ttsFunding.rail === "credits" ? `:${randomUUID()}` : "");
     try {
@@ -1282,7 +1284,7 @@ router.post(
                   kind: "caption",
                   costPaise: reservationCeilingPaise,
                   provider: bv.provider,
-                  model: "eleven_multilingual_v2",
+                  model: speechModelId,
                   refKind: "brandKit",
                   refId: String(ctx.kitId),
                 },
@@ -1303,7 +1305,7 @@ router.post(
                     providerRequestId = receipt.requestId ?? receipt.traceId;
                     await recordReceipt({
                       provider: bv.provider,
-                      model: "eleven_multilingual_v2",
+                      model: speechModelId,
                       providerCredits,
                       providerRequestId,
                       providerResultId: providerRequestId,
@@ -1319,13 +1321,14 @@ router.post(
                     if (providerCostPaise === null) return;
                     await confirmSuccess({
                       provider: bv.provider,
-                      model: "eleven_multilingual_v2",
+                      model: speechModelId,
                       costPaise: providerCostPaise,
                       providerCredits,
                       providerRequestId,
                       providerResultId: providerRequestId,
                     });
                   },
+                  speechModelId,
                 ),
               () => ({}),
               {
@@ -1350,6 +1353,8 @@ router.post(
             funding: ttsFunding,
             operationKey: ttsOperationKey,
           },
+          undefined,
+          speechModelId,
         ));
       providerCredits ??= result.receipt.providerCredits;
       providerRequestId ??= result.receipt.requestId ?? result.receipt.traceId;
@@ -1365,7 +1370,7 @@ router.post(
         : null;
       recordUsage(req.tenantId, "caption", {
         provider: bv.provider,
-        model: "eleven_multilingual_v2",
+        model: speechModelId,
         inputCharacters: text.length,
         providerCredits: providerCredits ?? undefined,
         providerRequestId: providerRequestId ?? undefined,
@@ -1522,6 +1527,7 @@ router.post(
       return;
     }
 
+    const speechModelId = getDefaultElevenLabsTtsModel();
     const fundingSnapshot = await freezeMeterFunding(req.tenantId);
     let reservation: WalletReservation | null = null;
     let reservationCeilingPaise: number | null = null;
@@ -1549,7 +1555,7 @@ router.post(
       reservation = await reserveWallet(
         req.tenantId,
         "caption",
-        { provider: bv.provider, model: "eleven_multilingual_v2" },
+        { provider: bv.provider, model: speechModelId },
         1,
         reservationCeilingPaise,
       );
@@ -1570,7 +1576,7 @@ router.post(
     );
     const ttsOperationKey = buildBrandVoiceTtsOperationKey(
       bv.provider_voice_id,
-      "eleven_multilingual_v2",
+      speechModelId,
       text,
     ) + (ttsFunding.rail === "credits" ? `:${randomUUID()}` : "");
     try {
@@ -1585,7 +1591,7 @@ router.post(
                 kind: "caption",
                 costPaise: reservationCeilingPaise,
                 provider: bv.provider,
-                model: "eleven_multilingual_v2",
+                model: speechModelId,
                 refKind: "brandKit",
                 refId: String(ctx.kitId),
               },
@@ -1606,7 +1612,7 @@ router.post(
                   providerRequestId = receipt.requestId ?? receipt.traceId;
                   await recordReceipt({
                     provider: bv.provider,
-                    model: "eleven_multilingual_v2",
+                    model: speechModelId,
                     providerCredits,
                     providerRequestId,
                     providerResultId: providerRequestId,
@@ -1622,13 +1628,14 @@ router.post(
                   if (providerCostPaise === null) return;
                   await confirmSuccess({
                     provider: bv.provider,
-                    model: "eleven_multilingual_v2",
+                    model: speechModelId,
                     costPaise: providerCostPaise,
                     providerCredits,
                     providerRequestId,
                     providerResultId: providerRequestId,
                   });
                 },
+                speechModelId,
               ),
             () => ({}),
             {
@@ -1652,6 +1659,8 @@ router.post(
             funding: ttsFunding,
             operationKey: ttsOperationKey,
           },
+          undefined,
+          speechModelId,
         ));
       providerCredits ??= result.receipt.providerCredits;
       providerRequestId ??= result.receipt.requestId ?? result.receipt.traceId;
@@ -1667,7 +1676,7 @@ router.post(
         : null;
       recordUsage(req.tenantId, "caption", {
         provider: bv.provider,
-        model: "eleven_multilingual_v2",
+        model: speechModelId,
         inputCharacters: text.length,
         providerCredits: providerCredits ?? undefined,
         providerRequestId: providerRequestId ?? undefined,

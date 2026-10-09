@@ -113,7 +113,7 @@ describe("ElevenLabs cloned-voice transport", () => {
 
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("/v1/text-to-speech/voice%2Fid?output_format=pcm_24000");
-    expect(JSON.parse(String(init?.body))).toEqual({ text: "తెలుగు మాటలు", model_id: "eleven_v3" });
+    expect(JSON.parse(String(init?.body))).toMatchObject({ text: "తెలుగు మాటలు", model_id: "eleven_v3" });
   });
 
   it("keeps eleven_multilingual_v2 as the legacy cloned-voice default", async () => {
@@ -125,7 +125,7 @@ describe("ElevenLabs cloned-voice transport", () => {
       apiKey: "test-key", voiceId: "legacy", text: "Legacy dialogue",
     });
 
-    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toMatchObject({
       text: "Legacy dialogue",
       model_id: "eleven_multilingual_v2",
     });
