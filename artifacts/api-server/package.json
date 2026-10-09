@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "dev": "export NODE_ENV=development && pnpm run build && CLERK_PUBLISHABLE_KEY=${CLERK_DEV_PUBLISHABLE_KEY:-$CLERK_PUBLISHABLE_KEY} CLERK_SECRET_KEY=${CLERK_DEV_SECRET_KEY:-$CLERK_SECRET_KEY} pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "test": "vitest run",

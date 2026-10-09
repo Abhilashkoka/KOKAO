@@ -8,6 +8,12 @@ Use Clerk with the owner's keys from Secrets; do not introduce Replit Auth or pr
 
 **How to apply:** Preserve explicit configured keys across web, API, and mobile; never use hostname-based key derivation. Production keys must belong to the same external Clerk instance. External ownership does not imply direct Frontend API transport: retain the configured Clerk proxy before session middleware. Removing it breaks existing login requests with 401, while direct access may fail until Clerk domain DNS/TLS is configured.
 
+Preview needs a matching Development publishable/secret key pair from the owner's Clerk app, separate from its production live keys.
+
+**Why:** Using the API's production key in the Preview browser revealed Clerk's explicit domain restriction: live keys for kokao.in are rejected on the Replit Preview origin. A test browser key paired with a live API key also leaves successful browser sign-in unauthenticated at the API.
+
+**How to apply:** Use development-only launch configuration for the separate pair, including the API process environment so global Clerk user lookups use the same Development secret as session middleware. Leave production build/run keys and proxy unchanged. Never solve Preview by copying a live key into its browser bundle.
+
 Clerk sign-in screens, including Google's account chooser, should show the KOKAO logo and name, not Replit branding.
 
 **Why:** The owner explicitly requested KOKAO branding on the Clerk sign-in screens.

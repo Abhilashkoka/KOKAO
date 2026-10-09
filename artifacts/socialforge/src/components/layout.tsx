@@ -19,8 +19,8 @@ import {
   Menu,
   LogOut
 , LifeBuoy } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
-import { useGetMe } from "@workspace/api-client-react";
+import { useState } from "react";
+import { getGetMeQueryKey, useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationsBanner } from "@/components/notifications-banner";
@@ -34,6 +34,7 @@ import { GenerationIndicator } from "@/components/generation-indicator";
 import { IdleLogoutWarning } from "@/hooks/use-idle-logout";
 import { useBrand } from "@/lib/brand";
 import { useFeatureFlags, type FeatureId } from "@/lib/features";
+import { SessionRecovery } from "@/components/session-recovery";
 
 const NAV_ITEMS: {
   href: string;
@@ -68,30 +69,10 @@ const ADMIN_NAV_ITEMS = [
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { isLoaded, isSignedIn, signOut } = useAuth();
-  const { data: me, error: meError } = useGetMe();
+  const { data: me, error: meError, refetch: refetchMe } = useGetMe({
+    query: { queryKey: getGetMeQueryKey(), enabled: Boolean(isLoaded && isSignedIn) },
+  });
   const { logoUrl, appName, sidebarLogoHeight } = useBrand();
-
-  // Session guard: the browser can believe it is signed in while the server
-  // rejects its (stale/expired) session token. Without this, the app renders
-  // the signed-in shell with no data and superadmin nav quietly disappears.
-  // /api/me 401 after React Query's retries means the session is genuinely
-  // dead, so force a clean sign-out to land the user back on the sign-in page.
-  // The ref latches so signOut fires once per 401 incident (retry/refetch
-  // cycles re-run this effect before Clerk state flips); it resets when the
-  // session recovers or the user is signed out. The server also self-heals
-  // duplicate stale Clerk cookies on expired-token 401s (requireTenant), so
-  // the next sign-in after this guard fires starts from a clean cookie state.
-  const signOutPendingRef = useRef(false);
-  useEffect(() => {
-    if (isLoaded && isSignedIn && meError?.status === 401) {
-      if (!signOutPendingRef.current) {
-        signOutPendingRef.current = true;
-        void signOut();
-      }
-      return;
-    }
-    signOutPendingRef.current = false;
-  }, [isLoaded, isSignedIn, meError, signOut]);
 
   // Analytics is superadmin-only (the server also rejects everyone else
   // with 403). Health stays visible to workspace owners/admins.
@@ -111,6 +92,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   
   if (!isLoaded) {
     return <div className="min-h-screen flex items-center justify-center"><LogoLoader label="Loading workspace..." /></div>;
+  }
+
+  if (isSignedIn && meError?.status === 401) {
+    return (
+      <SessionRecovery
+        onRetry={async () => {
+          const result = await refetchMe();
+          if (result.isError) throw new Error("Session verification failed");
+        }}
+        onSignOut={() => signOut()}
+      />
+    );
   }
 
   const NavLinks = () => (
