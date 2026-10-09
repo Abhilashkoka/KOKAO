@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
+import { CLERK_PROXY_PATH, clerkProxyMiddleware } from "./middlewares/clerkProxyMiddleware";
 import { globalLimiter } from "./middlewares/rateLimit";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -44,6 +45,9 @@ app.use(
     },
   }),
 );
+
+// Clerk's configured Frontend API proxy must be reachable before session auth.
+app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 app.use(helmet());
 

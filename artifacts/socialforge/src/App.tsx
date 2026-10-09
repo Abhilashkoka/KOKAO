@@ -93,6 +93,8 @@ const queryClient: QueryClient = new QueryClient({
 
 // External Clerk: use the configured instance, never derive it from the app host.
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+// An external Clerk instance may also use a configured Frontend API proxy.
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL || undefined;
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function stripBase(path: string): string {
@@ -209,6 +211,7 @@ function ClerkProviderWithRoutes() {
   return (
     <ClerkProvider
       publishableKey={clerkPubKey}
+      proxyUrl={clerkProxyUrl}
       appearance={clerkAppearance}
       signInUrl={`${basePath}/sign-in`}
       signUpUrl={`${basePath}/sign-up`}

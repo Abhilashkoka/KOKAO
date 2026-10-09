@@ -6,4 +6,4 @@ Use Clerk with the owner's keys from Secrets; do not introduce Replit Auth or pr
 
 **Why:** The owner explicitly requested their own Clerk keys. Clerk management detection confirmed external ownership. Hostname-derived live publishable keys can silently select a different instance than the configured secret.
 
-**How to apply:** Preserve explicit configured keys across web, API, and mobile. Do not reintroduce managed Clerk proxy or hostname-based key derivation. Production keys must belong to the same external Clerk instance.
+**How to apply:** Preserve explicit configured keys across web, API, and mobile; never use hostname-based key derivation. Production keys must belong to the same external Clerk instance. External ownership does not imply direct Frontend API transport: retain the configured Clerk proxy before session middleware. Removing it breaks existing login requests with 401, while direct access may fail until Clerk domain DNS/TLS is configured.
