@@ -14,6 +14,12 @@ Preview needs a matching Development publishable/secret key pair from the owner'
 
 **How to apply:** Use development-only launch configuration for the separate pair, including the API process environment so global Clerk user lookups use the same Development secret as session middleware. Leave production build/run keys and proxy unchanged. Never solve Preview by copying a live key into its browser bundle.
 
+Switching Clerk instances does not transfer ownership of an existing workspace. The same email can produce a new, empty workspace while all saved credits and content remain attached to the previous identity.
+
+**Why:** After switching Preview to the owner's external Development instance, successful sign-in created a second workspace; the missing balance was an ownership association issue, not lost credits.
+
+**How to apply:** Verify the new identity's primary email directly with Clerk and obtain owner approval before reconnecting it to an existing workspace. Check for active work, preserve the newly provisioned workspace, and audit both prior identity associations atomically. Keep credits and content on their original workspace; never automatically reassign ownership by cached email or transfer balances to mask the problem. Development reconnects do not authorize production changes.
+
 Clerk sign-in screens, including Google's account chooser, should show the KOKAO logo and name, not Replit branding.
 
 **Why:** The owner explicitly requested KOKAO branding on the Clerk sign-in screens.
