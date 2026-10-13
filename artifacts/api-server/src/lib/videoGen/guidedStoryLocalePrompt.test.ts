@@ -38,6 +38,58 @@ describe("Guided Story locale prompt contract", () => {
     governedPrompt.mockResolvedValue({ text: "Governed story policy." });
   });
 
+  it("repairs excessive dialogue without rejecting the replacement for sparse speech", async () => {
+    const screenplay = (text: string) => ({
+      title: "The storm",
+      logline: "A character waits for the storm to pass.",
+      roles: [{ id: "role-1", name: "A", description: "A fictional person" }],
+      scenes: [{
+        id: "scene-1",
+        startMs: 0,
+        endMs: 30_000,
+        visualDirection: "A character waits by the window, watching the storm gradually clear.",
+        roleIds: ["role-1"],
+        lines: [{
+          id: "line-1",
+          kind: "narration",
+          ownerRoleId: null,
+          text,
+          startMs: 0,
+          endMs: 30_000,
+        }],
+      }],
+      warnings: [],
+    });
+    create
+      .mockResolvedValueOnce(completion(screenplay(Array(100).fill("word").join(" "))))
+      .mockResolvedValueOnce(completion(screenplay("The storm finally passes.")));
+
+    const result = await generateGuidedStoryScript({
+      tenantId: 1,
+      tenantAiModel: "test",
+      genre: "drama",
+      platform: guidedStoryPlatform("tiktok")!,
+      durationSeconds: 30,
+      maxSceneSeconds: 30,
+      locale: "en",
+      topic: "A storm clearing",
+      brandConstraints: null,
+    });
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(result.script.scenes[0]!.lines[0]!.text).toBe("The storm finally passes.");
+    expect(result.inputTokens).toBe(20);
+    expect(result.outputTokens).toBe(40);
+    expect(create.mock.calls[0]![0].messages[1].content).toContain(
+      "There is no minimum spoken-word count.",
+    );
+    const repairPrompt = create.mock.calls[1]![0].messages[1].content;
+    expect(repairPrompt).toContain("between 20 and 30 seconds");
+    expect(repairPrompt).toContain("100 words");
+    expect(repairPrompt).toContain("at most 72 words");
+    expect(repairPrompt).toContain("There is no minimum amount of speech");
+  });
+
   it("appends native-writing-system rules to governed full-generation prompts", async () => {
     create.mockResolvedValue(completion({
       title: "కథ",

@@ -6,13 +6,12 @@
 - [Credential encryption keys](credential-encryption-keys.md) — encrypt with dedicated key, DECRYPT dual-read (dedicated then SESSION_SECRET) so enabling the key never bricks stored creds.
 - [Superadmin allowlist](superadmin-allowlist.md) — built ONLY from SUPERADMIN_EMAILS env at module load; no hardcoded emails; tests inject it via vitest setupFiles before import.
 - [Meta credential framework](meta-credential-framework.md) — encrypted app-level + per-tenant FB/IG creds, auto-tested & masked; Meta secrets go in headers/body never URLs.
-- [Testing lessons](testing-index.md) — API/DB harnesses, frontend mocks, Expo authentication, provider mocking, modal exits and test placement.
+- [Testing lessons](testing-index.md) — API/DB harnesses, frontend/Expo mocks, tenant seeding, billing, FX/sweep alerts and shared-state interference.
 - [API database isolation](test-database-isolation.md) — empty per-run PostgreSQL; never borrow Preview settings or balances, and never auto-replay old shared snapshots.
 - [X (Twitter) publishing](twitter-publishing.md) — OAuth 2.0 PKCE connect + bearer-token publish; legacy OAuth 1.0a tokens prompt reconnect; no retest endpoint.
 - [OpenAPI Zod name collisions](openapi-zod-body-name-collision.md) — operation-shaped body names and mixed path/query Params exports can collide in the generated barrel (TS2308).
 - [Brand Kit module](brand-kit-module.md) — session-scoped routes avoid IDOR; edits create deep-cloned versioned JSON; keep OpenAPI and routes in lockstep.
 - [Connection sweep](connection-sweep.md) — periodic in-process reverify of all tenants' social connections; force=false so REVERIFY_STALE_MS rate-limits; LinkedIn reverify now shared in lib.
-- [Dead-connection e2e seeding](dead-connection-e2e-seeding.md) — seed dead FB/IG/LinkedIn respecting reverify staleness and LinkedIn timestamp expiry so Accounts shows reconnect prompts.
 - [Email delivery & pause](email-delivery-and-pause.md) — two independent fail-closed gates (notification policy default email:false + app-level pause switch default paused); test seeding rules.
 - [IG publish retry](ig-publish-retry.md) — bounded auto-retry of transient IG publish failures (5xx/429/still-processing retry; 4xx/bad-image fail fast); IG_PUBLISH_RETRY config.
 - [Publishing dedupe and resend](threads-x-publish-dedupe.md) — probe/reuse exact writes; resend snapshots missing pieces.
@@ -40,18 +39,15 @@
 - [Scheduled publisher](scheduled-publisher.md) — atomic claim + shared publish lock + status-guarded terminal writes; stuck 'processing' rows fail, never re-drive.
 - [Prod deploy env shadowing](prod-deploy-env-shadowing.md) — user-set REPLIT_DOMAINS/REPLIT_DEV_DOMAIN secrets shadow prod values; agents can't delete secrets; CORS allowlist must lowercase hosts.
 - [Ads module](ads-module.md) — all ad-platform writes go through the draft-and-approve engine (owner-only apply, drift expiry, read-back verify, append-only log); never call the adapter from routes.
-- [Sweep test harness](sweep-test-mocking.md) — stub every reverifier family; real-sweep suites hold a pg advisory lock.
 - [Google Ads module](google-ads-module.md) — daily budgets only (400 on lifetime), micros↔minor ×10000, offline-access OAuth, MCC login-customer-id header persisted in creds.
 - [Image gen providers](imagegen-providers.md) — admin-selected provider like ASR; custom OpenAI-compatible URLs must pass the shared SSRF guard (endpoint AND returned image URL).
 - [LinkedIn organic silent refresh](linkedin-organic-refresh.md) — silently refresh access tokens; prompt only when refresh token is dead; keep refresh token encrypted.
 - [LinkedIn Ads module](linkedin-ads.md) — shared ads engine; budgets are MAJOR units (adapter ×100); campaigns need campaignGroupId; authFailed gates reconnect.
 - [Mobile push notifications](push-notifications.md) — notify after FRESH inserts; token-keyed re-registration; testApp mounts routers; createTenant returns tenantId.
 - [Feature kill switches](feature-kill-switches.md) — gate every execution path (background jobs, settings mutations), not just route prefixes; admin routes stay ungated; fail open on DB errors.
-- [Sweep fail-ratio alert e2e](sweep-alert-e2e-verification.md) — force with temporary 1ms timeout env then delete it; verify DB suppression because schema drift can break notifications.
 - [Promo codes](promo-codes.md) — all redemption checks + credit grant in one FOR UPDATE tx; new audit actions need 3 registration spots or filters silently reject them.
 - [Purchase referrals](purchase-referral-boundaries.md) — purchase-count tiers, shared expiry limitations, and paid-replay settlement boundaries.
 - [Creator program scope](creator-program-scope.md) — accrual-only, disabled by default; payout and lot-level accounting boundaries.
-- [E2E tenant seeding](e2e-tenant-seeding.md) — resolve tenant by polling email lookup, never "newest row" fallback; /ads tabs need a seeded connected ad connection.
 - [Text-gen provider switch](textgen-provider-switch.md) — builtin vs OpenRouter routing layer; no silent fallback (503 on misconfig); web-search endpoints stay builtin.
 - [Per-tenant row caps](per-tenant-caps.md) — count-then-insert caps race under parallel creates; lock the tenant row FOR UPDATE in one tx, refund any spent funding on cap-fail.
 - [Mobile Razorpay checkout](mobile-razorpay-checkout.md) — WebView-hosted checkout.js posts ids back; the app verifies server-side over its own session; mock the modal in jsdom tests.
@@ -61,7 +57,6 @@
 - [Post metrics sweep](post-metrics-sweep.md) — atomically claim poll rows before platform calls; decay hourly→daily→done at 14d; gate each metrics hook.
 - [SSE generation](sse-generation-streaming.md) — disconnect after deltas settles, never refunds; claim funding synchronously; order platform before caption.
 - [Studio quick publish](studio-quick-publish.md) — campaign auto-save draft mapping needs an epoch guard; clear studio draft state after inline publish/schedule so Discard can't delete live items.
-- [Mobile billing e2e](mobile-billing-e2e.md) — Razorpay mock server + dev base-URL env; expo-router web needs full goto (popstate blanks); seed team invites BEFORE first sign-in.
 - [ApiError message extraction](api-error-message-shape.md) — parsed body is on .data, not axios-style err.response.data.error; use apiErrorMessage for reliable fallbacks.
 - [Reference styles](reference-styles.md) — analyze a reference video once into a saved profile; soft guidance only, styleProfileId dropped when the kill switch is off.
 - [Footage & prompt breadth](footage-and-prompt-breadth.md) — keyless stock is auto failover-only; empty results fail over like errors; compile Look pills server-side into stored prompt.
@@ -73,13 +68,10 @@
 - [Animate-photo framing](animate-photo-framing.md) — pad (never crop) user photos to the target aspect before video gen; aiPrompt must derive from the provider-bound input, not job.prompt.
 - [Model pricing](model-activation-pricing-gate.md) — activation syncs provider prices; unavailable if unknown; Replicate uses embedded JSON.
 - [Replicate provider contracts](replicate-text-provider.md) — use predictions shim, not chat; EOF rejects; verify each model’s start-image field.
-- [Shared Razorpay creds race](shared-razorpay-creds-race.md) — global app_credentials validations race; re-seed beforeEach; mass 503s merit rerun, not refactor.
-- [FX stale-alert e2e seeding](fx-stale-e2e-seeding.md) — seed AFTER the api-server boot fx sweep (~30s post-restart) or it un-seeds the alert; banner clears only via explicit query invalidation.
 - [Plan default billing mode](plan-billing-mode.md) — apply billingMode at every tenants.plan write; explicit admin override wins; unknown plan is no-op.
 - [Per-plan KOKAO watermark](plan-watermark.md) — plan switch + kill switch gate images (performImageGeneration) and videos (executeVideoJob after QA, before upload/poster).
 - [Layered image editor](image-layer-editor.md) — imageLayers doc basePath = ORIGINAL pre-flatten base; reopen resumes on it, never the flattened imagePath; edit-image mirrors generate funding.
 - [Prompt Template Kit](prompt-template-kit.md) — fail-open active templates; compose base+variant; installs exclude existing base slugs.
-- [Sweep-alert test interference](sweep-alert-test-interference.md) — live dev server's boot sweep marks-read test-seeded fail-streak alerts; full-run flakes pass in isolation, re-run don't refactor.
 - [Public SEO pages](public-seo-pages.md) — new public routes must set their own canonical via usePageMeta and update sitemap/robots/llms.txt/landing in lockstep.
 - [OpenRouter video provider](openrouter-video-provider.md) — separate /videos/models catalog, discrete durations, shared textgen key, preflight checks SELECTED provider only.
 - [Custom AI providers](custom-ai-providers.md) — admin-added OpenAI-compatible providers ride "custom:<id>" refs; dynamic defs must re-stamp result.provider and static catalog walks miss them.
@@ -157,3 +149,4 @@
 - [JSX generic instrumentation](jsx-generic-instrumentation.md) — explicit JSX type arguments can break the instrumented Vite build despite passing TypeScript and tests.
 - [Long native video scenes](long-native-video-scenes.md) — use selected models' verified long-scene capabilities with dialogue and continuity, rather than always splitting into short clips.
 - [Photo description pricing](photo-description-pricing.md) — owner requires an independent AI photo description rate, not caption or image pricing.
+- [Guided Story pacing](guided-script-pacing.md) — selected runtime includes visual beats and pauses; speech must fit but need not fill a minimum fraction.

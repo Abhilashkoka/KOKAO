@@ -1768,12 +1768,11 @@ export function validateAndRepairGuidedScript(
     );
   }
   const estimatedSpeakingSeconds = spokenWords / GUIDED_STORY_WORDS_PER_SECOND;
-  if (
-    estimatedSpeakingSeconds > constraints.durationSeconds ||
-    estimatedSpeakingSeconds < constraints.durationSeconds * 0.45
-  ) {
+  // Speech is an upper bound, not a required fraction of the visual timeline:
+  // action, reaction shots and pauses may legitimately occupy the rest.
+  if (estimatedSpeakingSeconds > constraints.durationSeconds) {
     throw new VideoGenProviderError(
-      "The dialogue word count does not fit the selected runtime at a natural speaking rate.",
+      `The dialogue word count (${spokenWords} words) exceeds the selected ${constraints.durationSeconds}-second runtime at a natural speaking rate. Use at most ${guidedStoryMaxSpokenWords(constraints.durationSeconds)} words, or allow at least ${Math.ceil(estimatedSpeakingSeconds)} seconds.`,
     );
   }
   const script: GuidedStoryScript = {
@@ -1848,6 +1847,7 @@ export async function generateGuidedStoryScript(params: {
     "This story-decided cast policy supersedes any historical fixed-size cast instruction in a governed template.",
     "Never use an empty ownerRoleId. Use JSON null for ownerless narration; every dialogue line must name an exact role id from roles.",
     `Hard spoken-word maximum: ${maxSpokenWords} total words across every dialogue and narration line. Aim for 70-90% of this budget; never exceed it.`,
+    "There is no minimum spoken-word count. Visual action, reactions and natural pauses may fill the remaining runtime; do not add filler dialogue just to fill time.",
     longScenes ? scenePolicy : [
       "Mandatory opening plan: scene 1 starts at 0ms and lasts 3-5 seconds.",
       "It is an ensemble build-up shot containing every animated character relevant to the opening hook in one frame; list all of them in roleIds.",
@@ -1920,10 +1920,11 @@ export async function generateGuidedStoryScript(params: {
         {
           role: "user",
           content: [
-            `Rewrite the supplied screenplay JSON so its final timeline is no longer than ${params.durationSeconds} seconds and all spoken text totals at most ${maxSpokenWords} words.`,
+            `Rewrite the supplied screenplay JSON so its final timeline is between ${Math.ceil(params.durationSeconds * 0.65)} and ${params.durationSeconds} seconds and all spoken text totals at most ${maxSpokenWords} words.`,
+            `The validation problem is: ${message}. There is no minimum amount of speech; use meaningful visual action and natural pauses when extending a short timeline.`,
             `Preserve the supplied cast membership, the story's meaning, and locale ${params.locale}; keep valid contiguous millisecond timings. Do not add or remove roles during this timing repair, and keep each scene's productIds and referenceIds and each role's referenceId.`,
             longScenes ? scenePolicy : "Scene 1 must start at 0ms, last 3-5 seconds, use narration only, and show every opening-hook character together performing concrete hook-relevant actions or expressions that visibly settle, pause, or complete before scene 2. Include every visible opening character in roleIds.",
-            "Shorten dialogue and narration naturally; do not truncate words or sentences. Return only the complete replacement JSON in the original schema.",
+            "Shorten dialogue and narration naturally only when they exceed the word budget; otherwise preserve them. Do not truncate words or sentences or add filler speech. Return only the complete replacement JSON in the original schema.",
             outputFormat,
             `SUPPLIED JSON DATA:\n${JSON.stringify(parsed)}`,
           ].join("\n\n"),

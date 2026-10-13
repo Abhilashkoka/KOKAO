@@ -1642,6 +1642,39 @@ describe("guided story script validation", () => {
       validateAndRepairGuidedScript(raw, { roleCount: 2, durationSeconds: 30 }),
     ).toThrow(/dialogue word count/);
   });
+
+  it.each([30, 60, 120])(
+    "allows the same dialogue at a longer %s-second runtime without requiring filler",
+    (durationSeconds) => {
+      const raw = validRaw();
+      raw.scenes[0]!.endMs = durationSeconds * 1000;
+      const script = validateAndRepairGuidedScript(raw, { durationSeconds });
+      expect(script.runtimeSeconds).toBe(durationSeconds);
+      expect(script.scenes[0]!.lines.map((line) => line.text)).toEqual(
+        raw.scenes[0]!.lines.map((line) => line.text),
+      );
+    },
+  );
+
+  it("allows sparse narration and dialogue with visual pauses", () => {
+    const raw = validRaw();
+    raw.scenes[0]!.lines[0]!.kind = "narration";
+    raw.scenes[0]!.lines[0]!.text = "The door finally opens.";
+    raw.scenes[0]!.lines[1]!.text = "We can go home.";
+    const script = validateAndRepairGuidedScript(raw, { durationSeconds: 30 });
+    expect(script.scenes[0]!.lines[0]!.text).toBe("The door finally opens.");
+    expect(script.scenes[0]!.lines[1]!.text).toBe("We can go home.");
+  });
+
+  it("reports the actual word count, limit and required runtime for overflow", () => {
+    const raw = validRaw();
+    raw.scenes[0]!.lines[0]!.text = Array(73).fill("word").join(" ");
+    raw.scenes[0]!.lines[1]!.text = "Wait.";
+    expect(() => validateAndRepairGuidedScript(raw, { durationSeconds: 30 }))
+      .toThrow(
+        "The dialogue word count (74 words) exceeds the selected 30-second runtime at a natural speaking rate. Use at most 72 words, or allow at least 31 seconds.",
+      );
+  });
 });
 
 describe("guided story invalidation and duplicate confirmation rules", () => {
